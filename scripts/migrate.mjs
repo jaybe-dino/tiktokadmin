@@ -15,7 +15,12 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const client = new pg.Client({ connectionString: DATABASE_URL });
+// 매니지드 DB(Neon/Vercel Postgres 등)는 SSL 필수. sslmode=disable 이면 끔.
+const useSsl = !/sslmode=disable/i.test(DATABASE_URL) && !/@(localhost|127\.0\.0\.1)/.test(DATABASE_URL);
+const client = new pg.Client({
+  connectionString: DATABASE_URL,
+  ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+});
 
 async function main() {
   await client.connect();

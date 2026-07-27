@@ -15,12 +15,23 @@ declare global {
   var __glovekRoPool: Pool | undefined;
 }
 
+function needsSsl(connectionString: string): boolean {
+  if (/sslmode=disable/i.test(connectionString)) return false;
+  if (/sslmode=require/i.test(connectionString)) return true;
+  if (process.env.PGSSLMODE === "require") return true;
+  // 매니지드 DB(Neon/Vercel Postgres/Supabase 등) — 원격 호스트면 SSL.
+  const isLocal = /@(localhost|127\.0\.0\.1|::1)[:/]/.test(connectionString);
+  return !isLocal && process.env.NODE_ENV === "production";
+}
+
 function makePool(connectionString: string): Pool {
   const pool = new Pool({
     connectionString,
     max: 8,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
+    // 매니지드 Postgres 는 SSL 필수. 대부분 유효 인증서지만 provider 별 self-signed 대응.
+    ssl: needsSsl(connectionString) ? { rejectUnauthorized: false } : undefined,
   });
   pool.on("error", (err) => console.error("[pg] idle client error", err.message));
   return pool;

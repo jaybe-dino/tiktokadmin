@@ -8,7 +8,11 @@ if (!DATABASE_URL) {
   console.error("✗ DATABASE_URL 필요");
   process.exit(1);
 }
-const client = new pg.Client({ connectionString: DATABASE_URL });
+const useSsl = !/sslmode=disable/i.test(DATABASE_URL) && !/@(localhost|127\.0\.0\.1)/.test(DATABASE_URL);
+const client = new pg.Client({
+  connectionString: DATABASE_URL,
+  ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+});
 
 const ADMINS = [
   ["jaybe@dinostudio.kr", "제이비", "exec"],
