@@ -1,0 +1,109 @@
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { env } from "./env";
+
+// ─────────────────────────────────────────────────────────────
+// 공유 Postgres 커넥션.
+//   · pool     — 어드민 CRM 테이블 읽기/쓰기 + glovek 테이블 읽기
+//   · roPool   — glovek 읽기전용 (GLOVEK_DB_URL_RO 있으면 분리)
+// 마이그레이션은 파일(scripts/migrate.mjs)로 관리. ORM 없음(glovek과 동일 raw SQL).
+// ─────────────────────────────────────────────────────────────
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __glovekPool: Pool | undefined;
+  // eslint-disable-next-line no-var
+  var __glovekRoPool: Pool | undefined;
+}
+
+function makePool(connectionString: string): Pool {
+  const pool = new Pool({
+    connectionString,
+    max: 8,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  });
+  pool.on("error", (err) => console.error("[pg] idle client error", err.message));
+  return pool;
+}
+
+export function getPool(): Pool {
+  if (!globalThis.__glovekPool) globalThis.__glovekPool = makePool(env.databaseUrl);
+  return globalThis.__glovekPool;
+}
+
+export function getRoPool(): Pool {
+  if (!globalThis.__glovekRoPool) globalThis.__glovekRoPool = makePool(env.glovekReadUrl);
+  return globalThis.__glovekRoPool;
+}
+
+// ─────────────────────────────────────────────────────────────
+// glovek 기존 테이블 쓰기 금지 가드 (01 소유권 규칙).
+// 어드민 코드가 실수로 glovek 테이블에 write 하는 것을 코드 레벨에서 차단.
+// ─────────────────────────────────────────────────────────────
+const GLOVEK_READONLY_TABLES = [
+  "users", "orders", "payments", "subscriptions", "mall_subscriptions",
+  "onboarding_applications", "onboarding_files", "consult_requests",
+  "consult_progress", "inquiries", "referrers", "utm_events",
+  "brand_stats", "brand_shop_stats", "products", "videos", "creators",
+];
+
+function assertNotGlovekWrite(sql: string) {
+  const lower = sql.toLowerCase();
+  const isWrite = /^\s*(insert\s+into|update|delete\s+from)\b/.test(lower);
+  if (!isWrite) return;
+  for (const t of GLOVEK_READONLY_TABLES) {
+    // "insert into users" / "update users" / "delete from users" 형태 탐지
+    const re = new RegExp(`\\b(insert\\s+into|update|delete\\s+from)\\s+(public\\.)?${t}\\b`);
+    if (re.test(lower)) {
+      throw new Error(
+        `[db-guard] glovek 읽기전용 테이블 '${t}' 에 쓰기 시도 차단. ` +
+          `ingest 이벤트 또는 glovek 기능 요청으로 우회하세요.`,
+      );
+    }
+  }
+}
+
+export async function query<T extends QueryResultRow = QueryResultRow>(
+  sql: string,
+  params: unknown[] = [],
+): Promise<T[]> {
+  assertNotGlovekWrite(sql);
+  const res = await getPool().query<T>(sql, params as never[]);
+  return res.rows;
+}
+
+/** 단일 행 (없으면 null) */
+export async function queryOne<T extends QueryResultRow = QueryResultRow>(
+  sql: string,
+  params: unknown[] = [],
+): Promise<T | null> {
+  const rows = await query<T>(sql, params);
+  return rows[0] ?? null;
+}
+
+/** glovek 읽기전용 조회 (roPool 사용) */
+export async function queryRo<T extends QueryResultRow = QueryResultRow>(
+  sql: string,
+  params: unknown[] = [],
+): Promise<T[]> {
+  const res = await getRoPool().query<T>(sql, params as never[]);
+  return res.rows;
+}
+
+/** 트랜잭션 헬퍼. 콜백이 던지면 롤백. */
+export async function tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const out = await fn(client);
+    await client.query("COMMIT");
+    return out;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export { GLOVEK_READONLY_TABLES };
