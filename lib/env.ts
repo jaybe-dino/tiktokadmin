@@ -11,13 +11,27 @@ function opt(name: string, fallback = ""): string {
   return process.env[name] ?? fallback;
 }
 
+/** Vercel/Neon 연동이 만드는 여러 env 이름 중 존재하는 첫 값. */
+function resolveDbUrl(): string {
+  const candidates = [
+    process.env.DATABASE_URL,
+    process.env.POSTGRES_URL,
+    process.env.POSTGRES_PRISMA_URL,
+    process.env.DATABASE_URL_UNPOOLED,
+    process.env.POSTGRES_URL_NON_POOLING,
+  ];
+  const found = candidates.find(Boolean);
+  if (!found) throw new Error("DATABASE_URL(또는 POSTGRES_URL) 이 설정되지 않았습니다.");
+  return found;
+}
+
 export const env = {
   get databaseUrl() {
-    return req("DATABASE_URL");
+    return resolveDbUrl();
   },
-  /** glovek 읽기전용 롤 (없으면 DATABASE_URL 사용) */
+  /** glovek 읽기전용 롤 (없으면 기본 DB URL 사용) */
   get glovekReadUrl() {
-    return process.env.GLOVEK_DB_URL_RO || req("DATABASE_URL");
+    return process.env.GLOVEK_DB_URL_RO || resolveDbUrl();
   },
   get ingestSecret() {
     return req("INGEST_SECRET");
