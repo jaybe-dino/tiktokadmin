@@ -92,6 +92,7 @@ export interface Brand {
   grade: Grade | null;
   rec_track: RecTrack | null;
   churn_risk: ChurnRisk;
+  certified_countries: string[];
   brief_md: string | null;
   owner_intake: string | null;
   owner_sales: string | null;
@@ -113,3 +114,27 @@ export interface Brand {
 }
 
 export type AlertKind = "sla_breach" | "gate_violation" | "doc_missing" | "pay_overdue" | "stale";
+
+// 목표국/인증국 옵션 (Notion 틱톡샵 DB 반영)
+export const COUNTRY_OPTIONS = ["미국", "베트남", "태국", "싱가포르", "필리핀", "말레이시아"] as const;
+
+// 고객 자료(파일) 종류
+export const FILE_KINDS = [
+  "intro_deck", "meeting_notes", "meeting_recording", "history", "contract", "etc",
+] as const;
+export type FileKind = (typeof FILE_KINDS)[number];
+export const FILE_KIND_LABELS: Record<FileKind, string> = {
+  intro_deck: "브랜드/제품 소개서",
+  meeting_notes: "회의록",
+  meeting_recording: "회의 녹음",
+  history: "히스토리",
+  contract: "계약서",
+  etc: "기타 자료",
+};
+
+export const PROPOSAL_STATUS_LABELS: Record<string, string> = {
+  draft: "작성중",
+  sent: "발송",
+  accepted: "수락",
+  rejected: "거절",
+};

@@ -1,5 +1,6 @@
 import { query, queryOne, queryRo } from "../db";
 import { docProgress, type DocProgress } from "../docs";
+import { listFiles, listProposals, type BrandFile, type Proposal } from "./customer";
 import type { Brand, State } from "../types";
 
 // 대시보드 읽기 쿼리 (04-DASHBOARD).
@@ -28,6 +29,8 @@ export interface Brand360 {
   timeline: { kind: string; text: string; at: string; actor: string }[];
   alerts: { id: string; kind: string; tier: number; message: string; created_at: string }[];
   adminUsers: { id: string; name: string; role: string }[];
+  files: BrandFile[];
+  proposals: Proposal[];
 }
 
 export async function brand360(id: string): Promise<Brand360 | null> {
@@ -89,7 +92,9 @@ export async function brand360(id: string): Promise<Brand360 | null> {
     })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
-  return { brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers };
+  const [files, proposals] = await Promise.all([listFiles(id), listProposals(id)]);
+
+  return { brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers, files, proposals };
 }
 
 /** 워크큐 — 역할별 담당 브랜드. 위반·오늘마감·액션없음 순. */

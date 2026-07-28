@@ -20,6 +20,7 @@ export function makeBrand(over: Partial<Brand> = {}): Brand {
     grade: null,
     rec_track: null,
     churn_risk: "low",
+    certified_countries: [],
     brief_md: null,
     owner_intake: null,
     owner_sales: null,

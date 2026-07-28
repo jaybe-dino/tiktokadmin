@@ -190,6 +190,71 @@ export async function updateBrandAction(
   return { ok: true };
 }
 
+// ── 고객 자료·제안서·국가 (M6) ──────────────────────────────
+export async function addFileAction(input: {
+  brandId: string; kind: string; label: string; url: string; note?: string;
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  if (!input.url?.trim() || !input.label?.trim()) return { ok: false, error: "제목과 링크가 필요합니다." };
+  const { addFile } = await import("@/lib/repo/customer");
+  await addFile({
+    brand_id: input.brandId, kind: input.kind as never, label: input.label,
+    url: input.url, note: input.note, by: a.actor,
+  });
+  revalidatePath(`/brand/${input.brandId}`);
+  return { ok: true };
+}
+
+export async function deleteFileAction(brandId: string, id: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { deleteFile } = await import("@/lib/repo/customer");
+  await deleteFile(id);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+export async function addProposalAction(input: {
+  brandId: string; title: string; url?: string; amount?: number; note?: string;
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  if (!input.title?.trim()) return { ok: false, error: "제안서 제목이 필요합니다." };
+  const { addProposal } = await import("@/lib/repo/customer");
+  await addProposal({ brand_id: input.brandId, title: input.title, url: input.url, amount: input.amount, note: input.note, by: a.actor });
+  revalidatePath(`/brand/${input.brandId}`);
+  return { ok: true };
+}
+
+export async function setProposalStatusAction(brandId: string, id: string, status: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { setProposalStatus } = await import("@/lib/repo/customer");
+  await setProposalStatus(id, status);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+export async function deleteProposalAction(brandId: string, id: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { deleteProposal } = await import("@/lib/repo/customer");
+  await deleteProposal(id);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+export async function setCountriesAction(brandId: string, countries: string[], certified: string[]): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { setCountries, setCertifiedCountries } = await import("@/lib/repo/customer");
+  await setCountries(brandId, countries);
+  await setCertifiedCountries(brandId, certified);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 export async function deleteBrandAction(brandId: string): Promise<ActionResult> {
   const a = await requireLead();
   if (!a) return { ok: false, error: "권한 없음 (삭제는 파트장/대표만)" };
