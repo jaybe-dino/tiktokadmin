@@ -1,5 +1,11 @@
-import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { Pool, types, type PoolClient, type QueryResultRow } from "pg";
 import { env } from "./env";
+
+// timestamp/timestamptz/date 를 JS Date 가 아닌 "문자열 그대로" 받는다.
+// (UI 가 문자열로 다루고 new Date()로 파싱하는 전제 — Date 객체면 .slice 등에서 크래시)
+types.setTypeParser(1082, (v) => v); // date
+types.setTypeParser(1114, (v) => v); // timestamp
+types.setTypeParser(1184, (v) => v); // timestamptz
 
 // ─────────────────────────────────────────────────────────────
 // 공유 Postgres 커넥션.

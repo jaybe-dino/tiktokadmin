@@ -61,6 +61,12 @@ async function handle(req: NextRequest) {
   // 6) glovek 읽기전용 연결(설정 시)
   out.glovekRoConfigured = Boolean(process.env.GLOVEK_DB_URL_RO);
 
+  // 7) 공유 DB 의 모든 테이블(대략 row 수 추정) — glovek 미활용 데이터(추가 브랜드) 발굴용
+  out.allTables = await query<{ table: string; est_rows: number }>(
+    `SELECT relname AS table, n_live_tup AS est_rows
+       FROM pg_stat_user_tables ORDER BY n_live_tup DESC`,
+  ).catch((e) => "ERROR: " + (e as Error).message);
+
   return NextResponse.json(out, { status: 200 });
 }
 
