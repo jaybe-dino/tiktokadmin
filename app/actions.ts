@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import type { OpsActor } from "@/lib/ops-auth";
+import type { ImportRecord } from "@/lib/import";
 import {
   opsAssign, opsDocCheck, opsDrop, opsLogContact, opsManualPayment,
   opsRemind, opsSnooze, opsTransition,
@@ -108,6 +109,78 @@ export async function setNextActionAction(brandId: string, nextAction: string, d
   revalidatePath("/queue");
   revalidatePath(`/brand/${brandId}`);
   return { ok: true };
+}
+
+// ── 데이터 직접 입력 (수동 추가 · CSV 가져오기) ──────────────
+// 기존 데이터를 현재 단계·등급·플랜·결제·담당까지 그대로 반영(게이트 우회 로드).
+
+export async function createBrandAction(
+  input: ImportRecord,
+): Promise<ActionResult & { brand_id?: string }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { importBrandRecord } = await import("@/lib/import");
+  const res = await importBrandRecord(a.actor, input);
+  if (res.ok) {
+    revalidatePath("/");
+    return { ok: true, brand_id: res.brand_id };
+  }
+  return { ok: false, error: res.error };
+}
+
+export async function importBrandsAction(
+  csvText: string,
+): Promise<{ ok: boolean; created: number; updated: number; skipped: number; errors: string[] }> {
+  const a = await actor();
+  if (!a) return { ok: false, created: 0, updated: 0, skipped: 0, errors: ["세션 만료"] };
+  const { parseCsv } = await import("@/lib/csv");
+  const { importBrandRecord } = await import("@/lib/import");
+  const rows = parseCsv(csvText);
+  let created = 0, updated = 0, skipped = 0;
+  const errors: string[] = [];
+
+  const g = (r: Record<string, string>, ...keys: string[]) => {
+    for (const k of keys) if (r[k]) return r[k];
+    return undefined;
+  };
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const rec: ImportRecord = {
+      brand_name: g(r, "brand_name", "brand", "brandname", "브랜드", "브랜드명"),
+      email: r.email,
+      phone: r.phone,
+      biz_no: g(r, "biz_no", "bizno", "사업자번호"),
+      contact_name: g(r, "contact_name", "contact", "담당자"),
+      category: g(r, "category", "카테고리"),
+      brand_url: g(r, "brand_url", "url"),
+      source: r.source,
+      state: r.state,
+      grade: r.grade,
+      plan: r.plan,
+      contract_type: g(r, "contract_type", "계약형태"),
+      pay_status: g(r, "pay_status", "결제상태"),
+      rec_track: r.rec_track,
+      owner_intake: r.owner_intake,
+      owner_sales: r.owner_sales,
+      owner_onboard: r.owner_onboard,
+      owner_ads: r.owner_ads,
+      next_action: g(r, "next_action", "다음액션"),
+      due_date: r.due_date,
+      memo: g(r, "memo", "메모"),
+      countries: r.countries,
+    };
+    const res = await importBrandRecord(a.actor, rec);
+    if (res.ok) {
+      if (res.created) created++;
+      else updated++;
+    } else {
+      skipped++;
+      if (errors.length < 10) errors.push(`행 ${i + 2}: ${res.error}`);
+    }
+  }
+  revalidatePath("/");
+  return { ok: true, created, updated, skipped, errors };
 }
 
 async function requireLead(): Promise<OpsActor | null> {

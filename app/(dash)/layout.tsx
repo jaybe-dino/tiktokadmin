@@ -8,6 +8,7 @@ const NAV = [
   { href: "/monitor", label: "모니터" },
   { href: "/pay", label: "결제·정산" },
   { href: "/insights", label: "인사이트" },
+  { href: "/import", label: "가져오기" },
   { href: "/settings", label: "설정" },
 ];
 
