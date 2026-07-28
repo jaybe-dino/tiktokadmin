@@ -1,6 +1,7 @@
-import { AdminUserForm, SlaPolicyEditor } from "@/components/SettingsForms";
+import { AdminUserForm, RequirementsEditor, SlaPolicyEditor } from "@/components/SettingsForms";
 import { currentUser } from "@/lib/auth";
 import { adminUserList, slaPolicyList } from "@/lib/repo/queries";
+import { listAllRequirements } from "@/lib/requirements";
 import { DOC_TEMPLATES } from "@/lib/docs";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const user = (await currentUser())!;
   const canEdit = user.role === "lead" || user.role === "exec";
-  const [policies, users] = await Promise.all([slaPolicyList(), adminUserList()]);
+  const [policies, users, requirements] = await Promise.all([
+    slaPolicyList(), adminUserList(), listAllRequirements(),
+  ]);
 
   return (
     <div className="max-w-4xl">
@@ -23,6 +26,19 @@ export default async function SettingsPage() {
           <div className="text-sm space-y-1">
             {policies.map((p) => (
               <div key={p.state}>{p.state}: {p.max_days}일 · {p.note}</div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="card p-4 mb-4">
+        <h2 className="font-bold mb-2">단계별 필수항목</h2>
+        {canEdit ? (
+          <RequirementsEditor requirements={requirements} />
+        ) : (
+          <div className="text-sm space-y-1">
+            {requirements.filter((r) => r.active).map((r) => (
+              <div key={r.id}>{r.state} · [{r.kind}] {r.label}</div>
             ))}
           </div>
         )}

@@ -4,15 +4,24 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   assignAction, docCheckAction, dropAction, logContactAction,
-  manualPaymentAction, remindAction, transitionAction,
+  manualPaymentAction, remindAction, stageCheckAction, transitionAction,
 } from "@/app/actions";
 import { FORWARD_TRANSITIONS } from "@/lib/states";
 import { PLANS, PLAN_LABELS, STATE_LABELS, type Brand, type OwnerField, type State } from "@/lib/types";
+
+interface StageReq {
+  id: string;
+  label: string;
+  kind: string;
+  field_key: string | null;
+  done: boolean;
+}
 
 interface Props {
   brand: Brand;
   adminUsers: { id: string; name: string; role: string }[];
   docItems: { item_key: string; label: string; done: boolean; source: string }[];
+  stageReqs: StageReq[];
 }
 
 const OWNER_ROLES: { field: OwnerField; label: string; role: string }[] = [
@@ -22,7 +31,7 @@ const OWNER_ROLES: { field: OwnerField; label: string; role: string }[] = [
   { field: "owner_ads", label: "광고", role: "ads" },
 ];
 
-export default function Brand360Actions({ brand, adminUsers, docItems }: Props) {
+export default function Brand360Actions({ brand, adminUsers, docItems, stageReqs }: Props) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ t: string; bad: boolean } | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
@@ -47,6 +56,39 @@ export default function Brand360Actions({ brand, adminUsers, docItems }: Props) 
       {msg && (
         <div className={`px-3 py-2 rounded-lg text-sm font-semibold ${msg.bad ? "bg-red-50 text-bad" : "bg-emerald-50 text-good"}`}>
           {msg.t}
+        </div>
+      )}
+
+      {/* 현재 단계 필수항목 (관리자 설정 — 미충족 시 다음 단계 이동 차단) */}
+      {stageReqs.length > 0 && (
+        <div className="card p-4">
+          <div className="label">이 단계 필수항목 · {STATE_LABELS[brand.state]}</div>
+          <div className="space-y-1">
+            {stageReqs.map((r) => (
+              <label key={r.id} className="flex items-center gap-2 text-sm">
+                {r.kind === "check" ? (
+                  <input
+                    type="checkbox"
+                    className="accent-pink w-4 h-4"
+                    checked={r.done}
+                    onChange={async (e) => {
+                      await stageCheckAction(brand.id, r.id, e.target.checked);
+                      router.refresh();
+                    }}
+                  />
+                ) : (
+                  <span className={`w-4 text-center ${r.done ? "text-good" : "text-bad"}`}>
+                    {r.done ? "✓" : "!"}
+                  </span>
+                )}
+                <span className={r.done ? "line-through text-muted" : ""}>{r.label}</span>
+                {r.kind === "field" && (
+                  <span className="pill bg-gray-100 text-gray-500">필드: {r.field_key} {r.done ? "" : "미입력"}</span>
+                )}
+              </label>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted mt-2">필수항목이 남아 있으면 다음 단계로 이동할 수 없습니다.</p>
         </div>
       )}
 

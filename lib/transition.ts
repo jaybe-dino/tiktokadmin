@@ -1,4 +1,5 @@
 import { buildGateContext, evaluateGate, failedLabels } from "./gates";
+import { checkStageRequirements } from "./requirements";
 import { getBrand, recordStageHistory } from "./repo/brands";
 import { resolveAlertsForBrand } from "./repo/alerts";
 import { ensureDocTemplate } from "./docs";
@@ -42,12 +43,17 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
   // 종료 전이(dropped/churned)는 게이트 없이 사유만 필수.
   const terminal = to === "dropped" || to === "churned";
   if (!terminal) {
+    // 1) 코드 게이트(핵심 무결성 규칙)
     const ctx = await buildGateContext(brand);
     const gate = evaluateGate(from, to, ctx);
-    if (!gate.passed) {
-      await recordStageHistory(brand.id, from, to, input.actor, false, `gate_fail: ${failedLabels(gate)}`);
-      await raiseGateViolation(brand, failedLabels(gate));
-      return { ok: false, failed: gate.failed, error: `이동 불가: ${failedLabels(gate)}` };
+    // 2) 관리자 설정 필수항목(현 단계에서 무조건 체크·입력) — from 단계 기준
+    const reqUnmet = await checkStageRequirements(brand);
+    const failed = [...gate.failed, ...reqUnmet];
+    if (failed.length > 0) {
+      const labels = failed.map((f) => f.label).join(" · ");
+      await recordStageHistory(brand.id, from, to, input.actor, false, `gate_fail: ${labels}`);
+      await raiseGateViolation(brand, labels);
+      return { ok: false, failed, error: `이동 불가: ${labels}` };
     }
   }
 

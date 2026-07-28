@@ -125,6 +125,44 @@ export async function updateSlaPolicyAction(state: string, maxDays: number): Pro
   return { ok: true };
 }
 
+export async function stageCheckAction(brandId: string, reqId: string, done: boolean): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { opsStageCheck } = await import("@/lib/ops");
+  await opsStageCheck(a, { brand_id: brandId, req_id: reqId, done });
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+export async function addRequirementAction(input: {
+  state: string; kind: "check" | "field"; field_key?: string; label: string;
+}): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  const { addRequirement } = await import("@/lib/requirements");
+  await addRequirement({ state: input.state, kind: input.kind, field_key: input.field_key, label: input.label });
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function toggleRequirementAction(id: string, active: boolean): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음" };
+  const { setRequirementActive } = await import("@/lib/requirements");
+  await setRequirementActive(id, active);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function deleteRequirementAction(id: string): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음" };
+  const { deleteRequirement } = await import("@/lib/requirements");
+  await deleteRequirement(id);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 export async function upsertAdminUserAction(input: {
   id: string; name: string; role: string; slack_user_id?: string;
 }): Promise<ActionResult> {

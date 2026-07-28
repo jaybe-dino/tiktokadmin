@@ -6,6 +6,7 @@ import { evaluateGate, type GateContext } from "../lib/gates";
 import { businessDaysBetween, mondayOfWeekKst } from "../lib/time";
 import { checkSlaBreach, tierFromDaysOver } from "../lib/sla";
 import { resolvePaymentEffect } from "../lib/ingest";
+import { evaluateRequirements, type StageRequirement } from "../lib/requirements";
 import { makeBrand } from "./factory";
 
 // ── grade (glovek gradeFromChecks 동일) ──────────────────────
@@ -193,5 +194,31 @@ describe("resolvePaymentEffect", () => {
     expect(resolvePaymentEffect("subscribe_renew", "pro_89k", "fail").payStatus).toBe("past_due");
     expect(resolvePaymentEffect("subscribe_renew", "pro_89k", "ok").payStatus).toBe("subscribed");
     expect(resolvePaymentEffect("cancel", "live_focus_490k").payStatus).toBe("canceled");
+  });
+});
+
+// ── 단계별 필수항목 평가 ─────────────────────────────────────
+describe("stage requirements", () => {
+  const reqs: StageRequirement[] = [
+    { id: "r1", state: "meeting", kind: "field", field_key: "category", label: "카테고리 입력", required: true, sort: 1, active: true },
+    { id: "r2", state: "meeting", kind: "check", field_key: null, label: "니즈 파악", required: true, sort: 2, active: true },
+    { id: "r3", state: "contact", kind: "check", field_key: null, label: "제안서 발송", required: true, sort: 1, active: true },
+    { id: "r4", state: "meeting", kind: "check", field_key: null, label: "비활성 항목", required: true, sort: 3, active: false },
+  ];
+  it("현재 단계의 미충족 항목만 반환", () => {
+    const brand = makeBrand({ state: "meeting", category: "" });
+    const unmet = evaluateRequirements(brand, reqs, new Set());
+    expect(unmet.map((u) => u.label).sort()).toEqual(["니즈 파악", "카테고리 입력"]);
+  });
+  it("field 채워지고 check 완료면 통과", () => {
+    const brand = makeBrand({ state: "meeting", category: "뷰티" });
+    const unmet = evaluateRequirements(brand, reqs, new Set(["r2"]));
+    expect(unmet).toHaveLength(0);
+  });
+  it("비활성 항목·다른 단계 항목은 무시", () => {
+    const brand = makeBrand({ state: "meeting", category: "뷰티" });
+    const unmet = evaluateRequirements(brand, reqs, new Set(["r2"]));
+    expect(unmet.map((u) => u.label)).not.toContain("비활성 항목");
+    expect(unmet.map((u) => u.label)).not.toContain("제안서 발송");
   });
 });

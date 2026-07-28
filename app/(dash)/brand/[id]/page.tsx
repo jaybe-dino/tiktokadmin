@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Brand360Actions from "@/components/Brand360Actions";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge, TierBadge } from "@/components/badges";
 import { brand360 } from "@/lib/repo/queries";
+import { stageChecklist } from "@/lib/requirements";
 import { humanElapsed } from "@/lib/time";
 import { SOURCE_LABELS } from "@/lib/types";
 
@@ -13,6 +14,17 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const data = await brand360(id);
   if (!data) notFound();
   const { brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers } = data;
+
+  // 현재 단계 필수항목. field형은 브랜드 값으로 done 판정.
+  const rawReqs = await stageChecklist(brand.id, brand.state);
+  const stageReqs = rawReqs.map((r) => {
+    if (r.kind === "field" && r.field_key) {
+      const v = (brand as unknown as Record<string, unknown>)[r.field_key];
+      const done = Array.isArray(v) ? v.length > 0 : Boolean(v);
+      return { ...r, done };
+    }
+    return r;
+  });
 
   return (
     <div className="max-w-6xl">
@@ -127,6 +139,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           brand={brand}
           adminUsers={adminUsers}
           docItems={docs.items.map((i) => ({ item_key: i.item_key, label: i.label, done: i.done, source: i.source }))}
+          stageReqs={stageReqs}
         />
       </div>
     </div>

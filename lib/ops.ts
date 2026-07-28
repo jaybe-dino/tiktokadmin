@@ -159,3 +159,12 @@ export async function opsSnooze(
   await snoozeAlert(input.alert_id, input.until);
   return { ok: true };
 }
+
+export async function opsStageCheck(
+  a: OpsActor,
+  input: { brand_id: string; req_id: string; done: boolean },
+): Promise<{ ok: boolean }> {
+  const { setStageCheck } = await import("./requirements");
+  await setStageCheck(input.brand_id, input.req_id, input.done, a.actor);
+  return { ok: true };
+}
