@@ -18,8 +18,8 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
   const SITE_LABEL: Record<string, string> = { glovek: "glovek", apply: "apply", tpartners: "tpartners", manual: "직접입력" };
 
-  // 현재 단계 필수항목. field형은 브랜드 값으로 done 판정.
-  const rawReqs = await stageChecklist(brand.id, brand.state);
+  // 현재 단계 필수항목. field형은 브랜드 값으로 done 판정. (0002 미적용 DB 방어)
+  const rawReqs = await stageChecklist(brand.id, brand.state).catch(() => []);
   const stageReqs = rawReqs.map((r) => {
     if (r.kind === "field" && r.field_key) {
       const v = (brand as unknown as Record<string, unknown>)[r.field_key];

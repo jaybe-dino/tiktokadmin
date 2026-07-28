@@ -93,15 +93,26 @@ export async function brand360(id: string): Promise<Brand360 | null> {
     })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
-  const [files, proposals, siteRows] = await Promise.all([
-    listFiles(id),
-    listProposals(id),
-    query<{ site: string }>("SELECT DISTINCT site FROM brand_sources WHERE brand_id=$1", [id]),
-  ]);
+  // 고객 상세(파일·제안서)·유입소스 — 마이그레이션(0004) 미적용 DB 에서도 카드가 뜨도록 방어.
+  let files: BrandFile[] = [];
+  let proposals: Proposal[] = [];
+  let sites: string[] = [];
+  try {
+    const [f, p, siteRows] = await Promise.all([
+      listFiles(id),
+      listProposals(id),
+      query<{ site: string }>("SELECT DISTINCT site FROM brand_sources WHERE brand_id=$1", [id]),
+    ]);
+    files = f;
+    proposals = p;
+    sites = siteRows.map((s) => s.site);
+  } catch (err) {
+    console.warn("[brand360] 상세/소스 조회 스킵:", (err as Error).message);
+  }
 
   return {
     brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers,
-    files, proposals, sites: siteRows.map((s) => s.site),
+    files, proposals, sites,
   };
 }
 
