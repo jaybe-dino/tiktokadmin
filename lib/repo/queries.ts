@@ -38,31 +38,33 @@ export async function brand360(id: string): Promise<Brand360 | null> {
   const brand = await queryOne<Brand>("SELECT * FROM brands WHERE id=$1", [id]);
   if (!brand) return null;
 
+  // 각 조회를 개별 방어 — 하나가 실패해도 카드 전체가 죽지 않게.
+  const safe = <T>(p: Promise<T[]>): Promise<T[]> => p.catch(() => [] as T[]);
   const [signals, docs, paymentsManual, history, sources, alerts, adminUsers] = await Promise.all([
-    query<Brand360["signals"][number]>(
+    safe(query<Brand360["signals"][number]>(
       "SELECT source, metric, value_num, value_text, confidence, collected_at FROM brand_signals WHERE brand_id=$1 ORDER BY collected_at DESC",
       [id],
-    ),
-    docProgress(id),
-    query<Brand360["paymentsManual"][number]>(
+    )),
+    docProgress(id).catch(() => ({ done: 0, total: 0, missing: [] as string[], items: [] as DocProgress["items"] })),
+    safe(query<Brand360["paymentsManual"][number]>(
       "SELECT id, plan, amount, method, paid_at, next_due, note FROM payments_manual WHERE brand_id=$1 ORDER BY paid_at DESC",
       [id],
-    ),
-    query<{ from_state: string | null; to_state: string; actor: string; gate_passed: boolean; reason: string; at: string }>(
+    )),
+    safe(query<{ from_state: string | null; to_state: string; actor: string; gate_passed: boolean; reason: string; at: string }>(
       "SELECT from_state, to_state, actor, gate_passed, reason, at FROM stage_history WHERE brand_id=$1 ORDER BY at DESC LIMIT 30",
       [id],
-    ),
-    query<{ site: string; event: string; source_url: string | null; occurred_at: string }>(
+    )),
+    safe(query<{ site: string; event: string; source_url: string | null; occurred_at: string }>(
       "SELECT site, event, source_url, occurred_at FROM brand_sources WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 30",
       [id],
-    ),
-    query<Brand360["alerts"][number]>(
+    )),
+    safe(query<Brand360["alerts"][number]>(
       "SELECT id, kind, tier, message, created_at FROM alerts WHERE brand_id=$1 AND resolved_at IS NULL ORDER BY tier DESC",
       [id],
-    ),
-    query<{ id: string; name: string; role: string }>(
+    )),
+    safe(query<{ id: string; name: string; role: string }>(
       "SELECT id, name, role FROM admin_users WHERE active ORDER BY role",
-    ),
+    )),
   ]);
 
   // glovek 구독(읽기전용). 미연동/로컬이면 빈 배열.
