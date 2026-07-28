@@ -5,6 +5,7 @@ import { canTerminate, isAhead, isTransitionAllowed, ownerFieldForState } from "
 import { evaluateGate, type GateContext } from "../lib/gates";
 import { businessDaysBetween, mondayOfWeekKst } from "../lib/time";
 import { checkSlaBreach, tierFromDaysOver } from "../lib/sla";
+import { resolvePaymentEffect } from "../lib/ingest";
 import { makeBrand } from "./factory";
 
 // ── grade (glovek gradeFromChecks 동일) ──────────────────────
@@ -165,5 +166,32 @@ describe("time & sla", () => {
   });
   it("mondayOfWeekKst 반환 형식", () => {
     expect(mondayOfWeekKst(new Date("2026-07-29T05:00:00Z"))).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// ── 결제 효과 (Pro vs 멀티몰 분기) ────────────────────────────
+describe("resolvePaymentEffect", () => {
+  it("멀티몰 첫 결제 → 계약(mall) + contract_done 전진", () => {
+    const e = resolvePaymentEffect("subscribe_first", "live_focus_490k");
+    expect(e.contractType).toBe("mall");
+    expect(e.payStatus).toBe("subscribed");
+    expect(e.candidate).toBe("contract_done");
+  });
+  it("Pro 첫 결제 → 구독표시만, 계약·전진 없음(별도 상품군)", () => {
+    const e = resolvePaymentEffect("subscribe_first", "pro_89k");
+    expect(e.payStatus).toBe("subscribed");
+    expect(e.contractType).toBeUndefined();
+    expect(e.candidate).toBeUndefined();
+  });
+  it("온보딩 일회 → 계약(onboarding) + contract_done", () => {
+    const e = resolvePaymentEffect("once", "onboarding_onetime");
+    expect(e.contractType).toBe("onboarding");
+    expect(e.payStatus).toBe("once_paid");
+    expect(e.candidate).toBe("contract_done");
+  });
+  it("갱신 실패/성공, 해지", () => {
+    expect(resolvePaymentEffect("subscribe_renew", "pro_89k", "fail").payStatus).toBe("past_due");
+    expect(resolvePaymentEffect("subscribe_renew", "pro_89k", "ok").payStatus).toBe("subscribed");
+    expect(resolvePaymentEffect("cancel", "live_focus_490k").payStatus).toBe("canceled");
   });
 });

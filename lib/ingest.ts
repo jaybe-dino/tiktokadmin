@@ -48,6 +48,36 @@ const LEAD_STATE: Record<string, State> = {
   tp_seminar: "seminar",
 };
 
+/**
+ * 결제 이벤트 → 브랜드에 적용할 효과(순수). 02 §3-3.
+ *  · subscribe_first + live_focus_490k(멀티몰 정기) → 계약(mall), 퍼널 contract_done 전진
+ *  · subscribe_first + pro_89k(Pro SaaS, 별도 상품군) → 구독 표시만, 퍼널 전진/계약 없음
+ *  · once(apply 온보딩 일회) → 계약(onboarding), contract_done 전진
+ *  · renew/fail → pay_status 만, 상태 불변 / cancel → canceled
+ */
+export function resolvePaymentEffect(
+  payKind: string,
+  plan: Plan | undefined,
+  result?: string,
+): { contractType?: ContractType; payStatus?: PayStatus; candidate?: State } {
+  switch (payKind) {
+    case "subscribe_first":
+      // Pro 는 별도 상품군 — 계약 퍼널로 밀지 않는다(서류 템플릿·contract_done 금지).
+      if (plan === "pro_89k") return { payStatus: "subscribed" };
+      return { contractType: "mall", payStatus: "subscribed", candidate: "contract_done" };
+    case "subscribe_renew":
+      return { payStatus: result === "fail" ? "past_due" : "subscribed" };
+    case "cancel":
+      return { payStatus: "canceled" };
+    case "once":
+      return { contractType: "onboarding", payStatus: "once_paid", candidate: "contract_done" };
+    case "fail":
+      return { payStatus: "past_due" };
+    default:
+      return {};
+  }
+}
+
 function validateCommon(payload: unknown): { data: Common } | { error: string[] } {
   const parsed = Common.safeParse(payload);
   if (!parsed.success) {
@@ -219,25 +249,9 @@ async function handleEvent(
 
       const { brand, created } = await resolveBrand(d, keys, "lead_new", { source: "glovek_consult" });
 
-      let contractType: ContractType | undefined;
-      let payStatus: PayStatus | undefined;
-      let candidate: State | undefined;
-
-      if (payKind === "subscribe_first") {
-        contractType = "mall";
-        payStatus = "subscribed";
-        candidate = "contract_done";
-      } else if (payKind === "subscribe_renew") {
-        payStatus = p.result === "fail" ? "past_due" : "subscribed";
-      } else if (payKind === "cancel") {
-        payStatus = "canceled";
-      } else if (payKind === "once") {
-        contractType = "onboarding";
-        payStatus = "once_paid";
-        candidate = "contract_done";
-      } else if (payKind === "fail") {
-        payStatus = "past_due";
-      }
+      const { contractType, payStatus, candidate } = resolvePaymentEffect(
+        payKind, plan, p.result as string | undefined,
+      );
 
       await setFields(brand.id, {
         plan: plan ?? brand.plan,
