@@ -5,7 +5,18 @@ import { boardCards } from "@/lib/repo/queries";
 export const dynamic = "force-dynamic";
 
 export default async function BoardPage() {
-  const cards = await boardCards();
+  let cards;
+  try {
+    cards = await boardCards();
+  } catch (e) {
+    return (
+      <div className="max-w-2xl">
+        <h1 className="text-lg font-bold text-bad mb-2">보드 로드 오류 (진단)</h1>
+        <pre className="text-xs bg-red-50 p-3 rounded overflow-auto whitespace-pre-wrap">{(e as Error).message}</pre>
+        <p className="text-sm text-muted mt-2">이 메시지를 복사해 공유해 주세요.</p>
+      </div>
+    );
+  }
   const active = cards.filter((c) => c.state !== "dropped" && c.state !== "churned");
   const dropped = cards.filter((c) => c.state === "dropped" || c.state === "churned");
 

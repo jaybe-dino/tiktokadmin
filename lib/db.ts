@@ -27,8 +27,9 @@ function needsSsl(connectionString: string): boolean {
 function makePool(connectionString: string): Pool {
   const pool = new Pool({
     connectionString,
-    max: 8,
-    idleTimeoutMillis: 30_000,
+    // 서버리스에서 인스턴스마다 풀 생성 → 커넥션 한도 압박. 작게 유지.
+    max: 3,
+    idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
     // 매니지드 Postgres 는 SSL 필수. 대부분 유효 인증서지만 provider 별 self-signed 대응.
     ssl: needsSsl(connectionString) ? { rejectUnauthorized: false } : undefined,

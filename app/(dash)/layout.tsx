@@ -15,7 +15,17 @@ const NAV = [
 ];
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
-  const user = await currentUser();
+  let user;
+  try {
+    user = await currentUser();
+  } catch (e) {
+    return (
+      <div className="p-6 max-w-2xl">
+        <h1 className="text-lg font-bold text-bad mb-2">레이아웃 오류 (진단)</h1>
+        <pre className="text-xs bg-red-50 p-3 rounded overflow-auto whitespace-pre-wrap">{(e as Error).message}</pre>
+      </div>
+    );
+  }
   if (!user) redirect("/login");
 
   return (
