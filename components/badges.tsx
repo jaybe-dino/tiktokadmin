@@ -13,16 +13,15 @@ export function GradeBadge({ grade }: { grade: Grade | null }) {
 }
 
 const STATE_COLORS: Record<string, string> = {
-  lead_new: "bg-gray-100 text-gray-600",
+  inquiry: "bg-gray-100 text-gray-600",
   seminar: "bg-sky-100 text-sky-700",
-  meeting: "bg-sky-100 text-sky-700",
+  expo: "bg-sky-100 text-sky-700",
+  meeting: "bg-indigo-100 text-indigo-700",
   contact: "bg-indigo-100 text-indigo-700",
   contract_review: "bg-violet-100 text-violet-700",
   contract_done: "bg-violet-100 text-violet-700",
-  docs: "bg-amber-100 text-amber-700",
   setup: "bg-amber-100 text-amber-700",
-  live_mall: "bg-emerald-100 text-emerald-700",
-  live_onboarding: "bg-emerald-100 text-emerald-700",
+  live: "bg-emerald-100 text-emerald-700",
   settling: "bg-teal-100 text-teal-700",
   dropped: "bg-gray-200 text-gray-500",
   churned: "bg-red-100 text-red-600",

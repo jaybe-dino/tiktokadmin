@@ -24,9 +24,9 @@ export function tierFromDaysOver(daysOver: number): number {
   return 0;
 }
 
-/** live_* 는 접촉 공백(last_contact_at) 기준, 그 외는 stage_entered_at 기준. */
+/** live 는 접촉 공백(last_contact_at) 기준, 그 외는 stage_entered_at 기준. */
 export function slaAnchor(brand: Brand): Date {
-  if (brand.state === "live_mall" || brand.state === "live_onboarding") {
+  if (brand.state === "live") {
     return new Date(brand.last_contact_at ?? brand.stage_entered_at);
   }
   return new Date(brand.stage_entered_at);
@@ -89,7 +89,7 @@ export async function runSlaCheck(now: Date = new Date()): Promise<{
     }
 
     // 3) 서류 미완 (docs 상태 & 1일 이상 경과)
-    if (b.state === "docs") {
+    if (b.state === "setup") {
       const stat = await queryOne<{ total: string; done: string }>(
         `SELECT count(*)::text total, count(*) FILTER (WHERE done)::text done
            FROM doc_items WHERE brand_id=$1`,

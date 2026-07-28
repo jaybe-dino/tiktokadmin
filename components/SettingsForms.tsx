@@ -47,8 +47,8 @@ interface Requirement {
 }
 
 const REQ_STATES: State[] = [
-  "lead_new", "seminar", "meeting", "contact", "contract_review",
-  "contract_done", "docs", "setup", "live_mall", "live_onboarding", "settling",
+  "inquiry", "seminar", "expo", "meeting", "contact",
+  "contract_review", "contract_done", "setup", "live", "settling",
 ];
 
 export function RequirementsEditor({ requirements }: { requirements: Requirement[] }) {

@@ -11,7 +11,7 @@ interface DocTemplateItem {
 }
 
 export const DOC_TEMPLATES: Record<ContractType, DocTemplateItem[]> = {
-  mall: [
+  glovek: [
     { item_key: "biz_reg", label: "사업자등록증" },
     { item_key: "trademark", label: "상표권(트레이드마크)" },
     { item_key: "gmail", label: "운영 Gmail 계정" },

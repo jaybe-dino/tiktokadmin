@@ -58,34 +58,38 @@ describe("dedup normalize", () => {
 // ── 상태 머신 ────────────────────────────────────────────────
 describe("state machine", () => {
   it("전진 전이 허용", () => {
-    expect(isTransitionAllowed("lead_new", "meeting").allowed).toBe(true);
+    expect(isTransitionAllowed("inquiry", "meeting").allowed).toBe(true);
     expect(isTransitionAllowed("contact", "contract_done").allowed).toBe(true);
-    expect(isTransitionAllowed("setup", "live_mall").allowed).toBe(true);
+    expect(isTransitionAllowed("setup", "live").allowed).toBe(true);
   });
   it("허용되지 않은 점프 거부", () => {
-    expect(isTransitionAllowed("lead_new", "docs").allowed).toBe(false);
+    expect(isTransitionAllowed("inquiry", "setup").allowed).toBe(false);
     expect(isTransitionAllowed("meeting", "contract_done").allowed).toBe(false);
+  });
+  it("유입 상태끼리 전환 허용", () => {
+    expect(isTransitionAllowed("inquiry", "seminar").allowed).toBe(true);
+    expect(isTransitionAllowed("seminar", "expo").allowed).toBe(true);
   });
   it("후퇴는 lead/exec 만", () => {
     expect(isTransitionAllowed("contact", "meeting", "sales").allowed).toBe(false);
     expect(isTransitionAllowed("contact", "meeting", "lead").allowed).toBe(true);
     expect(isTransitionAllowed("contact", "meeting", "exec").allowed).toBe(true);
   });
-  it("dropped 는 어디서든, churned 는 live*/settling 만", () => {
-    expect(canTerminate("lead_new", "dropped")).toBe(true);
-    expect(canTerminate("lead_new", "churned")).toBe(false);
-    expect(canTerminate("live_mall", "churned")).toBe(true);
+  it("dropped 는 어디서든, churned 는 live·settling 만", () => {
+    expect(canTerminate("inquiry", "dropped")).toBe(true);
+    expect(canTerminate("inquiry", "churned")).toBe(false);
+    expect(canTerminate("live", "churned")).toBe(true);
     expect(canTerminate("settling", "churned")).toBe(true);
   });
   it("isAhead 퍼널 서열", () => {
-    expect(isAhead("contact", "lead_new")).toBe(true);
-    expect(isAhead("lead_new", "contact")).toBe(false);
+    expect(isAhead("contact", "inquiry")).toBe(true);
+    expect(isAhead("inquiry", "contact")).toBe(false);
   });
   it("담당 필드 매핑", () => {
     expect(ownerFieldForState("meeting")).toBe("owner_intake");
     expect(ownerFieldForState("contact")).toBe("owner_sales");
-    expect(ownerFieldForState("docs")).toBe("owner_onboard");
-    expect(ownerFieldForState("live_mall")).toBe("owner_ads");
+    expect(ownerFieldForState("setup")).toBe("owner_onboard");
+    expect(ownerFieldForState("live")).toBe("owner_ads");
   });
 });
 
@@ -105,36 +109,36 @@ function ctx(over: Partial<GateContext> = {}): GateContext {
 
 describe("gates", () => {
   it("게이트 없는 전이는 통과", () => {
-    expect(evaluateGate("lead_new", "seminar", ctx()).passed).toBe(true);
+    expect(evaluateGate("inquiry", "seminar", ctx()).passed).toBe(true);
   });
-  it("meeting→contact: 회의록·영업담당·등급 필요", () => {
+  it("meeting→contact: 회의록·영업담당 필요", () => {
     const bad = evaluateGate("meeting", "contact", ctx());
     expect(bad.passed).toBe(false);
     expect(bad.failed.map((f) => f.label)).toContain("회의록 없음");
-    expect(bad.failed.map((f) => f.label)).toContain("사전분석(등급) 없음");
 
     const good = evaluateGate(
       "meeting",
       "contact",
       ctx({
-        brand: makeBrand({ owner_sales: "sales@x.com", grade: "A" }),
+        brand: makeBrand({ owner_sales: "sales@x.com" }),
         hasMeetingNote: true,
-        hasDiagnosis: true,
       }),
     );
     expect(good.passed).toBe(true);
   });
   it("contact→contract_done: 결제 확인 필요", () => {
-    const b = makeBrand({ contract_type: "mall", plan: "live_focus_490k" });
+    const b = makeBrand({ contract_type: "glovek", plan: "live_focus_490k" });
     expect(evaluateGate("contact", "contract_done", ctx({ brand: b })).passed).toBe(false);
     expect(
       evaluateGate("contact", "contract_done", ctx({ brand: b, paymentConfirmed: true })).passed,
     ).toBe(true);
   });
-  it("docs→setup: 서류 100% + 사업자번호", () => {
-    const b = makeBrand({ biz_no: "1234567890" });
-    expect(evaluateGate("docs", "setup", ctx({ brand: b })).passed).toBe(false);
-    expect(evaluateGate("docs", "setup", ctx({ brand: b, allDocsDone: true })).passed).toBe(true);
+  it("contract_done→setup: 온보딩담당 필요", () => {
+    const b = makeBrand();
+    expect(evaluateGate("contract_done", "setup", ctx({ brand: b })).passed).toBe(false);
+    expect(
+      evaluateGate("contract_done", "setup", ctx({ brand: makeBrand({ owner_onboard: "o@x.com" }) })).passed,
+    ).toBe(true);
   });
 });
 
@@ -157,9 +161,9 @@ describe("time & sla", () => {
     expect(tierFromDaysOver(2)).toBe(2);
     expect(tierFromDaysOver(5)).toBe(3);
   });
-  it("checkSlaBreach: lead_new 2일 초과 시 위반", () => {
-    const policies = { lead_new: 2 };
-    const b = makeBrand({ state: "lead_new", stage_entered_at: "2026-07-20T00:00:00Z" });
+  it("checkSlaBreach: inquiry 2일 초과 시 위반", () => {
+    const policies = { inquiry: 2 };
+    const b = makeBrand({ state: "inquiry", stage_entered_at: "2026-07-20T00:00:00Z" });
     const now = new Date("2026-07-27T00:00:00Z"); // 월(20)~월(27), 주말2 제외 5영업일
     const breach = checkSlaBreach(b, policies, now);
     expect(breach).not.toBeNull();
@@ -174,7 +178,7 @@ describe("time & sla", () => {
 describe("resolvePaymentEffect", () => {
   it("멀티몰 첫 결제 → 계약(mall) + contract_done 전진", () => {
     const e = resolvePaymentEffect("subscribe_first", "live_focus_490k");
-    expect(e.contractType).toBe("mall");
+    expect(e.contractType).toBe("glovek");
     expect(e.payStatus).toBe("subscribed");
     expect(e.candidate).toBe("contract_done");
   });

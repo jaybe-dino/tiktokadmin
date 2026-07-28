@@ -90,18 +90,20 @@ function eq(field: keyof Brand, value: string, label: string): Rule {
 }
 
 export const GATES: Record<string, Rule[]> = {
-  "lead_new→meeting": [hasContact, hasEmailOrPhone, hasSource, assigned("owner_intake", "유입담당 미지정")],
+  // 유입 → 미팅: 최소 연락처 + 유입담당
+  "inquiry→meeting": [hasContact, hasEmailOrPhone, assigned("owner_intake", "유입담당 미지정")],
   "seminar→meeting": [hasContact, assigned("owner_intake", "유입담당 미지정")],
-  "meeting→contact": [hasMeetingNote, assigned("owner_sales", "영업담당 미지정"), hasDiagnosis],
+  "expo→meeting": [hasContact, assigned("owner_intake", "유입담당 미지정")],
+  // 미팅 → 컨택: 회의록 + 영업담당
+  "meeting→contact": [hasMeetingNote, assigned("owner_sales", "영업담당 미지정")],
+  // 컨택 → 계약: 계약형태·플랜(+결제)
   "contact→contract_review": [hasContractType, hasPlan],
   "contact→contract_done": [hasContractType, hasPlan, paymentConfirmed],
   "contract_review→contract_done": [paymentConfirmed],
-  "contract_done→docs": [assigned("owner_onboard", "온보딩담당 미지정"), docTemplateCreated],
-  "docs→setup": [allDocsDone, hasBizNo],
-  "setup→live_mall": [eq("contract_type", "mall", "계약형태 mall 아님"), assigned("owner_ads", "광고담당 미지정")],
-  "setup→live_onboarding": [eq("contract_type", "onboarding", "계약형태 onboarding 아님"), assigned("owner_ads", "광고담당 미지정")],
-  "live_mall→settling": [eq("pay_status", "subscribed", "구독상태 아님"), hasFirstPerformance],
-  "live_onboarding→settling": [hasFirstPerformance],
+  // 계약 → 셋업 → 운영 → 정산
+  "contract_done→setup": [assigned("owner_onboard", "온보딩담당 미지정")],
+  "setup→live": [assigned("owner_ads", "광고담당 미지정")],
+  "live→settling": [hasFirstPerformance],
 };
 
 export interface GateResult {

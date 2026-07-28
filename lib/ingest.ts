@@ -35,16 +35,16 @@ const Common = z.object({
 });
 type Common = z.infer<typeof Common>;
 
-// lead → 초기 후보 state (02 §3-1)
+// lead → 초기 후보 state (새 퍼널)
 const LEAD_STATE: Record<string, State> = {
   glovek_consult: "contact",
   apply_consult: "contact",
-  glovek_inquiry: "lead_new",
-  glovek_signup: "lead_new",
-  apply_qna: "lead_new",
-  apply_smr: "lead_new",
-  tp_ebook: "lead_new",
-  referrer: "lead_new",
+  glovek_inquiry: "inquiry",
+  glovek_signup: "inquiry",
+  apply_qna: "inquiry",
+  apply_smr: "inquiry",
+  tp_ebook: "inquiry",
+  referrer: "inquiry",
   apply_seminar: "seminar",
   tp_seminar: "seminar",
 };
@@ -63,9 +63,9 @@ export function resolvePaymentEffect(
 ): { contractType?: ContractType; payStatus?: PayStatus; candidate?: State } {
   switch (payKind) {
     case "subscribe_first":
-      // Pro 는 별도 상품군 — 계약 퍼널로 밀지 않는다(서류 템플릿·contract_done 금지).
+      // Pro 는 별도 상품군 — 계약 퍼널로 밀지 않는다.
       if (plan === "pro_89k") return { payStatus: "subscribed" };
-      return { contractType: "mall", payStatus: "subscribed", candidate: "contract_done" };
+      return { contractType: "glovek", payStatus: "subscribed", candidate: "contract_done" };
     case "subscribe_renew":
       return { payStatus: result === "fail" ? "past_due" : "subscribed" };
     case "cancel":
@@ -213,7 +213,7 @@ async function handleEvent(
   switch (event) {
     case "lead": {
       const source = (p.source as Source) ?? "etc";
-      const candidate = LEAD_STATE[source] ?? "lead_new";
+      const candidate = LEAD_STATE[source] ?? "inquiry";
       const { brand, created } = await resolveBrand(d, keys, candidate, { source });
       if (!created) {
         await advanceStateIfAhead(brand, candidate, d.site);
@@ -226,7 +226,7 @@ async function handleEvent(
     }
 
     case "diagnosis": {
-      const { brand, created } = await resolveBrand(d, keys, "lead_new", { source: "glovek_consult" });
+      const { brand, created } = await resolveBrand(d, keys, "inquiry", { source: "glovek_consult" });
       const grade = p.grade as Brand["grade"];
       const recTrack = p.rec_track as Brand["rec_track"];
       const countries = (p.countries as string[]) ?? [];
@@ -248,7 +248,7 @@ async function handleEvent(
       const amount = Number(p.amount ?? 0);
       if (amount < 0) return { http: 400, body: { error: "validation", fields: ["amount 음수"] } };
 
-      const { brand, created } = await resolveBrand(d, keys, "lead_new", { source: "glovek_consult" });
+      const { brand, created } = await resolveBrand(d, keys, "inquiry", { source: "glovek_consult" });
 
       const { contractType, payStatus, candidate } = resolvePaymentEffect(
         payKind, plan, p.result as string | undefined,
@@ -282,7 +282,7 @@ async function handleEvent(
     case "doc_progress": {
       const stepNo = Number(p.step_no);
       const stepStatus = p.step_status as "submitted" | "approved" | "rejected";
-      const { brand, created } = await resolveBrand(d, keys, "docs", { source: "apply_consult" });
+      const { brand, created } = await resolveBrand(d, keys, "setup", { source: "apply_consult" });
       await setFields(brand.id, {
         apply_app_id: p.apply_app_id ?? brand.apply_app_id,
         contract_type: brand.contract_type ?? "onboarding",
@@ -298,7 +298,7 @@ async function handleEvent(
     }
 
     case "contact_logged": {
-      const { brand, created } = await resolveBrand(d, keys, "lead_new", { source: "etc" });
+      const { brand, created } = await resolveBrand(d, keys, "inquiry", { source: "etc" });
       await touchLastContact(brand.id, d.occurred_at);
       await resolveAlert(brand.id, "stale");
       await recordSource(brand.id, d.site, "contact_logged", d.source_ref ?? null, d.source_url ?? null, p, d.occurred_at);
@@ -307,7 +307,7 @@ async function handleEvent(
 
     case "onboarding": {
       // glovek 온보딩 스냅샷 수신(선택). 등급·트랙·국가가 있으면 갱신, 원본은 소스 이력에 보관.
-      const { brand, created } = await resolveBrand(d, keys, "lead_new", { source: "glovek_consult" });
+      const { brand, created } = await resolveBrand(d, keys, "inquiry", { source: "glovek_consult" });
       const grade = p.grade as Brand["grade"] | undefined;
       const recTrack = p.rec_track as Brand["rec_track"] | undefined;
       const countries = (p.countries as string[]) ?? [];

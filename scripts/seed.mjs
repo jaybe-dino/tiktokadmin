@@ -23,10 +23,10 @@ const ADMINS = [
 ];
 
 const BRANDS = [
-  { brand_name: "코스메랩", email: "hello@cosmelab.kr", phone: "01011112222", state: "docs", contract_type: "onboarding", source: "apply_consult", plan: "onboarding_onetime", pay_status: "once_paid", grade: "A", rec_track: "onboarding", category: "뷰티", owner_onboard: "onboard@glovek.space", biz_no: "1112233444" },
-  { brand_name: "핏앤핏", email: "team@fitnfit.co", phone: "01033334444", state: "live_mall", contract_type: "mall", source: "glovek_consult", plan: "live_focus_490k", pay_status: "subscribed", grade: "B", rec_track: "live", category: "헬스", owner_ads: "ads@glovek.space" },
+  { brand_name: "코스메랩", email: "hello@cosmelab.kr", phone: "01011112222", state: "setup", contract_type: "onboarding", source: "apply_consult", plan: "onboarding_onetime", pay_status: "once_paid", grade: "A", rec_track: "onboarding", category: "뷰티", owner_onboard: "onboard@glovek.space", biz_no: "1112233444" },
+  { brand_name: "핏앤핏", email: "team@fitnfit.co", phone: "01033334444", state: "live", contract_type: "glovek", source: "glovek_consult", plan: "live_focus_490k", pay_status: "subscribed", grade: "B", rec_track: "live", category: "헬스", owner_ads: "ads@glovek.space" },
   { brand_name: "그린티하우스", email: "info@greentea.kr", state: "contact", source: "glovek_consult", grade: "S", rec_track: "onboarding", category: "F&B", owner_sales: "sales@glovek.space" },
-  { brand_name: "루미너스", email: "hi@luminous.co", state: "lead_new", source: "tp_seminar", category: "뷰티" },
+  { brand_name: "루미너스", email: "hi@luminous.co", state: "seminar", source: "tp_seminar", category: "뷰티" },
 ];
 
 async function main() {

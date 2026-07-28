@@ -11,7 +11,7 @@ export function makeBrand(over: Partial<Brand> = {}): Brand {
     contact_name: "홍길동",
     category: "뷰티",
     brand_url: "",
-    state: "lead_new",
+    state: "inquiry",
     contract_type: null,
     source: "glovek_consult",
     plan: null,

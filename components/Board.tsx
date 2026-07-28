@@ -8,8 +8,8 @@ import { STATE_LABELS, type State } from "@/lib/types";
 import type { BoardCard } from "@/lib/repo/queries";
 
 const COLUMNS: State[] = [
-  "lead_new", "seminar", "meeting", "contact", "contract_review",
-  "contract_done", "docs", "setup", "live_mall", "live_onboarding", "settling",
+  "inquiry", "seminar", "expo", "meeting", "contact",
+  "contract_review", "contract_done", "setup", "live", "settling",
 ];
 
 const GRADE_COLOR: Record<string, string> = {

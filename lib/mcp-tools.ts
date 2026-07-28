@@ -124,7 +124,7 @@ export const TOOLS: Record<string, ToolDef> = {
     description: "서류 미완 브랜드 목록.",
     inputSchema: { type: "object", properties: {} },
     async handler() {
-      const brands = await query<Brand>("SELECT * FROM brands WHERE state='docs'");
+      const brands = await query<Brand>("SELECT * FROM brands WHERE state='setup'");
       const now = new Date();
       const out = [];
       for (const b of brands) {
@@ -229,7 +229,7 @@ export const TOOLS: Record<string, ToolDef> = {
         if (gap > 14) { score += 2; factors.push(`접촉공백 ${gap}일`); }
         else if (gap > 7) { score += 1; factors.push(`접촉공백 ${gap}일`); }
       }
-      if (b.state === "docs") {
+      if (b.state === "setup") {
         const prog = await docProgress(b.id);
         if (prog.total > 0 && prog.done < prog.total) { score += 1; factors.push("서류 미완"); }
       }
