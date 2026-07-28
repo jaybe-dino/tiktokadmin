@@ -14,7 +14,9 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const data = await brand360(id);
   if (!data) notFound();
-  const { brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers, files, proposals } = data;
+  const { brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers, files, proposals, sites } = data;
+
+  const SITE_LABEL: Record<string, string> = { glovek: "glovek", apply: "apply", tpartners: "tpartners", manual: "직접입력" };
 
   // 현재 단계 필수항목. field형은 브랜드 값으로 done 판정.
   const rawReqs = await stageChecklist(brand.id, brand.state);
@@ -49,6 +51,15 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           <span>{brand.category || "카테고리 미상"}</span>
           <span>현 단계 {humanElapsed(brand.stage_entered_at)} 경과</span>
         </div>
+        {sites.length > 0 && (
+          <div className="mt-2 flex items-center gap-1 flex-wrap">
+            <span className="text-xs text-muted">유입 소스:</span>
+            {sites.map((s) => (
+              <span key={s} className="pill bg-blue-100 text-blue-700">{SITE_LABEL[s] ?? s}</span>
+            ))}
+            <span className="text-[11px] text-muted">— 이 사이트들의 데이터가 하나의 카드로 매칭됨</span>
+          </div>
+        )}
         {alerts.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
             {alerts.map((a) => (

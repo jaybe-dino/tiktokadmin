@@ -264,6 +264,17 @@ export async function deleteBrandAction(brandId: string): Promise<ActionResult> 
   return { ok: true };
 }
 
+export async function mergeBrandsAction(keepId: string, dropId: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { mergeBrands } = await import("@/lib/merge");
+  const res = await mergeBrands(keepId, dropId, a.actor);
+  revalidatePath("/duplicates");
+  revalidatePath("/");
+  revalidatePath(`/brand/${keepId}`);
+  return res;
+}
+
 async function requireLead(): Promise<OpsActor | null> {
   const u = await currentUser();
   if (!u || (u.role !== "lead" && u.role !== "exec")) return null;

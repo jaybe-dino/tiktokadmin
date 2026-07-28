@@ -31,6 +31,7 @@ export interface Brand360 {
   adminUsers: { id: string; name: string; role: string }[];
   files: BrandFile[];
   proposals: Proposal[];
+  sites: string[];
 }
 
 export async function brand360(id: string): Promise<Brand360 | null> {
@@ -92,9 +93,47 @@ export async function brand360(id: string): Promise<Brand360 | null> {
     })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
-  const [files, proposals] = await Promise.all([listFiles(id), listProposals(id)]);
+  const [files, proposals, siteRows] = await Promise.all([
+    listFiles(id),
+    listProposals(id),
+    query<{ site: string }>("SELECT DISTINCT site FROM brand_sources WHERE brand_id=$1", [id]),
+  ]);
 
-  return { brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers, files, proposals };
+  return {
+    brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers,
+    files, proposals, sites: siteRows.map((s) => s.site),
+  };
+}
+
+// ── 중복 후보 (자동 dedup 이 놓친 것) ────────────────────────
+export interface DuplicateGroup {
+  kind: "phone" | "biz_no" | "brand_name";
+  key: string;
+  brands: { id: string; brand_name: string; email: string | null; phone: string | null; state: string }[];
+}
+
+export async function findDuplicateGroups(): Promise<DuplicateGroup[]> {
+  const agg =
+    "json_agg(json_build_object('id',id,'brand_name',brand_name,'email',email,'phone',phone,'state',state) ORDER BY created_at)";
+  const [byPhone, byBiz, byName] = await Promise.all([
+    query<{ key: string; brands: DuplicateGroup["brands"] }>(
+      `SELECT phone AS key, ${agg} AS brands FROM brands
+        WHERE phone IS NOT NULL AND phone<>'' GROUP BY phone HAVING count(*)>1`,
+    ),
+    query<{ key: string; brands: DuplicateGroup["brands"] }>(
+      `SELECT biz_no AS key, ${agg} AS brands FROM brands
+        WHERE biz_no IS NOT NULL AND biz_no<>'' GROUP BY biz_no HAVING count(*)>1`,
+    ),
+    query<{ key: string; brands: DuplicateGroup["brands"] }>(
+      `SELECT lower(brand_name) AS key, ${agg} AS brands FROM brands
+        WHERE brand_name<>'' AND brand_name<>'(미상)' GROUP BY lower(brand_name) HAVING count(*)>1`,
+    ),
+  ]);
+  return [
+    ...byPhone.map((g) => ({ kind: "phone" as const, key: g.key, brands: g.brands })),
+    ...byBiz.map((g) => ({ kind: "biz_no" as const, key: g.key, brands: g.brands })),
+    ...byName.map((g) => ({ kind: "brand_name" as const, key: g.key, brands: g.brands })),
+  ];
 }
 
 /** 워크큐 — 역할별 담당 브랜드. 위반·오늘마감·액션없음 순. */
