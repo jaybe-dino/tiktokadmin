@@ -12,6 +12,21 @@ async function handle(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized (CRON_SECRET 필요)" }, { status: 401 });
   }
 
+  // 샘플 모드: ?sample=<table> → 그 테이블의 컬럼 + 3행 (구조 확인용, 허용 목록만)
+  const sample = req.nextUrl.searchParams.get("sample");
+  if (sample) {
+    if (!/^[a-z_][a-z0-9_]*$/i.test(sample)) {
+      return NextResponse.json({ error: "invalid table name" }, { status: 400 });
+    }
+    try {
+      const rows = await query<Record<string, unknown>>(`SELECT * FROM ${sample} LIMIT 3`);
+      const columns = rows[0] ? Object.keys(rows[0]) : [];
+      return NextResponse.json({ table: sample, columns, sample: rows });
+    } catch (e) {
+      return NextResponse.json({ table: sample, error: (e as Error).message }, { status: 200 });
+    }
+  }
+
   const out: Record<string, unknown> = { ok: true, checkedAt: new Date().toISOString() };
 
   // 배포 커밋 확인(Vercel 이 주입)
