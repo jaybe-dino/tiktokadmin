@@ -264,6 +264,29 @@ export async function deleteBrandAction(brandId: string): Promise<ActionResult> 
   return { ok: true };
 }
 
+export async function attachEmailAction(input: {
+  brandId: string; from?: string; subject?: string; text?: string; direction?: "in" | "out";
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { linkEmail } = await import("@/lib/email-link");
+  await linkEmail(
+    { brand_id: input.brandId, from: input.from, subject: input.subject, text: input.text, direction: input.direction },
+    a.actor,
+  );
+  revalidatePath(`/brand/${input.brandId}`);
+  return { ok: true };
+}
+
+export async function deleteEmailAction(brandId: string, id: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { query } = await import("@/lib/db");
+  await query("DELETE FROM brand_emails WHERE id=$1", [id]);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 export async function mergeBrandsAction(keepId: string, dropId: string): Promise<ActionResult> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };

@@ -8,9 +8,10 @@ import type { Brand, ContractType, PayStatus, Plan, Source, State } from "./type
 
 // Ingest 이벤트 처리 (02-INGEST-API). 사이트 → 어드민.
 
-export type IngestEventName = "lead" | "diagnosis" | "payment" | "doc_progress" | "contact_logged";
+export type IngestEventName =
+  | "lead" | "diagnosis" | "payment" | "doc_progress" | "contact_logged" | "onboarding";
 export const INGEST_EVENTS: IngestEventName[] = [
-  "lead", "diagnosis", "payment", "doc_progress", "contact_logged",
+  "lead", "diagnosis", "payment", "doc_progress", "contact_logged", "onboarding",
 ];
 
 export interface IngestResult {
@@ -301,6 +302,22 @@ async function handleEvent(
       await touchLastContact(brand.id, d.occurred_at);
       await resolveAlert(brand.id, "stale");
       await recordSource(brand.id, d.site, "contact_logged", d.source_ref ?? null, d.source_url ?? null, p, d.occurred_at);
+      return { http: 200, body: { ok: true, brand_id: brand.id, created } };
+    }
+
+    case "onboarding": {
+      // glovek 온보딩 스냅샷 수신(선택). 등급·트랙·국가가 있으면 갱신, 원본은 소스 이력에 보관.
+      const { brand, created } = await resolveBrand(d, keys, "lead_new", { source: "glovek_consult" });
+      const grade = p.grade as Brand["grade"] | undefined;
+      const recTrack = p.rec_track as Brand["rec_track"] | undefined;
+      const countries = (p.countries as string[]) ?? [];
+      await setFields(brand.id, {
+        grade: grade ?? brand.grade,
+        rec_track: recTrack ?? brand.rec_track,
+        countries: countries.length ? countries : brand.countries,
+        glovek_onb_id: p.glovek_onb_id ?? brand.glovek_onb_id,
+      });
+      await recordSource(brand.id, d.site, "onboarding", d.source_ref ?? (p.glovek_onb_id as string) ?? null, d.source_url ?? null, p, d.occurred_at);
       return { http: 200, body: { ok: true, brand_id: brand.id, created } };
     }
 

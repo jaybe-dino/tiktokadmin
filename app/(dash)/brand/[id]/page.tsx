@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Brand360Actions from "@/components/Brand360Actions";
 import CustomerDetail from "@/components/CustomerDetail";
+import CustomerEmails from "@/components/CustomerEmails";
+import { listBrandEmails } from "@/lib/email-link";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge, TierBadge } from "@/components/badges";
 import { brand360 } from "@/lib/repo/queries";
 import { stageChecklist } from "@/lib/requirements";
@@ -20,6 +22,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
   // 현재 단계 필수항목. field형은 브랜드 값으로 done 판정. (0002 미적용 DB 방어)
   const rawReqs = await stageChecklist(brand.id, brand.state).catch(() => []);
+  const emails = await listBrandEmails(brand.id).catch(() => []);
   const stageReqs = rawReqs.map((r) => {
     if (r.kind === "field" && r.field_key) {
       const v = (brand as unknown as Record<string, unknown>)[r.field_key];
@@ -104,6 +107,9 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
           {/* 고객 상세 — 국가·자료(파일)·제안서 */}
           <CustomerDetail brand={brand} files={files} proposals={proposals} />
+
+          {/* 고객 이메일 — 담당자 관련 메일 연동 */}
+          <CustomerEmails brandId={brand.id} emails={emails} />
 
           {/* 결제 */}
           <section className="card p-4">
