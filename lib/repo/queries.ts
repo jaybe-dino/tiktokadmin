@@ -35,8 +35,12 @@ export interface Brand360 {
 }
 
 export async function brand360(id: string): Promise<Brand360 | null> {
-  const brand = await queryOne<Brand>("SELECT * FROM brands WHERE id=$1", [id]);
+  // 잘못된 uuid(공백·오타)면 500 대신 null → notFound.
+  const cleanId = id.trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId)) return null;
+  const brand = await queryOne<Brand>("SELECT * FROM brands WHERE id=$1", [cleanId]);
   if (!brand) return null;
+  id = cleanId;
 
   // 각 조회를 개별 방어 — 하나가 실패해도 카드 전체가 죽지 않게.
   const safe = <T>(p: Promise<T[]>): Promise<T[]> => p.catch(() => [] as T[]);

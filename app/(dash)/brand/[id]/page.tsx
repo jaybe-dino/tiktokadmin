@@ -13,7 +13,8 @@ import { SOURCE_LABELS } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export default async function BrandPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = rawId.trim(); // 복사된 URL의 꼬리 공백(%20) 방어
   const data = await brand360(id);
   if (!data) notFound();
   const { brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers, files, proposals, sites } = data;
