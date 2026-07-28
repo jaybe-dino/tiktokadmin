@@ -8,5 +8,7 @@ export function cronAuthorized(req: NextRequest): boolean {
   const auth = req.headers.get("authorization");
   if (auth === `Bearer ${secret}`) return true;
   if (req.headers.get("x-cron-secret") === secret) return true;
+  // 브라우저/curl 수동 트리거용 쿼리 토큰 (?token=...)
+  if (req.nextUrl.searchParams.get("token") === secret) return true;
   return false;
 }
