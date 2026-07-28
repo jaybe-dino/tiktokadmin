@@ -263,6 +263,48 @@ export async function insightsData(): Promise<{
   return { funnel, bySource, insights, churnRisk };
 }
 
+// ── 고객 목록 (검색·필터·페이지네이션) ──────────────────────
+export interface CustomerRow extends Brand {
+  has_breach: boolean;
+  owners_display: string | null;
+  sites: string | null;
+}
+
+export async function customersList(f: {
+  q?: string; state?: string; source?: string; grade?: string; page?: number;
+}): Promise<{ rows: CustomerRow[]; total: number; page: number; pages: number }> {
+  const where: string[] = ["1=1"];
+  const p: unknown[] = [];
+  if (f.q) {
+    p.push(`%${f.q}%`);
+    where.push(`(b.brand_name ILIKE $${p.length} OR b.email ILIKE $${p.length} OR b.phone ILIKE $${p.length})`);
+  }
+  if (f.state) { p.push(f.state); where.push(`b.state=$${p.length}`); }
+  if (f.source) { p.push(f.source); where.push(`b.source=$${p.length}`); }
+  if (f.grade) { p.push(f.grade); where.push(`b.grade=$${p.length}`); }
+
+  const whereSql = where.join(" AND ");
+  const countRow = await queryOne<{ n: string }>(`SELECT count(*)::text n FROM brands b WHERE ${whereSql}`, p);
+  const total = Number(countRow?.n ?? 0);
+
+  const page = Math.max(1, f.page ?? 1);
+  const perPage = 50;
+  const offset = (page - 1) * perPage;
+
+  const rows = await query<CustomerRow>(
+    `SELECT b.*,
+            EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind='sla_breach' AND a.resolved_at IS NULL) AS has_breach,
+            NULLIF(concat_ws(', ', b.owner_intake, b.owner_sales, b.owner_onboard, b.owner_ads), '') AS owners_display,
+            (SELECT string_agg(DISTINCT site, ',') FROM brand_sources s WHERE s.brand_id=b.id) AS sites
+       FROM brands b
+      WHERE ${whereSql}
+      ORDER BY b.updated_at DESC
+      LIMIT ${perPage} OFFSET ${offset}`,
+    p,
+  );
+  return { rows, total, page, pages: Math.max(1, Math.ceil(total / perPage)) };
+}
+
 export async function adminUserList(): Promise<{ id: string; name: string; role: string; slack_user_id: string | null; active: boolean }[]> {
   return query("SELECT id, name, role, slack_user_id, active FROM admin_users ORDER BY role, name");
 }

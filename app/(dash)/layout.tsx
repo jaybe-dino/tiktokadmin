@@ -4,6 +4,7 @@ import { currentUser } from "@/lib/auth";
 
 const NAV = [
   { href: "/", label: "파이프라인" },
+  { href: "/customers", label: "고객 목록" },
   { href: "/queue", label: "내 워크큐" },
   { href: "/monitor", label: "모니터" },
   { href: "/pay", label: "결제·정산" },
