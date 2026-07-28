@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  assignAction, docCheckAction, dropAction, logContactAction,
-  manualPaymentAction, remindAction, stageCheckAction, transitionAction,
+  assignAction, deleteBrandAction, docCheckAction, dropAction, logContactAction,
+  manualPaymentAction, remindAction, stageCheckAction, transitionAction, updateBrandAction,
 } from "@/app/actions";
 import { FORWARD_TRANSITIONS } from "@/lib/states";
 import { PLANS, PLAN_LABELS, STATE_LABELS, type Brand, type OwnerField, type State } from "@/lib/types";
@@ -197,6 +197,39 @@ export default function Brand360Actions({ brand, adminUsers, docItems, stageReqs
           <textarea className="input h-40 font-mono text-xs" value={draft} onChange={(e) => setDraft(e.target.value)} />
         )}
 
+        {/* 고객 정보 수정 */}
+        <details>
+          <summary className="text-sm font-semibold cursor-pointer text-muted">고객 정보 수정</summary>
+          <form
+            className="grid grid-cols-2 gap-2 mt-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              const res = await updateBrandAction(brand.id, {
+                brand_name: String(f.get("brand_name")),
+                email: String(f.get("email")),
+                phone: String(f.get("phone")),
+                biz_no: String(f.get("biz_no")),
+                contact_name: String(f.get("contact_name")),
+                category: String(f.get("category")),
+                brand_url: String(f.get("brand_url")),
+                memo: String(f.get("memo")),
+              });
+              flash(res.ok ? "정보 저장됨" : res.error || "실패", !res.ok);
+            }}
+          >
+            <input name="brand_name" className="input" defaultValue={brand.brand_name} placeholder="브랜드명" />
+            <input name="contact_name" className="input" defaultValue={brand.contact_name} placeholder="담당자" />
+            <input name="email" className="input" defaultValue={brand.email ?? ""} placeholder="이메일" />
+            <input name="phone" className="input" defaultValue={brand.phone ?? ""} placeholder="전화" />
+            <input name="biz_no" className="input" defaultValue={brand.biz_no ?? ""} placeholder="사업자번호" />
+            <input name="category" className="input" defaultValue={brand.category} placeholder="카테고리" />
+            <input name="brand_url" className="input col-span-2" defaultValue={brand.brand_url} placeholder="판매채널 URL" />
+            <textarea name="memo" className="input col-span-2 h-16 text-xs" defaultValue={brand.memo} placeholder="메모" />
+            <button className="btn btn-primary col-span-2" type="submit">정보 저장</button>
+          </form>
+        </details>
+
         {/* 수기 결제 */}
         <details>
           <summary className="text-sm font-semibold cursor-pointer text-muted">수기 결제 입력 (Guarantee 등)</summary>
@@ -228,6 +261,25 @@ export default function Brand360Actions({ brand, adminUsers, docItems, stageReqs
             <button className="btn btn-primary col-span-2" type="submit">기록</button>
           </form>
         </details>
+      </div>
+
+      {/* 위험 구역 — 브랜드 삭제 */}
+      <div className="card p-4 border-red-200">
+        <div className="label text-bad">위험 구역</div>
+        <p className="text-xs text-muted mb-2">
+          삭제하면 이 브랜드와 연관된 이력·서류·알림이 모두 사라집니다(복구 불가). 보류는 &ldquo;드랍&rdquo;을 쓰세요.
+        </p>
+        <button
+          className="btn btn-danger"
+          onClick={async () => {
+            if (!confirm(`'${brand.brand_name}' 을(를) 완전히 삭제할까요? 되돌릴 수 없습니다.`)) return;
+            const res = await deleteBrandAction(brand.id);
+            if (res.ok) router.push("/");
+            else flash(res.error || "삭제 실패", true);
+          }}
+        >
+          브랜드 삭제
+        </button>
       </div>
     </div>
   );

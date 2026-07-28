@@ -135,41 +135,14 @@ export async function importBrandsAction(
   if (!a) return { ok: false, created: 0, updated: 0, skipped: 0, errors: ["세션 만료"] };
   const { parseCsv } = await import("@/lib/csv");
   const { importBrandRecord } = await import("@/lib/import");
+  const { detectImportRecord } = await import("@/lib/field-detect");
   const rows = parseCsv(csvText);
   let created = 0, updated = 0, skipped = 0;
   const errors: string[] = [];
 
-  const g = (r: Record<string, string>, ...keys: string[]) => {
-    for (const k of keys) if (r[k]) return r[k];
-    return undefined;
-  };
-
   for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const rec: ImportRecord = {
-      brand_name: g(r, "brand_name", "brand", "brandname", "브랜드", "브랜드명"),
-      email: r.email,
-      phone: r.phone,
-      biz_no: g(r, "biz_no", "bizno", "사업자번호"),
-      contact_name: g(r, "contact_name", "contact", "담당자"),
-      category: g(r, "category", "카테고리"),
-      brand_url: g(r, "brand_url", "url"),
-      source: r.source,
-      state: r.state,
-      grade: r.grade,
-      plan: r.plan,
-      contract_type: g(r, "contract_type", "계약형태"),
-      pay_status: g(r, "pay_status", "결제상태"),
-      rec_track: r.rec_track,
-      owner_intake: r.owner_intake,
-      owner_sales: r.owner_sales,
-      owner_onboard: r.owner_onboard,
-      owner_ads: r.owner_ads,
-      next_action: g(r, "next_action", "다음액션"),
-      due_date: r.due_date,
-      memo: g(r, "memo", "메모"),
-      countries: r.countries,
-    };
+    // 어떤 헤더든 자동 인식(퍼지 매칭)
+    const rec = detectImportRecord(rows[i]);
     const res = await importBrandRecord(a.actor, rec);
     if (res.ok) {
       if (res.created) created++;
@@ -181,6 +154,49 @@ export async function importBrandsAction(
   }
   revalidatePath("/");
   return { ok: true, created, updated, skipped, errors };
+}
+
+const EDITABLE_FIELDS = [
+  "brand_name", "brand_name_en", "email", "phone", "biz_no",
+  "contact_name", "category", "brand_url", "memo", "next_action", "due_date",
+] as const;
+
+export async function updateBrandAction(
+  brandId: string,
+  fields: Partial<Record<(typeof EDITABLE_FIELDS)[number], string>>,
+): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { query } = await import("@/lib/db");
+  const sets: string[] = [];
+  const vals: unknown[] = [brandId];
+  for (const key of EDITABLE_FIELDS) {
+    if (fields[key] === undefined) continue;
+    vals.push(fields[key] === "" ? null : fields[key]);
+    sets.push(`${key} = $${vals.length}`);
+  }
+  if (sets.length === 0) return { ok: true };
+  try {
+    await query(`UPDATE brands SET ${sets.join(", ")} WHERE id=$1`, vals);
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes("unique") || msg.includes("duplicate")) {
+      return { ok: false, error: "이메일/사업자번호가 다른 브랜드와 중복됩니다." };
+    }
+    return { ok: false, error: msg };
+  }
+  revalidatePath(`/brand/${brandId}`);
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function deleteBrandAction(brandId: string): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (삭제는 파트장/대표만)" };
+  const { query } = await import("@/lib/db");
+  await query("DELETE FROM brands WHERE id=$1", [brandId]); // 연관 테이블 CASCADE
+  revalidatePath("/");
+  return { ok: true };
 }
 
 async function requireLead(): Promise<OpsActor | null> {

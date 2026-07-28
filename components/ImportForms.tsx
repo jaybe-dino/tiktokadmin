@@ -113,9 +113,10 @@ export function CsvImportForm() {
   return (
     <div className="space-y-3">
       <div className="text-xs text-muted space-y-1">
-        <div><b>기본</b>: <code>brand_name,email,phone,biz_no,contact_name,category,source,brand_url</code> (최소 email/phone/biz_no 중 하나)</div>
-        <div><b>기존 데이터 반영(선택)</b>: <code>state,grade,plan,contract_type,pay_status,rec_track,owner_intake,owner_sales,owner_onboard,owner_ads,next_action,due_date,countries,memo</code></div>
-        <div className="text-[11px]">state 예: lead_new·contact·docs·live_mall … / plan: live_focus_490k·pro_89k·onboarding_onetime·guarantee_1m / 담당(owner_*)은 담당자 이메일(id)</div>
+        <div><b>어떤 헤더든 자동 인식</b>합니다 — 이메일/전화/브랜드명/담당자/카테고리/URL은 컬럼명을 몰라도 알아서 매칭
+          (apply·tpartners 원본 export 그대로 붙여넣어도 됨). 최소 이메일/전화/사업자번호 중 하나 필요.</div>
+        <div><b>단계·등급 등 반영(정확 컬럼명 필요)</b>: <code>state,grade,plan,contract_type,pay_status,rec_track,owner_intake…,next_action,due_date,countries,memo</code></div>
+        <div className="text-[11px]">state 예: lead_new·contact·docs·live_mall … / plan: live_focus_490k·pro_89k·onboarding_onetime·guarantee_1m</div>
       </div>
       <input
         type="file"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { transitionAction } from "@/app/actions";
@@ -19,26 +19,34 @@ const GRADE_COLOR: Record<string, string> = {
   C: "bg-gray-100 text-gray-600",
 };
 
-export default function Board({ cards }: { cards: BoardCard[] }) {
+export default function Board({ cards: propCards }: { cards: BoardCard[] }) {
   const router = useRouter();
+  const [cards, setCards] = useState(propCards);
   const [toast, setToast] = useState<{ msg: string; bad: boolean } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+
+  // 서버 새로고침으로 새 데이터가 오면 로컬 상태 동기화
+  useEffect(() => setCards(propCards), [propCards]);
 
   const byState = (s: State) => cards.filter((c) => c.state === s);
 
   async function onDrop(to: State) {
-    if (!dragId) return;
-    const card = cards.find((c) => c.id === dragId);
+    const id = dragId;
     setDragId(null);
+    if (!id) return;
+    const card = cards.find((c) => c.id === id);
     if (!card || card.state === to) return;
-    setBusy(true);
-    const res = await transitionAction(card.id, to);
-    setBusy(false);
+
+    // 낙관적 업데이트 — 카드를 즉시 이동
+    const prev = cards;
+    setCards((cs) => cs.map((c) => (c.id === id ? { ...c, state: to } : c)));
+
+    const res = await transitionAction(id, to);
     if (res.ok) {
       setToast({ msg: `${card.brand_name} → ${STATE_LABELS[to]}`, bad: false });
       router.refresh();
     } else {
+      setCards(prev); // 실패 시 원위치
       const detail = res.failed?.map((f) => f.label).join(" · ") || res.error || "이동 실패";
       setToast({ msg: `이동 불가: ${detail}`, bad: true });
     }
@@ -78,7 +86,7 @@ export default function Board({ cards }: { cards: BoardCard[] }) {
                 {list.map((c) => (
                   <div
                     key={c.id}
-                    draggable={!busy}
+                    draggable
                     onDragStart={() => setDragId(c.id)}
                     className={`card p-3 cursor-grab active:cursor-grabbing ${
                       c.has_breach ? "ring-1 ring-bad" : ""

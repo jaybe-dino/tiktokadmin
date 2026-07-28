@@ -1,38 +1,10 @@
 import { queryRo } from "./db";
 import { importBrandRecord, type ImportRecord } from "./import";
+import { FIELD_RE as RE, pick } from "./field-detect";
 
 // glovek Postgres 직접 적재(backfill). 읽기전용 롤(GLOVEK_DB_URL_RO 또는 공유 DATABASE_URL)로
 // glovek 기존 테이블을 읽어 brands 원장에 병합한다.
-// 실제 컬럼명이 문서와 달라도 동작하도록 "컬럼명 패턴 매칭"으로 필드를 뽑는다.
-
-const RE = {
-  email: [/^email$/i, /email/i, /mail/i],
-  phone: [/^phone$/i, /phone/i, /mobile/i, /^tel$/i, /연락처/],
-  biz_no: [/^biz_?no$/i, /company_reg/i, /business_?(no|number)/i, /사업자/],
-  brand: [/^brand_?name$/i, /brand/i, /company_?name/i, /^company$/i, /shop_?name/i, /store_?name/i],
-  contact: [/^contact_?name$/i, /contact_?name/i, /^name$/i, /담당/, /manager/i],
-  category: [/category/i, /업종/, /카테고리/, /industry/i],
-  url: [/brand_?url/i, /sales_?channel/i, /store_?url/i, /url/i, /link/i],
-  message: [/message/i, /inquiry/i, /content/i, /문의/],
-  grade: [/^grade$/i, /grade/i],
-  rec_track: [/recommended?_?track/i, /rec_?track/i, /track/i],
-  status: [/^status$/i, /sub.*status/i, /status/i],
-  userId: [/^user_?id$/i, /user_?id/i],
-  id: [/^id$/i],
-};
-
-/** 우선순위 패턴군에서 첫 non-empty 값. */
-function pick(row: Record<string, unknown>, groups: RegExp[]): string | undefined {
-  for (const re of groups) {
-    for (const k of Object.keys(row)) {
-      if (re.test(k)) {
-        const v = row[k];
-        if (v != null && String(v).trim() !== "") return String(v).trim();
-      }
-    }
-  }
-  return undefined;
-}
+// 실제 컬럼명이 문서와 달라도 동작하도록 "컬럼명 패턴 매칭"(field-detect)으로 필드를 뽑는다.
 
 async function tableExists(name: string): Promise<boolean> {
   try {
