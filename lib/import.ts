@@ -32,6 +32,8 @@ export interface ImportRecord {
   due_date?: string;
   memo?: string;
   countries?: string; // 콤마/세미콜론 구분
+  glovek_user_id?: string;
+  glovek_onb_id?: string;
 }
 
 function pick<T extends string>(v: string | undefined, allowed: readonly T[]): T | undefined {
@@ -115,6 +117,8 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord): Pro
   setIf("next_action", rec.next_action);
   setIf("due_date", rec.due_date);
   setIf("memo", rec.memo);
+  setIf("glovek_user_id", rec.glovek_user_id);
+  setIf("glovek_onb_id", rec.glovek_onb_id);
   if (countries.length) fields.countries = countries;
 
   // state 변경(신규가 아니고 다른 단계면 이력 기록 + stage_entered_at 갱신)
