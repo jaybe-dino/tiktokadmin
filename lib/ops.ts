@@ -14,13 +14,20 @@ export async function opsTransition(
   a: OpsActor,
   input: { brand_id: string; to_state: State; reason?: string },
 ): Promise<TransitionResult> {
-  return transitionBrand({
+  const res = await transitionBrand({
     brandId: input.brand_id,
     to: input.to_state,
     actor: a.actor,
     actorRole: a.role,
     reason: input.reason,
   });
+  // 해지 전이 성공 시 오프보딩 5연쇄 (17 §1)
+  if (res.ok && input.to_state === "churned") {
+    const { runChurnChain } = await import("./lifecycle");
+    await runChurnChain(input.brand_id, input.reason ?? "미기재", a.actor).catch((e) =>
+      console.error("[churn-chain]", (e as Error).message));
+  }
+  return res;
 }
 
 export async function opsDrop(
