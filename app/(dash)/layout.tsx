@@ -7,6 +7,8 @@ const NAV = [
   { href: "/customers", label: "고객 목록" },
   { href: "/queue", label: "내 워크큐" },
   { href: "/monitor", label: "모니터" },
+  { href: "/ops", label: "운영 사이클" },
+  { href: "/cs", label: "CS 티켓" },
   { href: "/pay", label: "결제·정산" },
   { href: "/insights", label: "인사이트" },
   { href: "/import", label: "가져오기" },
