@@ -297,6 +297,15 @@ export function listMktProjects(brandId: string): Promise<MktProject[]> {
 }
 
 // ── 카드 심화 통합 조회 (360 탭용) ─────────────────────────────
+export interface MeetingLite {
+  id: string; topic: string; status: string; followup_status: string;
+  scheduled_at: string | null; started_at: string | null; summary_md: string | null; created_at: string;
+}
+export function listMeetingsLite(brandId: string): Promise<MeetingLite[]> {
+  return query<MeetingLite>(
+    "SELECT id, topic, status, followup_status, scheduled_at, started_at, summary_md, created_at FROM meetings WHERE brand_id=$1 ORDER BY created_at DESC", [brandId]);
+}
+
 export interface CardDeep {
   company: BrandCompany | null;
   contacts: BrandContact[];
@@ -309,10 +318,11 @@ export interface CardDeep {
   inventory: (InventoryIntake & { product_name: string | null })[];
   logistics: LogisticsContract[];
   mktProjects: MktProject[];
+  meetings: MeetingLite[];
 }
 export async function cardDeep(brandId: string): Promise<CardDeep> {
   const safe = <T>(p: Promise<T[]>): Promise<T[]> => p.catch(() => [] as T[]);
-  const [company, contacts, products, certs, proposals, contracts, assets, surveys, inventory, logistics, mktProjects] =
+  const [company, contacts, products, certs, proposals, contracts, assets, surveys, inventory, logistics, mktProjects, meetings] =
     await Promise.all([
       getCompany(brandId).catch(() => null),
       safe(listContacts(brandId)),
@@ -325,6 +335,7 @@ export async function cardDeep(brandId: string): Promise<CardDeep> {
       safe(listInventory(brandId)),
       safe(listLogistics(brandId)),
       safe(listMktProjects(brandId)),
+      safe(listMeetingsLite(brandId)),
     ]);
-  return { company, contacts, products, certs, proposals, contracts, assets, surveys, inventory, logistics, mktProjects };
+  return { company, contacts, products, certs, proposals, contracts, assets, surveys, inventory, logistics, mktProjects, meetings };
 }

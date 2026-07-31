@@ -93,6 +93,17 @@ export const env = {
   get mcpToken() {
     return opt("MCP_TOKEN");
   },
+  zoom: {
+    get accountId() { return opt("ZOOM_ACCOUNT_ID"); },
+    get clientId() { return opt("ZOOM_CLIENT_ID"); },
+    get clientSecret() { return opt("ZOOM_CLIENT_SECRET"); },
+    get webhookSecret() { return opt("ZOOM_WEBHOOK_SECRET"); },
+  },
+  get openaiKey() { return opt("OPENAI_API_KEY") || opt("GROQ_API_KEY"); },
+  gmail: {
+    get saKeyJson() { return opt("GOOGLE_SA_KEY_JSON"); },
+    get pubsubTopic() { return opt("GMAIL_PUBSUB_TOPIC"); },
+  },
 };
 
 /** Slack 채널 key → 실제 채널 ID 매핑 (05 라우팅) */

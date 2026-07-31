@@ -18,10 +18,11 @@ const CERT_STATUS: Record<string, { ko: string; bg: string; fg: string }> = {
   expired: { ko: "만료", bg: "#ffe0e0", fg: "#c0322a" },
 };
 
-type Tab = "contacts" | "survey" | "products" | "inventory" | "logistics" | "contracts" | "proposals" | "company" | "assets" | "mkt";
+type Tab = "contacts" | "survey" | "meetings" | "products" | "inventory" | "logistics" | "contracts" | "proposals" | "company" | "assets" | "mkt";
 const TABS: { key: Tab; label: string }[] = [
   { key: "contacts", label: "연락처" },
   { key: "survey", label: "설문" },
+  { key: "meetings", label: "미팅" },
   { key: "products", label: "제품·인증" },
   { key: "inventory", label: "재고" },
   { key: "logistics", label: "물류" },
@@ -35,9 +36,10 @@ const TABS: { key: Tab; label: string }[] = [
 export default function CardTabs({ brandId, deep }: { brandId: string; deep: CardDeep }) {
   const [tab, setTab] = useState<Tab>("contacts");
   const count: Record<Tab, number> = {
-    contacts: deep.contacts.length, survey: deep.surveys.length, products: deep.products.length,
-    inventory: deep.inventory.length, logistics: deep.logistics.length, contracts: deep.contracts.length,
-    proposals: deep.proposals.length, company: deep.company ? 1 : 0, assets: deep.assets.length, mkt: deep.mktProjects.length,
+    contacts: deep.contacts.length, survey: deep.surveys.length, meetings: deep.meetings.length,
+    products: deep.products.length, inventory: deep.inventory.length, logistics: deep.logistics.length,
+    contracts: deep.contracts.length, proposals: deep.proposals.length, company: deep.company ? 1 : 0,
+    assets: deep.assets.length, mkt: deep.mktProjects.length,
   };
   return (
     <div className="card p-0 mb-4 overflow-hidden">
@@ -52,6 +54,7 @@ export default function CardTabs({ brandId, deep }: { brandId: string; deep: Car
       <div className="p-5">
         {tab === "contacts" && <Contacts brandId={brandId} deep={deep} />}
         {tab === "survey" && <Surveys brandId={brandId} deep={deep} />}
+        {tab === "meetings" && <Meetings deep={deep} />}
         {tab === "products" && <Products brandId={brandId} deep={deep} />}
         {tab === "inventory" && <Inventory deep={deep} />}
         {tab === "logistics" && <Logistics brandId={brandId} deep={deep} />}
@@ -419,6 +422,36 @@ function Mkt({ deep }: { deep: CardDeep }) {
         <div key={m.id} className="border rounded-lg p-3 text-sm flex justify-between">
           <span>{m.title} <span className="text-xs text-muted">({m.kind})</span></span>
           <span className="pill bg-gray-100">{m.proposal_status}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── 미팅 (08) ──────────────────────────────────────────────────
+function Meetings({ deep }: { deep: CardDeep }) {
+  if (deep.meetings.length === 0) return <p className="text-sm text-muted">등록된 미팅이 없습니다. (Zoom 웹훅 연동 시 자동 표시)</p>;
+  return (
+    <div className="space-y-2">
+      {deep.meetings.map((m) => (
+        <div key={m.id} className="border rounded-lg p-3 text-sm">
+          <div className="flex justify-between items-center">
+            <span className="font-medium">{m.topic || "제목 없음"}</span>
+            <span className="flex gap-1">
+              <span className="pill bg-gray-100">{m.status}</span>
+              {m.followup_status !== "none" && <span className="pill bg-[#fff0f6] text-pink">팔로업 {m.followup_status}</span>}
+            </span>
+          </div>
+          <div className="text-xs text-muted mt-1">
+            {m.scheduled_at ? `예약 ${new Date(m.scheduled_at).toLocaleString("ko-KR")}` : ""}
+            {m.started_at ? ` · 진행 ${new Date(m.started_at).toLocaleDateString("ko-KR")}` : ""}
+          </div>
+          {m.summary_md && (
+            <details className="mt-2">
+              <summary className="text-xs text-pink cursor-pointer">회의록 요약</summary>
+              <pre className="mt-1 text-xs bg-gray-50 p-2 rounded whitespace-pre-wrap">{m.summary_md}</pre>
+            </details>
+          )}
         </div>
       ))}
     </div>
