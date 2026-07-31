@@ -67,7 +67,7 @@ export default async function SettingsPage() {
 
       <section className="card p-4">
         <h2 className="font-bold mb-2">서류 템플릿</h2>
-        {(["glovek", "onboarding"] as const).map((t) => (
+        {(["mall", "onboarding"] as const).map((t) => (
           <div key={t} className="mb-2">
             <div className="text-sm font-semibold">{t}</div>
             <div className="text-xs text-muted">{DOC_TEMPLATES[t].map((i) => i.label).join(" · ")}</div>

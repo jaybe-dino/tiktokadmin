@@ -267,7 +267,7 @@ export async function insightsData(): Promise<{
     ),
     query<{ source: string; total: number; reached_contract: number }>(
       `SELECT source, count(*)::int total,
-              count(*) FILTER (WHERE state IN ('contract_done','setup','live','settling'))::int reached_contract
+              count(*) FILTER (WHERE state IN ('contract_done','docs','setup','live_mall','live_onboarding','settling'))::int reached_contract
          FROM brands GROUP BY source ORDER BY total DESC`,
     ),
     query<{ week: string; metric: string; finding: string; proposed_action: string; approved: boolean | null; id: string }>(

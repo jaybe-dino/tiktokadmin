@@ -1,46 +1,32 @@
-// 전 시스템 공통 canonical enum — 실제 운영 퍼널(Notion + 계약 이후) v2.
+// 전 시스템 공통 canonical enum (00-MASTER-PLAN 4-2). 임의 변경 금지.
 
 export const STATES = [
-  // 유입(병렬 진입점)
-  "inquiry", "seminar", "expo",
-  // 영업
-  "meeting", "contact", "contract_review",
-  // 계약
-  "contract_done",
-  // 계약 이후 운영
-  "setup", "live", "settling",
-  // 종료
-  "dropped", "churned",
+  "lead_new", "seminar", "meeting", "contact", "contract_review",
+  "contract_done", "docs", "setup", "live_mall", "live_onboarding",
+  "settling", "dropped", "churned",
 ] as const;
 export type State = (typeof STATES)[number];
 
 export const STATE_LABELS: Record<State, string> = {
-  inquiry: "GloveK 문의",
-  seminar: "세미나 신청",
-  expo: "박람회",
-  meeting: "1:1 미팅",
-  contact: "개별 컨택중",
-  contract_review: "계약서 검토",
+  lead_new: "리드확보",
+  seminar: "세미나신청",
+  meeting: "1:1미팅",
+  contact: "개별컨택중",
+  contract_review: "계약서검토",
   contract_done: "계약완료",
-  setup: "서류·입점 셋업",
-  live: "운영중",
-  settling: "정산",
-  dropped: "드랍/보류",
+  docs: "서류수급중",
+  setup: "입점셋업",
+  live_mall: "운영중·멀티몰",
+  live_onboarding: "운영중·온보딩",
+  settling: "정산중",
+  dropped: "드랍보류",
   churned: "해지",
 };
-
-/** 유입(병렬 진입점) */
-export const ENTRY_STATES: State[] = ["inquiry", "seminar", "expo"];
 
 /** 종료 상태 (칸반에서 접힌 컬럼) */
 export const TERMINAL_STATES: State[] = ["dropped", "churned"];
 
-/** 계약형태 (Notion: 온보딩 / GloveK) */
-export type ContractType = "glovek" | "onboarding";
-export const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
-  glovek: "GloveK",
-  onboarding: "온보딩",
-};
+export type ContractType = "mall" | "onboarding";
 
 export const PLANS = ["live_focus_490k", "guarantee_1m", "onboarding_onetime", "pro_89k"] as const;
 export type Plan = (typeof PLANS)[number];
@@ -123,6 +109,11 @@ export interface Brand {
   tp_registration_id: number | null;
   referral_code: string | null;
   memo: string;
+  // v3
+  is_test: boolean;
+  version: number;
+  owner_backup: string | null;
+  notion_page_url: string | null;
   created_at: string;
   updated_at: string;
 }

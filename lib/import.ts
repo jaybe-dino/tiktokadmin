@@ -64,7 +64,7 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord): Pro
   const grade = pick<Grade>(rec.grade, GRADES);
   const plan = pick<Plan>(rec.plan, PLANS);
   const payStatus = pick<PayStatus>(rec.pay_status, PAY_STATUSES);
-  const contractType = pick(rec.contract_type, ["glovek", "onboarding"] as const);
+  const contractType = pick(rec.contract_type, ["mall", "onboarding"] as const);
   const recTrack = pick(rec.rec_track, ["onboarding", "live"] as const);
   const countries = (rec.countries ?? "")
     .split(/[,;]/)
@@ -89,7 +89,7 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord): Pro
       [
         brandNameFrom(rec), keys.email, keys.phone, keys.biz_no,
         rec.contact_name ?? "", rec.category ?? "", rec.brand_url ?? "",
-        rec.source || "etc", state || "inquiry",
+        rec.source || "etc", state || "lead_new",
       ],
     );
     return r.rows[0];

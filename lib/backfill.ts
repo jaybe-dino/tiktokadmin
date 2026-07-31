@@ -55,8 +55,8 @@ export async function backfillGlovek(actorId: string): Promise<{ ok: boolean; ta
   // 1) 리드 계열
   const leadTables = [
     { name: "consult_requests", source: "glovek_consult", state: "contact" },
-    { name: "inquiries", source: "glovek_inquiry", state: "inquiry" },
-    { name: "users", source: "glovek_signup", state: "inquiry" },
+    { name: "inquiries", source: "glovek_inquiry", state: "lead_new" },
+    { name: "users", source: "glovek_signup", state: "lead_new" },
   ];
   for (const t of leadTables) {
     await runTable(tables, t.name, actorId, (row) => ({
@@ -97,9 +97,9 @@ export async function backfillGlovek(actorId: string): Promise<{ ok: boolean; ta
       email: pick(row, RE.email) ?? (uid ? userEmail.get(uid) : undefined),
       brand_name: pick(row, RE.brand),
       plan: "live_focus_490k",
-      contract_type: "glovek",
+      contract_type: "mall",
       pay_status: pay,
-      state: pay === "subscribed" ? "live" : "contract_done",
+      state: pay === "subscribed" ? "live_mall" : "contract_done",
       source: "glovek_consult",
       glovek_user_id: uid,
     };
