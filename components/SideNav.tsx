@@ -16,16 +16,32 @@ const GROUPS: Group[] = [
     { href: "/import", label: "리드 가져오기", ic: "📥" },
     { href: "/duplicates", label: "중복 정리", ic: "🧹" },
   ]},
+  { title: "영업", items: [
+    { href: "/meetings", label: "미팅 캘린더", ic: "📅" },
+    { href: "/proposals", label: "제안서", ic: "📄" },
+    { href: "/contracts", label: "계약·결제", ic: "✍️" },
+  ]},
+  { title: "마케팅", items: [
+    { href: "/mkt", label: "마케팅 프로젝트", ic: "📣" },
+    { href: "/send", label: "발송 센터", ic: "📤" },
+  ]},
   { title: "커뮤니케이션", items: [
     { href: "/drafts", label: "초안함", ic: "✉️" },
+    { href: "/qna", label: "QnA 지식베이스", ic: "💬" },
+  ]},
+  { title: "온보딩·제품", items: [
+    { href: "/products", label: "제품·인증·재고", ic: "📦" },
+    { href: "/assets", label: "자산 저장소", ic: "🗄️" },
   ]},
   { title: "운영·정산", items: [
     { href: "/ops", label: "운영 사이클", ic: "🔁" },
-    { href: "/cs", label: "CS 티켓", ic: "💬" },
-    { href: "/pay", label: "결제·정산", ic: "💰" },
+    { href: "/cs", label: "CS 티켓", ic: "🎧" },
+    { href: "/settlements", label: "정산", ic: "💰" },
+    { href: "/pay", label: "결제 현황", ic: "💳" },
   ]},
   { title: "AI·관리", items: [
     { href: "/insights", label: "AI 인사이트", ic: "🤖" },
+    { href: "/approvals", label: "결재함", ic: "🗳️" },
     { href: "/settings", label: "설정·조직", ic: "⚙️" },
   ]},
 ];
