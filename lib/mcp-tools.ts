@@ -303,6 +303,114 @@ export const TOOLS: Record<string, ToolDef> = {
     },
   },
 
+  // ── Phase 2~6 확장 툴 (10·14·08·09·15·17) ─────────────────
+  get_customer_card: {
+    description: "고객카드 심화(회사·연락처·제품·인증·제안·계약·설문·재고·물류·미팅).",
+    inputSchema: { type: "object", properties: { brand_id: { type: "string" } }, required: ["brand_id"] },
+    async handler(a) {
+      const { cardDeep } = await import("./repo/card");
+      return cardDeep(String(a.brand_id));
+    },
+  },
+  list_products: {
+    description: "브랜드 제품·국가별 인증 목록.",
+    inputSchema: { type: "object", properties: { brand_id: { type: "string" } }, required: ["brand_id"] },
+    async handler(a) {
+      const { listProducts, listCertsForBrand } = await import("./repo/card");
+      const [products, certs] = await Promise.all([listProducts(String(a.brand_id)), listCertsForBrand(String(a.brand_id))]);
+      return { products, certs };
+    },
+  },
+  find_cert_risks: {
+    description: "만료 임박(기본 30일)·미비 인증 목록(판매 리스크).",
+    inputSchema: { type: "object", properties: { days_ahead: { type: "number" } } },
+    async handler(a) {
+      const days = Number(a.days_ahead ?? 30);
+      const rows = await query(
+        `SELECT pc.id, pm.brand_id, pm.name_kr AS product, pc.country, pc.cert_type, pc.status, pc.expires_at
+           FROM product_certs pc JOIN products_master pm ON pm.id=pc.product_id
+          WHERE pc.status IN ('none','rejected','expired')
+             OR (pc.expires_at IS NOT NULL AND pc.expires_at < current_date + ($1||' days')::interval)
+          ORDER BY pc.expires_at NULLS FIRST LIMIT 200`, [days]).catch(() => []);
+      return { risks: rows };
+    },
+  },
+  create_proposal: {
+    description: "computeQuote 견적으로 제안서 draft 생성(수기 금액 금지).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        brand_id: { type: "string" }, plan: { type: "string" },
+        countries: { type: "array", items: { type: "string" } }, term: { type: "string" },
+      },
+      required: ["brand_id", "plan", "countries"],
+    },
+    async handler(a, actorName) {
+      const { computeQuote } = await import("./quote");
+      const { addProposalV2 } = await import("./repo/card");
+      const q = computeQuote({ plan: String(a.plan), countries: a.countries as string[], term: (a.term as "monthly" | "6month") ?? "monthly" });
+      const id = await addProposalV2({
+        brand_id: String(a.brand_id), plan: String(a.plan), countries: a.countries as string[],
+        term: String(a.term ?? "monthly"), quote_amount: q.total, discount_note: q.breakdown, by: actorFor(actorName).actor,
+      });
+      return { id, quote: q.total, breakdown: q.breakdown };
+    },
+  },
+  register_contract: {
+    description: "계약 등록(kind·terms·기간). terms.fee_pct 는 정산 계산 원천.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        brand_id: { type: "string" }, kind: { type: "string" },
+        fee_pct: { type: "number" }, term_months: { type: "number" },
+        start_date: { type: "string" }, end_date: { type: "string" },
+      },
+      required: ["brand_id", "kind"],
+    },
+    async handler(a) {
+      const { addContract } = await import("./repo/card");
+      const id = await addContract({
+        brand_id: String(a.brand_id), kind: String(a.kind),
+        terms: { fee_pct: a.fee_pct ?? null, term_months: a.term_months ?? null },
+        start_date: (a.start_date as string) || null, end_date: (a.end_date as string) || null,
+      });
+      return { id };
+    },
+  },
+  list_meetings: {
+    description: "미팅 목록(brand_id 또는 unmatched_only).",
+    inputSchema: { type: "object", properties: { brand_id: { type: "string" }, unmatched_only: { type: "boolean" } } },
+    async handler(a) {
+      const { listMeetings, listUnmatchedMeetings } = await import("./meetings");
+      if (a.unmatched_only) return { meetings: await listUnmatchedMeetings() };
+      if (a.brand_id) return { meetings: await listMeetings(String(a.brand_id)) };
+      return { meetings: await listUnmatchedMeetings() };
+    },
+  },
+  suggest_assignee: {
+    description: "역할별 담당 후보 3명 + 부하 산정(파트장 배정 보조).",
+    inputSchema: {
+      type: "object",
+      properties: { brand_id: { type: "string" }, role: { type: "string" } },
+      required: ["brand_id", "role"],
+    },
+    async handler(a) {
+      const { suggestAssignee } = await import("./assign");
+      return { candidates: await suggestAssignee(String(a.brand_id), a.role as OwnerField) };
+    },
+  },
+  list_no_reply: {
+    description: "발송 후 무응답 브랜드(no_reply 알림) 목록.",
+    inputSchema: { type: "object", properties: {} },
+    async handler() {
+      const rows = await query(
+        `SELECT a.brand_id, b.brand_name, a.message, a.created_at
+           FROM alerts a JOIN brands b ON b.id=a.brand_id
+          WHERE a.kind='no_reply' AND a.resolved_at IS NULL ORDER BY a.created_at`).catch(() => []);
+      return { no_reply: rows };
+    },
+  },
+
   upsert_insight: {
     description: "주간 자가학습 인사이트 저장.",
     inputSchema: {
@@ -327,4 +435,6 @@ export const TOOLS: Record<string, ToolDef> = {
 export const READ_ONLY_TOOLS = new Set([
   "list_brands", "get_brand_360", "find_sla_breaches", "find_gate_violations",
   "find_missing_docs", "draft_reminder", "compute_funnel_metrics",
+  "get_customer_card", "list_products", "find_cert_risks", "list_meetings",
+  "suggest_assignee", "list_no_reply",
 ]);

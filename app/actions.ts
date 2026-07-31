@@ -494,3 +494,22 @@ export async function addAssetLinkAction(input: {
   revalidatePath(`/brand/${input.brand_id}`);
   return { ok: true };
 }
+
+// ═══ Phase 4 · 초안함 (Drafts Inbox) ═════════════════════════
+import { approveAndSend, discardDraft } from "@/lib/drafts";
+
+export async function approveDraftAction(id: string): Promise<ActionResult & { sent?: boolean }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const r = await approveAndSend(id, a.actor);
+  revalidatePath("/drafts");
+  return { ok: r.ok, error: r.error, sent: r.sent };
+}
+
+export async function discardDraftAction(id: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await discardDraft(id);
+  revalidatePath("/drafts");
+  return { ok: true };
+}
