@@ -22,10 +22,10 @@ export default async function BoardPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-extrabold">파이프라인 보드</h1>
-          <p className="text-sm text-muted">
+          <h1 className="text-[19px] font-extrabold">파이프라인 보드</h1>
+          <p className="text-[12.5px] mt-0.5" style={{ color: "var(--ink3)" }}>
             카드를 드래그해 상태를 이동 · 게이트 미충족 시 반려됩니다 (활성 {active.length} · 종료 {dropped.length})
           </p>
         </div>

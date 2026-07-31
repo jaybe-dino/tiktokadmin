@@ -12,11 +12,11 @@ const COLUMNS: State[] = [
   "contract_done", "docs", "setup", "live_mall", "live_onboarding", "settling",
 ];
 
-const GRADE_COLOR: Record<string, string> = {
-  S: "bg-purple-100 text-purple-700",
-  A: "bg-blue-100 text-blue-700",
-  B: "bg-amber-100 text-amber-700",
-  C: "bg-gray-100 text-gray-600",
+// 단계별 컬럼 헤더 점 색상 (파트 매핑)
+const DOT: Record<string, string> = {
+  lead_new: "#d97706", seminar: "#d97706", meeting: "#2563eb", contact: "#2563eb",
+  contract_review: "#2563eb", contract_done: "#2563eb", docs: "#16a34a", setup: "#16a34a",
+  live_mall: "#9333ea", live_onboarding: "#9333ea", settling: "#0d9488",
 };
 
 export default function Board({ cards: propCards }: { cards: BoardCard[] }) {
@@ -64,49 +64,47 @@ export default function Board({ cards: propCards }: { cards: BoardCard[] }) {
           {toast.msg}
         </div>
       )}
-      <div className="flex gap-3 overflow-x-auto pb-4">
+      <div className="kb">
         {COLUMNS.map((s) => {
           const list = byState(s);
           const breaches = list.filter((c) => c.has_breach).length;
+          const over = dragId && cards.find((c) => c.id === dragId)?.state !== s;
           return (
             <div
               key={s}
-              className="w-64 shrink-0"
+              className={`kcol ${over ? "dragover" : ""}`}
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => onDrop(s)}
             >
-              <div className="flex items-center justify-between mb-2 px-1">
-                <span className="text-sm font-bold">{STATE_LABELS[s]}</span>
-                <span className="text-xs text-muted">
-                  {list.length}
-                  {breaches > 0 && <span className="text-bad font-bold"> · {breaches}⚠</span>}
+              <h4 className="flex items-center gap-1.5 text-[12px] mx-1 mt-0.5 mb-2.5" style={{ color: "var(--ink2)" }}>
+                <span className="w-2 h-2 rounded-full" style={{ background: DOT[s] ?? "#94a3b8" }} />
+                {STATE_LABELS[s]}
+                <span className="ml-auto bg-white rounded-lg px-1.5 text-[11px]" style={{ color: "var(--ink3)" }}>
+                  {list.length}{breaches > 0 && <span className="text-bad font-bold"> ·{breaches}⚠</span>}
                 </span>
-              </div>
-              <div className="space-y-2 min-h-[60px]">
+              </h4>
+              <div className="min-h-[60px]">
                 {list.map((c) => (
                   <div
                     key={c.id}
                     draggable
                     onDragStart={() => setDragId(c.id)}
-                    className={`card p-3 cursor-grab active:cursor-grabbing ${
-                      c.has_breach ? "ring-1 ring-bad" : ""
-                    }`}
+                    className="kcard"
+                    style={c.has_breach ? { borderColor: "#fca5a5" } : undefined}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <Link href={`/brand/${c.id}`} className="font-semibold text-sm hover:text-pink truncate">
+                      <Link href={`/brand/${c.id}`} className="font-bold text-[12.5px] truncate hover:underline">
                         {c.brand_name}
                       </Link>
-                      {c.grade && (
-                        <span className={`pill ${GRADE_COLOR[c.grade]}`}>{c.grade}</span>
-                      )}
+                      {c.grade && <span className={`gr gr-${c.grade}`}>{c.grade}</span>}
                     </div>
-                    <div className="text-[11px] text-muted mt-1 truncate">
+                    <div className="text-[11px] mt-1 truncate" style={{ color: "var(--ink3)" }}>
                       {c.owners_display ?? "담당 미지정"}
                     </div>
                     {c.next_action && (
-                      <div className="text-[11px] text-ink mt-1 truncate">▸ {c.next_action}</div>
+                      <div className="text-[11px] mt-1 truncate" style={{ color: "var(--ink2)" }}>▸ {c.next_action}</div>
                     )}
-                    {c.has_breach && <div className="text-[11px] text-bad font-bold mt-1">SLA 초과</div>}
+                    {c.has_breach && <div className="text-[11px] font-bold mt-1 text-bad">SLA 초과</div>}
                   </div>
                 ))}
               </div>

@@ -1,39 +1,145 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* GloveK Admin 디자인 시스템 — prototype v2.5 이식 */
 :root {
   color-scheme: light;
+  --navy: #0f2440;
+  --navy2: #1e3a5f;
+  --acc: #2563eb;
+  --bg: #f4f6fa;
+  --card: #ffffff;
+  --line: #e5e9f0;
+  --ink: #111827;
+  --ink2: #4b5563;
+  --ink3: #8b93a1;
+  --danger: #dc2626;
+  --warn: #d97706;
+  --ok: #16a34a;
+  --sh: 0 1px 3px rgba(15, 36, 64, .07), 0 1px 2px rgba(15, 36, 64, .05);
 }
 
 body {
-  @apply bg-[#fff8fb] text-ink;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
-    "Malgun Gothic", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Pretendard Variable", Pretendard, "Malgun Gothic",
+    "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
 }
 
 @layer components {
+  /* 카드 */
   .card {
-    @apply bg-white border border-[#efe6ee] rounded-xl shadow-sm;
+    @apply bg-white rounded-xl;
+    border: 1px solid var(--line);
+    box-shadow: var(--sh);
   }
-  .pill {
-    @apply inline-block px-2 py-0.5 rounded-full text-[11px] font-bold;
+  .card-hd {
+    @apply flex items-center gap-2 px-4 py-3;
+    border-bottom: 1px solid var(--line);
   }
+
+  /* 버튼 */
   .btn {
-    @apply inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold
-      border border-[#efe6ee] bg-white hover:bg-[#fff0f6] transition;
+    @apply inline-flex items-center gap-1.5 rounded-lg text-sm font-semibold transition;
+    padding: 7px 14px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink2);
   }
-  .btn-primary {
-    @apply bg-pink text-white border-pink hover:opacity-90;
+  .btn:hover { border-color: #c8d2e0; }
+  .btn-primary { background: var(--acc); border-color: var(--acc); color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-danger { background: #fff; border-color: #fca5a5; color: var(--danger); }
+  .btn-sm { padding: 4px 10px; font-size: 11.5px; border-radius: 7px; }
+
+  /* 배지·칩 */
+  .pill {
+    @apply inline-flex items-center gap-1 font-bold;
+    border-radius: 6px;
+    padding: 1.5px 7px;
+    font-size: 11px;
+    white-space: nowrap;
   }
-  .btn-danger {
-    @apply text-bad border-bad hover:bg-red-50;
+  .chip {
+    @apply inline-flex items-center gap-1 font-semibold;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11.5px;
+    background: #eef2ff;
+    color: #3730a3;
   }
+  .chip-red { background: #fee2e2; color: #b91c1c; }
+  .chip-grn { background: #dcfce7; color: #166534; }
+  .chip-amb { background: #fef3c7; color: #92400e; }
+
+  /* 입력 */
   .input {
-    @apply w-full px-3 py-2 rounded-lg border border-[#efe6ee] text-sm bg-white
-      focus:outline-none focus:ring-2 focus:ring-pink/30;
+    @apply w-full rounded-lg text-sm bg-white;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
   }
-  .label {
-    @apply text-xs font-semibold text-muted mb-1 block;
+  .input:focus { outline: none; border-color: var(--acc); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+  .label { @apply text-xs font-semibold mb-1 block; color: var(--ink3); }
+
+  /* 스탯 타일 */
+  .tile {
+    @apply bg-white rounded-xl;
+    border: 1px solid var(--line);
+    box-shadow: var(--sh);
+    padding: 14px 16px;
   }
+  .tile-k { font-size: 11.5px; color: var(--ink3); font-weight: 600; }
+  .tile-v { font-size: 24px; font-weight: 800; margin-top: 3px; letter-spacing: -.02em; }
+
+  /* 등급 배지 */
+  .gr {
+    @apply inline-flex items-center justify-center font-extrabold text-white;
+    width: 22px; height: 22px; border-radius: 6px; font-size: 11.5px; flex-shrink: 0;
+  }
+  .gr-S { background: #7c3aed; } .gr-A { background: #2563eb; }
+  .gr-B { background: #0d9488; } .gr-C { background: #94a3b8; }
+
+  /* 진행바 */
+  .pr { height: 6px; border-radius: 3px; background: #eef1f6; overflow: hidden; min-width: 70px; }
+  .pr > i { display: block; height: 100%; border-radius: 3px; background: var(--acc); }
+  .pr > i.g { background: var(--ok); } .pr > i.w { background: var(--warn); }
+
+  /* 테이블 */
+  .t { @apply w-full; border-collapse: collapse; font-size: 12.5px; }
+  .t th {
+    background: #f8fafc; color: var(--ink3); font-size: 11px; font-weight: 700;
+    text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  .t td { padding: 9px 12px; border-bottom: 1px solid #f0f3f8; vertical-align: middle; }
+  .t tr:hover td { background: #f8fafc; }
+
+  /* 칸반 */
+  .kb { @apply flex gap-3 overflow-x-auto pb-3; }
+  .kcol { width: 236px; flex-shrink: 0; background: #eef1f6; border-radius: 12px; padding: 10px; }
+  .kcard {
+    background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 11px; margin-bottom: 8px; box-shadow: var(--sh); cursor: pointer;
+  }
+  .kcard:hover { border-color: #b9c6da; }
+  .kcol.dragover { outline: 2px dashed var(--acc); outline-offset: -4px; background: #eaf1fb; }
+
+  /* 탭 */
+  .tabbar { @apply flex overflow-x-auto; gap: 2px; border-bottom: 2px solid var(--line); }
+  .tabbar button {
+    padding: 9px 14px; font-size: 13px; font-weight: 600; color: var(--ink3);
+    border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap;
+  }
+  .tabbar button.on { color: var(--acc); border-bottom-color: var(--acc); }
 }
+
+/* 상태 배지(퍼널 단계) */
+.st-lead, .st-seminar { background: #fef3c7; color: #92400e; }
+.st-meeting, .st-contact, .st-contract_review, .st-contract_done { background: #dbeafe; color: #1e40af; }
+.st-docs, .st-setup { background: #dcfce7; color: #166534; }
+.st-live_mall, .st-live_onboarding { background: #f3e8ff; color: #6b21a8; }
+.st-settling { background: #ccfbf1; color: #0f766e; }
+.st-dropped, .st-churned { background: #f1f5f9; color: #64748b; }
