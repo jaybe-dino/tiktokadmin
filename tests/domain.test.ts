@@ -99,6 +99,7 @@ function ctx(over: Partial<GateContext> = {}): GateContext {
     docTemplateCreated: false,
     allDocsDone: false,
     hasFirstPerformance: false,
+    hasSentProposal: false,
     ...over,
   };
 }
@@ -124,11 +125,16 @@ describe("gates", () => {
     );
     expect(good.passed).toBe(true);
   });
-  it("contact→contract_done: 결제 확인 필요", () => {
+  it("contact→contract_done: 제안서 발송 + 결제 확인 필요", () => {
     const b = makeBrand({ contract_type: "mall", plan: "live_focus_490k" });
     expect(evaluateGate("contact", "contract_done", ctx({ brand: b })).passed).toBe(false);
+    // 결제만 확인되고 제안서 미발송이면 여전히 실패
     expect(
       evaluateGate("contact", "contract_done", ctx({ brand: b, paymentConfirmed: true })).passed,
+    ).toBe(false);
+    // 제안서 발송 + 결제 확인 → 통과
+    expect(
+      evaluateGate("contact", "contract_done", ctx({ brand: b, paymentConfirmed: true, hasSentProposal: true })).passed,
     ).toBe(true);
   });
   it("docs→setup: 서류 100% + 사업자번호", () => {

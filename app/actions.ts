@@ -365,3 +365,132 @@ export async function upsertAdminUserAction(input: {
   revalidatePath("/settings");
   return { ok: true };
 }
+
+// ═══ Phase 2 · 고객카드 심화 액션 (10 + 14) ═══════════════════
+import {
+  addContact as repoAddContact, deleteContact as repoDeleteContact, syncPrimaryContact,
+  addProduct as repoAddProduct, upsertCert as repoUpsertCert,
+  addProposalV2, addContract as repoAddContract, setContractStatus,
+  upsertLogistics as repoUpsertLogistics, createSurvey, upsertCompany, addAsset,
+} from "@/lib/repo/card";
+import { computeQuote, type QuoteTerm } from "@/lib/quote";
+
+export async function addContactAction(input: {
+  brand_id: string; name: string; title?: string; email?: string; phone?: string;
+  role?: string; is_primary?: boolean;
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await repoAddContact(input);
+  revalidatePath(`/brand/${input.brand_id}`);
+  return { ok: true };
+}
+
+export async function deleteContactAction(brandId: string, id: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await repoDeleteContact(id);
+  await syncPrimaryContact(brandId).catch(() => {});
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+export async function addProductAction(input: {
+  brand_id: string; name_kr: string; name_en?: string; category?: string; sku?: string; price_band?: string;
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await repoAddProduct(input);
+  revalidatePath(`/brand/${input.brand_id}`);
+  return { ok: true };
+}
+
+export async function upsertCertAction(brandId: string, input: {
+  product_id: string; country: string; cert_type: string; status?: string;
+  cert_number?: string; expires_at?: string | null;
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await repoUpsertCert(input);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+/** 제안서 생성 — computeQuote 단일 원천(수기 금액 금지). */
+export async function createProposalAction(input: {
+  brand_id: string; plan: string; countries: string[]; term: QuoteTerm; onboardingTier?: string;
+}): Promise<ActionResult & { quote?: number; breakdown?: string }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const q = computeQuote({
+    plan: input.plan, countries: input.countries, term: input.term,
+    onboardingTier: input.onboardingTier as never,
+  });
+  await addProposalV2({
+    brand_id: input.brand_id, plan: input.plan, countries: input.countries,
+    term: input.term, quote_amount: q.total, discount_note: q.breakdown, by: a.actor,
+  });
+  revalidatePath(`/brand/${input.brand_id}`);
+  return { ok: true, quote: q.total, breakdown: q.breakdown };
+}
+
+export async function addContractAction(input: {
+  brand_id: string; kind: string; fee_pct?: number; term_months?: number;
+  countries?: string[]; start_date?: string; end_date?: string; note?: string;
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await repoAddContract({
+    brand_id: input.brand_id, kind: input.kind,
+    terms: { fee_pct: input.fee_pct ?? null, term_months: input.term_months ?? null, countries: input.countries ?? [] },
+    start_date: input.start_date || null, end_date: input.end_date || null, note: input.note,
+  });
+  revalidatePath(`/brand/${input.brand_id}`);
+  return { ok: true };
+}
+
+export async function setContractStatusAction(brandId: string, id: string, status: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await setContractStatus(id, status);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+export async function upsertLogisticsAction(input: {
+  brand_id: string; country: string; provider?: string; status?: string;
+  warehouse_region?: string; end_date?: string;
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await repoUpsertLogistics({ ...input, end_date: input.end_date || null });
+  revalidatePath(`/brand/${input.brand_id}`);
+  return { ok: true };
+}
+
+/** 설문 생성 → 공개 링크 반환(팔로업 메일에 삽입). */
+export async function createSurveyAction(brandId: string): Promise<ActionResult & { url?: string }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const token = await createSurvey(brandId);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true, url: `/s/${token}` };
+}
+
+export async function saveCompanyAction(brandId: string, patch: Record<string, unknown>): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await upsertCompany(brandId, patch);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+export async function addAssetLinkAction(input: {
+  brand_id: string; kind: string; filename: string; external_url: string;
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await addAsset({ ...input, source: "drive", by: a.actor });
+  revalidatePath(`/brand/${input.brand_id}`);
+  return { ok: true };
+}

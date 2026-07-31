@@ -8,6 +8,7 @@ export function middleware(req: NextRequest) {
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/") ||
+    pathname.startsWith("/s/") ||       // 공개 설문 응답(로그인 불필요, 14-A)
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   ) {

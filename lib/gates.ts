@@ -13,6 +13,7 @@ export interface GateContext {
   docTemplateCreated: boolean; // doc_items 존재
   allDocsDone: boolean; // doc_items 전부 done (항목 없으면 false)
   hasFirstPerformance: boolean; // brand_signals metric=first_gmv 존재
+  hasSentProposal: boolean; // proposals.status='sent' 존재 (10-C)
 }
 
 export interface Rule {
@@ -81,6 +82,11 @@ const hasFirstPerformance: Rule = {
   label: "첫 성과(first_gmv) 없음",
   test: (c) => c.hasFirstPerformance,
 };
+const hasSentProposal: Rule = {
+  key: "hasSentProposal",
+  label: "제안서 발송 기록 없음",
+  test: (c) => c.hasSentProposal,
+};
 
 function assigned(field: keyof Brand, label: string): Rule {
   return { key: `assigned:${String(field)}`, label, test: (c) => Boolean(c.brand[field]) };
@@ -93,8 +99,8 @@ export const GATES: Record<string, Rule[]> = {
   "lead_new→meeting": [hasContact, hasEmailOrPhone, hasSource, assigned("owner_intake", "유입담당 미지정")],
   "seminar→meeting": [hasContact, assigned("owner_intake", "유입담당 미지정")],
   "meeting→contact": [hasMeetingNote, assigned("owner_sales", "영업담당 미지정"), hasDiagnosis],
-  "contact→contract_review": [hasContractType, hasPlan],
-  "contact→contract_done": [hasContractType, hasPlan, paymentConfirmed],
+  "contact→contract_review": [hasContractType, hasPlan, hasSentProposal],
+  "contact→contract_done": [hasContractType, hasPlan, hasSentProposal, paymentConfirmed],
   "contract_review→contract_done": [paymentConfirmed],
   "contract_done→docs": [assigned("owner_onboard", "온보딩담당 미지정"), docTemplateCreated],
   "docs→setup": [allDocsDone, hasBizNo],
@@ -121,7 +127,7 @@ export function evaluateGate(from: State, to: State, ctx: GateContext): GateResu
 
 /** DB 에서 GateContext 조립. */
 export async function buildGateContext(brand: Brand): Promise<GateContext> {
-  const [meetingNote, manualPay, docStats, firstPerf] = await Promise.all([
+  const [meetingNote, manualPay, docStats, firstPerf, sentProposal] = await Promise.all([
     queryOne<{ n: string }>(
       `SELECT count(*)::text n FROM brand_sources
         WHERE brand_id=$1 AND event='contact_logged'
@@ -138,6 +144,11 @@ export async function buildGateContext(brand: Brand): Promise<GateContext> {
       `SELECT count(*)::text n FROM brand_signals WHERE brand_id=$1 AND metric='first_gmv'`,
       [brand.id],
     ),
+    // proposals 테이블(0004/0007) 없거나 미적용 DB 방어 → 0
+    queryOne<{ n: string }>(
+      `SELECT count(*)::text n FROM proposals WHERE brand_id=$1 AND status='sent'`,
+      [brand.id],
+    ).catch(() => ({ n: "0" })),
   ]);
 
   const total = Number(docStats?.total ?? 0);
@@ -155,6 +166,7 @@ export async function buildGateContext(brand: Brand): Promise<GateContext> {
     docTemplateCreated: total > 0,
     allDocsDone: total > 0 && done === total,
     hasFirstPerformance: Number(firstPerf?.n ?? 0) > 0,
+    hasSentProposal: Number(sentProposal?.n ?? 0) > 0,
   };
 }
 
