@@ -44,6 +44,16 @@ export async function seedDemo(force = false): Promise<{ seeded: boolean; brands
 
     await client.query("BEGIN");
 
+    // force 재적재: 기존 데모(is_test) 브랜드 제거 → CASCADE 로 연결 데이터 정리(운영 데이터 무영향).
+    if (force) {
+      await client.query("DELETE FROM brands WHERE is_test=true");
+      // 전역 데모(브랜드 무관) 정리: QnA·발송·브랜드무관 결재
+      await client.query("DELETE FROM qna_entries WHERE question LIKE '%FDA%' OR question LIKE '%정산은%' OR question LIKE '%시딩 크리에이터%' OR question LIKE '%멀티몰 플랜%'").catch(() => {});
+      await client.query("DELETE FROM bulk_sends WHERE title IN ('여름 세미나 리드 재접촉','운영중 국가추가 제안')").catch(() => {});
+      await client.query("DELETE FROM approval_requests WHERE requested_by IN ('demo_kim','demo_park','demo_lee','demo_choi') AND brand_id IS NULL").catch(() => {});
+      await client.query("DELETE FROM meetings WHERE zoom_uuid LIKE 'demo-%'").catch(() => {}); // brand SET NULL 방어
+    }
+
     // 스태프
     for (const s of STAFF) {
       await client.query(
@@ -219,6 +229,61 @@ async function seedBrandChildren(c: PoolClient, bid: string, b: DemoBrand, month
     `INSERT INTO assets (brand_id, kind, filename, external_url, source)
      VALUES ($1,'brand_intro',$2,'https://drive.google.com/demo','drive')`,
     [bid, `${b.name}_브랜드소개서.pdf`]);
+
+  // ── 심화 더미(플로우·전 화면 데이터) ─────────────────────────
+  const site = b.contract === "onboarding" ? "apply" : "glovek";
+  // 유입 소스(칩) + 상태 이력(타임라인)
+  await c.query(
+    `INSERT INTO brand_sources (brand_id, site, event, source_ref, payload, occurred_at)
+     VALUES ($1,$2,'lead',$3,'{}', now() - interval '20 days') ON CONFLICT (site,event,source_ref) DO NOTHING`,
+    [bid, site, `demo-${bid.slice(0, 8)}`]).catch(() => {});
+  await c.query(
+    `INSERT INTO stage_history (brand_id, from_state, to_state, actor, gate_passed, reason, at)
+     VALUES ($1,'lead_new',$2,'demo:seed',true,'데모 전이', now() - interval '14 days')`,
+    [bid, b.state]).catch(() => {});
+
+  // SLA 위반 알림(모니터·보드 ⚠) — 일부 단계
+  if (["contact", "docs"].includes(b.state)) {
+    await c.query(`INSERT INTO alerts (brand_id, kind, tier, message) VALUES ($1,'sla_breach',2,$2)`,
+      [bid, `${b.name} · ${b.state} 단계 SLA 초과(데모)`]).catch(() => {});
+  }
+  // 공개신호 est_gmv(인사이트·브리프) — 운영중
+  if (["live_mall", "live_onboarding", "settling"].includes(b.state)) {
+    await c.query(
+      `INSERT INTO brand_signals (brand_id, source, metric, value_num, confidence) VALUES ($1,'glovek_crawler','est_gmv',$2,'high')`,
+      [bid, 8_000_000 + b.name.length * 100000]).catch(() => {});
+  }
+  // 수기 결제(결제 화면)
+  if (b.pay === "once_paid" || b.pay === "subscribed") {
+    await c.query(
+      `INSERT INTO payments_manual (brand_id, plan, amount, method, paid_at) VALUES ($1,$2,$3,'card', now() - interval '10 days')`,
+      [bid, b.plan ?? "live_focus_490k", b.pay === "once_paid" ? 5_000_000 : 490_000]).catch(() => {});
+  }
+  // 서류 체크리스트(온보딩·docs→setup 게이트)
+  if (["docs", "setup", "live_mall", "live_onboarding", "settling"].includes(b.state)) {
+    const tmpl = b.contract === "onboarding" ? "onboarding" : "mall";
+    const doneAll = ["setup", "live_mall", "live_onboarding", "settling"].includes(b.state);
+    for (const [k, l] of [["biz_reg", "사업자등록증"], ["gmail", "구글 계정"], ["logistics", "물류 계약"]] as const) {
+      await c.query(
+        `INSERT INTO doc_items (brand_id, template, item_key, label, done) VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (brand_id, item_key) DO NOTHING`,
+        [bid, tmpl, k, l, doneAll]).catch(() => {});
+    }
+  }
+  // 회사정보(회사정보 탭) — 계약 이후
+  if (b.contract) {
+    await c.query(
+      `INSERT INTO brand_company (brand_id, company_name_kr, rep_name, biz_category, tax_email, tax_cycle, bank_name, bank_holder, bank_verified)
+       VALUES ($1,$2,$3,'도소매/화장품',$4,'monthly','국민은행',$5,true) ON CONFLICT (brand_id) DO NOTHING`,
+      [bid, `${b.name} 주식회사`, `${b.name} 대표`, `tax@${romanize(b.name)}.co.kr`, `${b.name} 주식회사`]).catch(() => {});
+  }
+  // 재고 입고(재고 탭) — 운영중
+  if (["live_mall", "settling"].includes(b.state)) {
+    await c.query(
+      `INSERT INTO inventory_intakes (brand_id, country, qty, status, tracking_no, arrived_at)
+       VALUES ($1,$2,500,'stocked',$3, current_date - 5)`,
+      [bid, countryCode(b.countries[0] ?? "미국"), "TRK" + randDigits(8)]).catch(() => {});
+  }
 
   // 이메일 스레드 (수집 메일 — 미팅 이후)
   if (!["lead_new", "seminar", "dropped"].includes(b.state)) {

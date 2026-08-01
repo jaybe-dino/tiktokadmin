@@ -10,8 +10,18 @@ const ROLE_TO_TEAM_PART: Record<OwnerField, string> = {
   owner_intake: "intake", owner_sales: "sales", owner_onboard: "onboard", owner_ads: "ads",
 };
 
+// SQL 컬럼 위치 보간 전 화이트리스트 검증(인젝션 방어). 유효 owner 컬럼만 허용.
+const VALID_OWNER_FIELDS: OwnerField[] = ["owner_intake", "owner_sales", "owner_onboard", "owner_ads"];
+function assertOwnerField(role: string): OwnerField {
+  if (!VALID_OWNER_FIELDS.includes(role as OwnerField)) {
+    throw new Error(`invalid owner field: ${role}`);
+  }
+  return role as OwnerField;
+}
+
 /** 역할별 후보 3명 + 부하. 산정: 같은 카테고리 경험, 현재 커버 수, SLA 위반 수. */
-export async function suggestAssignee(brandId: string, role: OwnerField): Promise<Candidate[]> {
+export async function suggestAssignee(brandId: string, roleInput: OwnerField): Promise<Candidate[]> {
+  const role = assertOwnerField(roleInput);
   const brand = await queryOne<{ category: string }>("SELECT category FROM brands WHERE id=$1", [brandId]);
   const part = ROLE_TO_TEAM_PART[role];
 
@@ -80,7 +90,7 @@ export async function logAssignment(input: {
 /** 미배정 브랜드 큐 (09-B-2). */
 export async function listUnassigned(role?: OwnerField): Promise<{ id: string; brand_name: string; state: string; category: string; grade: string | null }[]> {
   const roleFilter = role
-    ? `${role} IS NULL`
+    ? `${assertOwnerField(role)} IS NULL`
     : `(owner_intake IS NULL OR owner_sales IS NULL OR owner_onboard IS NULL OR owner_ads IS NULL)`;
   return query(
     `SELECT id, brand_name, state, category, grade FROM brands

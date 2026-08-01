@@ -12,8 +12,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/portal/login?error=expired", req.url));
   }
   const res = NextResponse.redirect(new URL("/portal", req.url));
+  // path:"/" 로 설정해야 /portal 페이지와 /api/portal/* 라우트 모두에 쿠키가 전송된다.
   res.cookies.set(portalCookieName(), sessionToken, {
-    httpOnly: true, secure: true, sameSite: "lax", path: "/portal", maxAge: 60 * 60 * 24 * 14,
+    httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 14,
   });
   return res;
 }
