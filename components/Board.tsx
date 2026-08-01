@@ -19,6 +19,14 @@ const DOT: Record<string, string> = {
   live_mall: "#9333ea", live_onboarding: "#9333ea", settling: "#0d9488",
 };
 
+function daysSince(iso: string): number {
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return Math.max(0, d);
+}
+function initials(name: string): string {
+  return name.replace(/@.*/, "").slice(0, 2);
+}
+
 export default function Board({ cards: propCards }: { cards: BoardCard[] }) {
   const router = useRouter();
   const [cards, setCards] = useState(propCards);
@@ -84,29 +92,31 @@ export default function Board({ cards: propCards }: { cards: BoardCard[] }) {
                 </span>
               </h4>
               <div className="min-h-[60px]">
-                {list.map((c) => (
-                  <div
-                    key={c.id}
-                    draggable
-                    onDragStart={() => setDragId(c.id)}
-                    className="kcard"
-                    style={c.has_breach ? { borderColor: "#fca5a5" } : undefined}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <Link href={`/brand/${c.id}`} className="font-bold text-[12.5px] truncate hover:underline">
-                        {c.brand_name}
-                      </Link>
-                      {c.grade && <span className={`gr gr-${c.grade}`}>{c.grade}</span>}
+                {list.map((c) => {
+                  const owner = c.owners_display?.split(",")[0]?.trim() ?? "";
+                  const days = daysSince(c.stage_entered_at);
+                  return (
+                    <div
+                      key={c.id}
+                      draggable
+                      onDragStart={() => setDragId(c.id)}
+                      className="kcard"
+                      style={c.has_breach ? { borderColor: "#fca5a5" } : undefined}
+                    >
+                      <div className="nm">
+                        <Link href={`/brand/${c.id}`} className="truncate hover:underline">{c.brand_name}</Link>
+                        {c.grade && <span className={`gr gr-${c.grade}`}>{c.grade}</span>}
+                        {c.churn_risk === "high" && <span className="pill" style={{ background: "#fee2e2", color: "#b91c1c" }}>이탈</span>}
+                      </div>
+                      {c.next_action && <div className="mt truncate">▸ {c.next_action}</div>}
+                      <div className="ft">
+                        <span className="av" title={owner || "담당 미지정"}>{owner ? initials(owner) : "?"}</span>
+                        {c.has_breach && <span className="sla t2">SLA 초과</span>}
+                        <span className="dy">{days}일</span>
+                      </div>
                     </div>
-                    <div className="text-[11px] mt-1 truncate" style={{ color: "var(--ink3)" }}>
-                      {c.owners_display ?? "담당 미지정"}
-                    </div>
-                    {c.next_action && (
-                      <div className="text-[11px] mt-1 truncate" style={{ color: "var(--ink2)" }}>▸ {c.next_action}</div>
-                    )}
-                    {c.has_breach && <div className="text-[11px] font-bold mt-1 text-bad">SLA 초과</div>}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
