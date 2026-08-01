@@ -104,6 +104,12 @@ export const env = {
     get saKeyJson() { return opt("GOOGLE_SA_KEY_JSON"); },
     get pubsubTopic() { return opt("GMAIL_PUBSUB_TOPIC"); },
   },
+  aligo: {
+    get apiKey() { return opt("ALIGO_API_KEY"); },
+    get userId() { return opt("ALIGO_USER_ID"); },
+    get sender() { return opt("ALIGO_SENDER"); },        // 사전등록 발신번호
+    get testMode() { return opt("ALIGO_TEST_MODE").toUpperCase() === "Y"; },
+  },
 };
 
 /** Slack 채널 key → 실제 채널 ID 매핑 (05 라우팅) */

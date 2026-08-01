@@ -1,5 +1,7 @@
 import ScreenHeader from "@/components/ScreenHeader";
 import { allBulkSends } from "@/lib/repo/global";
+import { smsRemain } from "@/lib/sms";
+import SmsSender from "@/components/SmsSender";
 
 export const dynamic = "force-dynamic";
 
@@ -12,10 +14,22 @@ const ST: Record<string, { ko: string; c: string }> = {
 
 export default async function SendPage() {
   const rows = (await allBulkSends().catch(() => [])) as Record<string, unknown>[];
+  const remain = await smsRemain().catch(() => ({ ok: false, message: "" as string }));
   return (
     <div>
       <ScreenHeader title="발송 센터" desc="대량·개별 메일/문자 — 수신동의 자동 필터 · 발송 후 카드 기록" />
-      <div className="card overflow-x-auto">
+
+      <div className="grid gap-3.5 mb-4" style={{ gridTemplateColumns: "1fr 340px" }}>
+        <div>
+          {remain.ok && (
+            <div className="grid grid-cols-3 gap-3.5 mb-3.5">
+              <div className="tile"><div className="tile-k">SMS 잔여</div><div className="tile-v">{(remain as { sms?: number }).sms ?? 0}</div></div>
+              <div className="tile"><div className="tile-k">LMS 잔여</div><div className="tile-v">{(remain as { lms?: number }).lms ?? 0}</div></div>
+              <div className="tile"><div className="tile-k">MMS 잔여</div><div className="tile-v">{(remain as { mms?: number }).mms ?? 0}</div></div>
+            </div>
+          )}
+          {!remain.ok && <div className="note mb-3.5">Aligo 문자 잔여건수 미표시 — ALIGO_API_KEY·ALIGO_USER_ID·ALIGO_SENDER 환경변수 설정 후 표시됩니다.</div>}
+          <div className="card overflow-x-auto">
         <table className="t">
           <thead><tr><th>제목</th><th>대상</th><th>채널</th><th>진행</th><th>상태</th></tr></thead>
           <tbody>
@@ -30,7 +44,10 @@ export default async function SendPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+            </table>
+          </div>
+        </div>
+        <SmsSender />
       </div>
     </div>
   );

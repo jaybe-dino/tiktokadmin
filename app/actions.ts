@@ -513,3 +513,36 @@ export async function discardDraftAction(id: string): Promise<ActionResult> {
   revalidatePath("/drafts");
   return { ok: true };
 }
+
+// ═══ 문자 발송 (Aligo SMS) ═════════════════════════════════════
+import { sendSms } from "@/lib/sms";
+import { canSend } from "@/lib/lifecycle";
+
+export async function sendSmsAction(input: {
+  brand_id?: string; receiver: string; msg: string; kind?: string; test?: boolean;
+}): Promise<ActionResult & { msgId?: string; type?: string }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  if (!input.receiver?.trim() || !input.msg?.trim()) return { ok: false, error: "수신번호·내용 필수" };
+
+  // 광고성 문자는 수신동의 게이트(17 §5)
+  if (input.brand_id && input.kind) {
+    const gate = await canSend(input.brand_id, input.kind);
+    if (!gate.ok) return { ok: false, error: gate.reason };
+  }
+
+  const res = await sendSms({ receiver: input.receiver, msg: input.msg, testmode: input.test });
+  if (!res.ok) return { ok: false, error: res.message };
+
+  // 발송 기록: contact_logged(sms) + last_contact_at
+  if (input.brand_id) {
+    const { query } = await import("@/lib/db");
+    await query(
+      `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
+       VALUES ($1,'admin','contact_logged',$2,now())`,
+      [input.brand_id, JSON.stringify({ channel: "sms", kind: input.kind ?? "manual", msg_id: res.msgId })],
+    ).catch(() => {});
+    await query("UPDATE brands SET last_contact_at=now() WHERE id=$1", [input.brand_id]).catch(() => {});
+  }
+  return { ok: true, msgId: res.msgId, type: res.type };
+}
