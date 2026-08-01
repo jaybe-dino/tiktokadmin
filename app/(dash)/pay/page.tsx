@@ -1,81 +1,123 @@
 import Link from "next/link";
+import ScreenHeader, { won } from "@/components/ScreenHeader";
 import { payData } from "@/lib/repo/queries";
 
 export const dynamic = "force-dynamic";
 
-function won(n: number): string {
-  return `₩${Math.round(n).toLocaleString()}`;
+function SubStatus({ status }: { status: string }) {
+  if (status === "past_due") return <span className="chip chip-red">연체</span>;
+  if (status === "subscribed" || status === "active") return <span className="chip chip-grn">유효</span>;
+  if (status === "canceled") return <span className="chip">해지</span>;
+  return <span className="chip chip-amb">{status}</span>;
 }
 
 export default async function PayPage() {
-  const d = await payData();
+  const d = await payData().catch(() => ({
+    activeSubs: 0,
+    pastDue: 0,
+    mrr: 0,
+    onetimeThisMonth: 0,
+    subs: [] as Awaited<ReturnType<typeof payData>>["subs"],
+    onetime: [] as Awaited<ReturnType<typeof payData>>["onetime"],
+  }));
 
   return (
-    <div className="max-w-5xl">
-      <h1 className="text-2xl font-extrabold mb-4">결제·정산</h1>
+    <div>
+      <ScreenHeader
+        title="결제 현황"
+        desc="카드결제(온보딩·개런티·구독)는 glovek 수납 → 웹훅 자동 확인 · 계좌이체·수기는 여기서 확인"
+      />
 
+      {/* 상단 스탯 타일 4개 */}
       <div className="grid grid-cols-4 gap-3 mb-4">
-        <Kpi label="정기 MRR" value={won(d.mrr)} />
-        <Kpi label="활성 구독" value={`${d.activeSubs}`} />
-        <Kpi label="past_due" value={`${d.pastDue}`} bad={d.pastDue > 0} />
-        <Kpi label="이번달 일회·수기" value={won(d.onetimeThisMonth)} />
+        <div className="tile">
+          <div className="tile-k">활성 구독</div>
+          <div className="tile-v">{d.activeSubs}<small style={{ fontSize: 13, fontWeight: 600, color: "var(--ink3)" }}> 건</small></div>
+        </div>
+        <div className={`tile${d.pastDue > 0 ? " alert" : ""}`}>
+          <div className="tile-k">연체 (past_due)</div>
+          <div className="tile-v" style={d.pastDue > 0 ? { color: "var(--danger)" } : undefined}>
+            {d.pastDue}<small style={{ fontSize: 13, fontWeight: 600, color: "var(--ink3)" }}> 건</small>
+          </div>
+        </div>
+        <div className="tile">
+          <div className="tile-k">정기 MRR</div>
+          <div className="tile-v">{won(d.mrr)}</div>
+        </div>
+        <div className="tile">
+          <div className="tile-k">이번 달 일회·수기</div>
+          <div className="tile-v">{won(d.onetimeThisMonth)}</div>
+        </div>
       </div>
 
-      <section className="card p-4 mb-4">
-        <h2 className="font-bold mb-2">구독 (정기)</h2>
-        <table className="w-full text-sm">
+      {/* 구독 (정기) 테이블 */}
+      <div className="card mb-4">
+        <div className="card-hd"><b>구독 (정기)</b></div>
+        <table className="t">
           <thead>
-            <tr className="text-left text-muted text-xs border-b border-[#efe6ee]">
-              <th className="py-2">브랜드</th><th>플랜</th><th>금액</th><th>다음결제</th><th>실패</th><th>상태</th>
+            <tr>
+              <th>브랜드</th>
+              <th>플랜</th>
+              <th>금액</th>
+              <th>상태</th>
+              <th>다음 결제</th>
+              <th>실패</th>
             </tr>
           </thead>
           <tbody>
-            {d.subs.length === 0 && <tr><td colSpan={6} className="py-3 text-muted">구독 없음</td></tr>}
+            {d.subs.length === 0 && (
+              <tr><td colSpan={6} style={{ color: "var(--ink3)" }}>구독 없음</td></tr>
+            )}
             {d.subs.map((s, i) => (
-              <tr key={i} className={`border-b border-[#f6eef4] ${s.status === "past_due" ? "bg-red-50" : ""}`}>
-                <td className="py-2"><Link href={`/brand/${s.brand_id}`} className="font-semibold hover:text-pink">{s.brand_name}</Link></td>
+              <tr key={i}>
+                <td>
+                  <Link href={`/brand/${s.brand_id}`}><b>{s.brand_name}</b></Link>
+                </td>
                 <td>{s.plan ?? "—"}</td>
-                <td>{s.amount ? won(s.amount) : "—"}</td>
-                <td className="text-xs">{s.next_charge_at?.slice(0, 10) ?? "—"}</td>
-                <td>{s.failures ?? 0}</td>
-                <td>{s.status}</td>
+                <td>{s.amount != null ? won(s.amount) : "—"}</td>
+                <td><SubStatus status={s.status} /></td>
+                <td>{s.next_charge_at ? s.next_charge_at.slice(0, 10) : "—"}</td>
+                <td style={(s.failures ?? 0) > 0 ? { color: "var(--danger)", fontWeight: 700 } : undefined}>
+                  {s.failures ?? 0}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </section>
+      </div>
 
-      <section className="card p-4">
-        <h2 className="font-bold mb-2">일회·수기 결제</h2>
-        <table className="w-full text-sm">
+      {/* 일회·수기 결제 테이블 */}
+      <div className="card">
+        <div className="card-hd"><b>일회·수기 결제</b></div>
+        <table className="t">
           <thead>
-            <tr className="text-left text-muted text-xs border-b border-[#efe6ee]">
-              <th className="py-2">브랜드</th><th>플랜</th><th>금액</th><th>일자</th><th>구분</th>
+            <tr>
+              <th>브랜드</th>
+              <th>플랜</th>
+              <th>금액</th>
+              <th>결제일</th>
+              <th>구분</th>
             </tr>
           </thead>
           <tbody>
-            {d.onetime.length === 0 && <tr><td colSpan={5} className="py-3 text-muted">없음</td></tr>}
+            {d.onetime.length === 0 && (
+              <tr><td colSpan={5} style={{ color: "var(--ink3)" }}>없음</td></tr>
+            )}
             {d.onetime.map((o, i) => (
-              <tr key={i} className="border-b border-[#f6eef4]">
-                <td className="py-2 font-semibold">{o.brand_name}</td>
+              <tr key={i}>
+                <td><b>{o.brand_name}</b></td>
                 <td>{o.plan}</td>
                 <td>{won(o.amount)}</td>
-                <td className="text-xs">{o.paid_at}</td>
-                <td>{o.plan === "guarantee_1m" ? <span className="pill bg-amber-100 text-amber-700">수기</span> : o.kind}</td>
+                <td>{o.paid_at ? String(o.paid_at).slice(0, 10) : "—"}</td>
+                <td><span className="chip chip-amb">수기</span></td>
               </tr>
             ))}
           </tbody>
         </table>
-      </section>
-    </div>
-  );
-}
-
-function Kpi({ label, value, bad }: { label: string; value: string; bad?: boolean }) {
-  return (
-    <div className="card p-4">
-      <div className="text-xs text-muted">{label}</div>
-      <div className={`text-xl font-extrabold mt-1 ${bad ? "text-bad" : ""}`}>{value}</div>
+        <div className="note" style={{ margin: "0 16px 14px" }}>
+          카드는 glovek 수납 · 계좌이체·수기는 여기서 확인 — 미결제 3일 시 리마인더 자동
+        </div>
+      </div>
     </div>
   );
 }

@@ -220,6 +220,26 @@ async function seedBrandChildren(c: PoolClient, bid: string, b: DemoBrand, month
      VALUES ($1,'brand_intro',$2,'https://drive.google.com/demo','drive')`,
     [bid, `${b.name}_브랜드소개서.pdf`]);
 
+  // 이메일 스레드 (수집 메일 — 미팅 이후)
+  if (!["lead_new", "seminar", "dropped"].includes(b.state)) {
+    const thread = `thread_demo_${randDigits(10)}`;
+    const owner = "kim@dinostudio.kr";
+    const brandEmail = `${romanize(b.name)}@example.com`;
+    await c.query(
+      `INSERT INTO email_messages (brand_id, gmail_msg_id, thread_id, direction, owner_email, from_addr, to_addrs, subject, snippet, sent_at)
+       VALUES ($1,$2,$3,'out',$4,$4,$5,$6,$7, now() - interval '5 days')`,
+      [bid, `msg_${randDigits(14)}`, thread, owner, [brandEmail],
+       `[GloveK] ${b.name} 진행 안내`, "안녕하세요, 논의된 제안 관련 자료 보내드립니다..."]);
+    // 절반은 브랜드 회신(in) 있음
+    if (b.name.length % 2 === 0) {
+      await c.query(
+        `INSERT INTO email_messages (brand_id, gmail_msg_id, thread_id, direction, owner_email, from_addr, to_addrs, subject, snippet, sent_at)
+         VALUES ($1,$2,$3,'in',$4,$5,$6,$7,$8, now() - interval '3 days')`,
+        [bid, `msg_${randDigits(14)}`, thread, owner, brandEmail, [owner],
+         `RE: [GloveK] ${b.name} 진행 안내`, "확인했습니다. 다음 주 미팅 가능합니다."]);
+    }
+  }
+
   // 팔로업 초안 (미팅 이후 일부)
   if (["meeting", "contact"].includes(b.state)) {
     await c.query(
