@@ -109,6 +109,7 @@ export const env = {
     get userId() { return opt("ALIGO_USER_ID"); },
     get sender() { return opt("ALIGO_SENDER"); },        // 사전등록 발신번호
     get testMode() { return opt("ALIGO_TEST_MODE").toUpperCase() === "Y"; },
+    get proxyUrl() { return opt("ALIGO_PROXY_URL"); },    // 고정 IP 프록시(선택) — Aligo 발송IP 등록용
   },
 };
 

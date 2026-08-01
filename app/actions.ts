@@ -546,3 +546,15 @@ export async function sendSmsAction(input: {
   }
   return { ok: true, msgId: res.msgId, type: res.type };
 }
+
+// ═══ 대화맥락 기반 AI 메일 초안 ═══════════════════════════════
+import { draftContextualEmail } from "@/lib/email-compose";
+
+export async function composeEmailAction(brandId: string, intent?: string): Promise<ActionResult & { subject?: string }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const r = await draftContextualEmail(brandId, intent);
+  revalidatePath(`/brand/${brandId}`);
+  revalidatePath("/drafts");
+  return { ok: r.ok, error: r.error, subject: r.subject };
+}

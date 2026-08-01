@@ -4,6 +4,7 @@ import Brand360Actions from "@/components/Brand360Actions";
 import CustomerDetail from "@/components/CustomerDetail";
 import CustomerEmails from "@/components/CustomerEmails";
 import CardTabs from "@/components/CardTabs";
+import ComposeEmailButton from "@/components/ComposeEmailButton";
 import { cardDeep } from "@/lib/repo/card";
 import { listBrandEmails } from "@/lib/email-link";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge, TierBadge } from "@/components/badges";
@@ -251,6 +252,9 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
           {/* 고객 이메일 — 담당자 관련 메일 연동 */}
           <CustomerEmails brandId={brand.id} emails={emails} />
+
+          {/* 대화맥락 기반 AI 메일 초안 */}
+          <ComposeEmailButton brandId={brand.id} />
 
           {/* 결제 */}
           <section className="card">

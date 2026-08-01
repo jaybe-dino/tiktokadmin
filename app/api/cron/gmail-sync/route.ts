@@ -12,19 +12,15 @@ export async function POST(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let synced = 0;
+  let accounts = 0;
   const gmailEnabled = Boolean(env.gmail.saKeyJson);
   if (gmailEnabled) {
-    // TODO: 서비스계정 impersonate → gmail_sync_enabled 계정별 history.list 증분 수집
-    //   → matchBrandByAddresses → ingestEmailMessage. (도메인 위임 승인 후 활성화)
-    synced = await syncViaGmail();
+    const { syncAllMailboxes } = await import("@/lib/gmail-client");
+    const r = await syncAllMailboxes().catch(() => ({ accounts: 0, saved: 0 }));
+    synced = r.saved; accounts = r.accounts;
   }
 
   const noReply = await detectNoReply(3);
-  return NextResponse.json({ ok: true, gmailEnabled, synced, noReplyAlerts: noReply });
+  return NextResponse.json({ ok: true, gmailEnabled, accounts, synced, noReplyAlerts: noReply });
 }
 export const GET = POST;
-
-// 도메인 위임 승인 전까지는 no-op. 승인 후 googleapis 클라이언트로 교체.
-async function syncViaGmail(): Promise<number> {
-  return 0;
-}

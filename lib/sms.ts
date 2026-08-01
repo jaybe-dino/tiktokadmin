@@ -33,6 +33,20 @@ function aligoConfigured(): boolean {
   return Boolean(env.aligo.apiKey && env.aligo.userId && env.aligo.sender);
 }
 
+// 고정 IP 프록시(ALIGO_PROXY_URL) 설정 시 그 프록시로 발송 → Aligo 발송IP 고정.
+//   미설정이면 일반 fetch(Vercel 동적 IP). undici 없으면 조용히 일반 fetch 폴백.
+async function aligoFetch(url: string, init: RequestInit): Promise<Response> {
+  const proxy = env.aligo.proxyUrl;
+  if (!proxy) return fetch(url, init);
+  try {
+    const { ProxyAgent } = await import("undici");
+    const dispatcher = new ProxyAgent(proxy);
+    return fetch(url, { ...init, dispatcher } as RequestInit);
+  } catch {
+    return fetch(url, init);
+  }
+}
+
 /**
  * 단건/동일 메시지 발송. receiver 는 콤마 구분(최대 1,000).
  *   testmode 는 인자 > env(ALIGO_TEST_MODE) 순. 미설정 시 실발송.
