@@ -48,17 +48,40 @@ async function runMigrations() {
   return { applied, skipped };
 }
 
+// 허용 이메일(env)을 exec 관리자로 시드 + 초기 비밀번호(ADMIN_BOOTSTRAP_PASSWORD) 설정.
+//   비밀번호 미설정 계정에만 초기 비번을 넣어 최초 로그인 가능하게 함(기존 비번은 보존).
+async function ensureAdmins() {
+  const emails = env.allowedEmails;
+  const initPw = process.env.ADMIN_BOOTSTRAP_PASSWORD || "";
+  const { query, queryOne } = await import("@/lib/db");
+  const { setPassword } = await import("@/lib/auth");
+  const seeded: string[] = [], pwset: string[] = [];
+  for (const email of emails) {
+    await query(
+      `INSERT INTO admin_users (id, name, role, active) VALUES ($1,$2,'exec',true)
+       ON CONFLICT (id) DO NOTHING`, [email, email.split("@")[0]]).catch(() => {});
+    seeded.push(email);
+    if (initPw.length >= 6) {
+      const u = await queryOne<{ password_hash: string | null }>(
+        "SELECT password_hash FROM admin_users WHERE id=$1", [email]).catch(() => null);
+      if (u && !u.password_hash) { await setPassword(email, initPw); pwset.push(email); }
+    }
+  }
+  return { seeded, passwordsSet: pwset, note: initPw ? undefined : "ADMIN_BOOTSTRAP_PASSWORD 미설정 — 비번은 /settings 에서 지정" };
+}
+
 export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ error: "unauthorized — CRON_SECRET 확인(Vercel 환경변수)" }, { status: 401 });
   }
   try {
     const migrate = await runMigrations();
+    const admins = await ensureAdmins();
     let seed: unknown = { skipped: true };
     if (req.nextUrl.searchParams.get("seed") !== "0") {
       seed = await seedDemo(req.nextUrl.searchParams.get("force") === "1");
     }
-    return NextResponse.json({ ok: true, migrate, seed });
+    return NextResponse.json({ ok: true, migrate, admins, seed });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

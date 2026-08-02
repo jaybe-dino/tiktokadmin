@@ -133,13 +133,16 @@ export function AdminUserForm() {
       onSubmit={async (e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
+        const pw = String(f.get("password") || "");
         const res = await upsertAdminUserAction({
           id: String(f.get("id")),
           name: String(f.get("name")),
           role: String(f.get("role")),
           slack_user_id: String(f.get("slack_user_id")) || undefined,
+          password: pw || undefined,
         });
         setMsg(res.ok ? "저장됨" : res.error || "실패");
+        (e.currentTarget as HTMLFormElement).reset();
         router.refresh();
       }}
     >
@@ -151,6 +154,7 @@ export function AdminUserForm() {
         ))}
       </select>
       <input name="slack_user_id" className="input" placeholder="Slack User ID (선택)" />
+      <input name="password" type="password" className="input col-span-2" placeholder="초기 비밀번호(6자+, 신규 계정 로그인용)" minLength={6} />
       <button className="btn btn-primary col-span-2" type="submit">추가/수정</button>
       {msg && <span className="text-xs text-muted col-span-2">{msg}</span>}
     </form>

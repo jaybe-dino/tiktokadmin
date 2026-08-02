@@ -1,6 +1,6 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual, randomBytes, scryptSync } from "node:crypto";
 import { cookies } from "next/headers";
-import { queryOne } from "./db";
+import { queryOne, query } from "./db";
 import { env } from "./env";
 import type { Role } from "./types";
 
@@ -35,6 +35,45 @@ export function verifySessionValue(value: string): string | null {
 
 export function isAllowed(email: string): boolean {
   return env.allowedEmails.includes(email.trim().toLowerCase());
+}
+
+// ── 비밀번호 (scrypt) ─────────────────────────────────────────
+// 저장 형식: scrypt$<saltHex>$<hashHex>. 평문·복호화 저장 없음.
+export function hashPassword(pw: string): string {
+  const salt = randomBytes(16);
+  const hash = scryptSync(pw, salt, 64);
+  return `scrypt$${salt.toString("hex")}$${hash.toString("hex")}`;
+}
+
+export function verifyPassword(pw: string, stored: string | null | undefined): boolean {
+  if (!stored) return false;
+  const [scheme, saltHex, hashHex] = stored.split("$");
+  if (scheme !== "scrypt" || !saltHex || !hashHex) return false;
+  try {
+    const expected = Buffer.from(hashHex, "hex");
+    const actual = scryptSync(pw, Buffer.from(saltHex, "hex"), expected.length);
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  } catch {
+    return false;
+  }
+}
+
+/** 로그인 검증: admin_users 조회 + 활성 + 비밀번호 일치. 성공 시 이메일 반환. */
+export async function verifyLogin(email: string, password: string): Promise<{ ok: boolean; reason?: string }> {
+  const e = email.trim().toLowerCase();
+  const u = await queryOne<{ password_hash: string | null; active: boolean }>(
+    "SELECT password_hash, active FROM admin_users WHERE id=$1", [e]).catch(() => null);
+  if (!u) return { ok: false, reason: "등록되지 않은 계정입니다." };
+  if (!u.active) return { ok: false, reason: "비활성 계정입니다." };
+  if (!u.password_hash) return { ok: false, reason: "비밀번호가 설정되지 않았습니다. 관리자에게 초기 비밀번호를 요청하세요." };
+  if (!verifyPassword(password, u.password_hash)) return { ok: false, reason: "이메일 또는 비밀번호가 올바르지 않습니다." };
+  return { ok: true };
+}
+
+/** 비밀번호 설정/변경 (해시 저장). */
+export async function setPassword(email: string, password: string): Promise<void> {
+  await query("UPDATE admin_users SET password_hash=$2, password_set_at=now() WHERE id=$1",
+    [email.trim().toLowerCase(), hashPassword(password)]);
 }
 
 export interface AdminUser {

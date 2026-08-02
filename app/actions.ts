@@ -352,7 +352,7 @@ export async function deleteRequirementAction(id: string): Promise<ActionResult>
 }
 
 export async function upsertAdminUserAction(input: {
-  id: string; name: string; role: string; slack_user_id?: string;
+  id: string; name: string; role: string; slack_user_id?: string; password?: string;
 }): Promise<ActionResult> {
   const a = await requireLead();
   if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
@@ -362,6 +362,25 @@ export async function upsertAdminUserAction(input: {
      ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, role=EXCLUDED.role, slack_user_id=EXCLUDED.slack_user_id`,
     [input.id.toLowerCase(), input.name, input.role, input.slack_user_id || null],
   );
+  // 비밀번호 지정 시 해시 저장(신규 계정 로그인 가능해짐)
+  if (input.password && input.password.trim().length >= 6) {
+    const { setPassword } = await import("@/lib/auth");
+    await setPassword(input.id, input.password.trim());
+  }
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+/** 비밀번호 재설정 (파트장/대표: 임의 계정 / 본인: 자기 계정). */
+export async function setPasswordAction(email: string, password: string): Promise<ActionResult> {
+  const me = await actor();
+  if (!me) return { ok: false, error: "세션 만료" };
+  const target = email.trim().toLowerCase();
+  const lead = await requireLead();
+  if (!lead && me.actor !== target) return { ok: false, error: "권한 없음 (본인 또는 파트장/대표만)" };
+  if (!password || password.trim().length < 6) return { ok: false, error: "비밀번호는 6자 이상" };
+  const { setPassword } = await import("@/lib/auth");
+  await setPassword(target, password.trim());
   revalidatePath("/settings");
   return { ok: true };
 }
