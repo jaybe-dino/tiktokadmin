@@ -22,14 +22,20 @@ export default async function BoardPage() {
 
   return (
     <div>
-      <div className="flex items-end justify-between gap-3 mb-4 flex-wrap">
+      {/* 헤더 + 필터 바 (프로토타입 .ph) */}
+      <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div>
           <h1 className="text-[19px] font-extrabold">파이프라인 보드</h1>
           <p className="text-[12.5px] mt-0.5" style={{ color: "var(--ink3)" }}>
-            카드를 드래그해 상태를 이동 · 게이트 미충족 시 반려됩니다 (활성 {active.length} · 종료 {dropped.length})
+            카드를 옮기면 게이트가 검증됩니다 — 조건 미충족이면 이동이 거부되고 부족 항목이 표시돼요. (활성 {active.length} · 종료 {dropped.length})
           </p>
         </div>
-        <Link href="/import" className="btn btn-primary">+ 브랜드 추가</Link>
+        <div className="flex gap-2 items-center flex-wrap">
+          <select className="input" style={{ width: "auto" }} defaultValue=""><option value="">전체 파트</option><option>영업</option><option>온보딩</option><option>운영</option></select>
+          <select className="input" style={{ width: "auto" }} defaultValue=""><option value="">전체 담당</option><option>내 담당만</option></select>
+          <select className="input" style={{ width: "auto" }} defaultValue=""><option value="">등급 전체</option><option>S</option><option>A</option><option>B</option><option>C</option></select>
+          <Link href="/import" className="btn btn-primary">+ 브랜드 추가</Link>
+        </div>
       </div>
       {active.length === 0 && (
         <div className="card p-6 text-center text-muted mb-4">
@@ -38,6 +44,9 @@ export default async function BoardPage() {
         </div>
       )}
       <Board cards={active} />
+      <div className="note" style={{ marginTop: 8 }}>
+        💡 <b>카드를 직접 끌어서 옮겨보세요</b> — 놓는 순간 ① 권한 검사(내 담당/파트장인가) → ② 게이트 검사(조건 충족?) 순으로 서버가 판정합니다. 미충족이면 이동이 거부되고 부족 항목+해결 바로가기가 뜹니다.
+      </div>
     </div>
   );
 }
