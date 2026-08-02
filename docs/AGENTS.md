@@ -9,7 +9,7 @@ MCP 등록 예 (Claude Code / Desktop):
 {
   "mcpServers": {
     "glovek-ops": {
-      "url": "https://admin.glovek.space/mcp",
+      "url": "https://tiktokadmin.vercel.app/mcp",
       "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
     }
   }

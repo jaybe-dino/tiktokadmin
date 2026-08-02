@@ -7,12 +7,31 @@
 
 ---
 
+## ⛔ 기존 시스템 보호 — 반드시 지킬 것 (연동 전 필독)
+
+연동은 **"이벤트 보내기"만**이다. 상태·정산·판정은 어드민이 하므로 아래를 반드시 지킬 것:
+
+| 하지 말 것 (❌) | 이유 |
+|---|---|
+| glovek 공유 DB(users·orders·payments·onboarding_applications 등)에 어드민용 컬럼·테이블 추가/수정 | 어드민이 **읽기 전용**으로만 접근 — 스키마 변경 불필요 |
+| 브랜드 state·단계·게이트·정산·pay_status 를 사이트가 계산해서 보내기 | 어드민 규칙 엔진이 판정. 사이트는 **사건(event)만** 통보 |
+| event 이름·payload 필드명·멱등키 형식 임의 변경 | dedup·역추적이 깨짐(기존 원장과 매칭 실패) |
+| 카드번호·비밀번호·신분증·서류 원본 전송 | 민감정보 — 요약 + 딥링크(source_url)만 |
+| 어드민 URL 하드코딩 | env `ADMIN_INGEST_URL` 에서 읽기(정본 `https://tiktokadmin.vercel.app`) |
+
+**✅ 지킬 것**: email/phone/biz_no 최소 하나(dedup 키) · occurred_at 은 UTC · fire-and-forget(사용자 흐름 블로킹 금지) · 재시도 1회(멱등키로 재전송 안전).
+**예외(허용)**: `diagnosis` 의 `grade`/`rec_track`/`countries` 는 glovek 산출값을 그대로 전달(어드민이 그대로 반영).
+
+---
+
 ## 0. 발급받아 넣을 값 (env)
 
 ```
-ADMIN_INGEST_URL   = https://admin.glovek.space   # 어드민 배포 URL (담당자에게 수령)
-INGEST_SECRET      = <어드민과 공유하는 시크릿>       # 어드민이 발급
+ADMIN_INGEST_URL   = https://tiktokadmin.vercel.app   # 어드민 배포 URL (정본)
+INGEST_SECRET      = <어드민과 공유하는 시크릿>          # 어드민이 발급
 ```
+> ⚠️ **URL 정본 = `https://tiktokadmin.vercel.app`** (구 안내의 `admin.glovek.space`는 폐기).
+> 반드시 **env 에서 읽고 하드코딩하지 말 것** — 커스텀 도메인 연결 시 env 값만 교체하면 됨.
 
 ---
 

@@ -46,7 +46,9 @@
 
 ## PART B — 사이트 개발자에게 줄 프롬프트 (복붙)
 
+> 📌 **아래는 빠른 요약본입니다. 개발자에게 실제로 전달할 정본은 `docs/integration/{site}.md`** (payload 전문·구현 예시·curl 테스트 포함). 값이 다르면 integration/ 문서를 따릅니다.
 > 3사이트 공통: 서버사이드에서만 호출, 사용자 응답 막지 않는 **fire-and-forget**, 실패해도 사이트 UX엔 영향 없음.
+> URL 정본: `https://tiktokadmin.vercel.app`(하드코딩 금지, env `ADMIN_INGEST_URL`).
 
 ### 공통 전송 규격 (모든 이벤트)
 ```
@@ -76,7 +78,7 @@ glovek의 리드·상담·자가진단·멀티몰 결제 이벤트를 서버사�
   6) (선택) 담당자↔고객 접촉 로그 → POST /contact_logged body{channel:"call|email|meeting", note}
 - 멱등키는 "이벤트종류:원본PK" 형식으로 안정적으로 생성. email 은 소문자, phone/biz_no 는 숫자만 보내도 됨(어드민이 정규화).
 - glovek 기존 테이블은 어드민이 읽기전용으로 접근하므로 스키마 변경 불필요. 너는 "보내기"만 구현.
-- 실패 시 재시도 큐(최대 3회, 지수백오프)만 두고 사용자 응답은 절대 지연시키지 마라.
+- 실패 시 1회 재시도(멱등키로 재전송 안전 — 필요 시 최대 3회 지수백오프) 후 로컬 로그, 사용자 응답은 절대 지연시키지 마라.
 ```
 
 ### B-2. apply.tpartners.live 개발자 프롬프트

@@ -7,12 +7,30 @@
 
 ---
 
+## ⛔ 기존 시스템 보호 — 반드시 지킬 것 (연동 전 필독)
+
+연동은 **"이벤트 보내기"만**이다. 상태·게이트·정산은 어드민이 하므로 아래를 반드시 지킬 것:
+
+| 하지 말 것 (❌) | 이유 |
+|---|---|
+| 어드민/원장 DB에 직접 쓰기 시도 | 어드민이 소유·처리. apply는 HTTP로 **event만** 전송 |
+| 브랜드 state·게이트·docs 완료율을 사이트가 판정해서 보내기 | 어드민이 step_status로 판정. 사이트는 **스텝 상태 전이만** 통보 |
+| event 이름·payload 필드명·멱등키 형식 임의 변경 | dedup·역추적이 깨짐 |
+| 서류 파일·UBO 신분증·company_reg 원본 이미지 전송 | 민감정보 — `summary` 요약 + 딥링크(source_url)만 |
+| 어드민 URL 하드코딩 | env `ADMIN_INGEST_URL`(정본 `https://tiktokadmin.vercel.app`) |
+
+**✅ 지킬 것**: email/phone/biz_no 최소 하나(SMR은 phone 필수) · occurred_at UTC · fire-and-forget · 재시도 1회.
+**예외(허용)**: `step_status` 는 `submitted`/`approved`/`rejected` 3값만, `step_no` 는 1~5 만 사용.
+
+---
+
 ## 0. 발급받아 넣을 값 (env)
 
 ```
-ADMIN_INGEST_URL = https://admin.glovek.space
+ADMIN_INGEST_URL = https://tiktokadmin.vercel.app   # 정본 (구 admin.glovek.space 폐기)
 INGEST_SECRET    = <어드민과 공유하는 시크릿>
 ```
+> ⚠️ URL은 반드시 **env 에서 읽고 하드코딩 금지**. 커스텀 도메인 연결 시 env 값만 교체.
 
 ---
 

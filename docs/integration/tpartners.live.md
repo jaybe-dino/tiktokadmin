@@ -6,12 +6,28 @@
 
 ---
 
+## ⛔ 기존 시스템 보호 — 반드시 지킬 것 (연동 전 필독)
+
+tpartners는 **리드(lead) 이벤트만** 보낸다. 어떤 상태·판정도 계산하지 말 것:
+
+| 하지 말 것 (❌) | 이유 |
+|---|---|
+| 어드민/원장 DB에 직접 접근·쓰기 | 어드민이 처리. tRPC 핸들러에서 **event만** 전송 |
+| lead 외 event(payment·doc_progress 등) 전송 | tpartners 범위는 리드 유입만 |
+| event 이름·payload 필드명·멱등키 형식 임의 변경 | dedup·역추적이 깨짐 |
+| 어드민 URL 하드코딩 | env `ADMIN_INGEST_URL`(정본 `https://tiktokadmin.vercel.app`) |
+
+**✅ 지킬 것**: email 없으면 phone만(둘 다 없으면 400) · occurred_at UTC 그대로 · fire-and-forget · 재시도 1회 · `brandName` 컬럼 폼별 의미 분리(§2-1).
+
+---
+
 ## 0. 발급받아 넣을 값 (env)
 
 ```
-ADMIN_INGEST_URL = https://admin.glovek.space
+ADMIN_INGEST_URL = https://tiktokadmin.vercel.app   # 정본 (구 admin.glovek.space 폐기)
 INGEST_SECRET    = <어드민과 공유하는 시크릿>
 ```
+> ⚠️ URL은 반드시 **env 에서 읽고 하드코딩 금지**. 커스텀 도메인 연결 시 env 값만 교체.
 
 ---
 

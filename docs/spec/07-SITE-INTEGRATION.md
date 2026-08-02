@@ -1,4 +1,8 @@
-# 07 · 사이트별 연동 지시서 — 각 사이트 Claude Code에 그대로 전달
+# 07 · 사이트별 연동 지시서 (요약 · 스펙 원문)
+
+> 🔗 **정본(개발자 전달용)은 `docs/integration/{glovek.space,apply.tpartners.live,tpartners.live}.md`** 입니다.
+> 이 문서는 스펙 요약이며, 값이 다를 경우 **integration/ 문서 + `docs/HANDOFF-연동가이드.md` 를 따릅니다.**
+> URL 정본: `https://tiktokadmin.vercel.app` · 재시도: 1회(멱등키로 안전) · 공통 규격은 02 문서 기준.
 
 > 전제: 어드민의 02(Ingest API)가 배포되어 `ADMIN_INGEST_URL`·`INGEST_SECRET`이 발급된 상태. 각 사이트 담당(또는 그 레포의 Claude Code)에 아래 해당 블록을 그대로 붙여넣는다. 공통 규격은 02 문서와 동일 — payload·멱등키를 임의 변경하지 말 것.
 
