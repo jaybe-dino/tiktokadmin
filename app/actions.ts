@@ -660,3 +660,21 @@ export async function sendWelcomeAction(brandId: string, force = false): Promise
   revalidatePath(`/brand/${brandId}`);
   return { ok: r.ok, error: r.error, sent: r.sent, skipped: r.skipped };
 }
+
+/** 테스트 발송 — 내 번호/이메일로 문자·메일을 직접 보내 연동(ALIGO·RESEND) 동작 확인. */
+export async function testNotifyAction(input: { phone?: string; email?: string }): Promise<ActionResult & { sms?: string; email?: string }> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  let sms: string | undefined, email: string | undefined;
+  if (input.phone?.trim()) {
+    const { sendSms } = await import("@/lib/sms");
+    const r = await sendSms({ receiver: input.phone.trim(), msg: "[GloveK] 테스트 문자입니다. 연동 확인용." });
+    sms = r.ok ? `✓ 발송 성공(${r.type ?? "SMS"})` : `✗ ${r.message}`;
+  }
+  if (input.email?.trim()) {
+    const { sendEmail } = await import("@/lib/mailer");
+    const r = await sendEmail({ to: input.email.trim(), subject: "[GloveK] 테스트 메일", text: "GloveK 어드민 연동 확인용 테스트 메일입니다." });
+    email = r.ok ? "✓ 발송 성공" : r.skipped ? "✗ RESEND_API_KEY 미설정" : `✗ ${r.error}`;
+  }
+  return { ok: true, sms, email };
+}

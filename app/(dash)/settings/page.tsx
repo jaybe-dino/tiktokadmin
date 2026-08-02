@@ -8,6 +8,8 @@ import { listMailboxes } from "@/lib/shared-mailboxes";
 import MailboxManager from "@/components/MailboxManager";
 import { getWelcomeConfig } from "@/lib/welcome";
 import WelcomeConfigCard from "@/components/WelcomeConfig";
+import TestNotify from "@/components/TestNotify";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +135,17 @@ export default async function SettingsPage() {
 
           {/* 회사 공용 메일함 */}
           <MailboxManager mailboxes={mailboxes} canEdit={canEdit} />
+
+          {/* 연동 상태 · 테스트 발송 */}
+          <TestNotify canEdit={canEdit} status={{
+            aligo: Boolean(env.aligo.apiKey && env.aligo.userId && env.aligo.sender),
+            aligoTest: env.aligo.testMode,
+            resend: Boolean(env.resend.apiKey),
+            anthropic: Boolean(env.anthropicKey),
+            openai: Boolean(env.openaiKey),
+            gmail: Boolean(env.gmail.saKeyJson),
+            slack: Boolean(env.slack.botToken),
+          }} />
 
           {/* 신규 리드 자동 안내 */}
           <WelcomeConfigCard config={welcomeCfg} canEdit={canEdit} />
