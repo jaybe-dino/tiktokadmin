@@ -140,10 +140,23 @@ export async function addProduct(p: {
      p.price_band ?? "", p.status ?? "active", p.source ?? "manual"]);
   return row!.id;
 }
+// 인증국 라벨(한글) → 국가코드. brand_company/설문과 달리 product_certs.country 는 코드 사용.
+const CERT_COUNTRY_LABEL_TO_CODE: Record<string, string> = {
+  미국: "US", 베트남: "VN", 태국: "TH", 싱가포르: "SG", 필리핀: "PH", 말레이시아: "MY",
+};
+const CERT_COUNTRY_CODES = new Set(["US", "VN", "TH", "SG", "PH", "MY"]);
+/** 인증국 정규화(#5): 한글 라벨→코드, 소문자 코드→대문자. 미매칭은 원본 유지. */
+export function normalizeCountryCode(country: string): string {
+  const c = (country ?? "").trim();
+  if (CERT_COUNTRY_LABEL_TO_CODE[c]) return CERT_COUNTRY_LABEL_TO_CODE[c];
+  const up = c.toUpperCase();
+  return CERT_COUNTRY_CODES.has(up) ? up : c;
+}
 export async function upsertCert(c: {
   product_id: string; country: string; cert_type: string; status?: string;
   cert_number?: string; issued_at?: string | null; expires_at?: string | null; note?: string;
 }): Promise<void> {
+  const country = normalizeCountryCode(c.country);
   await query(
     `INSERT INTO product_certs (product_id, country, cert_type, status, cert_number, issued_at, expires_at, note)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -151,7 +164,7 @@ export async function upsertCert(c: {
        status=EXCLUDED.status, cert_number=EXCLUDED.cert_number,
        issued_at=EXCLUDED.issued_at, expires_at=EXCLUDED.expires_at,
        note=EXCLUDED.note, updated_at=now()`,
-    [c.product_id, c.country, c.cert_type, c.status ?? "none", c.cert_number ?? "",
+    [c.product_id, country, c.cert_type, c.status ?? "none", c.cert_number ?? "",
      c.issued_at ?? null, c.expires_at ?? null, c.note ?? ""]);
 }
 
@@ -179,6 +192,14 @@ export async function addProposalV2(p: {
     [p.brand_id, version, p.title ?? `제안 v${version}`, p.plan, p.countries, p.term,
      p.quote_amount, p.discount_note ?? "", p.by ?? null]);
   return row!.id;
+}
+/** 제안 상태 변경 + 타임스탬프 자동기록(#16). sent→sent_at, accepted/rejected→decided_at. */
+export async function setProposalV2Status(id: string, status: string): Promise<void> {
+  const stamp =
+    status === "sent" ? ", sent_at=now()"
+    : status === "accepted" || status === "rejected" ? ", decided_at=now()"
+    : "";
+  await query(`UPDATE proposals SET status=$2${stamp} WHERE id=$1`, [id, status]);
 }
 
 // ── 계약 (10-D) ────────────────────────────────────────────────
@@ -233,13 +254,25 @@ export async function submitSurveyResponse(token: string, answers: Record<string
   const s = await queryOne<{ id: string; brand_id: string; responded_at: string | null }>(
     "SELECT id, brand_id, responded_at FROM surveys WHERE token=$1", [token]);
   if (!s) return false;
-  await query("UPDATE surveys SET answers=$2, responded_at=now() WHERE id=$1", [s.id, JSON.stringify(answers)]);
+  if (s.responded_at) return false; // 재제출 방지(#24) — 이미 응답 완료.
+  // 원자적 가드: 동시 재제출 시에도 최초 1건만 저장(0행이면 이미 응답됨).
+  const saved = await query<{ id: string }>(
+    "UPDATE surveys SET answers=$2, responded_at=now() WHERE token=$1 AND responded_at IS NULL RETURNING id",
+    [token, JSON.stringify(answers)]);
+  if (saved.length === 0) return false;
   // 목표국이 응답에 있으면 brands.countries 보강(덮어쓰기 아님 — 병합).
   const tc = answers.target_countries;
   if (Array.isArray(tc) && tc.length > 0) {
     await query(
       "UPDATE brands SET countries=(SELECT array_agg(DISTINCT c) FROM unnest(countries || $2::text[]) c) WHERE id=$1",
-      [s.brand_id, tc as string[]]);
+      [s.brand_id, tc as string[]]).catch((e) => console.error("[survey] 목표국 병합 실패", e));
+  }
+  // 마케팅 수신 동의 전파(#7): 대표(is_primary) 연락처에 반영. 대표 없으면 0행 → 스킵.
+  const mc = answers.marketing_consent;
+  if (typeof mc === "boolean") {
+    await query(
+      "UPDATE brand_contacts SET marketing_consent=$2, consent_at=now() WHERE brand_id=$1 AND is_primary",
+      [s.brand_id, mc]).catch((e) => console.error("[survey] 마케팅 동의 전파 실패", e));
   }
   return true;
 }

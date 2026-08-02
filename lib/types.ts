@@ -41,6 +41,14 @@ export const PLAN_LABELS: Record<Plan, string> = {
 export const PAY_STATUSES = ["none", "once_paid", "subscribed", "past_due", "canceled"] as const;
 export type PayStatus = (typeof PAY_STATUSES)[number];
 
+export const PAY_STATUS_LABELS: Record<PayStatus, string> = {
+  none: "미결제",
+  subscribed: "구독 중",
+  past_due: "연체",
+  once_paid: "결제완료",
+  canceled: "해지",
+};
+
 export const GRADES = ["S", "A", "B", "C"] as const;
 export type Grade = (typeof GRADES)[number];
 

@@ -7,15 +7,30 @@ import {
   upsertLogisticsAction, createSurveyAction,
 } from "@/app/actions";
 
-const COUNTRIES = ["미국", "베트남", "태국", "싱가포르", "필리핀", "말레이시아"];
+// 국가는 코드로 다루고(product_certs.country 와 동일 기준) 표시만 한글 매핑(#5,21).
+const COUNTRIES = ["US", "VN", "TH", "SG", "PH", "MY"];
+const COUNTRY_LABEL: Record<string, string> = {
+  US: "미국", VN: "베트남", TH: "태국", SG: "싱가포르", PH: "필리핀", MY: "말레이시아",
+};
+const countryLabel = (code: string) => COUNTRY_LABEL[code] ?? code;
+
 const CERT_TYPES = ["FDA등록", "보건부신고", "태국FDA", "할랄", "HSA", "영문라벨", "원산지증명", "기타"];
-const CERT_STATUS: Record<string, { ko: string; bg: string; fg: string }> = {
-  none: { ko: "없음", bg: "#f1f1f1", fg: "#888" },
-  preparing: { ko: "준비중", bg: "#fff3d6", fg: "#a67c00" },
-  submitted: { ko: "제출", bg: "#dce9ff", fg: "#2b5fb3" },
-  ready: { ko: "완료", bg: "#d7f5df", fg: "#1a8a3f" },
-  rejected: { ko: "반려", bg: "#ffe0e0", fg: "#c0322a" },
-  expired: { ko: "만료", bg: "#ffe0e0", fg: "#c0322a" },
+const CERT_STATUS: Record<string, { ko: string }> = {
+  none: { ko: "없음" },
+  preparing: { ko: "준비중" },
+  submitted: { ko: "제출" },
+  ready: { ko: "완료" },
+  rejected: { ko: "반려" },
+  expired: { ko: "만료" },
+};
+// 상태 → .cellchip 색상 클래스(#33).
+const CERT_CC: Record<string, string> = {
+  none: "cc-no", preparing: "cc-warn", submitted: "cc-ing",
+  ready: "cc-ok", rejected: "cc-exp", expired: "cc-exp",
+};
+// 최악상태 롤업용 심각도(클수록 나쁨): 완료 < 제출 < 준비중 < 없음 < 반려 < 만료.
+const CERT_SEVERITY: Record<string, number> = {
+  ready: 0, submitted: 1, preparing: 2, none: 3, rejected: 4, expired: 5,
 };
 
 type Tab = "contacts" | "survey" | "meetings" | "products" | "inventory" | "logistics" | "contracts" | "proposals" | "company" | "assets" | "mkt";
@@ -43,10 +58,9 @@ export default function CardTabs({ brandId, deep }: { brandId: string; deep: Car
   };
   return (
     <div className="card p-0 mb-4 overflow-hidden">
-      <div className="flex flex-wrap border-b bg-gray-50">
+      <div className="tabs">
         {TABS.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px ${tab === t.key ? "border-pink text-pink bg-white" : "border-transparent text-muted hover:text-gray-700"}`}>
+          <button key={t.key} onClick={() => setTab(t.key)} className={tab === t.key ? "on" : ""}>
             {t.label}{count[t.key] > 0 && <span className="ml-1 text-xs opacity-60">{count[t.key]}</span>}
           </button>
         ))}
@@ -157,8 +171,13 @@ function Surveys({ brandId, deep }: { brandId: string; deep: CardDeep }) {
 function Products({ brandId, deep }: { brandId: string; deep: CardDeep }) {
   const { pending, run } = useAct();
   const [name, setName] = useState("");
-  const certOf = (pid: string, country: string) =>
-    deep.certs.find((c) => c.product_id === pid && c.country === country);
+  // 국가별(코드 기준) 다중 cert는 최악상태로 롤업(#5,21,33).
+  const certOf = (pid: string, code: string) => {
+    const matches = deep.certs.filter((c) => c.product_id === pid && c.country === code);
+    if (matches.length === 0) return undefined;
+    return matches.reduce((worst, c) =>
+      (CERT_SEVERITY[c.status] ?? 3) > (CERT_SEVERITY[worst.status] ?? 3) ? c : worst);
+  };
   return (
     <div>
       {deep.products.length === 0 ? (
@@ -169,7 +188,7 @@ function Products({ brandId, deep }: { brandId: string; deep: CardDeep }) {
             <thead>
               <tr className="text-left text-muted">
                 <th className="p-2 border-b">제품</th>
-                {COUNTRIES.map((c) => <th key={c} className="p-2 border-b text-center">{c}</th>)}
+                {COUNTRIES.map((c) => <th key={c} className="p-2 border-b text-center">{countryLabel(c)}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -208,12 +227,13 @@ function CertCell({ brandId, productId, country, status, certType, expires }: {
   const [open, setOpen] = useState(false);
   const { pending, run } = useAct();
   const st = CERT_STATUS[status] ?? CERT_STATUS.none;
-  const soon = expires && new Date(expires).getTime() - Date.now() < 30 * 864e5;
+  const soon = !!expires && status !== "expired" && status !== "none"
+    && new Date(expires).getTime() - Date.now() < 30 * 864e5;
+  const cc = soon ? "cc-warn" : (CERT_CC[status] ?? "cc-no");
   const [f, setF] = useState({ cert_type: certType ?? CERT_TYPES[0], status, expires_at: expires ?? "" });
   return (
     <div className="relative inline-block">
-      <button onClick={() => setOpen(!open)} className="px-2 py-0.5 rounded text-xs"
-        style={{ background: st.bg, color: st.fg }} title={certType}>
+      <button onClick={() => setOpen(!open)} className={`cellchip ${cc}`} title={certType}>
         {st.ko}{soon ? " ⚠" : ""}
       </button>
       {open && (
@@ -270,7 +290,7 @@ function Logistics({ brandId, deep }: { brandId: string; deep: CardDeep }) {
       </div>
       <div className="border-t pt-3 grid grid-cols-2 gap-2">
         <select className="input" value={f.country} onChange={(e) => setF({ ...f, country: e.target.value })}>
-          {COUNTRIES.map((c) => <option key={c}>{c}</option>)}
+          {COUNTRIES.map((c) => <option key={c} value={c}>{countryLabel(c)}</option>)}
         </select>
         <input className="input" placeholder="3PL/제공사" value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value })} />
         <select className="input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
@@ -334,8 +354,10 @@ function Proposals({ brandId, deep }: { brandId: string; deep: CardDeep }) {
   const [pending, start] = useTransition();
   const [plan, setPlan] = useState("live_focus_490k");
   const [term, setTerm] = useState<"monthly" | "6month">("monthly");
+  const [onboardingTier, setOnboardingTier] = useState<"3month" | "5month" | "12month">("5month");
   const [countries, setCountries] = useState<string[]>([]);
   const [result, setResult] = useState("");
+  const isOnboarding = plan === "onboarding_onetime";
   const toggle = (c: string) => setCountries((v) => v.includes(c) ? v.filter((x) => x !== c) : [...v, c]);
   return (
     <div>
@@ -356,22 +378,34 @@ function Proposals({ brandId, deep }: { brandId: string; deep: CardDeep }) {
             <option value="guarantee_1m">Guarantee 100만</option>
             <option value="onboarding_onetime">온보딩 일회</option>
           </select>
-          <select className="input" value={term} onChange={(e) => setTerm(e.target.value as "monthly" | "6month")}>
-            <option value="monthly">월간</option><option value="6month">6개월 약정 (-20%)</option>
-          </select>
+          {isOnboarding ? (
+            <select className="input" value={onboardingTier}
+              onChange={(e) => setOnboardingTier(e.target.value as "3month" | "5month" | "12month")}>
+              <option value="3month">3개월 티어</option>
+              <option value="5month">5개월 티어</option>
+              <option value="12month">12개월 티어</option>
+            </select>
+          ) : (
+            <select className="input" value={term} onChange={(e) => setTerm(e.target.value as "monthly" | "6month")}>
+              <option value="monthly">월간</option><option value="6month">6개월 약정 (-20%)</option>
+            </select>
+          )}
         </div>
         <div className="flex flex-wrap gap-1.5 mb-3">
           {COUNTRIES.map((c) => (
             <button key={c} onClick={() => toggle(c)}
               className={`px-2.5 py-1 rounded-full text-xs border ${countries.includes(c) ? "border-pink bg-[#fff0f6] text-pink" : "border-gray-300 text-muted"}`}>
-              {c}
+              {countryLabel(c)}
             </button>
           ))}
         </div>
         {result && <div className="text-sm mb-2 p-2 bg-gray-50 rounded">{result}</div>}
         <button className="btn btn-primary" disabled={pending || countries.length === 0}
           onClick={() => start(async () => {
-            const r = await createProposalAction({ brand_id: brandId, plan, countries, term });
+            const r = await createProposalAction({
+              brand_id: brandId, plan, countries, term,
+              onboardingTier: isOnboarding ? onboardingTier : undefined,
+            });
             setResult(r.ok ? `생성됨: ${r.breakdown}` : (r.error ?? "실패"));
           })}>제안서 생성</button>
       </div>

@@ -35,6 +35,24 @@ export async function opsDrop(
   input: { brand_id: string; reason: string },
 ): Promise<TransitionResult> {
   if (!input.reason?.trim()) return { ok: false, needReason: true, error: "드랍 사유 필수" };
+
+  // #2 드랍 결재선: 결재권한(lead|exec) 미보유자는 즉시 드랍 대신 결재 요청을 생성한다.
+  //  승인권자(app/api/ops/approve)가 승인해야 실제 dropped 전이가 일어난다.
+  if (a.role !== "lead" && a.role !== "exec") {
+    try {
+      await query(
+        `INSERT INTO approval_requests (brand_id, kind, payload, requested_by, status)
+         VALUES ($1, 'drop', $2, $3, 'pending')`,
+        [input.brand_id, JSON.stringify({ reason: input.reason }), a.actor],
+      );
+    } catch (e) {
+      console.error("[ops-drop] 결재 요청 생성 실패:", (e as Error).message);
+      return { ok: false, error: "결재 요청 생성 실패" };
+    }
+    return { ok: true, pending: true };
+  }
+
+  // 승인권자는 기존대로 즉시 드랍.
   return transitionBrand({
     brandId: input.brand_id,
     to: "dropped",

@@ -4,6 +4,7 @@ import { extractKeys, findBrand, hasDedupKey, type DedupKeys } from "./dedup";
 import { advanceStateIfAhead, getBrand, setFields, touchLastContact } from "./repo/brands";
 import { resolveAlert, upsertAlert } from "./repo/alerts";
 import { ensureDocTemplate, syncApplyStep } from "./docs";
+import { SOURCES } from "./types";
 import type { Brand, ContractType, PayStatus, Plan, Source, State } from "./types";
 
 // Ingest 이벤트 처리 (02-INGEST-API). 사이트 → 어드민.
@@ -178,20 +179,45 @@ export async function processIngest(
     return { http: 400, body: { error: "validation", fields: ["email/phone/biz_no 중 최소 하나 필요"] } };
   }
 
-  // 멱등: ingest_events 기록. 이미 있으면 dup.
+  // 멱등: ingest_events 기록. 신규는 'processing'으로 선점.
+  // 이미 있으면 기존 status 로 분기 — 'ok'만 dedup 단축, 'error'/'processing'은 재처리 허용.
   const idem = await queryOne<{ id: string }>(
     `INSERT INTO ingest_events (site, event, idem_key, payload, status)
-     VALUES ($1,$2,$3,$4,'ok')
+     VALUES ($1,$2,$3,$4,'processing')
      ON CONFLICT (site, event, idem_key) DO NOTHING
      RETURNING id`,
     [d.site, event, idemKey, JSON.stringify(payload)],
   );
   if (!idem) {
-    return { http: 200, body: { ok: true, dedup: true } };
+    const existing = await queryOne<{ status: string }>(
+      "SELECT status FROM ingest_events WHERE site=$1 AND event=$2 AND idem_key=$3",
+      [d.site, event, idemKey],
+    );
+    // 처리 완료건만 조용히 dedup. 조회 실패(null)도 완료로 간주해 중복 처리 방지.
+    if (!existing || existing.status === "ok") {
+      return { http: 200, body: { ok: true, dedup: true } };
+    }
+    // error/processing → 재처리. 상태를 processing 으로 되돌리고 최신 payload 반영.
+    await query(
+      "UPDATE ingest_events SET status='processing', error=NULL, payload=$4 WHERE site=$1 AND event=$2 AND idem_key=$3",
+      [d.site, event, idemKey, JSON.stringify(payload)],
+    ).catch(() => {});
   }
 
   try {
     const out = await handleEvent(event as IngestEventName, d, keys, payload);
+    // 처리 성공(2xx)만 'ok' 확정. 그 외 응답은 재처리 여지를 남기려 'error' 로 표기.
+    if (out.http >= 200 && out.http < 300) {
+      await query(
+        "UPDATE ingest_events SET status='ok', error=NULL WHERE site=$1 AND event=$2 AND idem_key=$3",
+        [d.site, event, idemKey],
+      ).catch(() => {});
+    } else {
+      await query(
+        "UPDATE ingest_events SET status='error', error=$4 WHERE site=$1 AND event=$2 AND idem_key=$3",
+        [d.site, event, idemKey, JSON.stringify(out.body)],
+      ).catch(() => {});
+    }
     return out;
   } catch (err) {
     await query("UPDATE ingest_events SET status='error', error=$2 WHERE site=$1 AND event=$3 AND idem_key=$4", [
@@ -212,7 +238,11 @@ async function handleEvent(
 
   switch (event) {
     case "lead": {
-      const source = (p.source as Source) ?? "etc";
+      // #41: source 화이트리스트 검증. 미허용/누락은 'etc' 로 정규화.
+      const rawSource = typeof p.source === "string" ? p.source : "";
+      const source: Source = (SOURCES as readonly string[]).includes(rawSource)
+        ? (rawSource as Source)
+        : "etc";
       const candidate = LEAD_STATE[source] ?? "lead_new";
       const { brand, created } = await resolveBrand(d, keys, candidate, { source });
       if (!created) {

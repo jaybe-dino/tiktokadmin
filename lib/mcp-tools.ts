@@ -391,7 +391,10 @@ export const TOOLS: Record<string, ToolDef> = {
     description: "역할별 담당 후보 3명 + 부하 산정(파트장 배정 보조).",
     inputSchema: {
       type: "object",
-      properties: { brand_id: { type: "string" }, role: { type: "string" } },
+      properties: {
+        brand_id: { type: "string" },
+        role: { type: "string", enum: ["owner_intake", "owner_sales", "owner_onboard", "owner_ads"] },
+      },
       required: ["brand_id", "role"],
     },
     async handler(a) {

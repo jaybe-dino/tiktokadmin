@@ -58,8 +58,13 @@ export async function sessionEmail(): Promise<string | null> {
 export async function currentUser(): Promise<AdminUser | null> {
   const email = await sessionEmail();
   if (!email) return null;
-  const u = await queryOne<AdminUser>("SELECT * FROM admin_users WHERE id=$1 AND active", [email]);
-  if (u) return u;
+  // 행이 있으면 active 를 명시적으로 검사 — active=false 는 거부(null).
+  // (AND active 로 거르면 비활성 사용자가 아래 exec 폴백으로 승격되는 취약점.)
+  const u = await queryOne<AdminUser>("SELECT * FROM admin_users WHERE id=$1", [email]);
+  if (u) {
+    if (!u.active) return null;
+    return u;
+  }
   return { id: email, name: email, role: "exec", slack_user_id: null, active: true };
 }
 

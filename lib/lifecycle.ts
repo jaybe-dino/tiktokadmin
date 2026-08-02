@@ -51,22 +51,58 @@ export async function runChurnChain(brandId: string, reason: string, actor: stri
 }
 
 // ── 5. 수신동의 게이팅 (17 §5) ────────────────────────────────
-/** 거래성(서류·정산·리포트)은 동의 무관, 광고성(재활성화·업셀·뉴스레터)은 동의자만. */
+// 화이트리스트 방식: 명확한 거래성 kind만 동의 무관 통과. 그 외(followup·reply 등
+// 불명확·광고성 전부)는 수신동의 필요. 광고성 kind 열거 방식은 신규/모호한 kind가
+// 검사 없이 새어나가므로(#6) 거래성 화이트리스트로 반전한다.
+
+/** 동의 무관으로 항상 발송 가능한 명확한 거래성 kind. 이 집합 외는 전부 동의 필요. */
+const TRANSACTIONAL_KINDS = new Set([
+  "payment_notice", "reminder", "doc_request", "settlement", "reply_transactional",
+]);
+export function isTransactionalKind(kind: string): boolean {
+  return TRANSACTIONAL_KINDS.has(kind);
+}
+
+/** (레거시) 광고성으로 명시된 kind 판정. 게이트 판정은 isTransactionalKind 사용. */
 const MARKETING_KINDS = new Set(["reactivation", "upsell", "newsletter", "campaign", "bulk_email"]);
 export function isMarketingKind(kind: string): boolean {
   return MARKETING_KINDS.has(kind);
 }
 
-/** 브랜드에 동의한 연락처가 하나라도 있는지. 광고성 발송 전 게이트. */
+/** 브랜드에 동의한 연락처가 하나라도 있는지. 광고성 발송 전 게이트(브랜드 단위). */
 export async function hasMarketingConsent(brandId: string): Promise<boolean> {
   const row = await queryOne<{ n: string }>(
-    "SELECT count(*)::text n FROM brand_contacts WHERE brand_id=$1 AND marketing_consent=true", [brandId]);
+    "SELECT count(*)::text n FROM brand_contacts WHERE brand_id=$1 AND marketing_consent=true",
+    [brandId],
+  ).catch(() => null);
   return Number(row?.n ?? 0) > 0;
 }
 
-/** 발송 가능 여부: 거래성이면 항상 true, 광고성이면 동의 필요. */
-export async function canSend(brandId: string, kind: string): Promise<{ ok: boolean; reason?: string }> {
-  if (!isMarketingKind(kind)) return { ok: true };
-  const consent = await hasMarketingConsent(brandId);
+/**
+ * 특정 수신자(이메일) 단위 수신동의(#7,8). 브랜드 any-consent로 판정하면 거부한 연락처에게도
+ * 발송되므로, 해당 이메일 연락처의 marketing_consent로 정확히 판정한다.
+ * 미등록 이메일·조회 실패는 미동의(false)로 취급(차단 우선).
+ */
+export async function hasRecipientConsent(brandId: string, email: string): Promise<boolean> {
+  const row = await queryOne<{ consent: boolean }>(
+    "SELECT marketing_consent AS consent FROM brand_contacts WHERE brand_id=$1 AND lower(email)=lower($2) LIMIT 1",
+    [brandId, email],
+  ).catch(() => null);
+  return row?.consent === true;
+}
+
+/**
+ * 발송 가능 여부: 거래성 kind면 항상 true, 그 외(광고성·불명확)는 수신동의 필요.
+ *   recipient(이메일) 주어지면 해당 연락처 단위로 동의 판정, 없으면 브랜드 단위(하위호환).
+ */
+export async function canSend(
+  brandId: string,
+  kind: string,
+  recipient?: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (isTransactionalKind(kind)) return { ok: true };
+  const consent = recipient
+    ? await hasRecipientConsent(brandId, recipient)
+    : await hasMarketingConsent(brandId);
   return consent ? { ok: true } : { ok: false, reason: "광고성 메일 — 수신동의 없음(차단)" };
 }

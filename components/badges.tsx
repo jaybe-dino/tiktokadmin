@@ -1,4 +1,4 @@
-import { PLAN_LABELS, STATE_LABELS, type Grade, type Plan, type State } from "@/lib/types";
+import { PAY_STATUS_LABELS, PLAN_LABELS, STATE_LABELS, type Grade, type PayStatus, type Plan, type State } from "@/lib/types";
 
 export function GradeBadge({ grade }: { grade: Grade | null }) {
   if (!grade) return <span className="pill bg-gray-100 text-gray-400">·</span>;
@@ -24,7 +24,8 @@ const PAY_COLORS: Record<string, string> = {
 };
 
 export function PayBadge({ status }: { status: string }) {
-  return <span className={`pill ${PAY_COLORS[status] ?? "bg-gray-100"}`}>{status}</span>;
+  const label = PAY_STATUS_LABELS[status as PayStatus] ?? status;
+  return <span className={`pill ${PAY_COLORS[status] ?? "bg-gray-100"}`}>{label}</span>;
 }
 
 export function TierBadge({ tier }: { tier: number }) {

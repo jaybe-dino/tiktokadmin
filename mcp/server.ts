@@ -55,9 +55,15 @@ const http = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     res.writeHead(404).end("not found");
     return;
   }
-  // 토큰 인증
+  // 토큰 인증 — MCP_TOKEN 미설정 시 프로덕션에서는 fail-open 금지(모든 요청 거부).
   const auth = req.headers.authorization ?? "";
-  if (env.mcpToken && auth !== `Bearer ${env.mcpToken}`) {
+  if (!env.mcpToken) {
+    if (process.env.NODE_ENV === "production") {
+      res.writeHead(503).end("MCP_TOKEN 미설정");
+      return;
+    }
+    // 개발 환경에서만 토큰 없이 허용
+  } else if (auth !== `Bearer ${env.mcpToken}`) {
     res.writeHead(401).end("unauthorized");
     return;
   }

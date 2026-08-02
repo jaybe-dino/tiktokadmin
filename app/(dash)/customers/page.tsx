@@ -1,8 +1,8 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge } from "@/components/badges";
-import { customersList } from "@/lib/repo/queries";
-import { SOURCE_LABELS, SOURCES, STATE_LABELS, STATES, GRADES } from "@/lib/types";
+import { adminUserList, customersList } from "@/lib/repo/queries";
+import { PLAN_LABELS, PLANS, SOURCE_LABELS, SOURCES, STATE_LABELS, STATES, GRADES } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -39,17 +39,32 @@ function completeness(b: Record<string, unknown>): number {
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; state?: string; source?: string; grade?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; state?: string; source?: string; grade?: string; plan?: string; owner?: string; breach?: string; page?: string }>;
 }) {
   const sp = await searchParams;
-  const { rows, total, page, pages } = await customersList({
+  const { rows: fetchedRows, total, page, pages } = await customersList({
     q: sp.q, state: sp.state, source: sp.source, grade: sp.grade,
     page: sp.page ? Number(sp.page) : 1,
   });
 
-  const qs = (over: Record<string, string | number>) => {
+  // 담당자 옵션 (조회 실패에도 화면 유지)
+  const admins = await adminUserList().catch(() => []);
+  const ownerOptions = Array.from(new Set(admins.map((a) => a.name).filter(Boolean)));
+
+  // plan/owner/SLA위반 은 customersList 미지원 필터 → 현재 페이지 내 정제(searchParams 기반).
+  const breachOn = sp.breach === "1";
+  const rows = fetchedRows.filter((r) => {
+    if (sp.plan && r.plan !== sp.plan) return false;
+    if (sp.owner && ![r.owner_intake, r.owner_sales, r.owner_onboard, r.owner_ads].includes(sp.owner)) return false;
+    if (breachOn && !r.has_breach) return false;
+    return true;
+  });
+  const localFiltered = Boolean(sp.plan || sp.owner || breachOn);
+
+  const baseParams = { q: sp.q, state: sp.state, source: sp.source, grade: sp.grade, plan: sp.plan, owner: sp.owner, breach: sp.breach };
+  const qs = (over: Record<string, string | number | undefined>) => {
     const params = new URLSearchParams();
-    const merged = { q: sp.q, state: sp.state, source: sp.source, grade: sp.grade, ...over };
+    const merged = { ...baseParams, ...over };
     for (const [k, v] of Object.entries(merged)) if (v) params.set(k, String(v));
     return `/customers?${params.toString()}`;
   };
@@ -90,7 +105,20 @@ export default async function CustomersPage({
           <option value="">유입 전체</option>
           {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s] ?? s}</option>)}
         </select>
+        <select name="plan" defaultValue={sp.plan ?? ""} className="input" style={{ width: 170 }}>
+          <option value="">플랜 전체</option>
+          {PLANS.map((pl) => <option key={pl} value={pl}>{PLAN_LABELS[pl]}</option>)}
+        </select>
+        <select name="owner" defaultValue={sp.owner ?? ""} className="input" style={{ width: 130 }}>
+          <option value="">담당 전체</option>
+          {ownerOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+        {/* SLA 위반 토글은 링크칩으로 유지되도록 hidden 으로 폼에 반영 */}
+        {breachOn && <input type="hidden" name="breach" value="1" />}
         <button className="btn btn-primary btn-sm" type="submit">검색</button>
+        <Link href={qs({ breach: breachOn ? undefined : "1", page: undefined })} className={`chip ${breachOn ? "chip-red" : ""}`}>
+          {breachOn ? "✓ SLA 위반만" : "SLA 위반만"}
+        </Link>
         <Link href="/customers" className="btn btn-sm">초기화</Link>
       </form>
 
@@ -190,7 +218,7 @@ export default async function CustomersPage({
           </tbody>
         </table>
         <div style={{ padding: "10px 16px", color: "var(--ink3)", fontSize: 11.5, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>{start}–{end} / {total}</span>
+          <span>{localFiltered ? `${rows.length}건 (현재 페이지 내 필터)` : `${start}–${end} / ${total}`}</span>
           {pages > 1 && (
             <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {page > 1 && <Link href={qs({ page: page - 1 })} className="btn btn-sm">‹ 이전</Link>}

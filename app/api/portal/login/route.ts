@@ -19,8 +19,11 @@ export async function POST(req: NextRequest) {
       await sendMagicLink(email, invite.brandName, link).catch(() => {});
       return NextResponse.json({ ok: true });
     }
-    // 개발/미설정: 링크를 직접 반환(운영에선 메일만).
-    return NextResponse.json({ ok: true, devLink: link });
+    // 개발/미설정: 링크를 직접 반환(운영에선 메일만). 프로덕션에서는 절대 노출 금지.
+    if (process.env.NODE_ENV !== "production") {
+      return NextResponse.json({ ok: true, devLink: link });
+    }
+    return NextResponse.json({ ok: true });
   }
   return NextResponse.json({ ok: true }); // 존재하지 않아도 동일 응답
 }

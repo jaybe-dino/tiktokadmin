@@ -52,7 +52,7 @@ export function allQna() {
 export function allProducts() {
   return query(`SELECT pm.id, pm.name_kr, pm.category, pm.status, b.brand_name, b.id AS brand_id,
       count(pc.*)::int AS cert_total,
-      count(pc.*) FILTER (WHERE pc.status='ready')::int AS cert_ready,
+      count(pc.*) FILTER (WHERE pc.status='ready' AND (pc.expires_at IS NULL OR pc.expires_at >= current_date))::int AS cert_ready,
       count(pc.*) FILTER (WHERE pc.status IN ('expired','rejected','none'))::int AS cert_risk
      FROM products_master pm JOIN brands b ON b.id=pm.brand_id
      LEFT JOIN product_certs pc ON pc.product_id=pm.id

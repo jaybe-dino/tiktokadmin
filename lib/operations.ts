@@ -42,12 +42,15 @@ export async function openCycles(month = monthFirst()): Promise<{ opened: number
     const specs = workItemsForPlan(b.plan, contract?.terms);
     const total = specs.length;
 
+    // 멱등: 동시 실행/재시도로 이미 발행된 경우 UNIQUE(brand_id,month) 충돌 → 조용히 스킵.
     const cycle = await queryOne<{ id: string }>(
-      "INSERT INTO ops_cycles (brand_id, month, plan, items_total) VALUES ($1,$2,$3,$4) RETURNING id",
+      `INSERT INTO ops_cycles (brand_id, month, plan, items_total) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (brand_id, month) DO NOTHING RETURNING id`,
       [b.id, month, b.plan ?? "unknown", total]);
+    if (!cycle) continue; // 충돌로 미삽입 → 워크아이템 중복 발행 방지
     for (const s of specs) {
       await query("INSERT INTO work_items (cycle_id, kind, qty_target) VALUES ($1,$2,$3)",
-        [cycle!.id, s.kind, s.qty_target]);
+        [cycle.id, s.kind, s.qty_target]);
       items++;
     }
     opened++;
@@ -56,14 +59,16 @@ export async function openCycles(month = monthFirst()): Promise<{ opened: number
 }
 
 /** 사이클 이행률(15일 기준 50% 미달) 감시 → cycle_behind 알림. */
-export async function watchCycles(): Promise<number> {
+export async function watchCycles(now = new Date()): Promise<number> {
+  // 월중 15일 이후에만 이행률 판정. 개설 초반엔 rate=0 이라 전 브랜드 오탐 폭주(#4).
+  if (now.getUTCDate() < 15) return 0;
   const rows = await query<{ brand_id: string; done: number; total: number }>(
     `SELECT c.brand_id,
             COALESCE(sum(wi.qty_done),0)::int done,
             COALESCE(sum(wi.qty_target),0)::int total
        FROM ops_cycles c JOIN work_items wi ON wi.cycle_id=c.id
       WHERE c.status='active' AND c.month=$1
-      GROUP BY c.brand_id`, [monthFirst()]);
+      GROUP BY c.brand_id`, [monthFirst(now)]);
   let n = 0;
   for (const r of rows) {
     if (r.total === 0) continue;
@@ -125,7 +130,20 @@ export async function closeCyclesAndDraftSettlements(month = monthFirst()): Prom
       "SELECT COALESCE(sum(amount),0)::text s FROM payments_manual WHERE brand_id=$1 AND date_trunc('month',paid_at)=$2",
       [c.brand_id, month]).catch(() => ({ s: "0" }));
 
-    const calc = computeSettlement({ gmv: 0, feePct, subAmount: Number(sub?.s ?? 0), estGmv: null });
+    // 실 GMV ← 이번 사이클 lives.gmv 합계 (조회 실패 시 0 방어).
+    const gmvRow = await queryOne<{ g: string }>(
+      "SELECT COALESCE(sum(gmv),0)::text g FROM lives WHERE cycle_id=$1", [c.id])
+      .catch(() => ({ g: "0" }));
+    const gmv = Number(gmvRow?.g ?? 0);
+
+    // 검증용 est_gmv ← 최신 brand_signals (없거나 실패 시 null → anomaly 미판정).
+    const estRow = await queryOne<{ v: string | null }>(
+      `SELECT value_num::text v FROM brand_signals
+        WHERE brand_id=$1 AND metric='est_gmv'
+        ORDER BY collected_at DESC LIMIT 1`, [c.brand_id]).catch(() => null);
+    const estGmv = estRow?.v != null ? Number(estRow.v) : null;
+
+    const calc = computeSettlement({ gmv, feePct, subAmount: Number(sub?.s ?? 0), estGmv });
     await query(
       `INSERT INTO settlements (brand_id, month, gmv, fee_pct, fee_amount, sub_amount, total, anomaly, anomaly_note)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,

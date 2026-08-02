@@ -424,7 +424,7 @@ export async function createProposalAction(input: {
   if (!a) return { ok: false, error: "세션 만료" };
   const q = computeQuote({
     plan: input.plan, countries: input.countries, term: input.term,
-    onboardingTier: input.onboardingTier as never,
+    onboardingTier: input.onboardingTier as "3month" | "5month" | "12month" | undefined,
   });
   await addProposalV2({
     brand_id: input.brand_id, plan: input.plan, countries: input.countries,

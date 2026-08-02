@@ -24,6 +24,7 @@ export interface TransitionResult {
   brand?: Brand;
   error?: string;
   needReason?: boolean;
+  pending?: boolean; // 결재선 경유(즉시 반영 안 됨). #2 드랍 결재.
   failed?: { rule: string; label: string }[];
 }
 
@@ -33,6 +34,24 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
 
   const from = brand.state;
   const to = input.to;
+
+  // #13 RBAC 스코프: 상태 전이는 대상 브랜드 담당(owner_*)이거나 lead/exec 만 가능.
+  //  - actorRole 미지정(하위호환) 시엔 스코프 검사를 생략한다.
+  //  - 담당 매칭은 admin 세션 액터(admin:{id})에 한해 확실히 판정 가능.
+  //    (slack/mcp 는 actor 문자열이 owner_* 식별자와 형식이 달라 오탐 방지 위해 스킵)
+  if (
+    input.actorRole &&
+    input.actorRole !== "lead" &&
+    input.actorRole !== "exec" &&
+    input.actor.startsWith("admin:")
+  ) {
+    const actorId = input.actor.slice("admin:".length);
+    const owners = [brand.owner_intake, brand.owner_sales, brand.owner_onboard, brand.owner_ads];
+    const isOwner = owners.some((o) => !!o && o === actorId);
+    if (!isOwner) {
+      return { ok: false, error: "권한 없음: 담당 브랜드가 아니거나 결재 권한이 없습니다." };
+    }
+  }
 
   const allow = isTransitionAllowed(from, to, input.actorRole);
   if (!allow.allowed) return { ok: false, error: allow.reason ?? "허용되지 않는 전이" };

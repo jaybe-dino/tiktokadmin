@@ -25,7 +25,8 @@ export async function portalSession(): Promise<PortalSession | null> {
 export async function pq<T extends Record<string, unknown> = Record<string, unknown>>(
   brandId: string, sql: string, extra: unknown[] = [],
 ): Promise<T[]> {
-  if (!/where[\s\S]*brand_id\s*=\s*\$1/i.test(sql) && !/\$1/.test(sql)) {
+  // 격리 조건 단일화: 반드시 'brand_id=$1' 패턴이 있어야 통과. (/\$1/ 폴백 제거 — 격리 우회 방지.)
+  if (!/where[\s\S]*brand_id\s*=\s*\$1/i.test(sql)) {
     throw new Error("pq: brand_id=$1 격리 조건 누락");
   }
   return query<T>(sql, [brandId, ...extra]);
