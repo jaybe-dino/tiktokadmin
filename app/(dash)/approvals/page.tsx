@@ -5,37 +5,126 @@ import ApprovalActions from "./ApprovalActions";
 
 export const dynamic = "force-dynamic";
 
-const KIND: Record<string, string> = { drop: "드랍 승인", refund: "환불 승인", settlement: "정산 승인" };
-const ST: Record<string, { ko: string; c: string }> = {
-  pending: { ko: "대기", c: "chip-amb" }, approved: { ko: "승인", c: "chip-grn" }, rejected: { ko: "반려", c: "chip-red" },
+const KIND: Record<string, { ko: string; bdg: string }> = {
+  drop: { ko: "드랍", bdg: "st-dropped" },
+  refund: { ko: "환불", bdg: "st-churned" },
+  settlement: { ko: "정산 확정", bdg: "st-set" },
 };
+
+function kindOf(k: string) {
+  return KIND[k] ?? { ko: k, bdg: "" };
+}
+
+function reasonOf(payload: Record<string, unknown>): string {
+  const r = payload.reason ?? payload.note ?? payload.memo;
+  if (r) return String(r);
+  const s = Object.entries(payload)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(" · ");
+  return s || "—";
+}
+
+function fmtDate(v: unknown): string {
+  if (!v) return "—";
+  const d = new Date(v as string);
+  return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString("ko-KR");
+}
 
 export default async function ApprovalsPage() {
   const rows = (await allApprovals().catch(() => [])) as Record<string, unknown>[];
-  const pending = rows.filter((r) => r.status === "pending").length;
+  const pending = rows.filter((r) => r.status === "pending");
+  const done = rows.filter((r) => r.status !== "pending");
+
   return (
-    <div className="max-w-3xl">
-      <ScreenHeader title="결재함" desc={`대기 ${pending}건 · 드랍·환불·정산 승인 (12 결재선)`} />
-      <div className="space-y-2">
-        {rows.length === 0 && <div className="card p-6 text-sm" style={{ color: "var(--ink3)" }}>결재 요청이 없습니다.</div>}
-        {rows.map((a) => {
-          const payload = (a.payload as Record<string, unknown>) ?? {};
-          return (
-            <div key={a.id as string} className="card p-4 flex items-center gap-3 flex-wrap">
-              <span className="pill chip">{KIND[a.kind as string] ?? (a.kind as string)}</span>
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold">
-                  {a.brand_id ? <Link href={`/brand/${a.brand_id}`} className="hover:underline">{a.brand_name as string}</Link> : "브랜드 무관"}
+    <div>
+      <ScreenHeader
+        title="결재함"
+        desc="드랍·후퇴·정산 확정·정책 변경은 결재선을 경유합니다 — 요청·승인·반려 모두 이력 보존"
+      />
+
+      <div className="card">
+        <table className="t">
+          <tbody>
+            <tr>
+              <th>유형</th>
+              <th>대상</th>
+              <th>요청자</th>
+              <th>사유</th>
+              <th>요청일</th>
+              <th style={{ width: 170 }}>결재</th>
+            </tr>
+            {pending.length === 0 && (
+              <tr>
+                <td colSpan={6} style={{ color: "var(--ink3)", textAlign: "center", padding: "22px 0" }}>
+                  대기 중인 결재 요청이 없습니다.
+                </td>
+              </tr>
+            )}
+            {pending.map((a) => {
+              const payload = (a.payload as Record<string, unknown>) ?? {};
+              const k = kindOf(a.kind as string);
+              return (
+                <tr key={a.id as string}>
+                  <td>
+                    <span className={`bdg ${k.bdg}`}>{k.ko}</span>
+                  </td>
+                  <td>
+                    {a.brand_id ? (
+                      <Link href={`/brand/${a.brand_id}`} className="hover:underline">
+                        <b>{a.brand_name as string}</b>
+                      </Link>
+                    ) : (
+                      <b>브랜드 무관</b>
+                    )}
+                  </td>
+                  <td>{(a.requested_by as string) ?? "—"}</td>
+                  <td>{reasonOf(payload)}</td>
+                  <td>{fmtDate(a.created_at)}</td>
+                  <td>
+                    <ApprovalActions id={a.id as string} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid g2" style={{ marginTop: 14 }}>
+        <div className="card">
+          <div className="hd">
+            <b>최근 처리</b>
+          </div>
+          <div className="bd" style={{ fontSize: 12 }}>
+            {done.length === 0 && <div style={{ color: "var(--ink3)" }}>처리 이력이 없습니다.</div>}
+            {done.map((a) => {
+              const payload = (a.payload as Record<string, unknown>) ?? {};
+              const k = kindOf(a.kind as string);
+              const ok = a.status === "approved";
+              return (
+                <div className="row" key={a.id as string}>
+                  <span className={`ico ${ok ? "i-grn" : "i-red"}`}>{ok ? "✓" : "✕"}</span>
+                  <div>
+                    <div className="tt">
+                      {(a.brand_name as string) ?? "브랜드 무관"} · {k.ko} {ok ? "승인" : "반려"} ({fmtDate(a.created_at)})
+                    </div>
+                    <div className="ss">사유: {reasonOf(payload)}</div>
+                  </div>
                 </div>
-                <div className="text-[12px]" style={{ color: "var(--ink3)" }}>
-                  {Object.entries(payload).map(([k, v]) => `${k}: ${v}`).join(" · ") || "—"} · 요청 {a.requested_by as string}
-                </div>
-              </div>
-              <span className={`pill ${ST[a.status as string]?.c ?? ""}`}>{ST[a.status as string]?.ko ?? (a.status as string)}</span>
-              {a.status === "pending" && <ApprovalActions id={a.id as string} />}
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="hd">
+            <b>결재 규칙</b>
+          </div>
+          <div className="bd" style={{ fontSize: 12.5, lineHeight: 1.7 }}>
+            드랍·후퇴 → 파트장 · 정산 확정 → 파트장 · 해지/환불·SLA 정책 변경 → 대표. 승인 권한이 없는 담당이 시도하면
+            자동으로 이 결재함에 요청이 생성됩니다(막히지 않고, 새지 않게).
+          </div>
+        </div>
       </div>
     </div>
   );

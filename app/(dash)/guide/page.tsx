@@ -28,8 +28,8 @@ export default function GuidePage() {
   return (
     <div>
       <ScreenHeader
-        title="사용 가이드"
-        desc="새 직원 온보딩 교육 자료 — AI 적용 섹터 · 담당자 사용 체계 (상세판은 문서 19 STAFF-GUIDE)"
+        title="사용 가이드 — AI 적용 섹터 · 담당자 사용 체계"
+        desc="새 직원 온보딩 교육 자료 — 상세판은 문서 19(STAFF-GUIDE)"
       />
 
       <div className="card" style={{ marginBottom: 14 }}>

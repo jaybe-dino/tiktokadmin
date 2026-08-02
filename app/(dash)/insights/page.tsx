@@ -26,7 +26,7 @@ export default async function InsightsPage() {
             count(*)::int total,
             count(*) FILTER (WHERE state IN ('contract_done','docs','setup','live_mall','live_onboarding','settling'))::int reached_contract
        FROM brands
-      
+
       GROUP BY grade
       ORDER BY grade`,
   ).catch(() => [] as Record<string, unknown>[])) as Record<string, unknown>[];
@@ -34,12 +34,6 @@ export default async function InsightsPage() {
   // 파생 통계 ─────────────────────────────
   const funnelMap = new Map<string, { count: number; avg_days: number | null }>();
   for (const f of funnel) funnelMap.set(f.state, { count: f.count, avg_days: f.avg_days });
-
-  const activeTotal = ACTIVE.reduce((n, s) => n + (funnelMap.get(s)?.count ?? 0), 0);
-  const sourceTotal = bySource.reduce((n, s) => n + s.total, 0);
-  const sourceContract = bySource.reduce((n, s) => n + s.reached_contract, 0);
-  const overallConv = sourceTotal ? Math.round((sourceContract / sourceTotal) * 100) : 0;
-  const pending = insights.filter((i) => i.approved === null).length;
 
   // 퍼널 랭킹막대: 활성 단계별 브랜드 수 (max 대비)
   const funnelRows = ACTIVE.map((s) => ({
@@ -55,6 +49,8 @@ export default async function InsightsPage() {
     .sort((a, b) => (b.avg_days ?? 0) - (a.avg_days ?? 0))
     .slice(0, 5);
 
+  const pending = insights.filter((i) => i.approved === null).length;
+
   return (
     <div className="max-w-6xl">
       <ScreenHeader
@@ -63,40 +59,18 @@ export default async function InsightsPage() {
         right={<button className="btn">대표 리포트 보기</button>}
       />
 
-      {/* 스탯 타일 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <div className="tile">
-          <div className="tile-k">활성 브랜드</div>
-          <div className="tile-v">{activeTotal}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-k">계약도달 전환율</div>
-          <div className="tile-v" style={{ color: "var(--acc)" }}>{overallConv}%</div>
-        </div>
-        <div className={"tile" + (churnRisk.length ? " alert" : "")}>
-          <div className="tile-k">이탈위험 (high)</div>
-          <div className="tile-v" style={{ color: churnRisk.length ? "var(--danger)" : undefined }}>
-            {churnRisk.length}
-          </div>
-        </div>
-        <div className="tile">
-          <div className="tile-k">승인 대기 제안</div>
-          <div className="tile-v" style={{ color: pending ? "var(--warn)" : undefined }}>{pending}</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
+      <div className="grid g31" style={{ gap: 14 }}>
         {/* 좌측 컬럼 */}
-        <div className="grid gap-4 content-start">
-          {/* 퍼널 랭킹막대 */}
+        <div style={{ display: "grid", gap: 14 }}>
+          {/* 퍼널 — 단계별 브랜드 수 · 평균 체류 */}
           <div className="card">
-            <div className="card-hd"><b>퍼널 — 단계별 브랜드 수 · 평균 체류</b></div>
-            <div className="p-4">
+            <div className="hd"><b>퍼널 — 단계별 브랜드 수 · 평균 체류</b></div>
+            <div className="bd">
               {funnelRows.map((r) => (
                 <div key={r.state} className="hbar">
                   <span className="lb">{STATE_LABELS[r.state]}</span>
                   <div className="tr">
-                    <i style={{ width: `${(r.count / maxCount) * 100}%`, background: "var(--acc)" }} />
+                    <i style={{ width: `${(r.count / maxCount) * 100}%`, background: "#2563eb" }} />
                   </div>
                   <span className="vl">
                     {r.count}건{" "}
@@ -104,106 +78,110 @@ export default async function InsightsPage() {
                   </span>
                 </div>
               ))}
-              <div className="note mt-2">
+              <div className="note" style={{ marginTop: 8 }}>
                 막대 = 현재 단계에 머무는 브랜드 수 · 우측 = 평균 체류일(stage_entered_at 기준)
               </div>
             </div>
           </div>
 
           {/* 병목 진단 */}
-          <div className="card overflow-x-auto">
-            <div className="card-hd"><b>병목 진단 — 체류 오래된 단계</b></div>
-            <table className="t">
-              <thead>
-                <tr><th>단계</th><th>평균 체류</th><th>브랜드 수</th></tr>
-              </thead>
-              <tbody>
-                {bottleneck.length === 0 && (
-                  <tr><td colSpan={3} style={{ color: "var(--ink3)" }}>데이터 없음</td></tr>
-                )}
-                {bottleneck.map((r, i) => (
-                  <tr key={r.state}>
-                    <td>
-                      <StateBadge state={r.state} />
-                    </td>
-                    <td style={i === 0 ? { color: "var(--danger)", fontWeight: 700 } : undefined}>
-                      {r.avg_days}일{i === 0 && " ▲"}
-                    </td>
-                    <td>{r.count}건</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* 유입경로별 성과 */}
-          <div className="card overflow-x-auto">
-            <div className="card-hd"><b>유입 경로별 성과 — 계약도달 전환</b></div>
-            <table className="t">
-              <thead>
-                <tr><th>경로</th><th>전체</th><th>계약도달</th><th>전환율</th></tr>
-              </thead>
-              <tbody>
-                {bySource.length === 0 && (
-                  <tr><td colSpan={4} style={{ color: "var(--ink3)" }}>데이터 없음</td></tr>
-                )}
-                {bySource.map((s) => {
-                  const pct = s.total ? Math.round((s.reached_contract / s.total) * 100) : 0;
-                  return (
-                    <tr key={s.source}>
-                      <td>{SOURCE_LABELS[s.source] ?? s.source}</td>
-                      <td>{s.total}</td>
-                      <td>{s.reached_contract}</td>
-                      <td>
-                        <span className="inline-flex items-center gap-2">
-                          <span className="pr" style={{ width: 60 }}>
-                            <i className={pct >= 40 ? "g" : pct >= 20 ? "" : "w"} style={{ width: `${pct}%` }} />
-                          </span>
-                          <b>{s.total ? `${pct}%` : "—"}</b>
-                        </span>
+          <div className="card">
+            <div className="hd"><b>병목 진단 — 체류 오래된 단계</b></div>
+            <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
+              <table className="t">
+                <thead>
+                  <tr><th>단계</th><th>평균 체류</th><th>브랜드 수</th></tr>
+                </thead>
+                <tbody>
+                  {bottleneck.length === 0 && (
+                    <tr><td colSpan={3} style={{ color: "var(--ink3)" }}>데이터 없음</td></tr>
+                  )}
+                  {bottleneck.map((r, i) => (
+                    <tr key={r.state}>
+                      <td><StateBadge state={r.state} /></td>
+                      <td style={i === 0 ? { color: "var(--danger)", fontWeight: 700 } : undefined}>
+                        {r.avg_days}일{i === 0 && " ▲"}
                       </td>
+                      <td>{r.count}건</td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          {/* 등급별 전환 */}
-          <div className="card overflow-x-auto">
-            <div className="card-hd"><b>등급별 계약도달 전환</b></div>
-            <table className="t">
-              <thead>
-                <tr><th>등급</th><th>전체</th><th>계약도달</th><th>전환율</th></tr>
-              </thead>
-              <tbody>
-                {byGrade.length === 0 && (
-                  <tr><td colSpan={4} style={{ color: "var(--ink3)" }}>데이터 없음</td></tr>
-                )}
-                {byGrade.map((g, i) => {
-                  const grade = (g.grade as Grade | null) ?? null;
-                  const total = (g.total as number) ?? 0;
-                  const reached = (g.reached_contract as number) ?? 0;
-                  const pct = total ? Math.round((reached / total) * 100) : 0;
-                  return (
-                    <tr key={(grade ?? "none") + i}>
-                      <td><GradeBadge grade={grade} /></td>
-                      <td>{total}</td>
-                      <td>{reached}</td>
-                      <td><b>{total ? `${pct}%` : "—"}</b></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          {/* 유입 경로별 성과 */}
+          <div className="card">
+            <div className="hd"><b>유입 경로별 성과 — 계약도달 전환</b></div>
+            <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
+              <table className="t">
+                <thead>
+                  <tr><th>경로</th><th>전체</th><th>계약도달</th><th>전환율</th></tr>
+                </thead>
+                <tbody>
+                  {bySource.length === 0 && (
+                    <tr><td colSpan={4} style={{ color: "var(--ink3)" }}>데이터 없음</td></tr>
+                  )}
+                  {bySource.map((s) => {
+                    const pct = s.total ? Math.round((s.reached_contract / s.total) * 100) : 0;
+                    return (
+                      <tr key={s.source}>
+                        <td>{SOURCE_LABELS[s.source] ?? s.source}</td>
+                        <td>{s.total}</td>
+                        <td>{s.reached_contract}</td>
+                        <td>
+                          <span className="inline-flex items-center gap-2">
+                            <span className="pr" style={{ width: 60 }}>
+                              <i className={pct >= 40 ? "g" : pct >= 20 ? "" : "w"} style={{ width: `${pct}%` }} />
+                            </span>
+                            <b>{s.total ? `${pct}%` : "—"}</b>
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 등급별 계약도달 전환 */}
+          <div className="card">
+            <div className="hd"><b>등급별 계약도달 전환</b></div>
+            <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
+              <table className="t">
+                <thead>
+                  <tr><th>등급</th><th>전체</th><th>계약도달</th><th>전환율</th></tr>
+                </thead>
+                <tbody>
+                  {byGrade.length === 0 && (
+                    <tr><td colSpan={4} style={{ color: "var(--ink3)" }}>데이터 없음</td></tr>
+                  )}
+                  {byGrade.map((g, i) => {
+                    const grade = (g.grade as Grade | null) ?? null;
+                    const total = (g.total as number) ?? 0;
+                    const reached = (g.reached_contract as number) ?? 0;
+                    const pct = total ? Math.round((reached / total) * 100) : 0;
+                    return (
+                      <tr key={(grade ?? "none") + i}>
+                        <td><GradeBadge grade={grade} /></td>
+                        <td>{total}</td>
+                        <td>{reached}</td>
+                        <td><b>{total ? `${pct}%` : "—"}</b></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
         {/* 우측 컬럼 */}
-        <div className="grid gap-4 content-start">
+        <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
           {/* AI 위젯 — 이번 주 제안 */}
           <div className="aiw">
-            <h5>🤖 이번 주 제안 (승인 필요)</h5>
+            <h5>🤖 이번 주 제안 (승인 필요){pending > 0 && ` · ${pending}`}</h5>
             <div style={{ fontSize: "12.5px", lineHeight: 1.7 }}>
               {insights.length === 0 ? (
                 <span style={{ color: "var(--ink3)" }}>
@@ -221,18 +199,18 @@ export default async function InsightsPage() {
                         <span style={{ color: "#7e22ce" }}>제안: {ins.proposed_action}</span>
                       </>
                     )}
-                    <div style={{ display: "flex", gap: 6, margin: "6px 0 0" }}>
+                    <div style={{ display: "flex", gap: 6, margin: "6px 0 0", alignItems: "center" }}>
                       {ins.approved === true ? (
                         <span className="pill chip-grn">승인됨</span>
                       ) : ins.approved === false ? (
                         <span className="pill chip-red">보류됨</span>
                       ) : (
                         <>
-                          <button className="btn btn-sm btn-primary">승인</button>
-                          <button className="btn btn-sm">보류</button>
+                          <button className="btn sm grn">승인</button>
+                          <button className="btn sm">보류</button>
                         </>
                       )}
-                      <span style={{ color: "var(--ink3)", fontSize: 11, alignSelf: "center" }}>{ins.week}</span>
+                      <span style={{ color: "var(--ink3)", fontSize: 11 }}>{ins.week}</span>
                     </div>
                   </div>
                 ))
@@ -242,11 +220,11 @@ export default async function InsightsPage() {
 
           {/* 이탈위험 리스트 */}
           <div className="card">
-            <div className="card-hd">
+            <div className="hd">
               <b>이탈위험 (high)</b>
               {churnRisk.length > 0 && <span className="pill chip-red">{churnRisk.length}</span>}
             </div>
-            <div className="p-4">
+            <div className="bd">
               {churnRisk.length === 0 ? (
                 <p style={{ color: "var(--ink3)", fontSize: "12.5px" }}>현재 high 위험 브랜드가 없습니다.</p>
               ) : (
@@ -272,8 +250,8 @@ export default async function InsightsPage() {
 
           {/* 에이전트 실행 로그 (정적 안내) */}
           <div className="card">
-            <div className="card-hd"><b>에이전트 실행 로그</b></div>
-            <div className="p-4" style={{ fontSize: 12 }}>
+            <div className="hd"><b>에이전트 실행 로그</b></div>
+            <div className="bd" style={{ fontSize: 12 }}>
               <div className="row">
                 <span className="ico i-grn">①</span>
                 <div><div className="tt">일일 점검 · 09:00</div><div className="ss">상태·게이트 위반 감시</div></div>

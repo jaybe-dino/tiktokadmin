@@ -137,38 +137,20 @@ export default async function CampaignsPage() {
       />
 
       {/* 수신동의 필터 바 */}
-      <div
-        className="mb-4"
-        style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
-      >
-        <span className="chip chip-grn">수신동의 {agree.toLocaleString("ko-KR")}</span>
-        <span className="chip chip-red">
-          수신거부 {deny.toLocaleString("ko-KR")} — 발송 자동 제외
-        </span>
+      <div className="bar">
+        <span className="chip grn">수신동의 {agree.toLocaleString("ko-KR")}</span>
+        <span className="chip red">수신거부 {deny.toLocaleString("ko-KR")} — 발송 자동 제외</span>
         <span style={{ marginLeft: "auto", color: "var(--ink3)", fontSize: 11.5 }}>
           동의·거부는 설문·메일 하단 링크에서 자동 동기
         </span>
       </div>
 
-      {/* 세그먼트 카운트 타일 4개 */}
-      <div className="grid grid-cols-4 gap-3 mb-4">
-        {segs.map((s) => (
-          <div key={s.key} className="tile">
-            <div className="tile-k">{s.title}</div>
-            <div className="tile-v">
-              {s.count}
-              <small style={{ fontSize: 13, fontWeight: 600, color: "var(--ink3)" }}> 대상</small>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-3 gap-3.5">
+      <div className="grid g31 gap-3.5">
         {/* 메인 컬럼 */}
-        <div className="col-span-2 grid gap-3.5">
+        <div style={{ display: "grid", gap: 14 }}>
           {/* 세그먼트 4종 */}
           <div className="card overflow-x-auto">
-            <div className="card-hd">
+            <div className="hd">
               <b>세그먼트 4종</b>
             </div>
             <table className="t">
@@ -187,7 +169,7 @@ export default async function CampaignsPage() {
                   <tr key={s.key}>
                     <td>
                       <b>{s.title}</b>
-                      <div style={{ color: "var(--ink3)", fontSize: 11.5 }}>{s.sub}</div>
+                      <span className="sub">{s.sub}</span>
                     </td>
                     <td>{s.count}</td>
                     <td>{s.cycle}</td>
@@ -204,7 +186,7 @@ export default async function CampaignsPage() {
 
           {/* 윈백 리스트 */}
           <div className="card overflow-x-auto">
-            <div className="card-hd">
+            <div className="hd">
               <b>윈백 리스트 (재접촉 예정)</b>
             </div>
             <table className="t">
@@ -260,7 +242,7 @@ export default async function CampaignsPage() {
                 })}
               </tbody>
             </table>
-            <div className="note" style={{ margin: "0 16px 14px" }}>
+            <div className="note" style={{ margin: "8px 16px 14px" }}>
               드랍 승인 시 사유·재접촉 시점이 자동 등록 — 시점 도래 시 담당 워크큐에 올라옵니다.
               재유입하면 같은 원장 행이 되살아나 이력이 이어집니다.
             </div>
@@ -268,7 +250,7 @@ export default async function CampaignsPage() {
 
           {/* 최근 대량 발송 이력 */}
           <div className="card overflow-x-auto">
-            <div className="card-hd">
+            <div className="hd">
               <b>최근 발송 이력</b>
             </div>
             <table className="t">
@@ -317,27 +299,27 @@ export default async function CampaignsPage() {
         </div>
 
         {/* 사이드 컬럼 */}
-        <div className="grid gap-3.5 content-start">
+        <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
           <div className="card">
-            <div className="card-hd">
+            <div className="hd">
               <b>발송 규칙</b>
             </div>
-            <div style={{ padding: "12px 16px", fontSize: 12, lineHeight: 1.7 }}>
+            <div className="bd" style={{ fontSize: 12, lineHeight: 1.7 }}>
               수신동의자에게만 발송(거부는 즉시 제외) · AI가 세그먼트별 초안 생성 → 마케팅 담당
               승인 → 발송 · 오픈·클릭·회신이 브랜드 카드 타임라인에 기록되어 재점화 감지.
             </div>
           </div>
 
           <div className="card">
-            <div className="card-hd">
+            <div className="hd">
               <b>승인 대기 캠페인</b>
-              <span className="chip chip-amb" style={{ marginLeft: 8 }}>
+              <span className="chip amb" style={{ marginLeft: 8 }}>
                 1
               </span>
             </div>
-            <div style={{ padding: "6px 12px 12px" }}>
+            <div className="bd" style={{ fontSize: 12 }}>
               <div className="row">
-                <span className="ico">✉️</span>
+                <span className="ico i-pur">✉️</span>
                 <div>
                   <div className="tt">8월 세미나 안내 (세미나 미전환 {seminarStale}명)</div>
                   <div className="ss">AI 초안 · 개인화: 참석 세미나 주제 · 발송 8/4 09:00</div>

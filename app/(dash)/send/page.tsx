@@ -1,16 +1,32 @@
 import ScreenHeader from "@/components/ScreenHeader";
+import SendCenter from "@/components/SendCenter";
 import { query } from "@/lib/db";
-import SendTabs from "./SendTabs";
 
 export const dynamic = "force-dynamic";
 
 export default async function SendPage() {
-  const sends = (await query(
-    `SELECT id, title, target_kind, channel, status, total, sent, body_md, created_at
-       FROM bulk_sends
-      ORDER BY created_at DESC NULLS LAST
-      LIMIT 100`,
-  ).catch(() => [])) as Record<string, unknown>[];
+  const [sends, leadGroups] = await Promise.all([
+    query(
+      `SELECT id, title, target_kind, channel, status, total, sent, body_md, created_at
+         FROM bulk_sends
+        ORDER BY created_at DESC NULLS LAST
+        LIMIT 100`,
+    ).catch(() => []) as Promise<Record<string, unknown>[]>,
+    query(
+      `SELECT lead_group AS name, COUNT(*)::int AS n, MAX(created_at) AS created
+         FROM brands
+        WHERE lead_group IS NOT NULL AND lead_group <> ''
+        GROUP BY lead_group
+        ORDER BY MAX(created_at) DESC
+        LIMIT 20`,
+    ).catch(() => []) as Promise<Record<string, unknown>[]>,
+  ]);
+
+  const groups = leadGroups.map((g) => ({
+    name: String(g.name ?? ""),
+    n: Number(g.n ?? 0),
+    created: String(g.created ?? ""),
+  }));
 
   return (
     <div>
@@ -19,7 +35,7 @@ export default async function SendPage() {
         desc="모든 발송은 회사 이메일·지정 번호로만 나가고, 결과는 각 고객카드 히스토리에 자동 연동됩니다"
         right={<span className="chip">발신: @dinostudio.kr · 1533-06xx</span>}
       />
-      <SendTabs sends={sends} />
+      <SendCenter sends={sends} leadGroups={groups} />
     </div>
   );
 }
