@@ -1,15 +1,10 @@
-import Link from "next/link";
 import ScreenHeader, { won } from "@/components/ScreenHeader";
 import { payData } from "@/lib/repo/queries";
+import { query } from "@/lib/db";
+import SubsTable from "./SubsTable";
+import ManualPaymentForm from "./ManualPaymentForm";
 
 export const dynamic = "force-dynamic";
-
-function SubStatus({ status }: { status: string }) {
-  if (status === "past_due") return <span className="chip chip-red">연체</span>;
-  if (status === "subscribed" || status === "active") return <span className="chip chip-grn">유효</span>;
-  if (status === "canceled") return <span className="chip">해지</span>;
-  return <span className="chip chip-amb">{status}</span>;
-}
 
 export default async function PayPage() {
   const d = await payData().catch(() => ({
@@ -20,6 +15,11 @@ export default async function PayPage() {
     subs: [] as Awaited<ReturnType<typeof payData>>["subs"],
     onetime: [] as Awaited<ReturnType<typeof payData>>["onetime"],
   }));
+
+  const brandRows = (await query(
+    "SELECT id, brand_name FROM brands ORDER BY brand_name LIMIT 1000",
+  ).catch(() => [])) as { id: string; brand_name: string }[];
+  const brands = brandRows.map((b) => ({ id: b.id, name: b.brand_name }));
 
   return (
     <div>
@@ -50,41 +50,11 @@ export default async function PayPage() {
         </div>
       </div>
 
-      {/* 구독 (정기) 테이블 */}
-      <div className="card mb-4">
-        <div className="card-hd"><b>구독 (정기)</b></div>
-        <table className="t">
-          <thead>
-            <tr>
-              <th>브랜드</th>
-              <th>플랜</th>
-              <th>금액</th>
-              <th>상태</th>
-              <th>다음 결제</th>
-              <th>실패</th>
-            </tr>
-          </thead>
-          <tbody>
-            {d.subs.length === 0 && (
-              <tr><td colSpan={6} style={{ color: "var(--ink3)" }}>구독 없음</td></tr>
-            )}
-            {d.subs.map((s, i) => (
-              <tr key={i}>
-                <td>
-                  <Link href={`/brand/${s.brand_id}`}><b>{s.brand_name}</b></Link>
-                </td>
-                <td>{s.plan ?? "—"}</td>
-                <td>{s.amount != null ? won(s.amount) : "—"}</td>
-                <td><SubStatus status={s.status} /></td>
-                <td>{s.next_charge_at ? s.next_charge_at.slice(0, 10) : "—"}</td>
-                <td style={(s.failures ?? 0) > 0 ? { color: "var(--danger)", fontWeight: 700 } : undefined}>
-                  {s.failures ?? 0}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* 구독 (정기) 테이블 — 상태 필터·검색·연체 리마인더 */}
+      <SubsTable subs={d.subs} />
+
+      {/* 수기 결제 확인 기록 */}
+      <ManualPaymentForm brands={brands} />
 
       {/* 일회·수기 결제 테이블 */}
       <div className="card">

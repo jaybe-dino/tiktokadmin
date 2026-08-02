@@ -1,6 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { setMktStatusAction } from "@/app/(dash)/mkt/actions";
 
 // 마케팅 프로젝트 화면 — 프로토타입 s-mkt 3탭 구성(파이프라인 / 루틴 운영대행 / 브랜드사별 매핑).
 // 데이터는 서버(allMktProjects)에서 내려온 실데이터만 사용한다.
@@ -62,7 +64,17 @@ export default function MktScreen({ rows }: { rows: MktRow[] }) {
 
 // ── 탭 1: 파이프라인 보드 ─────────────────────────────────────
 function Pipeline({ projects }: { projects: MktRow[] }) {
-  const count = (k: string) => projects.filter((r) => r.proposal_status === k).length;
+  const [q, setQ] = useState("");
+  const kw = q.trim().toLowerCase();
+  const filtered = kw
+    ? projects.filter(
+        (r) =>
+          r.title.toLowerCase().includes(kw) ||
+          r.brand_name.toLowerCase().includes(kw) ||
+          (r.note ?? "").toLowerCase().includes(kw),
+      )
+    : projects;
+  const count = (k: string) => filtered.filter((r) => r.proposal_status === k).length;
   return (
     <div>
       <div className="bar">
@@ -71,16 +83,24 @@ function Pipeline({ projects }: { projects: MktRow[] }) {
             {c.label} {count(c.key)}
           </span>
         ))}
-        <span style={{ marginLeft: "auto", color: "var(--ink3)", fontSize: "11.5px" }}>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="프로젝트·브랜드 검색"
+          style={{ marginLeft: "auto" }}
+        />
+        <span style={{ color: "var(--ink3)", fontSize: "11.5px" }}>
           수주→진행은 계약 등록이 필요합니다 — 카드 이동도 게이트 검증
         </span>
       </div>
       {projects.length === 0 ? (
         <div className="note">진행 중인 개별 프로젝트가 없습니다. RFP 접수·인바운드 문의가 등록되면 여기에 카드로 표시됩니다.</div>
+      ) : filtered.length === 0 ? (
+        <div className="note">「{q}」 검색 결과가 없습니다.</div>
       ) : (
         <div className="kb">
           {PIPE.map((col) => {
-            const list = projects.filter((r) => r.proposal_status === col.key);
+            const list = filtered.filter((r) => r.proposal_status === col.key);
             return (
               <div key={col.key} className="kcol">
                 <h4>
@@ -88,20 +108,7 @@ function Pipeline({ projects }: { projects: MktRow[] }) {
                   {col.label} <span className="c">{list.length}</span>
                 </h4>
                 {list.map((m) => (
-                  <div key={m.id} className="kcard">
-                    <div className="nm">{m.title}</div>
-                    <div className="mt">
-                      <Link href={`/brand/${m.brand_id}`} className="hover:underline">
-                        {m.brand_name}
-                      </Link>
-                      {m.note ? ` · ${m.note}` : ""}
-                    </div>
-                    <div className="ft">
-                      <span className={`cellchip ${ST[m.proposal_status]?.cc ?? "cc-no"}`}>
-                        {ST[m.proposal_status]?.ko ?? m.proposal_status}
-                      </span>
-                    </div>
-                  </div>
+                  <KCard key={m.id} m={m} />
                 ))}
                 {list.length === 0 && <div className="mt" style={{ padding: "2px 4px" }}>—</div>}
               </div>
@@ -112,6 +119,52 @@ function Pipeline({ projects }: { projects: MktRow[] }) {
       <div className="note" style={{ marginTop: 8 }}>
         💡 완료된 프로젝트의 성과(GMV·콘텐츠)는 다음 제안의 근거 자료로 자동 축적 · 드랍 사유는 주간 자가학습에 반영
       </div>
+    </div>
+  );
+}
+
+// 파이프라인 카드 — 상태 select 로 카드 이동(게이트 경유 setMktStatusAction).
+function KCard({ m }: { m: MktRow }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState("");
+  return (
+    <div className="kcard">
+      <div className="nm">{m.title}</div>
+      <div className="mt">
+        <Link href={`/brand/${m.brand_id}`} className="hover:underline">
+          {m.brand_name}
+        </Link>
+        {m.note ? ` · ${m.note}` : ""}
+      </div>
+      <div className="ft" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span className={`cellchip ${ST[m.proposal_status]?.cc ?? "cc-no"}`}>
+          {ST[m.proposal_status]?.ko ?? m.proposal_status}
+        </span>
+        <select
+          value={m.proposal_status}
+          disabled={pending}
+          onChange={(e) => {
+            const to = e.target.value;
+            if (to === m.proposal_status) return;
+            setErr("");
+            start(async () => {
+              const r = await setMktStatusAction(m.id, to);
+              if (r.ok) router.refresh();
+              else setErr(r.error ?? "변경 실패");
+            });
+          }}
+          style={{ fontSize: 11, padding: "2px 6px", border: "1px solid var(--line)", borderRadius: 6, background: "#fff", color: "var(--ink2)", fontFamily: "inherit" }}
+          title="카드 이동(상태 변경)"
+        >
+          {Object.entries(ST).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v.ko}
+            </option>
+          ))}
+        </select>
+      </div>
+      {err && <div className="mt" style={{ color: "var(--danger)" }}>{err}</div>}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AlertActions from "@/components/AlertActions";
 import ScreenHeader from "@/components/ScreenHeader";
 import { query } from "@/lib/db";
 import { humanElapsed } from "@/lib/time";
@@ -44,6 +45,7 @@ type AlertRow = {
   message: string;
   created_at: string;
   resolved_at: string | null;
+  snoozed_until: string | null;
 };
 
 function tierChip(tier: number): { cls: string; label: string } {
@@ -52,15 +54,43 @@ function tierChip(tier: number): { cls: string; label: string } {
   return { cls: "chip-grn", label: "T" + tier };
 }
 
-export default async function SlackPage() {
+export default async function SlackPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ kind?: string; status?: string }>;
+}) {
+  const sp = await searchParams;
+  const kindFilter = sp.kind ?? "";
+  const statusFilter = sp.status ?? "";
+  const filtered = Boolean(kindFilter || statusFilter);
+
+  // 로그 필터 — kind / 처리상태 (실제 SQL WHERE 로 반영, 파라미터 바인딩).
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (kindFilter) {
+    params.push(kindFilter);
+    where.push(`a.kind = $${params.length}`);
+  }
+  if (statusFilter === "pending") where.push("a.resolved_at IS NULL");
+  else if (statusFilter === "resolved") where.push("a.resolved_at IS NOT NULL");
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
   // 최근 alerts 발송 로그 — 테이블 없어도 방어.
   const rows = await query<AlertRow>(
-    `SELECT a.id, a.brand_id, b.brand_name, a.kind, a.tier, a.message, a.created_at, a.resolved_at
+    `SELECT a.id, a.brand_id, b.brand_name, a.kind, a.tier, a.message, a.created_at, a.resolved_at, a.snoozed_until
        FROM alerts a
        LEFT JOIN brands b ON b.id = a.brand_id
+       ${whereSql}
       ORDER BY a.created_at DESC
-      LIMIT 30`
+      LIMIT 30`,
+    params,
   ).catch(() => [] as AlertRow[]);
+
+  // 필터 select 용 실제 종류 목록 (전체 alerts 기준, 필터 무관).
+  const kindRows = await query<{ kind: string }>(
+    `SELECT DISTINCT kind FROM alerts ORDER BY kind`,
+  ).catch(() => [] as { kind: string }[]);
+  const kindOptions = kindRows.map((k) => k.kind);
 
   // 최근 24h 종류별 발송량 — 라우팅 표의 실제 24h 컬럼용.
   const counts = await query<{ kind: string; tier: number; n: string }>(
@@ -98,7 +128,7 @@ export default async function SlackPage() {
             <div className="card-hd">
               <b>알림 라우팅 — 무엇을 · 어디로 · 어떻게</b>
               <span style={{ color: "var(--ink3)", fontSize: 11, marginLeft: "auto" }}>
-                토글로 켜고 끄기 · 변경은 즉시 적용
+                행을 클릭하면 해당 종류의 로그로 필터 · 채널·묶음 규칙은 워커·환경변수에서 관리
               </span>
             </div>
             <table className="t">
@@ -117,7 +147,16 @@ export default async function SlackPage() {
                   return (
                     <tr key={r.title}>
                       <td>
-                        <b>{r.title}</b>
+                        {r.kinds && r.kinds.length ? (
+                          <Link
+                            href={`/slack?kind=${encodeURIComponent(r.kinds[0])}`}
+                            style={{ color: "inherit" }}
+                          >
+                            <b>{r.title}</b>
+                          </Link>
+                        ) : (
+                          <b>{r.title}</b>
+                        )}
                         {r.sub ? <span className="sub">{r.sub}</span> : null}
                       </td>
                       <td>{r.target}</td>
@@ -139,16 +178,42 @@ export default async function SlackPage() {
 
           <div className="card">
             <div className="card-hd">
-              <b>최근 발송·처리 로그 {rows.length}건</b>
+              <b>
+                최근 발송·처리 로그 {rows.length}건{filtered ? " · 필터 적용" : ""}
+              </b>
             </div>
+            <form method="GET" className="bar" style={{ padding: "8px 16px 0" }}>
+              <select name="kind" defaultValue={kindFilter} style={{ width: 170 }}>
+                <option value="">종류 전체</option>
+                {kindOptions.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+              <select name="status" defaultValue={statusFilter} style={{ width: 130 }}>
+                <option value="">상태 전체</option>
+                <option value="pending">미처리</option>
+                <option value="resolved">처리됨</option>
+              </select>
+              <button className="btn sm pri" type="submit">
+                필터
+              </button>
+              {filtered && (
+                <Link href="/slack" className="btn sm">
+                  초기화
+                </Link>
+              )}
+            </form>
             <div className="bd" style={{ paddingTop: 6, fontSize: 12 }}>
               {rows.length === 0 ? (
                 <p style={{ color: "var(--ink3)" }}>
-                  발송된 알림 로그가 없습니다. Slack 연동(SLACK_* 환경변수)이 설정되면 이곳에
-                  발송·처리 기록이 표시됩니다.
+                  {filtered
+                    ? "조건에 맞는 알림 로그가 없습니다."
+                    : "발송된 알림 로그가 없습니다. Slack 연동(SLACK_* 환경변수)이 설정되면 이곳에 발송·처리 기록이 표시됩니다."}
                 </p>
               ) : (
-                rows.slice(0, 8).map((a) => {
+                rows.slice(0, filtered ? 30 : 8).map((a) => {
                   const done = Boolean(a.resolved_at);
                   const t = tierChip(a.tier);
                   return (
@@ -172,8 +237,19 @@ export default async function SlackPage() {
                           {done ? " · 처리됨" : " · 미처리"}
                         </div>
                       </div>
-                      <div className="rt">
+                      <div
+                        className="rt"
+                        style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}
+                      >
                         <span className={`chip ${t.cls}`}>{t.label}</span>
+                        {!done &&
+                          (a.snoozed_until ? (
+                            <span className="pill" style={{ color: "var(--ink3)" }}>
+                              스누즈됨
+                            </span>
+                          ) : (
+                            <AlertActions alertId={a.id} />
+                          ))}
                       </div>
                     </div>
                   );

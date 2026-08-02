@@ -2,7 +2,7 @@ import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { GradeBadge } from "@/components/badges";
 import { query } from "@/lib/db";
-import type { Grade } from "@/lib/types";
+import { GRADES, type Grade } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +54,19 @@ interface LogRow {
   done_by: string | null;
 }
 
-export default async function DocsPage() {
+export default async function DocsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; grade?: string; country?: string }>;
+}) {
+  const sp = await searchParams;
+  const q = (sp.q ?? "").trim().toLowerCase();
+  const grade = sp.grade ?? "";
+  const country = sp.country ?? "";
+  const matchBrand = (name: string, g: string | null) =>
+    (!q || (name ?? "").toLowerCase().includes(q)) && (!grade || g === grade);
+  const filterActive = Boolean(q || grade || country);
+
   const docRows = (await query(
     `SELECT b.id, b.brand_name, b.grade,
             string_agg(DISTINCT d.template, ',') AS templates,
@@ -69,6 +81,7 @@ export default async function DocsPage() {
      HAVING count(*) FILTER (WHERE NOT d.done) > 0
       ORDER BY pending_cnt DESC, b.brand_name`,
   ).catch(() => [])) as unknown as DocRow[];
+  const docRowsF = docRows.filter((r) => matchBrand(r.brand_name, r.grade));
 
   const logiRows = (await query(
     `SELECT l.brand_id, b.brand_name, b.grade, l.country, l.provider, l.status, l.end_date
@@ -77,6 +90,9 @@ export default async function DocsPage() {
       WHERE COALESCE(b.is_test, false) = false
       ORDER BY b.brand_name, l.country`,
   ).catch(() => [])) as unknown as LogiRow[];
+  const logiRowsF = logiRows.filter(
+    (r) => matchBrand(r.brand_name, r.grade) && (!country || r.country === country),
+  );
 
   const logRows = (await query(
     `SELECT b.brand_name, b.grade, d.template, d.label, d.done_at, d.done_by
@@ -87,22 +103,23 @@ export default async function DocsPage() {
       ORDER BY d.done_at DESC
       LIMIT 8`,
   ).catch(() => [])) as unknown as LogRow[];
+  const logRowsF = logRows.filter((r) => matchBrand(r.brand_name, r.grade));
 
   const today = new Date().toISOString().slice(0, 10);
   const isExpired = (r: LogiRow) =>
     r.status === "expired" || (!!r.end_date && r.end_date < today);
 
-  // ── 통계 (실데이터 롤업) ─────────────────────────────
-  const pendingTotal = docRows.reduce((s, r) => s + (r.pending_cnt || 0), 0);
-  const activeCnt = logiRows.filter(
+  // ── 통계 (실데이터 롤업 · 필터 반영) ─────────────────
+  const pendingTotal = docRowsF.reduce((s, r) => s + (r.pending_cnt || 0), 0);
+  const activeCnt = logiRowsF.filter(
     (r) => (r.status === "active" || r.status === "contracted") && !isExpired(r),
   ).length;
-  const negotiatingCnt = logiRows.filter((r) => r.status === "negotiating").length;
-  const expiredCnt = logiRows.filter(isExpired).length;
+  const negotiatingCnt = logiRowsF.filter((r) => r.status === "negotiating").length;
+  const expiredCnt = logiRowsF.filter(isExpired).length;
 
   // ── 브랜드별 물류 요약 (메인 테이블 셀용) ────────────
   const byBrand = new Map<string, LogiRow[]>();
-  for (const r of logiRows) {
+  for (const r of logiRowsF) {
     const arr = byBrand.get(r.brand_id) ?? [];
     arr.push(r);
     byBrand.set(r.brand_id, arr);
@@ -147,6 +164,9 @@ export default async function DocsPage() {
     cell: (code: string) => arr.find((r) => r.country === code) ?? null,
   }));
 
+  // 국가 필터 시 해당 열만 표시
+  const shownCountries = country ? COUNTRIES.filter((c) => c.code === country) : COUNTRIES;
+
   return (
     <div>
       <ScreenHeader
@@ -154,11 +174,31 @@ export default async function DocsPage() {
         desc="서류 체크리스트 미완 브랜드와 국가별 물류 계약 현황 (크로스-브랜드)"
       />
 
+      {/* 검색·필터 바 (GET → searchParams, 실데이터 필터) */}
+      <form method="GET" className="bar">
+        <input
+          name="q"
+          defaultValue={sp.q ?? ""}
+          style={{ width: 220 }}
+          placeholder="브랜드명 검색"
+        />
+        <select name="grade" defaultValue={grade} style={{ width: 110 }}>
+          <option value="">등급 전체</option>
+          {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <select name="country" defaultValue={country} style={{ width: 120 }}>
+          <option value="">국가 전체</option>
+          {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
+        </select>
+        <button className="btn btn-primary btn-sm" type="submit">검색</button>
+        {filterActive && <Link href="/docs" className="btn btn-sm">초기화</Link>}
+      </form>
+
       {/* 요약 타일 */}
       <div className="grid g4" style={{ marginBottom: 14 }}>
         <div className="tile">
           <div className="k">서류 수급 중</div>
-          <div className="v">{docRows.length}</div>
+          <div className="v">{docRowsF.length}</div>
           <div className="d">미제출 {pendingTotal}건</div>
         </div>
         <div className={pendingTotal > 0 ? "tile alert" : "tile"}>
@@ -170,7 +210,7 @@ export default async function DocsPage() {
         </div>
         <div className="tile">
           <div className="k">물류 계약</div>
-          <div className="v">{logiRows.length}</div>
+          <div className="v">{logiRowsF.length}</div>
           <div className="d">운영·계약 {activeCnt} · 협의 {negotiatingCnt}</div>
         </div>
         <div className={expiredCnt > 0 ? "tile alert" : "tile"}>
@@ -184,7 +224,7 @@ export default async function DocsPage() {
 
       {/* 서류 체크리스트 미완 브랜드 */}
       <div className="card overflow-x-auto">
-        <div className="card-hd"><b>서류 체크리스트 미완 ({docRows.length})</b></div>
+        <div className="card-hd"><b>서류 체크리스트 미완 ({docRowsF.length})</b></div>
         <table className="t">
           <thead>
             <tr>
@@ -198,12 +238,14 @@ export default async function DocsPage() {
             </tr>
           </thead>
           <tbody>
-            {docRows.length === 0 && (
+            {docRowsF.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ color: "var(--ink3)" }}>미완 서류가 없습니다.</td>
+                <td colSpan={7} style={{ color: "var(--ink3)" }}>
+                  {filterActive ? "조건에 맞는 미완 서류가 없습니다." : "미완 서류가 없습니다."}
+                </td>
               </tr>
             )}
-            {docRows.map((r) => {
+            {docRowsF.map((r) => {
               const total = r.total || 0;
               const done = r.done_cnt || 0;
               const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -248,10 +290,10 @@ export default async function DocsPage() {
         <div className="card">
           <div className="hd"><b>서류 동기 로그 (최근 갱신)</b></div>
           <div className="bd" style={{ fontSize: 12 }}>
-            {logRows.length === 0 && (
+            {logRowsF.length === 0 && (
               <div style={{ color: "var(--ink3)" }}>최근 갱신된 서류가 없습니다.</div>
             )}
-            {logRows.map((r, i) => (
+            {logRowsF.map((r, i) => (
               <div className="row" key={i}>
                 <span className="ico i-grn">↓</span>
                 <div>
@@ -276,7 +318,7 @@ export default async function DocsPage() {
               <thead>
                 <tr>
                   <th>브랜드</th>
-                  {COUNTRIES.map((c) => (
+                  {shownCountries.map((c) => (
                     <th key={c.code}>{c.flag}</th>
                   ))}
                 </tr>
@@ -284,7 +326,7 @@ export default async function DocsPage() {
               <tbody>
                 {boardBrands.length === 0 && (
                   <tr>
-                    <td colSpan={COUNTRIES.length + 1} style={{ color: "var(--ink3)" }}>
+                    <td colSpan={shownCountries.length + 1} style={{ color: "var(--ink3)" }}>
                       물류 계약이 없습니다.
                     </td>
                   </tr>
@@ -296,7 +338,7 @@ export default async function DocsPage() {
                         {b.name}
                       </Link>
                     </td>
-                    {COUNTRIES.map((c) => {
+                    {shownCountries.map((c) => {
                       const cell = b.cell(c.code);
                       if (!cell) return <td key={c.code}><span className="cellchip cc-no">—</span></td>;
                       const expired = isExpired(cell);

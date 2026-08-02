@@ -10,17 +10,41 @@ function slaClass(tier: number): string {
   return tier >= 3 ? "t3" : tier >= 2 ? "t2" : tier >= 1 ? "t1" : "ok";
 }
 
-export default async function MonitorPage() {
-  const { alerts, gateViolations } = await monitorData().catch(() => ({
+export default async function MonitorPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tier?: string; kind?: string }>;
+}) {
+  const sp = await searchParams;
+  const { alerts: allAlerts, gateViolations } = await monitorData().catch(() => ({
     alerts: [] as Awaited<ReturnType<typeof monitorData>>["alerts"],
     gateViolations: [] as Awaited<ReturnType<typeof monitorData>>["gateViolations"],
   }));
 
-  const t3 = alerts.filter((a) => a.tier >= 3).length;
-  const t2 = alerts.filter((a) => a.tier === 2).length;
-  const t1 = alerts.filter((a) => a.tier === 1).length;
-  const t0 = alerts.filter((a) => a.tier <= 0).length;
-  const t2plus = alerts.filter((a) => a.tier >= 2).length;
+  // KPI 타일은 전체 기준(필터 무관), 아래 표만 필터 적용.
+  const t3 = allAlerts.filter((a) => a.tier >= 3).length;
+  const t2 = allAlerts.filter((a) => a.tier === 2).length;
+  const t1 = allAlerts.filter((a) => a.tier === 1).length;
+  const t0 = allAlerts.filter((a) => a.tier <= 0).length;
+  const t2plus = allAlerts.filter((a) => a.tier >= 2).length;
+
+  const kinds = Array.from(new Set(allAlerts.map((a) => a.kind))).sort();
+  const tierFilter = sp.tier ?? "";
+  const kindFilter = sp.kind ?? "";
+  const tierMatch = (t: number): boolean => {
+    switch (tierFilter) {
+      case "3": return t >= 3;
+      case "2": return t === 2;
+      case "1": return t === 1;
+      case "0": return t <= 0;
+      case "2plus": return t >= 2;
+      default: return true;
+    }
+  };
+  const alerts = allAlerts.filter(
+    (a) => tierMatch(a.tier) && (!kindFilter || a.kind === kindFilter),
+  );
+  const filtered = Boolean(tierFilter || kindFilter);
 
   return (
     <div>
@@ -52,10 +76,27 @@ export default async function MonitorPage() {
         </div>
       </div>
 
+      <form method="GET" className="bar">
+        <select name="tier" defaultValue={tierFilter} style={{ width: 150 }}>
+          <option value="">티어 전체</option>
+          <option value="2plus">T2 이상</option>
+          <option value="3">T3</option>
+          <option value="2">T2</option>
+          <option value="1">T1</option>
+          <option value="0">T0</option>
+        </select>
+        <select name="kind" defaultValue={kindFilter} style={{ width: 170 }}>
+          <option value="">종류 전체</option>
+          {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+        <button className="btn btn-primary btn-sm" type="submit">필터</button>
+        {filtered && <Link href="/monitor" className="btn btn-sm">초기화</Link>}
+      </form>
+
       <div className="grid g31">
         <div className="card">
           <div className="hd">
-            <b>활성 알림 {alerts.length}건</b>
+            <b>활성 알림 {alerts.length}건{filtered && ` / 전체 ${allAlerts.length}`}</b>
           </div>
           <table className="t">
             <thead>
@@ -71,7 +112,9 @@ export default async function MonitorPage() {
             <tbody>
               {alerts.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ color: "var(--ink3)" }}>활성 알림이 없습니다 🎉</td>
+                  <td colSpan={6} style={{ color: "var(--ink3)" }}>
+                    {filtered ? "조건에 맞는 알림이 없습니다" : "활성 알림이 없습니다 🎉"}
+                  </td>
                 </tr>
               )}
               {alerts.map((a) => (
