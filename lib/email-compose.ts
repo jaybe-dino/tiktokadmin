@@ -5,7 +5,8 @@ import { query, queryOne } from "./db";
 import { env } from "./env";
 import type { Brand } from "./types";
 
-const MODEL = "claude-sonnet-5";
+import { AI_MODEL } from "./ai";
+const MODEL = AI_MODEL;
 
 export interface ComposeResult { ok: boolean; draftId?: string; subject?: string; body?: string; error?: string }
 

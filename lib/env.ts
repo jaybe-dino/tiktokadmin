@@ -82,6 +82,9 @@ export const env = {
   get anthropicKey() {
     return opt("ANTHROPIC_API_KEY");
   },
+  get anthropicModel() {
+    return opt("ANTHROPIC_MODEL", "claude-sonnet-5");
+  },
   resend: {
     get apiKey() {
       return opt("RESEND_API_KEY");

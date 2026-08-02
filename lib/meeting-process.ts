@@ -7,7 +7,8 @@ import { createSurvey } from "./repo/card";
 import { draftFollowup, recordMeetingContact, SUMMARY_FORMAT } from "./meetings";
 import type { Brand } from "./types";
 
-const MODEL = "claude-sonnet-5";
+import { AI_MODEL } from "./ai";
+const MODEL = AI_MODEL;
 
 interface PendingMeeting {
   id: string; brand_id: string | null; topic: string; transcript: string | null;
@@ -26,15 +27,22 @@ export async function processMeetings(limit = 5): Promise<{ summarized: number; 
   let summarized = 0, skipped = 0;
   for (const m of rows) {
     try {
-      // 매칭 안 된 미팅은 요약만 하고 기록은 보류.
-      if (!m.transcript) {
-        // STT 는 별도(OpenAI Whisper). 키/파일 없으면 스킵.
-        skipped++;
-        continue;
+      // 전사본 없으면 녹음 → Whisper STT 로 전사(키/녹음 있을 때). 없으면 스킵.
+      let transcript = m.transcript;
+      if (!transcript) {
+        const { transcribeAudio, sttEnabled } = await import("./stt");
+        if (!sttEnabled() || !m.recording_url) { skipped++; continue; }
+        await query("UPDATE meetings SET status='transcribing' WHERE id=$1", [m.id]);
+        transcript = await transcribeAudio(m.recording_url);
+        if (!transcript) {
+          await query("UPDATE meetings SET status='received' WHERE id=$1", [m.id]);
+          skipped++; continue;
+        }
+        await query("UPDATE meetings SET transcript=$2, transcript_source='whisper' WHERE id=$1", [m.id, transcript]);
       }
       if (!env.anthropicKey) { skipped++; continue; }
 
-      const summary = await summarize(m.transcript, m.topic);
+      const summary = await summarize(transcript, m.topic);
       await query("UPDATE meetings SET summary_md=$2, status='ready' WHERE id=$1", [m.id, summary]);
 
       if (m.brand_id) {

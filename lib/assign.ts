@@ -87,6 +87,33 @@ export async function logAssignment(input: {
     [input.brandId, input.role, input.fromUser, input.toUser, input.byUser, input.reason ?? ""]);
 }
 
+/** AI 인수인계 요약 (09-B-3) — 타임라인·메일·미팅을 1페이지 요약. 키 없으면 null. */
+export async function generateHandover(brandId: string): Promise<string | null> {
+  const { aiText } = await import("./ai");
+  const brand = await queryOne<{ brand_name: string; state: string; plan: string | null; category: string; next_action: string }>(
+    "SELECT brand_name, state, plan, category, next_action FROM brands WHERE id=$1", [brandId]);
+  if (!brand) return null;
+  const hist = await query<{ text: string; at: string }>(
+    `SELECT (from_state||'→'||to_state||COALESCE(' · '||reason,'')) text, at::text FROM stage_history WHERE brand_id=$1 ORDER BY at DESC LIMIT 15`,
+    [brandId]).catch(() => []);
+  const mails = await query<{ subject: string; direction: string }>(
+    "SELECT subject, direction FROM email_messages WHERE brand_id=$1 ORDER BY sent_at DESC LIMIT 8", [brandId]).catch(() => []);
+  const meeting = await queryOne<{ summary_md: string }>(
+    "SELECT summary_md FROM meetings WHERE brand_id=$1 AND summary_md IS NOT NULL ORDER BY created_at DESC LIMIT 1", [brandId]).catch(() => null);
+  const ctx = [
+    `브랜드: ${brand.brand_name}(${brand.category}) · 단계 ${brand.state} · 플랜 ${brand.plan ?? "미정"}`,
+    `다음 액션: ${brand.next_action || "-"}`,
+    hist.length ? `이력:\n${hist.map((h) => `- ${h.at.slice(0, 10)} ${h.text}`).join("\n")}` : "",
+    mails.length ? `메일:\n${mails.map((m) => `- (${m.direction}) ${m.subject}`).join("\n")}` : "",
+    meeting?.summary_md ? `최근 회의록:\n${meeting.summary_md}` : "",
+  ].filter(Boolean).join("\n");
+  return aiText({
+    system: "너는 GloveK 담당자 인수인계 요약을 쓴다. 신규 담당이 5분 안에 파악하도록 1페이지(현황·핵심맥락·주의점·다음 할 일)로. 개인정보(카드·신분증) 제외.",
+    user: `아래 브랜드를 인수인계 요약해줘.\n\n${ctx}`,
+    maxTokens: 800,
+  });
+}
+
 /** 미배정 브랜드 큐 (09-B-2). */
 export async function listUnassigned(role?: OwnerField): Promise<{ id: string; brand_name: string; state: string; category: string; grade: string | null }[]> {
   const roleFilter = role

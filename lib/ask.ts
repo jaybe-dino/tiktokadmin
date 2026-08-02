@@ -4,7 +4,8 @@ import { TOOLS } from "./mcp-tools";
 
 // /ask · app_mention → 도메인 툴을 가진 Claude 질의 (05 §5, 06).
 
-const MODEL = "claude-sonnet-5";
+import { AI_MODEL } from "./ai";
+const MODEL = AI_MODEL;
 
 const SYSTEM = `너는 Glovek 운영 어드민의 AI 오퍼레이터다.
 제공된 도메인 툴로 원장(brands)을 조회·정리해 한국어로 간결하게 답한다.
