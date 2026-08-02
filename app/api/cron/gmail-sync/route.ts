@@ -21,6 +21,11 @@ export async function POST(req: NextRequest) {
   }
 
   const noReply = await detectNoReply(3);
-  return NextResponse.json({ ok: true, gmailEnabled, accounts, synced, noReplyAlerts: noReply });
+
+  // 수집 직후 미답 고객 메일 → AI 요약 + 근거기반 회신 초안(초안함). 발송은 담당 승인 후.
+  const { draftInboundReplies } = await import("@/lib/inbound-reply");
+  const inbound = await draftInboundReplies(10).catch(() => ({ pending: 0, drafted: 0, ai: false }));
+
+  return NextResponse.json({ ok: true, gmailEnabled, accounts, synced, noReplyAlerts: noReply, inbound });
 }
 export const GET = POST;

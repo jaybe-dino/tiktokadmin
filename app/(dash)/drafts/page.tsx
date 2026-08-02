@@ -10,7 +10,8 @@ export default async function DraftsPage() {
     <div className="max-w-3xl">
       <h1 className="text-2xl font-extrabold mb-1">초안함</h1>
       <p className="text-sm text-muted mb-4">
-        미팅 팔로업·AI 답장 초안 {drafts.length}건 — 승인 시 발송(광고성은 수신동의 확인).
+        미팅 팔로업·AI 회신 초안 {drafts.length}건 — 고객 메일 수신 시 자동 요약·회신 초안 생성.
+        검토·수정 후 승인하면 발송(광고성은 수신동의 확인).
       </p>
       {drafts.length === 0 ? (
         <div className="card p-6 text-sm text-muted">대기 중인 초안이 없습니다.</div>

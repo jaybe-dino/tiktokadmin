@@ -67,6 +67,26 @@ function parseAddrs(v: string): string[] {
   }).filter((e) => e.includes("@"));
 }
 
+interface GmailPart { mimeType?: string; body?: { data?: string; size?: number }; parts?: GmailPart[] }
+
+/** MIME 트리에서 text/plain(없으면 text/html 태그제거) 본문 추출. base64url 디코드. */
+function extractBody(payload: GmailPart | undefined): string {
+  if (!payload) return "";
+  const decode = (d?: string) => (d ? Buffer.from(d, "base64url").toString("utf8") : "");
+  const find = (part: GmailPart, mime: string): string => {
+    if (part.mimeType === mime && part.body?.data) return decode(part.body.data);
+    for (const p of part.parts ?? []) {
+      const r = find(p, mime);
+      if (r) return r;
+    }
+    return "";
+  };
+  const plain = find(payload, "text/plain");
+  if (plain) return plain;
+  const html = find(payload, "text/html");
+  return html ? html.replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "";
+}
+
 /** 한 사서함(owner) 최근 메일 수집 → 브랜드 매칭분만 적재. 반환 저장 건수. */
 export async function syncMailbox(ownerEmail: string, maxResults = 30): Promise<number> {
   const token = await getAccessToken(ownerEmail);
@@ -82,8 +102,9 @@ export async function syncMailbox(ownerEmail: string, maxResults = 30): Promise<
 
   let saved = 0;
   for (const id of ids) {
+    // format=full: 본문(회신 초안 근거) + 헤더 함께 수집.
     const mRes = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Date`,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
       { headers: auth });
     if (!mRes.ok) continue;
     const msg = await mRes.json();
@@ -106,6 +127,7 @@ export async function syncMailbox(ownerEmail: string, maxResults = 30): Promise<
       gmailMsgId: id, threadId: msg.threadId ?? id, direction,
       ownerEmail: owner, fromAddr: from, toAddrs: to,
       subject, snippet: (msg.snippet ?? "").slice(0, 300),
+      bodyText: extractBody(msg.payload).slice(0, 8000) || undefined,
       hasAttachment: JSON.stringify(msg.payload ?? {}).includes("attachmentId"),
       sentAt,
     }).catch(() => false);

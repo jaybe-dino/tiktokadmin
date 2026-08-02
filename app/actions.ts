@@ -496,14 +496,24 @@ export async function addAssetLinkAction(input: {
 }
 
 // ═══ Phase 4 · 초안함 (Drafts Inbox) ═════════════════════════
-import { approveAndSend, discardDraft } from "@/lib/drafts";
+import { approveAndSend, discardDraft, editDraft } from "@/lib/drafts";
 
-export async function approveDraftAction(id: string): Promise<ActionResult & { sent?: boolean }> {
+export async function approveDraftAction(
+  id: string, edits?: { subject?: string; body?: string },
+): Promise<ActionResult & { sent?: boolean }> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };
-  const r = await approveAndSend(id, a.actor);
+  const r = await approveAndSend(id, a.actor, edits);
   revalidatePath("/drafts");
   return { ok: r.ok, error: r.error, sent: r.sent };
+}
+
+export async function editDraftAction(id: string, subject: string, body: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  await editDraft(id, subject, body, a.actor);
+  revalidatePath("/drafts");
+  return { ok: true };
 }
 
 export async function discardDraftAction(id: string): Promise<ActionResult> {

@@ -146,6 +146,16 @@ async function preAnalysis(): Promise<AgentResult> {
   return { summary: `사전분석 브리프 ${made}건 생성${aiEnabled() ? "(AI)" : "(규칙기반)"}`, actions: made };
 }
 
+// 10) 인바운드 자동 회신 초안 — 미답 고객 메일 → 요약 + 근거기반 회신 초안(초안함)
+async function inboundReply(): Promise<AgentResult> {
+  const { draftInboundReplies } = await import("./inbound-reply");
+  const r = await draftInboundReplies(10).catch(() => ({ pending: 0, drafted: 0, ai: false }));
+  return {
+    summary: `미답 수신메일 ${r.pending}건 · 회신초안 ${r.drafted}건 생성(초안함)${r.ai ? "(AI)" : "(규칙-수동작성)"}`,
+    actions: r.drafted, detail: { ...r },
+  };
+}
+
 // ── 레지스트리 ─────────────────────────────────────────────────
 export const AGENTS: AgentDef[] = [
   { key: "daily_ops_check", label: "일일 운영 점검", schedule: "매일 09:00", kind: "deterministic",
@@ -166,6 +176,8 @@ export const AGENTS: AgentDef[] = [
     desc: "퍼널 지표 분석·인사이트 저장(AI 제언)", run: weeklyInsight },
   { key: "pre_analysis", label: "사전분석", schedule: "신규 유입 + 매일 11:30", kind: "ai",
     desc: "브리프 없는 브랜드 진단(AI 브리프)", run: preAnalysis },
+  { key: "inbound_reply", label: "인바운드 자동 회신", schedule: "매시(메일 수집 직후)", kind: "ai",
+    desc: "미답 고객 메일 요약 + 우리 데이터 근거 회신 초안(초안함) — 담당 승인 후 발송", run: inboundReply },
 ];
 
 export function getAgent(key: string): AgentDef | undefined {

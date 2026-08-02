@@ -296,13 +296,15 @@ async function seedBrandChildren(c: PoolClient, bid: string, b: DemoBrand, month
        VALUES ($1,$2,$3,'out',$4,$4,$5,$6,$7, now() - interval '5 days')`,
       [bid, `msg_${randDigits(14)}`, thread, owner, [brandEmail],
        `[GloveK] ${b.name} 진행 안내`, "안녕하세요, 논의된 제안 관련 자료 보내드립니다..."]);
-    // 절반은 브랜드 회신(in) 있음
+    // 절반은 브랜드 회신(in) 있음 — 미답 상태(자동 회신 초안 대상)
     if (b.name.length % 2 === 0) {
+      const inBody = `안녕하세요, ${b.name} 담당자입니다.\n보내주신 제안 잘 확인했습니다. 몇 가지 문의드립니다.\n1) ${b.countries.join("·")} 진출 시 필요한 인증 서류와 예상 소요기간이 궁금합니다.\n2) 정산 주기와 수수료 조건을 다시 안내해 주실 수 있을까요?\n3) 다음 주 중 미팅 일정 조율 가능합니다.\n감사합니다.`;
       await c.query(
-        `INSERT INTO email_messages (brand_id, gmail_msg_id, thread_id, direction, owner_email, from_addr, to_addrs, subject, snippet, sent_at)
-         VALUES ($1,$2,$3,'in',$4,$5,$6,$7,$8, now() - interval '3 days')`,
+        `INSERT INTO email_messages (brand_id, gmail_msg_id, thread_id, direction, owner_email, from_addr, to_addrs, subject, snippet, body_text, sent_at)
+         VALUES ($1,$2,$3,'in',$4,$5,$6,$7,$8,$9, now() - interval '3 days')`,
         [bid, `msg_${randDigits(14)}`, thread, owner, brandEmail, [owner],
-         `RE: [GloveK] ${b.name} 진행 안내`, "확인했습니다. 다음 주 미팅 가능합니다."]);
+         `RE: [GloveK] ${b.name} 진행 안내`,
+         "보내주신 제안 확인했습니다. 인증 서류·정산 조건 문의드리며, 다음 주 미팅 가능합니다.", inBody]);
     }
   }
 
