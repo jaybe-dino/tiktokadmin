@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,18 @@ export async function GET() {
       "SELECT count(*)::text n FROM ingest_events WHERE status='error' AND created_at > now() - interval '1 hour'");
     out.ingestErrorsLastHour = Number(err?.n ?? 0);
   } catch { out.ingestErrorsLastHour = "n/a"; }
+
+  // 연동 키 감지 여부(값 노출 없이 boolean 만) — 발송 안 될 때 배포/env 진단용
+  out.integrations = {
+    aligo: Boolean(env.aligo.apiKey && env.aligo.userId && env.aligo.sender),
+    aligoTestMode: env.aligo.testMode,
+    aligoProxy: Boolean(env.aligo.proxyUrl),
+    resend: Boolean(env.resend.apiKey),
+    anthropic: Boolean(env.anthropicKey),
+    openai: Boolean(env.openaiKey),
+    gmail: Boolean(env.gmail.saKeyJson),
+    slack: Boolean(env.slack.botToken),
+  };
 
   out.latencyMs = Date.now() - started;
   return NextResponse.json(out);
