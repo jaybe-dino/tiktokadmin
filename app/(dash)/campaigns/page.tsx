@@ -1,6 +1,7 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { query } from "@/lib/db";
+import CampaignActions from "./CampaignActions";
 
 export const dynamic = "force-dynamic";
 
@@ -193,10 +194,7 @@ export default async function CampaignsPage() {
                     <td style={{ color: "var(--ink3)" }}>{s.perf}</td>
                     <td>{s.next}</td>
                     <td style={{ whiteSpace: "nowrap" }}>
-                      <button className="btn btn-sm">초안 보기</button>{" "}
-                      <button className={`btn btn-sm${s.primary ? " btn-primary" : ""}`}>
-                        발송
-                      </button>
+                      <CampaignActions segment={s.key} channel="email" primary={s.primary} />
                     </td>
                   </tr>
                 ))}

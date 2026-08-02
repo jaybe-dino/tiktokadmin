@@ -11,7 +11,9 @@ import { GradeBadge, PayBadge, PlanBadge, StateBadge, TierBadge } from "@/compon
 import { brand360 } from "@/lib/repo/queries";
 import { stageChecklist } from "@/lib/requirements";
 import { humanElapsed } from "@/lib/time";
-import { SOURCE_LABELS, type State } from "@/lib/types";
+import { nextStepGuide } from "@/lib/meetings";
+import { buildGateContext } from "@/lib/gates";
+import { SOURCE_LABELS, STATE_LABELS, type State } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,10 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const rawReqs = await stageChecklist(brand.id, brand.state).catch(() => []);
   const emails = await listBrandEmails(brand.id).catch(() => []);
   const deep = await cardDeep(brand.id).catch(() => null);
+
+  // 다음 스텝 게이트 체크리스트 — 현재 state 의 다음 전이 게이트 항목 (충족/미충족)
+  const gateCtx = await buildGateContext(brand).catch(() => null);
+  const gate = gateCtx ? await nextStepGuide(brand, gateCtx).catch(() => null) : null;
   const stageReqs = rawReqs.map((r) => {
     if (r.kind === "field" && r.field_key) {
       const v = (brand as unknown as Record<string, unknown>)[r.field_key];
@@ -312,13 +318,31 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           </section>
         </div>
 
-        {/* 액션 (client) — 필수항목 체크리스트·게이트·담당배정·서류·수기결제·삭제 */}
-        <Brand360Actions
-          brand={brand}
-          adminUsers={adminUsers}
-          docItems={docs.items.map((i) => ({ item_key: i.item_key, label: i.label, done: i.done, source: i.source }))}
-          stageReqs={stageReqs}
-        />
+        <div className="space-y-4">
+          {/* 다음 스텝 게이트 체크리스트 (.gate) — 현재 상태의 다음 전이 게이트 항목 */}
+          {gate && (
+            <div className="gate">
+              <h5>▶ 다음 스텝 게이트: {STATE_LABELS[gate.from]} → {STATE_LABELS[gate.to]}</h5>
+              {gate.items.length === 0 ? (
+                <div className="gi"><span className="ok">✅</span> 게이트 조건 없음 — 바로 이동 가능</div>
+              ) : (
+                gate.items.map((it, i) => (
+                  <div key={i} className="gi">
+                    <span className={it.done ? "ok" : "no"}>{it.done ? "✅" : "⬜"}</span> {it.label}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* 액션 (client) — 필수항목 체크리스트·게이트·담당배정·서류·수기결제·삭제 */}
+          <Brand360Actions
+            brand={brand}
+            adminUsers={adminUsers}
+            docItems={docs.items.map((i) => ({ item_key: i.item_key, label: i.label, done: i.done, source: i.source }))}
+            stageReqs={stageReqs}
+          />
+        </div>
       </div>
     </div>
   );

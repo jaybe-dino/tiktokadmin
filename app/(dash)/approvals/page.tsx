@@ -1,6 +1,7 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { allApprovals } from "@/lib/repo/global";
+import ApprovalActions from "./ApprovalActions";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export default async function ApprovalsPage() {
                 </div>
               </div>
               <span className={`pill ${ST[a.status as string]?.c ?? ""}`}>{ST[a.status as string]?.ko ?? (a.status as string)}</span>
+              {a.status === "pending" && <ApprovalActions id={a.id as string} />}
             </div>
           );
         })}
