@@ -40,9 +40,17 @@ async function aligoFetch(url: string, init: RequestInit): Promise<Response> {
   if (!proxy) return fetch(url, init);
   try {
     const { ProxyAgent } = await import("undici");
-    const dispatcher = new ProxyAgent(proxy);
+    // Fixie/QuotaGuard 등은 URL 에 아이디:비번이 포함됨 → basic auth 를 명시 전달
+    //   (undici 버전에 따라 userinfo 자동인식이 안 되면 407 발생하므로 token 직접 세팅)
+    const u = new URL(proxy);
+    const uri = `${u.protocol}//${u.host}`;
+    const auth = u.username || u.password
+      ? "Basic " + Buffer.from(`${decodeURIComponent(u.username)}:${decodeURIComponent(u.password)}`).toString("base64")
+      : undefined;
+    const dispatcher = new ProxyAgent(auth ? { uri, token: auth } : { uri });
     return fetch(url, { ...init, dispatcher } as RequestInit);
-  } catch {
+  } catch (e) {
+    console.error("[aligo] proxy fetch 실패, 직접 발송 폴백:", (e as Error).message);
     return fetch(url, init);
   }
 }
