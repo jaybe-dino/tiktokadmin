@@ -2,6 +2,9 @@ import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { query } from "@/lib/db";
 import CampaignActions from "./CampaignActions";
+import CampaignDraftButton from "./CampaignDraftButton";
+import CampaignApprove from "./CampaignApprove";
+import WinbackMemo from "./WinbackMemo";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +38,7 @@ const SEND_CH: Record<string, string> = { email: "✉️ 메일", sms: "📱 문
 const SEND_TK: Record<string, string> = { lead_group: "리드 그룹", filter: "필터 조합", manual: "직접 선택" };
 
 export default async function CampaignsPage() {
-  const [dropped, seminarStale, countryExpand, pastDue, consentRow, winbackRows, sends] =
+  const [dropped, seminarStale, countryExpand, pastDue, consentRow, winbackRows, sends, pendingRows] =
     await Promise.all([
       // 세그먼트 카운트
       countBrands("state = 'dropped'"),
@@ -68,6 +71,14 @@ export default async function CampaignsPage() {
        ORDER BY created_at DESC
           LIMIT 12`,
       ).catch(() => [] as Record<string, unknown>[]),
+      // 승인 대기 캠페인 (draft 상태 bulk_sends)
+      query(
+        `SELECT id, title, channel, total, scheduled_at, created_at
+           FROM bulk_sends
+          WHERE status = 'draft'
+       ORDER BY created_at DESC
+          LIMIT 10`,
+      ).catch(() => [] as Record<string, unknown>[]),
     ]);
 
   const consent = (consentRow as Record<string, unknown>[])[0] ?? {};
@@ -75,6 +86,7 @@ export default async function CampaignsPage() {
   const deny = Number(consent.deny ?? 0);
   const wb = winbackRows as Record<string, unknown>[];
   const sendRows = sends as Record<string, unknown>[];
+  const pending = pendingRows as Record<string, unknown>[];
 
   const segs = [
     {
@@ -129,9 +141,11 @@ export default async function CampaignsPage() {
         title="캠페인·윈백"
         desc="수신동의 기반 · 드랍·미전환·확장 후보를 세그먼트로 묶어 정기 재접촉 — AI가 초안, 발송은 승인"
         right={
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-sm">+ 세그먼트</button>
-            <button className="btn btn-sm btn-primary">캠페인 초안 생성 (AI)</button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Link className="btn btn-sm" href="/send">
+              + 세그먼트
+            </Link>
+            <CampaignDraftButton />
           </div>
         }
       />
@@ -235,7 +249,11 @@ export default async function CampaignsPage() {
                         )}
                       </td>
                       <td>
-                        <button className="btn btn-sm">메모</button>
+                        <WinbackMemo
+                          brandId={r.id as string}
+                          initialNote={(r.next_action as string) || ""}
+                          initialDue={r.due_date ? shortDate(r.due_date) : ""}
+                        />
                       </td>
                     </tr>
                   );
@@ -314,20 +332,35 @@ export default async function CampaignsPage() {
             <div className="hd">
               <b>승인 대기 캠페인</b>
               <span className="chip amb" style={{ marginLeft: 8 }}>
-                1
+                {pending.length}
               </span>
             </div>
             <div className="bd" style={{ fontSize: 12 }}>
-              <div className="row">
-                <span className="ico i-pur">✉️</span>
-                <div>
-                  <div className="tt">8월 세미나 안내 (세미나 미전환 {seminarStale}명)</div>
-                  <div className="ss">AI 초안 · 개인화: 참석 세미나 주제 · 발송 8/4 09:00</div>
+              {pending.length === 0 && (
+                <div style={{ color: "var(--ink3)" }}>
+                  승인 대기 중인 캠페인이 없습니다. 상단 “캠페인 초안 생성 (AI)”로 만드세요.
                 </div>
-                <div className="rt">
-                  <button className="btn btn-sm btn-primary">승인·예약</button>
+              )}
+              {pending.map((p) => (
+                <div
+                  className="row"
+                  key={p.id as string}
+                  style={{ alignItems: "flex-start", gap: 8 }}
+                >
+                  <span className="ico i-pur">
+                    {(p.channel as string) === "sms" ? "📱" : "✉️"}
+                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div className="tt">{p.title as string}</div>
+                    <div className="ss">
+                      AI 초안 · 대상 {(p.total as number) ?? 0}명 · {SEND_CH[p.channel as string] ?? (p.channel as string)}
+                    </div>
+                  </div>
+                  <div className="rt">
+                    <CampaignApprove id={p.id as string} />
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           </div>
 

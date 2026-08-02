@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { GradeBadge, StateBadge, PlanBadge, PayBadge } from "@/components/badges";
 import type { Grade, State, Plan } from "@/lib/types";
+import { AssignOwnerButton, DraftReplyButton } from "./MailActions";
 
 // 메일함 3분할 클라이언트 — 스레드 선택 상태(useState)만 담당.
 // 데이터(스레드 목록·스레드별 메시지·브랜드 컨텍스트)는 서버 page.tsx 에서 주입.
@@ -222,7 +223,7 @@ export default function MailClient({
                   타임라인 보기
                 </Link>
               )}
-              <button className="btn" type="button">담당 이관</button>
+              <AssignOwnerButton brandId={sel.brand_id} />
             </div>
           </>
         ) : (
@@ -305,13 +306,11 @@ export default function MailClient({
                 자동 갱신되어 무응답 알림이 해제됩니다.
               </div>
             </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-              <button className="btn" style={{ flex: 1 }} type="button" disabled>
-                ✏️ 답장 초안
-              </button>
+            <div style={{ marginTop: 10 }}>
+              <DraftReplyButton brandId={sel.brand_id} />
             </div>
             <div className="note" style={{ marginTop: 10 }}>
-              발송 시 접촉 기록 자동 갱신 → 방치 알림 해제
+              초안 생성 후 초안함에서 승인·발송 시 접촉 기록 자동 갱신 → 방치 알림 해제
             </div>
           </>
         )}

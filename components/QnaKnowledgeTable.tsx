@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { saveQnaAnswerAction, approveQnaAction, unapproveQnaAction } from "@/app/(dash)/qna/actions";
 
 export type QnaRow = {
   id: string;
@@ -12,9 +14,13 @@ export type QnaRow = {
 };
 
 export default function QnaKnowledgeTable({ rows }: { rows: QnaRow[] }) {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [msg, setMsg] = useState<{ id: string; text: string; bad: boolean } | null>(null);
+  const [pending, start] = useTransition();
 
   const cats = useMemo(
     () => Array.from(new Set(rows.map((r) => (r.category || "").trim()).filter(Boolean))),
@@ -26,6 +32,62 @@ export default function QnaKnowledgeTable({ rows }: { rows: QnaRow[] }) {
     if (q && !`${r.question} ${r.answer}`.toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   });
+
+  function toggle(r: QnaRow) {
+    setMsg(null);
+    if (openId === r.id) {
+      setOpenId(null);
+    } else {
+      setOpenId(r.id);
+      setDraft(r.answer || "");
+    }
+  }
+
+  function saveAnswer(id: string) {
+    setMsg(null);
+    start(async () => {
+      const res = await saveQnaAnswerAction(id, draft);
+      if (res.ok) {
+        setMsg({ id, text: "답변 저장됨 · 파트장 승인 시 지식화됩니다", bad: false });
+        router.refresh();
+      } else {
+        setMsg({ id, text: res.error || "저장 실패", bad: true });
+      }
+    });
+  }
+
+  function approve(id: string) {
+    setMsg(null);
+    start(async () => {
+      // 답변 편집 중이면 먼저 저장 후 승인
+      const trimmed = draft.trim();
+      if (trimmed) {
+        const s = await saveQnaAnswerAction(id, trimmed);
+        if (!s.ok) { setMsg({ id, text: s.error || "저장 실패", bad: true }); return; }
+      }
+      const res = await approveQnaAction(id);
+      if (res.ok) {
+        setOpenId(null);
+        setMsg({ id, text: "승인 완료 · 지식화됨", bad: false });
+        router.refresh();
+      } else {
+        setMsg({ id, text: res.error || "승인 실패", bad: true });
+      }
+    });
+  }
+
+  function unapprove(id: string) {
+    setMsg(null);
+    start(async () => {
+      const res = await unapproveQnaAction(id);
+      if (res.ok) {
+        setMsg({ id, text: "승인 취소됨", bad: false });
+        router.refresh();
+      } else {
+        setMsg({ id, text: res.error || "실패", bad: true });
+      }
+    });
+  }
 
   return (
     <div className="card">
@@ -70,8 +132,38 @@ export default function QnaKnowledgeTable({ rows }: { rows: QnaRow[] }) {
                   <b>{r.question}</b>
                   <span className="sub">#{String(r.id).slice(0, 8)}</span>
                   {isOpen && (
-                    <div className="note" style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
-                      {r.answer || "답변 미작성"}
+                    r.approved ? (
+                      <div className="note" style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
+                        {r.answer || "답변 미작성"}
+                        <div style={{ marginTop: 8 }}>
+                          <button className="btn sm" disabled={pending} onClick={() => unapprove(r.id)}>
+                            {pending ? "처리 중…" : "승인 취소"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                        <textarea
+                          className="f"
+                          rows={5}
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          placeholder="답변을 작성하세요"
+                        />
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="btn sm" disabled={pending} onClick={() => saveAnswer(r.id)}>
+                            {pending ? "저장 중…" : "답변 저장"}
+                          </button>
+                          <button className="btn sm pri" disabled={pending} onClick={() => approve(r.id)}>
+                            {pending ? "처리 중…" : "저장 후 승인"}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  )}
+                  {msg && msg.id === r.id && (
+                    <div className="note" style={{ marginTop: 8, color: msg.bad ? "#b91c1c" : "#166534" }}>
+                      {msg.text}
                     </div>
                   )}
                 </td>
@@ -89,7 +181,7 @@ export default function QnaKnowledgeTable({ rows }: { rows: QnaRow[] }) {
                 <td>
                   <button
                     className={r.approved ? "btn sm" : "btn sm pri"}
-                    onClick={() => setOpenId(isOpen ? null : r.id)}
+                    onClick={() => toggle(r)}
                   >
                     {isOpen ? "닫기" : r.approved ? "보기" : "답변 작성"}
                   </button>

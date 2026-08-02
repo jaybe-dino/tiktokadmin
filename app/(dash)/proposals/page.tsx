@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { won } from "@/components/ScreenHeader";
 import { allProposals } from "@/lib/repo/global";
+import { query } from "@/lib/db";
+import QuoteBuilder from "./QuoteBuilder";
+import ProposalRowActions from "./ProposalRowActions";
+import NewProposalButton from "./NewProposalButton";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +22,12 @@ function fmtDate(v: unknown): string {
 
 export default async function ProposalsPage() {
   const rows = (await allProposals().catch(() => [])) as Record<string, unknown>[];
-  const lbl: React.CSSProperties = { display: "block", fontSize: 11.5, color: "var(--ink3)", margin: "10px 0 4px" };
+  const brands = (await query(
+    `SELECT id, brand_name FROM brands
+      WHERE state NOT IN ('dropped','churned')
+      ORDER BY brand_name LIMIT 500`,
+  ).catch(() => [])) as { id: string; brand_name: string }[];
+  const brandOpts = brands.map((b) => ({ id: b.id, name: b.brand_name }));
 
   return (
     <div>
@@ -27,7 +36,7 @@ export default async function ProposalsPage() {
           <h1>제안서</h1>
           <p>진단·설문·견적 로직을 조합해 생성 — 발송 기록이 계약검토 게이트 조건입니다.</p>
         </div>
-        <button className="btn pri">+ 새 제안서</button>
+        <NewProposalButton />
       </div>
 
       <div className="grid g31">
@@ -71,13 +80,11 @@ export default async function ProposalsPage() {
                     <td><span className={`cellchip ${st.c}`}>{st.ko}</span></td>
                     <td style={{ color: "var(--ink3)" }}>{fmtDate(p.sent_at)}</td>
                     <td>
-                      {status === "draft" ? (
-                        <Link href={`/brand/${p.brand_id}`} className="btn sm pri">이어서 작성</Link>
-                      ) : status === "accepted" ? (
-                        <Link href="/contracts" className="btn sm">계약으로 →</Link>
-                      ) : (
-                        <Link href={`/brand/${p.brand_id}`} className="btn sm">보기</Link>
-                      )}
+                      <ProposalRowActions
+                        id={p.id as string}
+                        brandId={p.brand_id as string}
+                        status={status}
+                      />
                     </td>
                   </tr>
                 );
@@ -87,42 +94,7 @@ export default async function ProposalsPage() {
         </div>
 
         {/* 우: 견적 빌더 */}
-        <div className="card">
-          <div className="hd"><b>견적 빌더</b></div>
-          <div className="bd">
-            <label style={lbl}>트랙</label>
-            <select className="f" defaultValue="">
-              <option value="">온보딩 5M</option>
-              <option>온보딩 3M</option>
-              <option>Live Focus 49만</option>
-              <option>Guarantee 100만</option>
-            </select>
-
-            <label style={lbl}>국가 (트랙료 × 국가수)</label>
-            <div className="tagz">
-              <span className="chip">🇺🇸 US</span>
-              <button className="btn sm">+ 국가</button>
-            </div>
-
-            <label style={lbl}>약정</label>
-            <select className="f" defaultValue="">
-              <option value="">6개월 (20% 할인)</option>
-              <option>3개월</option>
-            </select>
-
-            <hr className="hr" />
-
-            <div className="kv">
-              <dt>기본</dt><dd>—</dd>
-              <dt>다국가 할인</dt><dd>—</dd>
-              <dt>약정 할인</dt><dd>—</dd>
-              <dt><b>합계</b></dt><dd><b style={{ fontSize: 15 }}>— + VAT</b></dd>
-            </div>
-
-            <div className="note" style={{ marginTop: 10 }}>견적 로직은 glovek computeQuote와 동일 — 수기 계산 금지</div>
-            <button className="btn pri" style={{ width: "100%", marginTop: 10 }}>제안서 생성 → 발송</button>
-          </div>
-        </div>
+        <QuoteBuilder brands={brandOpts} />
       </div>
     </div>
   );

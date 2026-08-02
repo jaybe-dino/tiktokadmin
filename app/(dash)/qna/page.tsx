@@ -1,5 +1,6 @@
 import ScreenHeader from "@/components/ScreenHeader";
 import QnaKnowledgeTable, { type QnaRow } from "@/components/QnaKnowledgeTable";
+import QnaCreateButton from "@/components/QnaCreateButton";
 import { allQna } from "@/lib/repo/global";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,9 @@ export default async function QnaPage() {
   }));
 
   const pending = rows.filter((r) => !r.approved);
+  const categories = Array.from(
+    new Set(rows.map((r) => (r.category || "").trim()).filter(Boolean)),
+  );
 
   return (
     <div>
@@ -27,7 +31,7 @@ export default async function QnaPage() {
           />
         </div>
         <div className="bar" style={{ margin: 0 }}>
-          <button className="btn pri">+ 직접 등록</button>
+          <QnaCreateButton categories={categories} />
         </div>
       </div>
 

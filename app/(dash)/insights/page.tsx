@@ -1,6 +1,8 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { GradeBadge, StateBadge } from "@/components/badges";
+import InsightApproval from "./InsightApproval";
+import PrintReportButton from "./PrintReportButton";
 import { insightsData } from "@/lib/repo/queries";
 import { query } from "@/lib/db";
 import {
@@ -56,7 +58,7 @@ export default async function InsightsPage() {
       <ScreenHeader
         title="AI 인사이트 — 주간 자가학습"
         desc="매주 월 09:00 자동 생성 · 제안은 사람이 승인해야 반영됩니다"
-        right={<button className="btn">대표 리포트 보기</button>}
+        right={<PrintReportButton />}
       />
 
       <div className="grid g31" style={{ gap: 14 }}>
@@ -205,10 +207,7 @@ export default async function InsightsPage() {
                       ) : ins.approved === false ? (
                         <span className="pill chip-red">보류됨</span>
                       ) : (
-                        <>
-                          <button className="btn sm grn">승인</button>
-                          <button className="btn sm">보류</button>
-                        </>
+                        <InsightApproval id={ins.id} />
                       )}
                       <span style={{ color: "var(--ink3)", fontSize: 11 }}>{ins.week}</span>
                     </div>

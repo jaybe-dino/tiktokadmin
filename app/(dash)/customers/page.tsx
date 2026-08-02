@@ -1,5 +1,6 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
+import CsvExportButton from "./CsvExportButton";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge } from "@/components/badges";
 import { adminUserList, customersList } from "@/lib/repo/queries";
 import { PLAN_LABELS, PLANS, SOURCE_LABELS, SOURCES, STATE_LABELS, STATES, GRADES } from "@/lib/types";
@@ -79,7 +80,7 @@ export default async function CustomersPage({
         desc={`${total}개 브랜드 · 1브랜드 = 1행 · 중복 0 · 완성도는 카드 필수 필드 충족률`}
         right={
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" className="btn">CSV 내보내기</button>
+            <CsvExportButton filter={baseParams} />
             <Link href="/import" className="btn btn-primary">+ 등록</Link>
           </div>
         }

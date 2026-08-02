@@ -1,6 +1,8 @@
 import Link from "next/link";
 import ScreenHeader, { won } from "@/components/ScreenHeader";
 import { allSettlements } from "@/lib/repo/global";
+import RunSettlementButton from "./RunSettlementButton";
+import ConfirmSettlementButton from "./ConfirmSettlementButton";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +32,7 @@ export default async function SettlementsPage() {
       <ScreenHeader
         title="정산"
         desc="정산 런은 시스템이 초안 생성 — 확정은 반드시 사람(파트장 결재)"
-        right={<button className="btn pri">정산 런 실행</button>}
+        right={<RunSettlementButton />}
       />
 
       <div className="grid g4 gap-3.5" style={{ marginBottom: 14 }}>
@@ -152,7 +154,7 @@ export default async function SettlementsPage() {
                     <div className="tt">{s.brand_name as string} — 확정 대기</div>
                     <div className="ss">{String(s.month).slice(0, 7)} · 지급액 {won(s.total as number)}</div>
                   </div>
-                  <div className="rt"><Link href={`/brand/${s.brand_id}`} className="btn sm">확정 요청</Link></div>
+                  <div className="rt"><ConfirmSettlementButton id={s.id as string} /></div>
                 </div>
               ))}
             </div>

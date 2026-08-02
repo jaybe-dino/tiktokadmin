@@ -1,8 +1,15 @@
 "use client";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import SmsSender from "@/components/SmsSender";
+import { composeEmailAction } from "@/app/actions";
+import { draftBulkCopyAction, sendTestToSelfAction, createBulkSendAction } from "@/app/(dash)/send/actions";
 
 type Row = Record<string, unknown>;
+type LeadGroup = { name: string; n: number; created: string };
+type BrandOpt = { id: string; name: string; contact: string; email: string };
+type Msg = { ok: boolean; text: string } | null;
 
 const CH: Record<string, string> = { email: "✉️ 메일", sms: "📱 문자", both: "메일+문자" };
 const TK: Record<string, string> = { lead_group: "리드 그룹", filter: "필터 조합", manual: "직접 선택" };
@@ -18,8 +25,20 @@ function fmt(v: unknown): string {
   const s = String(v ?? "");
   return s ? s.slice(0, 16).replace("T", " ") : "-";
 }
+function fmtDate(v: unknown): string {
+  const s = String(v ?? "");
+  return s ? s.slice(0, 10) : "";
+}
 
-export default function SendTabs({ sends }: { sends: Row[] }) {
+export default function SendTabs({
+  sends,
+  leadGroups = [],
+  brands = [],
+}: {
+  sends: Row[];
+  leadGroups?: LeadGroup[];
+  brands?: BrandOpt[];
+}) {
   const [tab, setTab] = useState<"mail" | "sms" | "log">("mail");
 
   return (
@@ -36,15 +55,65 @@ export default function SendTabs({ sends }: { sends: Row[] }) {
         </button>
       </div>
 
-      {tab === "mail" && <MailTab />}
-      {tab === "sms" && <SmsTab />}
+      {tab === "mail" && <MailTab leadGroups={leadGroups} brands={brands} />}
+      {tab === "sms" && <SmsTab leadGroups={leadGroups} />}
       {tab === "log" && <LogTab sends={sends} />}
     </div>
   );
 }
 
 /* ───────────── 탭1 · 메일 ───────────── */
-function MailTab() {
+function MailTab({ leadGroups, brands }: { leadGroups: LeadGroup[]; brands: BrandOpt[] }) {
+  const router = useRouter();
+  const [group, setGroup] = useState(leadGroups[0]?.name ?? "");
+  const [template, setTemplate] = useState("박람회 환영 + 세미나 초대");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [brandId, setBrandId] = useState("");
+  const [msg, setMsg] = useState<Msg>(null);
+  const [drafting, startDraft] = useTransition();
+  const [testing, startTest] = useTransition();
+  const [sending, startSend] = useTransition();
+  const [composing, startCompose] = useTransition();
+
+  const busy = drafting || testing || sending || composing;
+
+  function aiDraft() {
+    setMsg(null);
+    startDraft(async () => {
+      const r = await draftBulkCopyAction({ channel: "email", template });
+      if (r.ok) {
+        if (r.subject) setSubject(r.subject);
+        if (r.body) setBody(r.body);
+        setMsg({ ok: true, text: "AI 초안을 채웠습니다." });
+      } else setMsg({ ok: false, text: r.error ?? "실패" });
+    });
+  }
+  function testSend() {
+    setMsg(null);
+    startTest(async () => {
+      const r = await sendTestToSelfAction({ subject, body });
+      setMsg(r.ok ? { ok: true, text: r.info ?? "테스트 발송 완료" } : { ok: false, text: r.error ?? "실패" });
+    });
+  }
+  function bulkSend() {
+    setMsg(null);
+    startSend(async () => {
+      const r = await createBulkSendAction({ channel: "email", leadGroup: group, title: subject || undefined, subject, body });
+      if (r.ok) {
+        setMsg({ ok: true, text: `발송 등록 완료 · 대상 ${r.total}명 (미동의 제외 ${r.excludedOptout} · 연락처없음 ${r.excludedNoContact})` });
+        router.refresh();
+      } else setMsg({ ok: false, text: r.error ?? "실패" });
+    });
+  }
+  function compose() {
+    setMsg(null);
+    startCompose(async () => {
+      const r = await composeEmailAction(brandId);
+      setMsg(r.ok ? { ok: true, text: "초안 생성 완료 — 초안함에서 검토·발송하세요." } : { ok: false, text: r.error ?? "실패" });
+    });
+  }
+
   return (
     <div className="grid gap-3.5" style={{ gridTemplateColumns: "1fr 340px" }}>
       <div className="card">
@@ -58,8 +127,16 @@ function MailTab() {
             <span className="rb" />
             <div style={{ flex: 1 }}>
               <b>리드 등록 날짜 그룹</b>
-              <select className="f" style={{ marginTop: 6 }}>
-                <option>리드 그룹 선택</option>
+              <select className="f" style={{ marginTop: 6 }} value={group} onChange={(e) => setGroup(e.target.value)}>
+                {leadGroups.length === 0 ? (
+                  <option value="">리드 그룹 선택</option>
+                ) : (
+                  leadGroups.map((g) => (
+                    <option key={g.name} value={g.name}>
+                      {fmtDate(g.created)} · {g.name} ({g.n}명)
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           </div>
@@ -70,7 +147,9 @@ function MailTab() {
               <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <span className="chip">상태: 리드·세미나 ✕</span>
                 <span className="chip">마지막 접촉 30일+ ✕</span>
-                <button className="btn btn-sm">+ 필터</button>
+                <Link className="btn btn-sm" href="/customers">
+                  + 필터
+                </Link>
               </div>
             </div>
           </div>
@@ -93,21 +172,23 @@ function MailTab() {
             <option>마케팅 &lt;marketing@dinostudio.kr&gt;</option>
           </select>
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-            <select className="f">
-              <option>템플릿: 박람회 환영 + 세미나 초대</option>
-              <option>템플릿: 미팅 예약 안내</option>
+            <select className="f" value={template} onChange={(e) => setTemplate(e.target.value)}>
+              <option>박람회 환영 + 세미나 초대</option>
+              <option>미팅 예약 안내</option>
               <option>빈 문서</option>
             </select>
-            <button className="btn btn-sm" style={{ whiteSpace: "nowrap" }}>
-              AI 초안 생성
+            <button className="btn btn-sm" style={{ whiteSpace: "nowrap" }} onClick={aiDraft} disabled={busy}>
+              {drafting ? "생성 중…" : "AI 초안 생성"}
             </button>
           </div>
-          <input className="f" style={{ marginTop: 6 }} placeholder="제목 — 예: [GloveK] {브랜드명}님, 반가웠습니다" />
+          <input className="f" style={{ marginTop: 6 }} placeholder="제목 — 예: [GloveK] {브랜드명}님, 반가웠습니다" value={subject} onChange={(e) => setSubject(e.target.value)} />
           <textarea
             className="f"
             rows={3}
             style={{ marginTop: 6 }}
             placeholder="{담당자명}님, ... 개인화 변수를 활용해 본문을 작성하세요."
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
           />
           <div style={{ fontSize: 11, color: "var(--ink3)", marginTop: 4 }}>
             개인화 변수: {"{브랜드명} {담당자명} {담당자예약링크} {설문링크}"} · 회신은 발신 계정으로
@@ -122,15 +203,17 @@ function MailTab() {
             <dt>발송 후</dt>
             <dd style={{ color: "var(--ok)" }}>전원 고객카드 히스토리에 컨택 기록 + 방치 알림 리셋</dd>
           </div>
-          <div className="note" style={{ marginTop: 12 }}>
-            대량 메일 발송 실행은 아직 미구현입니다. 폼 UI만 제공하며, 실제 발송 연동은 준비 중입니다.
-          </div>
+          {msg && (
+            <div className="note" style={{ marginTop: 12, color: msg.ok ? "var(--ok)" : "var(--danger)" }}>
+              {msg.text}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button className="btn" style={{ flex: 1 }} disabled>
-              테스트 발송 (나에게)
+            <button className="btn" style={{ flex: 1 }} onClick={testSend} disabled={busy || !body}>
+              {testing ? "발송 중…" : "테스트 발송 (나에게)"}
             </button>
-            <button className="btn btn-primary" style={{ flex: 1 }} disabled>
-              대량 발송 실행
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={bulkSend} disabled={busy || !group || !body}>
+              {sending ? "등록 중…" : "대량 발송 실행"}
             </button>
           </div>
         </div>
@@ -143,15 +226,20 @@ function MailTab() {
             <span style={{ color: "var(--ink3)", fontSize: 11 }}>고객카드에서도 [✉️ 메일]로 호출</span>
           </div>
           <div className="card-bd">
-            <select className="f">
-              <option>브랜드 · 담당자 선택</option>
+            <select className="f" value={brandId} onChange={(e) => setBrandId(e.target.value)}>
+              <option value="">브랜드 · 담당자 선택</option>
+              {brands.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                  {b.contact ? ` · ${b.contact}` : ""}
+                </option>
+              ))}
             </select>
-            <button className="btn btn-primary" style={{ width: "100%", marginTop: 8 }} disabled>
-              ✉️ 개별 메일 작성
+            <button className="btn btn-primary" style={{ width: "100%", marginTop: 8 }} onClick={compose} disabled={busy || !brandId}>
+              {composing ? "AI 초안 생성 중…" : "✉️ 개별 메일 작성"}
             </button>
             <div className="note" style={{ marginTop: 8 }}>
-              모달에서 작성 — AI가 카드 맥락(단계·최근 미팅)으로 초안 · 발송 즉시 카드 히스토리 기록
-              (준비 중)
+              AI가 카드 맥락(단계·최근 미팅)으로 초안을 생성해 <Link href="/drafts" style={{ color: "var(--acc)" }}>초안함</Link>에 저장 · 승인 시 발송·카드 히스토리 기록
             </div>
           </div>
         </div>
@@ -160,7 +248,21 @@ function MailTab() {
             <b>그룹 목록</b>
           </div>
           <div className="card-bd" style={{ paddingTop: 6, fontSize: 12 }}>
-            <div className="note">리드 그룹 데이터가 없습니다.</div>
+            {leadGroups.length === 0 ? (
+              <div className="note">리드 그룹 데이터가 없습니다.</div>
+            ) : (
+              leadGroups.map((g) => (
+                <div className="row" key={g.name}>
+                  <span className="ico i-blu">📅</span>
+                  <div>
+                    <div className="tt">
+                      {fmtDate(g.created)} · {g.name}
+                    </div>
+                    <div className="ss">{g.n}명</div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -169,7 +271,36 @@ function MailTab() {
 }
 
 /* ───────────── 탭2 · 문자 ───────────── */
-function SmsTab() {
+function SmsTab({ leadGroups }: { leadGroups: LeadGroup[] }) {
+  const router = useRouter();
+  const [group, setGroup] = useState(leadGroups[0]?.name ?? "");
+  const [body, setBody] = useState("");
+  const [msg, setMsg] = useState<Msg>(null);
+  const [drafting, startDraft] = useTransition();
+  const [sending, startSend] = useTransition();
+  const busy = drafting || sending;
+
+  function aiDraft() {
+    setMsg(null);
+    startDraft(async () => {
+      const r = await draftBulkCopyAction({ channel: "sms", template: "세미나 D-1 리마인드" });
+      if (r.ok) {
+        if (r.body) setBody(r.body);
+        setMsg({ ok: true, text: "AI 문자 초안을 채웠습니다." });
+      } else setMsg({ ok: false, text: r.error ?? "실패" });
+    });
+  }
+  function bulkSend() {
+    setMsg(null);
+    startSend(async () => {
+      const r = await createBulkSendAction({ channel: "sms", leadGroup: group, body });
+      if (r.ok) {
+        setMsg({ ok: true, text: `문자 발송 등록 완료 · 대상 ${r.total}명 (미동의 제외 ${r.excludedOptout} · 번호없음 ${r.excludedNoContact})` });
+        router.refresh();
+      } else setMsg({ ok: false, text: r.error ?? "실패" });
+    });
+  }
+
   return (
     <div className="grid gap-3.5" style={{ gridTemplateColumns: "1fr 340px" }}>
       <div className="card">
@@ -183,8 +314,16 @@ function SmsTab() {
             <span className="rb" />
             <div style={{ flex: 1 }}>
               <b>리드 등록 날짜 그룹</b>
-              <select className="f" style={{ marginTop: 6 }}>
-                <option>리드 그룹 선택</option>
+              <select className="f" style={{ marginTop: 6 }} value={group} onChange={(e) => setGroup(e.target.value)}>
+                {leadGroups.length === 0 ? (
+                  <option value="">리드 그룹 선택</option>
+                ) : (
+                  leadGroups.map((g) => (
+                    <option key={g.name} value={g.name}>
+                      {fmtDate(g.created)} · {g.name} ({g.n}명)
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           </div>
@@ -205,9 +344,27 @@ function SmsTab() {
             대상 중 번호 보유·수신동의 <b style={{ color: "var(--ok)" }}>대상만 발송</b> · 미보유 자동
             제외
           </div>
-          <div className="note">
-            대량 문자 발송 실행은 아직 미구현입니다. 개별 문자 발송은 오른쪽 위젯을 사용하세요.
+          <textarea
+            className="f"
+            rows={3}
+            style={{ marginTop: 6 }}
+            placeholder="[GloveK] {담당자명}님, ... 개인화 변수 활용 · 회신은 지정 번호로"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button className="btn btn-sm" onClick={aiDraft} disabled={busy}>
+              {drafting ? "생성 중…" : "AI 초안 생성"}
+            </button>
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={bulkSend} disabled={busy || !group || !body}>
+              {sending ? "등록 중…" : "대량 문자 발송 실행"}
+            </button>
           </div>
+          {msg && (
+            <div className="note" style={{ marginTop: 12, color: msg.ok ? "var(--ok)" : "var(--danger)" }}>
+              {msg.text}
+            </div>
+          )}
         </div>
       </div>
 

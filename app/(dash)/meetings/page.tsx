@@ -1,6 +1,7 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { query } from "@/lib/db";
+import ConnectBrand from "./ConnectBrand";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,12 @@ export default async function MeetingsPage() {
        FROM meetings m LEFT JOIN brands b ON b.id=m.brand_id
       ORDER BY COALESCE(m.scheduled_at, m.created_at) DESC LIMIT 200`,
   ).catch(() => [])) as Record<string, unknown>[];
+
+  // 매칭 필요 미팅의 브랜드 연결용 옵션(존재하는 브랜드만).
+  const brandOptions = (await query(
+    `SELECT id, brand_name FROM brands ORDER BY brand_name ASC LIMIT 500`,
+  ).catch(() => [])) as { id: string; brand_name: string }[];
+  const brandList = brandOptions.map((b) => ({ id: b.id, name: b.brand_name || "(이름 없음)" }));
 
   const days = weekDays();
   const weekYmds = days.map((d) => d.ymd);
@@ -171,7 +178,7 @@ export default async function MeetingsPage() {
                   <div className="tt">{(m.topic as string) || "제목 없음"}</div>
                   <div className="ss">{shortWhen(m.scheduled_at)} · 참가자 이메일이 원장에 없음 — 수동 연결 필요</div>
                 </div>
-                <div className="rt"><button className="btn sm pri">브랜드 연결</button></div>
+                <div className="rt"><ConnectBrand meetingId={m.id as string} brands={brandList} /></div>
               </div>
             ))}
             {unmatched.length > 0 && <div className="note">토픽에 [브랜드명]을 넣으면 자동 매칭률이 올라갑니다</div>}

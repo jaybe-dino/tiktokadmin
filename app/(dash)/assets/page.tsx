@@ -1,5 +1,6 @@
 import ScreenHeader from "@/components/ScreenHeader";
 import AssetsIndexTabs, { type AssetRow } from "@/components/AssetsIndexTabs";
+import AssetsHeaderActions from "@/components/AssetsHeaderActions";
 import { allAssets } from "@/lib/repo/global";
 
 export const dynamic = "force-dynamic";
@@ -28,12 +29,7 @@ export default async function AssetsPage() {
       <ScreenHeader
         title="자산 저장소 — 파일·레퍼런스 단일 색인"
         desc={`총 ${rows.length}건 · 어드민 생성물만 저장, 원본은 링크 참조`}
-        right={
-          <div style={{ display: "flex", gap: 6 }}>
-            <button className="btn" type="button">🔄 드라이브 동기화</button>
-            <button className="btn pri" type="button">+ 업로드 → 드라이브 저장</button>
-          </div>
-        }
+        right={<AssetsHeaderActions kindLabel={KIND} />}
       />
 
       <div className="card" style={{ marginBottom: 12 }}>
