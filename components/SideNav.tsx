@@ -7,6 +7,7 @@ interface Group { title: string; items: Item[] }
 
 const GROUPS: Group[] = [
   { title: "대시보드", items: [
+    { href: "/today", label: "오늘 (홈)", ic: "🏠" },
     { href: "/", label: "파이프라인 보드", ic: "📋" },
     { href: "/queue", label: "내 워크큐", ic: "⚡" },
     { href: "/monitor", label: "SLA 모니터", ic: "🛡️" },
@@ -32,6 +33,7 @@ const GROUPS: Group[] = [
     { href: "/qna", label: "QnA 지식베이스", ic: "💬" },
   ]},
   { title: "온보딩·제품", items: [
+    { href: "/docs", label: "서류·물류", ic: "📂" },
     { href: "/products", label: "제품·인증·재고", ic: "📦" },
     { href: "/assets", label: "자산 저장소", ic: "🗄️" },
   ]},
@@ -44,7 +46,9 @@ const GROUPS: Group[] = [
   { title: "AI·관리", items: [
     { href: "/insights", label: "AI 인사이트", ic: "🤖" },
     { href: "/approvals", label: "결재함", ic: "🗳️" },
+    { href: "/slack", label: "Slack 알림", ic: "💬" },
     { href: "/settings", label: "설정·조직", ic: "⚙️" },
+    { href: "/guide", label: "사용 가이드", ic: "📖" },
   ]},
 ];
 
