@@ -238,3 +238,38 @@ C5. ✅ 초안함(Drafts Inbox) — 이미 구현(참고).
 ---
 **3부 요약**: AI 26개 · 키설정 5(K1·K2 최우선) · 키만넣으면동작 5 · 미구현 11 · 인프라 5.
 **핵심**: `ANTHROPIC_API_KEY` 하나만 넣어도 **A1~A4(질의·회의록요약·메일초안·브리프)가 즉시 켜진다.** STT(B1)는 OpenAI/Groq 키 + 구현 추가 필요.
+
+---
+
+# 4부 · 필요 에이전트 목록 (나중에 개발) (18)
+
+> 서비스 운영에 필요한 AI/자동화 에이전트 카탈로그. 모두 **쓰기는 /api/ops(게이트) 경유·상태변경은 제안만·사람 승인**(06 §4 안전규칙). 툴은 lib/mcp-tools.ts.
+> 상태: 🟢프롬프트 준비됨(등록만) · 🟡코드일부(워커/함수 존재, 에이전트화 필요) · 🔴신규.
+
+## 4-A. 스케줄(정기) 에이전트 5종 — docs/AGENTS-REGISTER.md 원문 있음
+G1. 🟢 **일일 운영 점검** (매일 09:00) — find_sla_breaches·find_gate_violations·find_missing_docs → 파트별 Slack 요약. 툴: find_*, list_brands, send_alert.
+G2. 🟢 **미제출·서류 리마인더** (매일 14:00) — find_missing_docs → draft_reminder → 온보딩 채널, 3일+ high 에스컬레이션. 툴: find_missing_docs, draft_reminder, score_churn_risk.
+G3. 🟢 **결제·정산 감시** (매일 10:00) — past_due/실패/미결제 표 → 정산 채널, 안내 초안. 툴: list_brands, get_brand_360, draft_reminder.
+G4. 🟢 **주간 자가학습** (월 09:00) — compute_funnel_metrics 4/8주 비교 → upsert_insight + SLA/게이트 개선 제안. 툴: compute_funnel_metrics, upsert_insight.
+G5. 🟢 **사전분석** (신규유입 + 매일 11:00) — brief_md 없는 brands → enrich_brand→diagnose_brand→유입 채널 카드. 툴: enrich_brand, diagnose_brand.
+
+## 4-B. 이벤트/트리거 에이전트
+G6. 🟡 **미팅 후처리** (Zoom recording.completed) — 전사→회의록 요약→contact_logged→팔로업 초안(+설문·QnA). 코드: lib/meeting-process(STT 미완). 툴: list_meetings, draft_followup.
+G7. 🟡 **이메일 수집·응대** (Gmail sync) — 브랜드 매칭 저장→무응답 감지→수신메일 AI 답장 초안. 코드: lib/gmail-client·email-sync(자동 reply 초안 미완). 툴: summarize_thread, draft_reply, list_no_reply.
+G8. 🔴 **담당 배정 추천** (미배정 발생 시) — suggest_assignee 후보3+부하 → 파트장 Slack 배정 카드. 코드: lib/assign(화면 미연결). 툴: list_unassigned, suggest_assignee.
+G9. 🔴 **CS 분류·답변초안** (티켓 유입) — cs_tickets 우선순위·QnA 재사용 답변초안. 툴: (신규) list_tickets, draft_reply.
+G10. 🔴 **인증 만료 감시** (매일) — find_cert_risks 만료30일전/미비→담당+포털 알림, 운영중 미비=판매리스크. 툴: find_cert_risks.
+
+## 4-C. 배치/거버넌스 에이전트
+G11. 🟡 **운영 사이클 감시** (매일/말일) — 이행률 미달·시딩 게시확인(크롤러 매칭)·리포트/정산 draft. 코드: lib/operations(cron 있음, 시딩 자동확인 미완).
+G12. 🔴 **데이터 대사 RECONCILE** (매일) — 사이트↔원장 정합 대사, 누락/불일치 리포트(v3 §4-5). 신규.
+G13. 🔴 **중복 병합 후보** (주간) — dedup 놓친 후보 그룹 탐지→병합 제안 큐. 코드: findDuplicateGroups 있음, 에이전트화.
+G14. 🔴 **갱신·업셀 감지** (주간) — 계약 만료30일·이행률90%+·문의적음 → 갱신/업셀 후보 카드(17 §3).
+G15. 🔴 **재활성화·윈백** (분기) — 세미나 미전환 90일+·해지 90일후 → AI 재접촉 초안(수신동의자만). 툴: composeEmail(대량).
+G16. 🔴 **정산 이상치 검토** (월초) — settlements anomaly 우선 검토·재계산 제안, 2단계 승인 연결.
+G17. 🔴 **에스컬레이션 라우터** (SLA cron 연동) — T0~T3 사다리·백업담당(owner_backup) 라우팅. 코드: lib/escalation 있음, 정책 보강.
+G18. 🔴 **인수인계 요약** (담당 변경 시) — 타임라인·메일·미팅 1페이지 요약→신규담당 DM. = 3부 B7.
+
+---
+**4부 요약**: 에이전트 18종 · 🟢등록만 5(G1~G5) · 🟡코드일부 4 · 🔴신규 9.
+**선행조건**: `ANTHROPIC_API_KEY` + MCP 서버 배포(3부 C1) + `MCP_TOKEN`. → 그 후 G1~G5 즉시 등록 가능, 나머지는 코드 개발 후.
