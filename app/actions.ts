@@ -122,6 +122,11 @@ export async function createBrandAction(
   const { importBrandRecord } = await import("@/lib/import");
   const res = await importBrandRecord(a.actor, input);
   if (res.ok) {
+    // 신규 리드 자동 안내(문자·메일) — welcome_config 활성 + 대상 소스일 때 1회
+    if (res.created && res.brand_id) {
+      const { maybeAutoWelcome } = await import("@/lib/welcome");
+      await maybeAutoWelcome(res.brand_id, String(input.source ?? "etc")).catch(() => {});
+    }
     revalidatePath("/");
     return { ok: true, brand_id: res.brand_id };
   }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   assignAction, deleteBrandAction, docCheckAction, dropAction, logContactAction,
   manualPaymentAction, remindAction, stageCheckAction, transitionAction, updateBrandAction,
+  sendWelcomeAction,
 } from "@/app/actions";
 import { FORWARD_TRANSITIONS } from "@/lib/states";
 import { PLANS, PLAN_LABELS, STATE_LABELS, type Brand, type OwnerField, type State } from "@/lib/types";
@@ -191,6 +192,18 @@ export default function Brand360Actions({ brand, adminUsers, docItems, stageReqs
             }}
           >
             리마인더 초안
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={async () => {
+              const res = await sendWelcomeAction(brand.id, true);
+              if (!res.ok) flash(res.error ?? "실패", true);
+              else if (res.sent && res.sent.length) flash(`안내 발송됨: ${res.sent.join("·")}`);
+              else flash("발송 채널 없음 — ALIGO(문자)·RESEND(메일) 키/연락처 확인", true);
+            }}
+            title="이 리드에게 기본 안내 문자+메일을 지금 발송(설정 템플릿)"
+          >
+            📨 안내 발송(문자·메일)
           </button>
         </div>
         {draft !== null && (
