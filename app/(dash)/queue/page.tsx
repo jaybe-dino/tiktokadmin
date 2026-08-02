@@ -1,11 +1,9 @@
 import Link from "next/link";
-import ScreenHeader from "@/components/ScreenHeader";
 import { GradeBadge, StateBadge } from "@/components/badges";
 import { currentUser } from "@/lib/auth";
 import { ownerFieldForRole } from "@/lib/states";
 import { queueBrands, type BoardCard } from "@/lib/repo/queries";
 import { query } from "@/lib/db";
-import { STATE_LABELS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -45,31 +43,35 @@ export default async function QueuePage() {
     return (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999");
   });
 
-  const breaches = cards.filter((c) => c.has_breach).length;
-  const dueToday = cards.filter((c) => c.due_date === today).length;
-  const noAction = cards.filter((c) => !c.next_action).length;
-
   const ownersOf = (c: BoardCard): string => {
     const ids = [c.owner_intake, c.owner_sales, c.owner_onboard, c.owner_ads].filter(
       (x): x is string => !!x,
     );
     const names = ids.map((id) => nameById.get(id) ?? id);
-    // 중복 제거
     return [...new Set(names)].join(", ");
   };
 
   return (
     <div className="max-w-6xl">
-      <ScreenHeader
-        title="워크큐 — 내 할 일"
-        desc={`${user.name} (${user.role}) · 시스템이 계산한 "지금 해야 할 것" 우선순위 순 · 처리하면 자동으로 사라집니다`}
-      />
-
-      <div className="flex gap-2 mb-4 flex-wrap">
-        <span className="chip chip-red">위반 {breaches}</span>
-        <span className="chip chip-amb">오늘마감 {dueToday}</span>
-        <span className="chip">액션없음 {noAction}</span>
-        <span className="chip">전체 {cards.length}</span>
+      <div className="ph">
+        <div>
+          <h1>워크큐 — 내 할 일</h1>
+          <p>
+            {user.name} ({user.role}) · 시스템이 계산한 &quot;지금 해야 할 것&quot; 우선순위 순.
+            처리하면 자동으로 사라집니다.
+          </p>
+        </div>
+        <div className="bar" style={{ margin: 0 }}>
+          <select defaultValue="me">
+            <option value="me">{user.name} (나)</option>
+          </select>
+          <select defaultValue="all">
+            <option value="all">전체 유형</option>
+            <option value="sla">SLA</option>
+            <option value="approve">승인</option>
+            <option value="docs">서류</option>
+          </select>
+        </div>
       </div>
 
       <div className="card">
@@ -78,18 +80,17 @@ export default async function QueuePage() {
             <tr>
               <th style={{ width: 44 }}>우선</th>
               <th>브랜드</th>
-              <th>지금 할 한 가지</th>
-              <th style={{ width: 96 }}>문제</th>
+              <th>할 일</th>
+              <th style={{ width: 96 }}>유형</th>
               <th style={{ width: 72 }}>경과</th>
-              <th style={{ width: 56 }}>SLA</th>
-              <th style={{ width: 150 }}>담당</th>
-              <th style={{ width: 80 }}>액션</th>
+              <th style={{ width: 56 }}>티어</th>
+              <th style={{ width: 190 }}>액션</th>
             </tr>
           </thead>
           <tbody>
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={8}>
+                <td colSpan={7}>
                   <div className="note">담당 브랜드 없음 — 워크큐가 비어 있습니다</div>
                 </td>
               </tr>
@@ -100,23 +101,16 @@ export default async function QueuePage() {
               const overdue = !!c.due_date && c.due_date < today;
               const isDueToday = c.due_date === today;
 
-              // 문제 chip
-              let issue: { label: string; cls: string };
-              if (c.has_breach) issue = { label: "SLA 위반", cls: "chip chip-red" };
-              else if (overdue) issue = { label: "마감초과", cls: "chip chip-red" };
-              else if (isDueToday) issue = { label: "오늘마감", cls: "chip chip-amb" };
-              else if (!c.next_action) issue = { label: "액션없음", cls: "chip" };
-              else issue = { label: STATE_LABELS[c.state], cls: "chip" };
-
-              // SLA 티어 배지
-              let sla: { label: string; cls: string };
-              if (c.has_breach) sla = { label: "T3", cls: "sla t3" };
-              else if (overdue || isDueToday) sla = { label: "T2", cls: "sla t2" };
-              else sla = { label: "T1", cls: "sla t1" };
+              // 티어 배지 (T0~T3)
+              let tier: { label: string; cls: string };
+              if (c.has_breach) tier = { label: "T3", cls: "sla t3" };
+              else if (overdue || isDueToday) tier = { label: "T2", cls: "sla t2" };
+              else if (!c.next_action) tier = { label: "T1", cls: "sla t1" };
+              else tier = { label: "T0", cls: "sla ok" };
 
               const owners = ownersOf(c);
-              const initial = (c.brand_name ?? "?").trim().slice(0, 1);
-              const elapsedRed = c.has_breach || overdue || (elapsed !== null && elapsed >= 7);
+              const elapsedRed =
+                c.has_breach || overdue || (elapsed !== null && elapsed >= 7);
 
               return (
                 <tr key={c.id}>
@@ -126,24 +120,22 @@ export default async function QueuePage() {
                       {c.brand_name}
                     </Link>{" "}
                     <GradeBadge grade={c.grade} />
-                    <div className="ss" style={{ marginTop: 2 }}>
-                      <StateBadge state={c.state} />
-                    </div>
+                    <span className="sub">{owners ? owners : "미배정"}</span>
                   </td>
                   <td>
                     {c.next_action ? (
                       c.next_action
                     ) : (
-                      <span style={{ color: "var(--ink3)" }}>다음 액션 미설정 — 지정 필요</span>
+                      <span style={{ color: "var(--ink3)" }}>
+                        다음 액션 미설정 — 지정 필요
+                      </span>
                     )}
                     {c.due_date && (
-                      <div className="ss" style={{ marginTop: 2, color: "var(--ink3)" }}>
-                        마감 {c.due_date}
-                      </div>
+                      <span className="sub">마감 {c.due_date}</span>
                     )}
                   </td>
                   <td>
-                    <span className={issue.cls}>{issue.label}</span>
+                    <StateBadge state={c.state} />
                   </td>
                   <td
                     style={{
@@ -155,24 +147,12 @@ export default async function QueuePage() {
                     {elapsed === null ? "–" : `${elapsed}일`}
                   </td>
                   <td>
-                    <span className={sla.cls}>{sla.label}</span>
-                  </td>
-                  <td>
-                    {owners ? (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        <span className="av">{initial}</span>
-                        <span className="ss">{owners}</span>
-                      </span>
-                    ) : (
-                      <span className="ss" style={{ color: "var(--ink3)" }}>
-                        미배정
-                      </span>
-                    )}
+                    <span className={tier.cls}>{tier.label}</span>
                   </td>
                   <td>
                     <Link
                       href={`/brand/${c.id}`}
-                      className={`btn btn-sm ${rank <= 1 ? "btn-primary" : ""}`}
+                      className={`btn sm ${rank <= 1 ? "pri" : ""}`}
                     >
                       열기
                     </Link>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import Brand360Actions from "@/components/Brand360Actions";
+import Brand360Tabs, { type Brand360Tab } from "@/components/Brand360Tabs";
 import CustomerDetail from "@/components/CustomerDetail";
 import CustomerEmails from "@/components/CustomerEmails";
 import CardTabs from "@/components/CardTabs";
@@ -87,6 +88,289 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     `${sourceLabel} 유입`,
     `현 단계 ${humanElapsed(brand.stage_entered_at)} 경과`,
   ].filter(Boolean) as string[];
+
+  // ── 탭 패널(프로토타입 s-b360 탭 구성) ──────────────────────────
+  // 개요 — g31: 좌측 AI브리프·시그널·개요, 우측 게이트·액션
+  const panelOverview = (
+    <div className="grid g31" style={{ gap: 14 }}>
+      <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
+        <div className="aiw">
+          <h5>🤖 AI 사전분석 브리프</h5>
+          {brand.brief_md ? (
+            <pre style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.7, fontFamily: "inherit", color: "var(--ink)" }}>{brand.brief_md}</pre>
+          ) : (
+            <p className="note" style={{ marginTop: 4 }}>브리프 미생성 (사전분석 에이전트 대기 중)</p>
+          )}
+        </div>
+
+        <section className="card">
+          <div className="card-hd"><b>개요</b></div>
+          <div className="card-bd">
+            <div className="kv">
+              <dt>담당</dt>
+              <dd>{salesName ? `영업 ${salesName}` : "영업 미지정"}{onboardName ? ` · 온보딩 ${onboardName}` : ""}</dd>
+              <dt>카테고리</dt>
+              <dd>{brand.category || "—"}</dd>
+              <dt>목표국</dt>
+              <dd>{brand.countries.length ? brand.countries.join(", ") : "미정"}</dd>
+              <dt>인증국</dt>
+              <dd>{brand.certified_countries.length ? brand.certified_countries.join(", ") : "—"}</dd>
+              <dt>유입 소스</dt>
+              <dd>{sourceLabel}</dd>
+              <dt>연락처</dt>
+              <dd>{[brand.email, brand.phone].filter(Boolean).join(" · ") || "—"}</dd>
+              <dt>다음 액션</dt>
+              <dd>{brand.next_action || "—"}{nextDday ? ` (${nextDday})` : ""}</dd>
+              <dt>마지막 접촉</dt>
+              <dd>{brand.last_contact_at ? brand.last_contact_at.slice(0, 10) : "기록 없음"}</dd>
+            </div>
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="card-hd"><b>사전분석 시그널</b><span className="gr" style={{ marginLeft: 6, background: "#94a3b8" }}>{signals.length}</span></div>
+          <div className="card-bd">
+            {signals.length === 0 ? (
+              <p className="note">수집된 시그널이 없습니다.</p>
+            ) : (
+              <table className="t">
+                <thead>
+                  <tr><th>출처</th><th>지표</th><th>값</th><th>신뢰도</th></tr>
+                </thead>
+                <tbody>
+                  {signals.map((s, i) => (
+                    <tr key={i}>
+                      <td>{s.source}</td>
+                      <td>{s.metric}</td>
+                      <td>{s.value_num ?? s.value_text ?? "—"}</td>
+                      <td>{s.confidence}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
+        {gate && (
+          <div className="gate">
+            <h5>▶ 다음 스텝 게이트: {STATE_LABELS[gate.from]} → {STATE_LABELS[gate.to]}</h5>
+            {gate.items.length === 0 ? (
+              <div className="gi"><span className="ok">✅</span> 게이트 조건 없음 — 바로 이동 가능</div>
+            ) : (
+              gate.items.map((it, i) => (
+                <div key={i} className="gi">
+                  <span className={it.done ? "ok" : "no"}>{it.done ? "✅" : "⬜"}</span> {it.label}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        <Brand360Actions
+          brand={brand}
+          adminUsers={adminUsers}
+          docItems={docs.items.map((i) => ({ item_key: i.item_key, label: i.label, done: i.done, source: i.source }))}
+          stageReqs={stageReqs}
+        />
+      </div>
+    </div>
+  );
+
+  // 회사정보 — 고객 상세(국가·자료·제안) + 심화 카드(연락처·설문·회사·제품·계약 등)
+  const panelCompany = (
+    <div style={{ display: "grid", gap: 14 }}>
+      <CustomerDetail brand={brand} files={files} proposals={proposals} />
+      {deep ? (
+        <CardTabs brandId={brand.id} deep={deep} />
+      ) : (
+        <div className="card"><div className="card-bd"><p className="note">심화 카드 데이터를 불러올 수 없습니다.</p></div></div>
+      )}
+    </div>
+  );
+
+  // 타임라인
+  const panelTimeline = (
+    <section className="card">
+      <div className="card-hd"><b>타임라인</b></div>
+      <div className="card-bd">
+        {timeline.length === 0 ? (
+          <p className="note">기록된 이력이 없습니다.</p>
+        ) : (
+          <div className="tl">
+            {timeline.map((t, i) => {
+              const auto = !t.actor || t.actor === "system" || t.actor === "auto";
+              return (
+                <div key={i} className={`ev${auto ? " auto" : ""}`}>
+                  <div className="w">
+                    {t.at.slice(5, 16).replace("T", " ")}
+                    {t.actor && ` · ${t.actor}`}
+                  </div>
+                  {t.kind === "gate_fail" && <span className="chip red" style={{ marginRight: 6, fontSize: 10 }}>게이트 실패</span>}
+                  <span style={{ fontSize: 12.5 }}>{t.text}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+
+  // 미팅·메일 — 관련 메일 연동 + AI 메일 초안
+  const panelMail = (
+    <div style={{ display: "grid", gap: 14 }}>
+      <CustomerEmails brandId={brand.id} emails={emails} />
+      <ComposeEmailButton brandId={brand.id} />
+    </div>
+  );
+
+  // 서류·물류 — 서류 체크리스트(실데이터)
+  const panelDocs = (
+    <section className="card">
+      <div className="card-hd">
+        <b>서류 체크리스트</b>
+        <span className="chip" style={{ marginLeft: 6 }}>{docs.done}/{docs.total}</span>
+      </div>
+      <div className="card-bd">
+        {docs.items.length === 0 ? (
+          <p className="note">이 브랜드는 아직 서류 체크리스트가 없습니다. 계약 완료로 이동하면 계약형태·국가에 맞는 서류 템플릿이 자동 생성됩니다.</p>
+        ) : (
+          <table className="t">
+            <thead>
+              <tr><th>항목</th><th>상태</th><th>출처</th></tr>
+            </thead>
+            <tbody>
+              {docs.items.map((it) => (
+                <tr key={it.item_key}>
+                  <td>{it.label}</td>
+                  <td><span className={`cellchip ${it.done ? "cc-ok" : "cc-no"}`}>{it.done ? "완료" : "대기"}</span></td>
+                  <td>{it.source ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <div className="note" style={{ marginTop: 10 }}>물류 계약은 [회사정보] 탭의 심화 카드 · 물류에서 관리합니다 — 계약 없으면 셋업 이동 불가.</div>
+      </div>
+    </section>
+  );
+
+  // 제품·인증·재고 — 심화 카드로 안내(편집 단일 원천)
+  const panelProducts = (
+    <section className="card">
+      <div className="card-hd"><b>제품·인증·재고</b></div>
+      <div className="card-bd">
+        {deep && deep.products.length > 0 ? (
+          <table className="t">
+            <thead>
+              <tr><th>제품</th><th>등록 인증</th></tr>
+            </thead>
+            <tbody>
+              {deep.products.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.name_kr}</td>
+                  <td>{deep.certs.filter((c) => c.product_id === p.id).length}건</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="note">등록된 제품이 없습니다.</p>
+        )}
+        <div className="note" style={{ marginTop: 10 }}>제품 마스터·국가×인증 매트릭스·초기 재고는 [회사정보] 탭의 심화 카드(제품·인증 / 재고)에서 관리합니다.</div>
+      </div>
+    </section>
+  );
+
+  // 계약·결제 — glovek 구독 + 수기 결제(실데이터)
+  const panelContract = (
+    <div className="grid g2" style={{ gap: 14 }}>
+      <section className="card">
+        <div className="card-hd"><b>결제</b></div>
+        <div className="card-bd">
+          {glovekSubs.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: "var(--ink3)", fontWeight: 700, marginBottom: 4 }}>glovek 정기(구독)</div>
+              {glovekSubs.map((s, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
+                  <span>{s.plan} · <span className="chip grn">{s.status}</span></span>
+                  <span>{s.amount ? `₩${s.amount.toLocaleString()}` : ""} {s.next_charge_at ? `· ${s.next_charge_at.slice(0, 10)}` : ""}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: "var(--ink3)", fontWeight: 700, marginBottom: 4 }}>수기 결제</div>
+          {paymentsManual.length === 0 ? (
+            <p className="note">기록된 수기 결제가 없습니다.</p>
+          ) : (
+            paymentsManual.map((p) => (
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
+                <span>{p.plan} · {p.method}</span>
+                <span>₩{p.amount.toLocaleString()} · {p.paid_at}</span>
+              </div>
+            ))
+          )}
+          <div className="note" style={{ marginTop: 10 }}>카드결제(온보딩·개런티·구독)는 glovek 수납 → 웹훅 자동 확인 · 계약서·이체는 수기 확인.</div>
+        </div>
+      </section>
+      <section className="card">
+        <div className="card-hd"><b>계약</b></div>
+        <div className="card-bd">
+          {deep && deep.contracts.length > 0 ? (
+            <table className="t">
+              <thead>
+                <tr><th>종류</th><th>상태</th><th>만료</th></tr>
+              </thead>
+              <tbody>
+                {deep.contracts.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.kind} v{c.version}</td>
+                    <td><span className="cellchip cc-ing">{c.status}</span></td>
+                    <td>{c.end_date ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="note">등록된 계약이 없습니다. 조건 빌더·계약 등록은 [회사정보] 탭의 심화 카드 · 계약에서 진행합니다.</p>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+
+  // 운영·정산
+  const panelOps = (
+    <section className="card">
+      <div className="card-bd">
+        <p className="note">운영·정산 데이터는 <b>운영 중</b> 단계부터 활성화됩니다 — 사이클·시딩·라이브·CS·정산 런이 이 탭에 나타납니다.</p>
+      </div>
+    </section>
+  );
+
+  // 메모·협업
+  const panelNotes = (
+    <section className="card">
+      <div className="card-bd">
+        <p className="note">코멘트·멘션·감사 이력은 협업 모듈 연동 시 이 탭에 표시됩니다.</p>
+      </div>
+    </section>
+  );
+
+  const tabs: Brand360Tab[] = [
+    { key: "ov", label: "개요", node: panelOverview },
+    { key: "co", label: "회사정보", node: panelCompany },
+    { key: "tl", label: "타임라인", node: panelTimeline },
+    { key: "mm", label: "미팅·메일", node: panelMail },
+    { key: "dc", label: "서류·물류", node: panelDocs },
+    { key: "pd", label: "제품·인증·재고", node: panelProducts },
+    { key: "ct", label: "계약·결제", node: panelContract },
+    { key: "op", label: "운영·정산", node: panelOps },
+    { key: "nt", label: "메모·협업", node: panelNotes },
+  ];
 
   return (
     <div className="max-w-6xl">
@@ -191,159 +475,8 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="space-y-4">
-          {/* 개요 */}
-          <section className="card">
-            <div className="card-hd"><b>개요</b></div>
-            <div className="card-bd" style={{ padding: "14px 16px" }}>
-              <div className="kv">
-                <dt>담당</dt>
-                <dd>{salesName ? `영업 ${salesName}` : "영업 미지정"}{onboardName ? ` · 온보딩 ${onboardName}` : ""}</dd>
-                <dt>카테고리</dt>
-                <dd>{brand.category || "—"}</dd>
-                <dt>목표국</dt>
-                <dd>{brand.countries.length ? brand.countries.join(", ") : "미정"}</dd>
-                <dt>인증국</dt>
-                <dd>{brand.certified_countries.length ? brand.certified_countries.join(", ") : "—"}</dd>
-                <dt>유입 소스</dt>
-                <dd>{sourceLabel}</dd>
-                <dt>연락처</dt>
-                <dd>{[brand.email, brand.phone].filter(Boolean).join(" · ") || "—"}</dd>
-                <dt>다음 액션</dt>
-                <dd>{brand.next_action || "—"}{nextDday ? ` (${nextDday})` : ""}</dd>
-                <dt>마지막 접촉</dt>
-                <dd>{brand.last_contact_at ? brand.last_contact_at.slice(0, 10) : "기록 없음"}</dd>
-              </div>
-            </div>
-          </section>
-
-          {/* 사전분석 브리프 */}
-          <section className="card">
-            <div className="card-hd"><b>사전분석 브리프</b></div>
-            <div className="card-bd" style={{ padding: "14px 16px" }}>
-              {brand.brief_md ? (
-                <div className="aiw">
-                  <h5>🤖 AI 사전분석 브리프</h5>
-                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.7, fontFamily: "inherit", color: "var(--ink)" }}>{brand.brief_md}</pre>
-                </div>
-              ) : (
-                <p className="note">브리프 미생성 (사전분석 에이전트 대기 중)</p>
-              )}
-              {signals.length > 0 && (
-                <table className="t" style={{ marginTop: 12 }}>
-                  <thead>
-                    <tr><th>출처</th><th>지표</th><th>값</th><th>신뢰도</th></tr>
-                  </thead>
-                  <tbody>
-                    {signals.map((s, i) => (
-                      <tr key={i}>
-                        <td>{s.source}</td>
-                        <td>{s.metric}</td>
-                        <td>{s.value_num ?? s.value_text ?? "—"}</td>
-                        <td>{s.confidence}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </section>
-
-          {/* 고객카드 심화 탭 — 연락처·설문·제품인증·재고·물류·계약·제안·회사정보·자료·마케팅 (Phase 2) */}
-          {deep && <CardTabs brandId={brand.id} deep={deep} />}
-
-          {/* 고객 상세 — 국가·자료(파일)·제안서 */}
-          <CustomerDetail brand={brand} files={files} proposals={proposals} />
-
-          {/* 고객 이메일 — 담당자 관련 메일 연동 */}
-          <CustomerEmails brandId={brand.id} emails={emails} />
-
-          {/* 대화맥락 기반 AI 메일 초안 */}
-          <ComposeEmailButton brandId={brand.id} />
-
-          {/* 결제 */}
-          <section className="card">
-            <div className="card-hd"><b>결제</b></div>
-            <div className="card-bd" style={{ padding: "14px 16px" }}>
-              {glovekSubs.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: "var(--ink3)", fontWeight: 700, marginBottom: 4 }}>glovek 정기(구독)</div>
-                  {glovekSubs.map((s, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
-                      <span>{s.plan} · <span className="chip grn">{s.status}</span></span>
-                      <span>{s.amount ? `₩${s.amount.toLocaleString()}` : ""} {s.next_charge_at ? `· ${s.next_charge_at.slice(0, 10)}` : ""}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div style={{ fontSize: 11, color: "var(--ink3)", fontWeight: 700, marginBottom: 4 }}>수기 결제</div>
-              {paymentsManual.length === 0 ? (
-                <p className="note">기록된 수기 결제가 없습니다.</p>
-              ) : (
-                paymentsManual.map((p) => (
-                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
-                    <span>{p.plan} · {p.method}</span>
-                    <span>₩{p.amount.toLocaleString()} · {p.paid_at}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          {/* 타임라인 */}
-          <section className="card">
-            <div className="card-hd"><b>타임라인</b></div>
-            <div className="card-bd" style={{ padding: "14px 16px" }}>
-              {timeline.length === 0 ? (
-                <p className="note">기록된 이력이 없습니다.</p>
-              ) : (
-                <div className="tl" style={{ maxHeight: 380, overflowY: "auto" }}>
-                  {timeline.map((t, i) => {
-                    const auto = !t.actor || t.actor === "system" || t.actor === "auto";
-                    return (
-                      <div key={i} className={`ev${auto ? " auto" : ""}`}>
-                        <div className="w">
-                          {t.at.slice(5, 16).replace("T", " ")}
-                          {t.actor && ` · ${t.actor}`}
-                        </div>
-                        {t.kind === "gate_fail" && <span className="chip red" style={{ marginRight: 6, fontSize: 10 }}>게이트 실패</span>}
-                        <span style={{ fontSize: 12.5 }}>{t.text}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-
-        <div className="space-y-4">
-          {/* 다음 스텝 게이트 체크리스트 (.gate) — 현재 상태의 다음 전이 게이트 항목 */}
-          {gate && (
-            <div className="gate">
-              <h5>▶ 다음 스텝 게이트: {STATE_LABELS[gate.from]} → {STATE_LABELS[gate.to]}</h5>
-              {gate.items.length === 0 ? (
-                <div className="gi"><span className="ok">✅</span> 게이트 조건 없음 — 바로 이동 가능</div>
-              ) : (
-                gate.items.map((it, i) => (
-                  <div key={i} className="gi">
-                    <span className={it.done ? "ok" : "no"}>{it.done ? "✅" : "⬜"}</span> {it.label}
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {/* 액션 (client) — 필수항목 체크리스트·게이트·담당배정·서류·수기결제·삭제 */}
-          <Brand360Actions
-            brand={brand}
-            adminUsers={adminUsers}
-            docItems={docs.items.map((i) => ({ item_key: i.item_key, label: i.label, done: i.done, source: i.source }))}
-            stageReqs={stageReqs}
-          />
-        </div>
-      </div>
+      {/* ===== 상단 탭 (프로토타입 s-b360 구성) ===== */}
+      <Brand360Tabs tabs={tabs} />
     </div>
   );
 }

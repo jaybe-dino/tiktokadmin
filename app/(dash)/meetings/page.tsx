@@ -17,6 +17,21 @@ function fmt(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// 저장 문자열에서 날짜/시(時)/분 직접 파싱 (타임존 변환 없이 원문 기준)
+function parseSlot(s: unknown): { ymd: string; hour: number; min: string } | null {
+  if (typeof s !== "string") return null;
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/.exec(s);
+  if (!m) return null;
+  return { ymd: m[1], hour: parseInt(m[2], 10), min: m[3] };
+}
+
+// "MM-DD HH:MM" 형태의 짧은 표기(원문 기준)
+function shortWhen(s: unknown): string {
+  const slot = parseSlot(s);
+  if (!slot) return "일시 미정";
+  return `${slot.ymd.slice(5)} ${String(slot.hour).padStart(2, "0")}:${slot.min}`;
+}
+
 // 이번 주 월~금 (서버에서 계산)
 function weekDays(): { ymd: string; label: string; isToday: boolean }[] {
   const now = new Date();
@@ -35,14 +50,6 @@ function weekDays(): { ymd: string; label: string; isToday: boolean }[] {
     out.push({ ymd, label: `${names[i]} ${d.getDate()}${ymd === todayYmd ? " (오늘)" : ""}`, isToday: ymd === todayYmd });
   }
   return out;
-}
-
-// 저장 문자열에서 날짜/시(時) 직접 파싱 (타임존 변환 없이 원문 기준 배치)
-function parseSlot(s: unknown): { ymd: string; hour: number } | null {
-  if (typeof s !== "string") return null;
-  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2})/.exec(s);
-  if (!m) return null;
-  return { ymd: m[1], hour: parseInt(m[2], 10) };
 }
 
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 9); // 09~19시
@@ -74,12 +81,24 @@ export default async function MeetingsPage() {
   }
   const weekCount = [...cells.values()].reduce((n, a) => n + a.length, 0);
 
+  // 하단 3분할 카드용 파생 목록 (실데이터 기반)
+  const pipeline = rows
+    .filter((m) => m.status === "received" || m.status === "ready" || (m.followup_status && m.followup_status !== "none"))
+    .slice(0, 6);
+  const unmatched = rows.filter((m) => !m.brand_id || m.status === "unmatched").slice(0, 6);
+  const noshow = rows.filter((m) => m.status === "no_show" || m.status === "canceled" || m.status === "error").slice(0, 6);
+
   return (
     <div>
       <ScreenHeader
         title="미팅 캘린더"
-        desc={`총 ${rows.length}건 · 이번 주 ${weekCount}건 · Zoom 웹훅 연동 시 자동 적재`}
-        right={<b style={{ fontSize: 13 }}>{rangeLabel}</b>}
+        desc="줌 예약이 잡히는 순간 자동 등록 · 호스트→담당 매핑 · D-1 리마인더 · 노쇼 감지"
+        right={
+          <div className="bar" style={{ margin: 0 }}>
+            <b style={{ fontSize: 13 }}>{rangeLabel}</b>
+            <span style={{ color: "var(--ink3)", fontSize: 12 }}>이번 주 {weekCount}건 · 총 {rows.length}건</span>
+          </div>
+        }
       />
 
       {/* 주간 캘린더 그리드 */}
@@ -111,25 +130,68 @@ export default async function MeetingsPage() {
         ))}
       </div>
 
-      {/* 전체 목록 */}
-      <div className="card overflow-x-auto" style={{ marginTop: 14 }}>
-        <div className="card-hd"><b>전체 미팅</b></div>
-        <div className="card-bd">
-          <table className="t">
-            <thead><tr><th>주제</th><th>브랜드</th><th>일시</th><th>상태</th><th>팔로업</th></tr></thead>
-            <tbody>
-              {rows.length === 0 && <tr><td colSpan={5} style={{ color: "var(--ink3)" }}>미팅이 없습니다.</td></tr>}
-              {rows.map((m) => (
-                <tr key={m.id as string}>
-                  <td className="font-semibold">{(m.topic as string) || "제목 없음"}</td>
-                  <td>{m.brand_id ? <Link href={`/brand/${m.brand_id}`} className="hover:underline">{m.brand_name as string}</Link> : <span style={{ color: "var(--warn)" }}>매칭 필요</span>}</td>
-                  <td style={{ color: "var(--ink3)" }}>{m.scheduled_at ? new Date(m.scheduled_at as string).toLocaleString("ko-KR") : "—"}</td>
-                  <td><span className="pill chip">{ST[m.status as string] ?? (m.status as string)}</span></td>
-                  <td>{m.followup_status && m.followup_status !== "none" ? <span className="pill chip-grn">{m.followup_status as string}</span> : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* 하단 3분할: 처리 파이프라인 · 매칭 필요 · 노쇼·취소 */}
+      <div className="grid g3" style={{ marginTop: 14 }}>
+        <div className="card">
+          <div className="hd"><b>처리 파이프라인</b></div>
+          <div className="bd" style={{ fontSize: 12 }}>
+            {pipeline.length === 0 && <div style={{ color: "var(--ink3)" }}>처리 중인 미팅이 없습니다.</div>}
+            {pipeline.map((m) => {
+              const done = m.status === "ready";
+              const tt = `${(m.brand_name as string) || "미매칭"} (${shortWhen(m.scheduled_at)})`;
+              const ss = done
+                ? "전사→요약→접촉기록 완료 · 팔로업 승인 대기"
+                : `요약 처리 중 · 상태: ${ST[m.status as string] ?? (m.status as string)}`;
+              const inner = (
+                <>
+                  <span className={`ico ${done ? "i-grn" : "i-pur"}`}>{done ? "✅" : "⏳"}</span>
+                  <div>
+                    <div className="tt">{tt}</div>
+                    <div className="ss">{ss}</div>
+                  </div>
+                </>
+              );
+              return m.brand_id ? (
+                <Link key={m.id as string} href={`/brand/${m.brand_id}`} className="row" style={{ textDecoration: "none", color: "inherit" }}>{inner}</Link>
+              ) : (
+                <div key={m.id as string} className="row">{inner}</div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="hd"><b>매칭 필요</b>{unmatched.length > 0 && <span className="chip red">{unmatched.length}</span>}</div>
+          <div className="bd" style={{ fontSize: 12 }}>
+            {unmatched.length === 0 && <div style={{ color: "var(--ink3)" }}>매칭이 필요한 미팅이 없습니다.</div>}
+            {unmatched.map((m) => (
+              <div key={m.id as string} className="row">
+                <span className="ico i-red">❓</span>
+                <div>
+                  <div className="tt">{(m.topic as string) || "제목 없음"}</div>
+                  <div className="ss">{shortWhen(m.scheduled_at)} · 참가자 이메일이 원장에 없음 — 수동 연결 필요</div>
+                </div>
+                <div className="rt"><button className="btn sm pri">브랜드 연결</button></div>
+              </div>
+            ))}
+            {unmatched.length > 0 && <div className="note">토픽에 [브랜드명]을 넣으면 자동 매칭률이 올라갑니다</div>}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="hd"><b>노쇼·취소</b>{noshow.length > 0 && <span className="chip amb">{noshow.length}</span>}</div>
+          <div className="bd" style={{ fontSize: 12 }}>
+            {noshow.length === 0 && <div style={{ color: "var(--ink3)" }}>노쇼·취소된 미팅이 없습니다.</div>}
+            {noshow.map((m) => (
+              <div key={m.id as string} className="row">
+                <span className="ico i-amb">🚫</span>
+                <div>
+                  <div className="tt">{(m.brand_name as string) || "미매칭"} — {ST[m.status as string] ?? (m.status as string)}</div>
+                  <div className="ss">{shortWhen(m.scheduled_at)} · 24h 녹화 미수신 자동 감지 → 재예약 메일 발송</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

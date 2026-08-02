@@ -79,45 +79,45 @@ export default async function CustomersPage({
         desc={`${total}개 브랜드 · 1브랜드 = 1행 · 중복 0 · 완성도는 카드 필수 필드 충족률`}
         right={
           <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="btn">CSV 내보내기</button>
             <Link href="/import" className="btn btn-primary">+ 등록</Link>
           </div>
         }
       />
 
       {/* 검색·필터 바 */}
-      <form method="GET" className="card mb-4" style={{ padding: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <form method="GET" className="bar">
         <input
           name="q"
           defaultValue={sp.q ?? ""}
-          className="input"
           style={{ width: 220 }}
           placeholder="브랜드·담당자·이메일 검색"
         />
-        <select name="state" defaultValue={sp.state ?? ""} className="input" style={{ width: 150 }}>
+        <select name="state" defaultValue={sp.state ?? ""} style={{ width: 150 }}>
           <option value="">상태 전체</option>
           {STATES.map((s) => <option key={s} value={s}>{STATE_LABELS[s]}</option>)}
         </select>
-        <select name="grade" defaultValue={sp.grade ?? ""} className="input" style={{ width: 110 }}>
+        <select name="grade" defaultValue={sp.grade ?? ""} style={{ width: 110 }}>
           <option value="">등급 전체</option>
           {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
-        <select name="source" defaultValue={sp.source ?? ""} className="input" style={{ width: 150 }}>
-          <option value="">유입 전체</option>
-          {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s] ?? s}</option>)}
-        </select>
-        <select name="plan" defaultValue={sp.plan ?? ""} className="input" style={{ width: 170 }}>
+        <select name="plan" defaultValue={sp.plan ?? ""} style={{ width: 170 }}>
           <option value="">플랜 전체</option>
           {PLANS.map((pl) => <option key={pl} value={pl}>{PLAN_LABELS[pl]}</option>)}
         </select>
-        <select name="owner" defaultValue={sp.owner ?? ""} className="input" style={{ width: 130 }}>
+        <select name="owner" defaultValue={sp.owner ?? ""} style={{ width: 130 }}>
           <option value="">담당 전체</option>
           {ownerOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+        <select name="source" defaultValue={sp.source ?? ""} style={{ width: 150 }}>
+          <option value="">유입 전체</option>
+          {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s] ?? s}</option>)}
         </select>
         {/* SLA 위반 토글은 링크칩으로 유지되도록 hidden 으로 폼에 반영 */}
         {breachOn && <input type="hidden" name="breach" value="1" />}
         <button className="btn btn-primary btn-sm" type="submit">검색</button>
         <Link href={qs({ breach: breachOn ? undefined : "1", page: undefined })} className={`chip ${breachOn ? "chip-red" : ""}`}>
-          {breachOn ? "✓ SLA 위반만" : "SLA 위반만"}
+          {breachOn ? "필터: SLA 위반만 ✕" : "SLA 위반만"}
         </Link>
         <Link href="/customers" className="btn btn-sm">초기화</Link>
       </form>

@@ -7,7 +7,7 @@ import { humanElapsed } from "@/lib/time";
 export const dynamic = "force-dynamic";
 
 function slaClass(tier: number): string {
-  return tier >= 3 ? "t3" : tier >= 2 ? "t2" : "t1";
+  return tier >= 3 ? "t3" : tier >= 2 ? "t2" : tier >= 1 ? "t1" : "ok";
 }
 
 export default async function MonitorPage() {
@@ -18,7 +18,8 @@ export default async function MonitorPage() {
 
   const t3 = alerts.filter((a) => a.tier >= 3).length;
   const t2 = alerts.filter((a) => a.tier === 2).length;
-  const t1 = alerts.filter((a) => a.tier <= 1).length;
+  const t1 = alerts.filter((a) => a.tier === 1).length;
+  const t0 = alerts.filter((a) => a.tier <= 0).length;
   const t2plus = alerts.filter((a) => a.tier >= 2).length;
 
   return (
@@ -30,26 +31,30 @@ export default async function MonitorPage() {
 
       <div className="grid g4" style={{ marginBottom: 14 }}>
         <div className="tile">
-          <div className="tile-k">활성 알림</div>
-          <div className="tile-v">{alerts.length}</div>
+          <div className="k">활성 알림</div>
+          <div className="v">{alerts.length}</div>
+          <div className="d">T1 {t1} · T2 {t2} · T3 {t3}</div>
         </div>
         <div className="tile">
-          <div className="tile-k">T2 이상 (파트장)</div>
-          <div className="tile-v" style={{ color: "var(--danger)" }}>{t2plus}</div>
+          <div className="k">T2 이상 (파트장)</div>
+          <div className="v" style={{ color: "var(--danger)" }}>{t2plus}</div>
+          <div className="d">파트장 에스컬레이션 대상</div>
         </div>
         <div className="tile">
-          <div className="tile-k">게이트 위반 (14일)</div>
-          <div className="tile-v">{gateViolations.length}</div>
+          <div className="k">게이트 위반 (14일)</div>
+          <div className="v">{gateViolations.length}</div>
+          <div className="d">stage_history 기준</div>
         </div>
         <div className="tile">
-          <div className="tile-k">T1 알림</div>
-          <div className="tile-v">{t1}</div>
+          <div className="k">T1 알림</div>
+          <div className="v">{t1}</div>
+          <div className="d">매일 담당 DM 반복</div>
         </div>
       </div>
 
       <div className="grid g31">
         <div className="card">
-          <div className="card-hd">
+          <div className="hd">
             <b>활성 알림 {alerts.length}건</b>
           </div>
           <table className="t">
@@ -66,7 +71,7 @@ export default async function MonitorPage() {
             <tbody>
               {alerts.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ color: "var(--ink3)" }}>활성 알림 없음 🎉</td>
+                  <td colSpan={6} style={{ color: "var(--ink3)" }}>활성 알림이 없습니다 🎉</td>
                 </tr>
               )}
               {alerts.map((a) => (
@@ -93,8 +98,15 @@ export default async function MonitorPage() {
 
         <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
           <div className="card">
-            <div className="card-hd"><b>에스컬레이션 사다리</b></div>
+            <div className="hd"><b>에스컬레이션 사다리</b></div>
             <div className="bd" style={{ fontSize: 12 }}>
+              <div className="row">
+                <span className="sla ok" style={{ alignSelf: "center" }}>T0</span>
+                <div>
+                  <div className="tt">발생 당일 · {t0}건</div>
+                  <div className="ss">담당 DM + 조치 버튼</div>
+                </div>
+              </div>
               <div className="row">
                 <span className="sla t1" style={{ alignSelf: "center" }}>T1</span>
                 <div>
@@ -120,9 +132,9 @@ export default async function MonitorPage() {
           </div>
 
           <div className="card">
-            <div className="card-hd"><b>게이트 위반 로그 (14일)</b></div>
+            <div className="hd"><b>게이트 위반 로그 (14일)</b></div>
             {gateViolations.length === 0 ? (
-              <div className="note">최근 14일간 게이트 위반 없음</div>
+              <div className="note">최근 14일간 게이트 위반이 없습니다</div>
             ) : (
               <table className="t">
                 <thead>

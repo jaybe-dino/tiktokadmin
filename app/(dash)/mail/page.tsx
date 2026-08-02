@@ -1,6 +1,6 @@
 import ScreenHeader from "@/components/ScreenHeader";
 import { query } from "@/lib/db";
-import MailClient, { type MailThread, type MailMessage } from "./MailClient";
+import MailPanel, { type MailThread, type MailMessage } from "./MailPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -155,7 +155,7 @@ export default async function MailPage() {
           </p>
         </div>
       ) : (
-        <MailClient threads={threads} messages={messages} />
+        <MailPanel threads={threads} messages={messages} />
       )}
     </div>
   );
