@@ -34,9 +34,16 @@ function makePool(connectionString: string): Pool {
   const pool = new Pool({
     connectionString,
     // 서버리스에서 인스턴스마다 풀 생성 → 커넥션 한도 압박. 작게 유지.
-    max: 3,
-    idleTimeoutMillis: 10_000,
+    max: 5,
+    idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
+    // 연결 재사용(콜드스타트·TLS 재핸드셰이크 완화). Neon 은 pooled 엔드포인트(-pooler) 권장.
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 5_000,
+    // 느린 쿼리가 UI 를 붙잡지 않도록 상한(초과 시 에러 → 페이지의 catch 로 빈 상태).
+    statement_timeout: 15_000,
+    query_timeout: 20_000,
+    application_name: "tiktokadmin",
     // 매니지드 Postgres 는 SSL 필수. 대부분 유효 인증서지만 provider 별 self-signed 대응.
     ssl: needsSsl(connectionString) ? { rejectUnauthorized: false } : undefined,
   });
