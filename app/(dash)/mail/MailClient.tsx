@@ -122,7 +122,7 @@ export default function MailClient({
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {t.brand_name ?? "브랜드 미매칭"} · {senderName(t.from_addr)}
                 </span>
-                <span style={{ color: "var(--ink3)", fontWeight: 400, fontSize: 10.5, flexShrink: 0 }}>
+                <span suppressHydrationWarning style={{ color: "var(--ink3)", fontWeight: 400, fontSize: 10.5, flexShrink: 0 }}>
                   {whenLabel(t.sent_at)}
                   {noReply ? " ⚠️" : ""}
                 </span>
@@ -205,7 +205,7 @@ export default function MailClient({
                           · {m.from_addr ?? "발신자 미상"}
                           {m.to_addrs && m.to_addrs.length > 0 ? ` → ${m.to_addrs.join(", ")}` : ""}
                         </span>
-                        <span>{new Date(m.sent_at).toLocaleString("ko-KR")}</span>
+                        <span suppressHydrationWarning>{new Date(m.sent_at).toLocaleString("ko-KR")}</span>
                       </div>
                       <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: "pre-wrap" }}>
                         {m.body_text || m.snippet || "본문이 수집되지 않았습니다."}
