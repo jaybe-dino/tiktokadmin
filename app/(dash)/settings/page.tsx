@@ -4,6 +4,8 @@ import { currentUser } from "@/lib/auth";
 import { adminUserList, slaPolicyList } from "@/lib/repo/queries";
 import { listAllRequirements } from "@/lib/requirements";
 import { DOC_TEMPLATES } from "@/lib/docs";
+import { listMailboxes } from "@/lib/shared-mailboxes";
+import MailboxManager from "@/components/MailboxManager";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +19,11 @@ const ROLE_LABEL: Record<string, string> = {
 export default async function SettingsPage() {
   const user = (await currentUser())!;
   const canEdit = user.role === "lead" || user.role === "exec";
-  const [policies, users, requirements] = await Promise.all([
+  const [policies, users, requirements, mailboxes] = await Promise.all([
     slaPolicyList().catch(() => []),
     adminUserList().catch(() => []),
     listAllRequirements().catch(() => []),
+    listMailboxes().catch(() => []),
   ]);
 
   const activeUsers = users.filter((u) => u.active).length;
@@ -124,6 +127,9 @@ export default async function SettingsPage() {
               자동 배정 불가, Gmail 없으면 메일 타임라인 누락.
             </div>
           </div>
+
+          {/* 회사 공용 메일함 */}
+          <MailboxManager mailboxes={mailboxes} canEdit={canEdit} />
 
           {/* SLA 정책 */}
           <div className="card">

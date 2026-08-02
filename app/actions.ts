@@ -587,3 +587,32 @@ export async function toggleAgentAction(key: string, enabled: boolean): Promise<
   revalidatePath("/agents");
   return { ok: true };
 }
+
+// ═══ 회사 공용 메일함 관리 (파트장/대표) ═══════════════════════
+import { upsertMailbox, setMailboxEnabled, setMailboxForward, removeMailbox } from "@/lib/shared-mailboxes";
+
+export async function addMailboxAction(email: string, label: string, note?: string): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  try { await upsertMailbox(email, label, note ?? ""); }
+  catch (e) { return { ok: false, error: (e as Error).message }; }
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function toggleMailboxAction(email: string, field: "enabled" | "forward", value: boolean): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  if (field === "enabled") await setMailboxEnabled(email, value);
+  else await setMailboxForward(email, value);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function removeMailboxAction(email: string): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  await removeMailbox(email);
+  revalidatePath("/settings");
+  return { ok: true };
+}

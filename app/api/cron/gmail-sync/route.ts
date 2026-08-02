@@ -26,6 +26,10 @@ export async function POST(req: NextRequest) {
   const { draftInboundReplies } = await import("@/lib/inbound-reply");
   const inbound = await draftInboundReplies(10).catch(() => ({ pending: 0, drafted: 0, ai: false }));
 
-  return NextResponse.json({ ok: true, gmailEnabled, accounts, synced, noReplyAlerts: noReply, inbound });
+  // 수신 메일 → 현재 단계 담당자에게 자동 전달(메일+Slack+알림)
+  const { forwardNewInbound } = await import("@/lib/inbound-forward");
+  const forwarded = await forwardNewInbound(20).catch(() => ({ candidates: 0, forwarded: 0 }));
+
+  return NextResponse.json({ ok: true, gmailEnabled, accounts, synced, noReplyAlerts: noReply, inbound, forwarded });
 }
 export const GET = POST;

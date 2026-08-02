@@ -136,16 +136,23 @@ export async function syncMailbox(ownerEmail: string, maxResults = 30): Promise<
   return saved;
 }
 
-/** sync 대상(gmail_sync_enabled) 전 계정 순회. */
+/** sync 대상 순회: 회사 공용 메일함(shared_mailboxes) + (레거시) admin_users.gmail_sync_enabled. */
 export async function syncAllMailboxes(): Promise<{ accounts: number; saved: number }> {
   if (!loadSaKey()) return { accounts: 0, saved: 0 };
-  const accounts = await query<{ id: string }>(
+  const { enabledMailboxes, markSynced } = await import("./shared-mailboxes");
+  const shared = await enabledMailboxes();
+  const legacy = await query<{ id: string }>(
     "SELECT id FROM admin_users WHERE gmail_sync_enabled = true").catch(() => []);
+
+  // 주소 집합(중복 제거) — 공용 메일함 우선
+  const addrs = new Set<string>();
+  for (const s of shared) if (s.email.includes("@")) addrs.add(s.email.toLowerCase());
+  for (const a of legacy) if (a.id?.includes("@")) addrs.add(a.id.toLowerCase());
+
   let saved = 0, n = 0;
-  for (const a of accounts) {
-    const addr = a.id; // admin_users.id = 회사 이메일(로그인 계정)
-    if (!addr || !addr.includes("@")) continue;
+  for (const addr of addrs) {
     saved += await syncMailbox(addr).catch(() => 0);
+    if (shared.some((s) => s.email.toLowerCase() === addr)) await markSynced(addr);
     n++;
   }
   return { accounts: n, saved };
