@@ -558,3 +558,22 @@ export async function composeEmailAction(brandId: string, intent?: string): Prom
   revalidatePath("/drafts");
   return { ok: r.ok, error: r.error, subject: r.subject };
 }
+
+// ═══ AI 에이전트 관리 ═════════════════════════════════════════
+import { runAgent as runAgentFn, setAgentEnabled } from "@/lib/agents";
+
+export async function runAgentAction(key: string): Promise<ActionResult & { summary?: string }> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  const r = await runAgentFn(key, "manual");
+  revalidatePath("/agents");
+  return { ok: r.ok, error: r.error, summary: r.summary };
+}
+
+export async function toggleAgentAction(key: string, enabled: boolean): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  await setAgentEnabled(key, enabled);
+  revalidatePath("/agents");
+  return { ok: true };
+}

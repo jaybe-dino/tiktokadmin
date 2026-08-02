@@ -44,7 +44,8 @@ const GROUPS: Group[] = [
     { href: "/pay", label: "결제 현황", ic: "💳" },
   ]},
   { title: "AI·관리", items: [
-    { href: "/insights", label: "AI 인사이트", ic: "🤖" },
+    { href: "/agents", label: "AI 에이전트", ic: "🤖" },
+    { href: "/insights", label: "AI 인사이트", ic: "📈" },
     { href: "/approvals", label: "결재함", ic: "🗳️" },
     { href: "/slack", label: "Slack 알림", ic: "💬" },
     { href: "/settings", label: "설정·조직", ic: "⚙️" },
