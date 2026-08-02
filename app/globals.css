@@ -208,3 +208,49 @@ body {
 .st-live_mall, .st-live_onboarding { background: #f3e8ff; color: #6b21a8; }
 .st-settling { background: #ccfbf1; color: #0f766e; }
 .st-dropped, .st-churned { background: #f1f5f9; color: #64748b; }
+
+/* ═══ 프로토타입 콘텐츠 클래스 보강 (셸 클래스 .sb/.top/.app/.screen 제외) ═══ */
+/* 페이지 헤더(.ph) — ScreenHeader 병행 */
+.ph { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.ph h1 { font-size: 19px; font-weight: 800; }
+.ph p { color: var(--ink3); font-size: 12.5px; margin-top: 2px; }
+/* 필터 바 */
+.bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.bar select, .bar input { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; background: #fff; font-family: inherit; color: var(--ink2); }
+/* 체크리스트 행 */
+.chk { display: flex; gap: 8px; align-items: center; padding: 5px 0; font-size: 12px; }
+.chk .cb { width: 14px; height: 14px; border-radius: 4px; border: 2px solid #c8d2e0; flex-shrink: 0; }
+.chk.c .cb { background: var(--ok); border-color: var(--ok); position: relative; }
+.chk.c .cb:after { content: "✓"; color: #fff; font-size: 9px; position: absolute; left: 2px; top: -1px; }
+/* diff 행(등급 재계산 등) */
+.dfrow { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #eef1f6; font-size: 11.5px; }
+.dfrow .new { color: var(--ok); font-weight: 700; } .dfrow .old { color: var(--ink3); text-decoration: line-through; }
+/* 태그 묶음 */
+.tagz { display: flex; gap: 5px; flex-wrap: wrap; }
+/* 타임라인 작성자 배지 */
+.who { font-size: 10px; font-weight: 700; border-radius: 5px; padding: 1px 6px; }
+.who.sys { background: #f3e8ff; color: #7e22ce; } .who.hum { background: #dbeafe; color: #1e40af; }
+.who.slk { background: #e8e2ea; color: #611f69; } .who.brd { background: #ffedd5; color: #9a3412; }
+/* 마법사 진행바 */
+.wiz { display: flex; gap: 4px; margin-bottom: 10px; }
+.wiz i { flex: 1; height: 4px; border-radius: 2px; background: #e5e9f0; font-style: normal; }
+.wiz i.on { background: var(--acc); } .wiz i.done { background: var(--ok); }
+/* 인증 매트릭스 정렬 */
+.matrix td, .matrix th { text-align: center; }
+/* 메일 3단 레이아웃 */
+.mail3 { display: grid; grid-template-columns: 290px 1fr 300px; gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; min-height: 520px; }
+.mail3 .ml { border-right: 1px solid var(--line); overflow-y: auto; }
+.mail3 .main { min-width: 0; display: flex; flex-direction: column; }
+.ml .it { padding: 11px 14px; border-bottom: 1px solid #f0f3f8; cursor: pointer; }
+.ml .it.on { background: #eff6ff; border-left: 3px solid var(--acc); }
+.ml .it .fr { font-weight: 700; font-size: 12.5px; display: flex; justify-content: space-between; }
+.ml .it .fr span { color: var(--ink3); font-weight: 400; font-size: 10.5px; }
+.ml .it .sj { font-size: 12px; margin-top: 1px; }
+.ml .it .pv { color: var(--ink3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 모달(오버레이 카드) */
+.modal { background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 32px rgba(15,36,64,.14); overflow: hidden; }
+.modal .mh { padding: 11px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+.modal .mh b { font-size: 12.5px; } .modal .mh .x { margin-left: auto; color: var(--ink3); font-size: 13px; cursor: pointer; }
+.modal .mb { padding: 12px 14px; font-size: 12px; }
+.modal .mf { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 6px; justify-content: flex-end; background: #fafbfd; }
+.modal.err { border-color: #fca5a5; } .modal.okc { border-color: #86efac; }
