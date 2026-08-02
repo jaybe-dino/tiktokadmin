@@ -6,6 +6,8 @@ import { listAllRequirements } from "@/lib/requirements";
 import { DOC_TEMPLATES } from "@/lib/docs";
 import { listMailboxes } from "@/lib/shared-mailboxes";
 import MailboxManager from "@/components/MailboxManager";
+import { getWelcomeConfig } from "@/lib/welcome";
+import WelcomeConfigCard from "@/components/WelcomeConfig";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +21,12 @@ const ROLE_LABEL: Record<string, string> = {
 export default async function SettingsPage() {
   const user = (await currentUser())!;
   const canEdit = user.role === "lead" || user.role === "exec";
-  const [policies, users, requirements, mailboxes] = await Promise.all([
+  const [policies, users, requirements, mailboxes, welcomeCfg] = await Promise.all([
     slaPolicyList().catch(() => []),
     adminUserList().catch(() => []),
     listAllRequirements().catch(() => []),
     listMailboxes().catch(() => []),
+    getWelcomeConfig(),
   ]);
 
   const activeUsers = users.filter((u) => u.active).length;
@@ -130,6 +133,9 @@ export default async function SettingsPage() {
 
           {/* 회사 공용 메일함 */}
           <MailboxManager mailboxes={mailboxes} canEdit={canEdit} />
+
+          {/* 신규 리드 자동 안내 */}
+          <WelcomeConfigCard config={welcomeCfg} canEdit={canEdit} />
 
           {/* SLA 정책 */}
           <div className="card">

@@ -635,3 +635,23 @@ export async function removeMailboxAction(email: string): Promise<ActionResult> 
   revalidatePath("/settings");
   return { ok: true };
 }
+
+// ═══ 신규 리드 자동 안내 (파트장/대표) ═════════════════════════
+import { saveWelcomeConfig, sendWelcome, type WelcomeConfig } from "@/lib/welcome";
+
+export async function saveWelcomeConfigAction(cfg: Partial<WelcomeConfig>): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  await saveWelcomeConfig(cfg);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+/** 수동 안내 발송(리드 목록/브랜드360에서). 기본 1회, force 로 재발송. */
+export async function sendWelcomeAction(brandId: string, force = false): Promise<ActionResult & { sent?: string[]; skipped?: string }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const r = await sendWelcome(brandId, force);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: r.ok, error: r.error, sent: r.sent, skipped: r.skipped };
+}

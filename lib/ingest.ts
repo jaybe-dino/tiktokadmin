@@ -252,6 +252,11 @@ async function handleEvent(
       }
       if (p.referral_code) await setFields(brand.id, { referral_code: p.referral_code });
       await recordSource(brand.id, d.site, "lead", d.source_ref ?? null, d.source_url ?? null, p, d.occurred_at);
+      // 신규 리드 자동 안내(문자·메일) — 안내 대상 소스일 때만, 1회. (추후 메타/페북 광고 리드 확장)
+      if (created) {
+        const { maybeAutoWelcome } = await import("./welcome");
+        await maybeAutoWelcome(brand.id, source).catch(() => {});
+      }
       return { http: 200, body: { ok: true, brand_id: brand.id, created, need_brief: created } };
     }
 

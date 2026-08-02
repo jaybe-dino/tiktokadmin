@@ -58,7 +58,7 @@ export type ChurnRisk = "low" | "mid" | "high";
 export const SOURCES = [
   "glovek_consult", "glovek_inquiry", "glovek_signup",
   "apply_consult", "apply_seminar", "apply_qna", "apply_smr",
-  "tp_seminar", "tp_ebook", "referrer", "expo", "etc",
+  "tp_seminar", "tp_ebook", "referrer", "expo", "meta_ads", "etc",
 ] as const;
 export type Source = (typeof SOURCES)[number];
 
@@ -74,6 +74,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   tp_ebook: "tpartners 전자책",
   referrer: "영업 직접",
   expo: "전시/팝업",
+  meta_ads: "메타/페북 광고",
   etc: "기타",
 };
 
