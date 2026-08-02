@@ -668,8 +668,10 @@ export async function testNotifyAction(input: { phone?: string; email?: string }
   let sms: string | undefined, email: string | undefined;
   if (input.phone?.trim()) {
     const { sendSms } = await import("@/lib/sms");
+    const { env } = await import("@/lib/env");
     const r = await sendSms({ receiver: input.phone.trim(), msg: "[GloveK] 테스트 문자입니다. 연동 확인용." });
-    sms = r.ok ? `✓ 발송 성공(${r.type ?? "SMS"})` : `✗ ${r.message}`;
+    if (r.ok && env.aligo.testMode) sms = "⚠ 접수됨(테스트모드 — 실제 발송 안 됨). ALIGO_TEST_MODE=N 후 재배포 필요";
+    else sms = r.ok ? `✓ 발송 성공(${r.type ?? "SMS"})` : `✗ ${r.message}`;
   }
   if (input.email?.trim()) {
     const { sendEmail } = await import("@/lib/mailer");
