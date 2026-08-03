@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import type { EmailDraft } from "@/lib/drafts";
-import { approveDraftAction, discardDraftAction } from "@/app/actions";
+import { approveDraftAction, discardDraftAction, saveGmailDraftAction } from "@/app/actions";
 
 const KIND_KO: Record<string, string> = {
   followup: "팔로업", reminder: "리마인더", payment_notice: "결제안내",
@@ -29,6 +29,11 @@ export default function DraftCard({ draft }: { draft: EmailDraft }) {
         {draft.source && <span className="pill bg-gray-100 text-muted text-[11px]">{SOURCE_KO[draft.source] ?? draft.source}</span>}
         <span className="font-medium">{draft.brand_name}</span>
         <span className="text-xs text-muted">→ {draft.to_email || "이메일 없음"}</span>
+        {draft.from_mailbox && (
+          <span className="pill bg-[#eefcf3] text-[#0a7d3c] text-[11px]" title="이 공용 메일함 명의로 발송/임시저장">
+            발신 {draft.from_mailbox}
+          </span>
+        )}
       </div>
 
       {/* 인바운드 요약(담당 검토용) — 자동회신 초안일 때 */}
@@ -66,6 +71,18 @@ export default function DraftCard({ draft }: { draft: EmailDraft }) {
           })}>
           {pending ? "처리 중…" : dirty ? "수정 후 승인·발송" : "승인·발송"}
         </button>
+        {draft.from_mailbox && (
+          <button className="btn" disabled={pending} title={`${draft.from_mailbox} 임시보관함에 저장 — Gmail에서 마저 발송`}
+            onClick={() => start(async () => {
+              setMsg("");
+              const edits = dirty ? { subject, body } : undefined;
+              const r = await saveGmailDraftAction(draft.id, edits);
+              if (r.ok) { setGone(true); }
+              else setMsg(r.error ?? "임시저장 실패");
+            })}>
+            {pending ? "저장 중…" : "📥 Gmail 임시저장"}
+          </button>
+        )}
         <button className="btn" disabled={pending} onClick={() => setEditing((v) => !v)}>
           {editing ? "미리보기" : "✏️ 수정"}
         </button>

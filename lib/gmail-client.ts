@@ -6,7 +6,9 @@ import { env } from "./env";
 import { query } from "./db";
 import { matchBrandByAddresses, ingestEmailMessage } from "./email-sync";
 
-const SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const SCOPE_READ = "https://www.googleapis.com/auth/gmail.readonly";
+// compose: 임시보관함(초안) 생성/수정 + 메시지 발송. 지정 메일함 발송·임시저장에 필요.
+const SCOPE_COMPOSE = "https://www.googleapis.com/auth/gmail.compose";
 const TOKEN_URI = "https://oauth2.googleapis.com/token";
 
 interface SaKey { client_email: string; private_key: string }
@@ -26,14 +28,14 @@ function b64url(buf: Buffer | string): string {
   return Buffer.from(buf).toString("base64url");
 }
 
-/** 서비스계정 → 특정 사용자(sub) impersonate 액세스 토큰. */
-async function getAccessToken(sub: string): Promise<string | null> {
+/** 서비스계정 → 특정 사용자(sub) impersonate 액세스 토큰. scope 기본=읽기전용. */
+async function getAccessToken(sub: string, scope = SCOPE_READ): Promise<string | null> {
   const sa = loadSaKey();
   if (!sa) return null;
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claim = b64url(JSON.stringify({
-    iss: sa.client_email, sub, scope: SCOPE, aud: TOKEN_URI, iat: now, exp: now + 3600,
+    iss: sa.client_email, sub, scope, aud: TOKEN_URI, iat: now, exp: now + 3600,
   }));
   const signingInput = `${header}.${claim}`;
   const signature = crypto.createSign("RSA-SHA256").update(signingInput).sign(sa.private_key);
@@ -134,6 +136,76 @@ export async function syncMailbox(ownerEmail: string, maxResults = 30): Promise<
     if (ok) saved++;
   }
   return saved;
+}
+
+// ══════════════════════════════════════════════════════════════
+// 발송/임시저장 (gmail.compose 위임) — 지정 공용 메일함 명의로.
+// ══════════════════════════════════════════════════════════════
+
+/** compose(발송/임시저장) 위임이 켜져 있는가 = 서비스계정 키 존재. */
+export function gmailComposeEnabled(): boolean {
+  return loadSaKey() !== null;
+}
+
+export interface OutMail {
+  from: string;              // 발신 공용 메일함(예: cs@glovek.space) = impersonate 대상
+  to: string;
+  subject: string;
+  bodyText: string;
+  threadId?: string | null;  // Gmail 스레드에 이어붙이기(회신) — 있으면 같은 대화에 묶임
+  inReplyTo?: string | null; // 원본 Message-ID (수신자 클라이언트 스레딩용, 선택)
+}
+
+/** RFC 2822 MIME(UTF-8 base64) 생성 → Gmail API raw 필드용 base64url 문자열. */
+function buildRawMessage(m: OutMail): string {
+  const encWord = (s: string) => `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
+  const headers = [
+    `From: ${m.from}`,
+    `To: ${m.to}`,
+    `Subject: ${encWord(m.subject)}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+  ];
+  if (m.inReplyTo) {
+    headers.push(`In-Reply-To: ${m.inReplyTo}`, `References: ${m.inReplyTo}`);
+  }
+  // 본문도 base64(라인 76자 wrap) — 한글 안전.
+  const body = Buffer.from(m.bodyText, "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
+  const raw = headers.join("\r\n") + "\r\n\r\n" + body;
+  return Buffer.from(raw, "utf8").toString("base64url");
+}
+
+/** 지정 메일함(from) 명의로 즉시 발송. 성공 시 {id, threadId}. */
+export async function sendGmailMessage(m: OutMail): Promise<{ ok: boolean; id?: string; threadId?: string; error?: string }> {
+  const token = await getAccessToken(m.from.toLowerCase(), SCOPE_COMPOSE);
+  if (!token) return { ok: false, error: "Gmail 위임 미설정(GOOGLE_SA_KEY_JSON·gmail.compose 스코프)" };
+  const raw = buildRawMessage(m);
+  const post = (withThread: boolean) => fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(withThread && m.threadId ? { raw, threadId: m.threadId } : { raw }) });
+  let res = await post(true);
+  // threadId 불일치(제목 미매칭 등)로 실패하면 스레드 없이 재시도.
+  if (!res.ok && m.threadId) res = await post(false);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: (data as { error?: { message?: string } }).error?.message ?? "발송 실패" };
+  return { ok: true, id: (data as { id?: string }).id, threadId: (data as { threadId?: string }).threadId };
+}
+
+/** 지정 메일함(from)의 Gmail 임시보관함에 초안 저장 → 담당자가 Gmail 에서 마저 발송. */
+export async function createGmailDraft(m: OutMail): Promise<{ ok: boolean; draftId?: string; error?: string }> {
+  const token = await getAccessToken(m.from.toLowerCase(), SCOPE_COMPOSE);
+  if (!token) return { ok: false, error: "Gmail 위임 미설정(GOOGLE_SA_KEY_JSON·gmail.compose 스코프)" };
+  const raw = buildRawMessage(m);
+  const message = m.threadId ? { raw, threadId: m.threadId } : { raw };
+  const res = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+    { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ message }) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: (data as { error?: { message?: string } }).error?.message ?? "임시저장 실패" };
+  return { ok: true, draftId: (data as { id?: string }).id };
 }
 
 /** sync 대상 순회: 회사 공용 메일함(shared_mailboxes) + (레거시) admin_users.gmail_sync_enabled. */

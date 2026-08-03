@@ -526,7 +526,7 @@ export async function addAssetLinkAction(input: {
 }
 
 // ═══ Phase 4 · 초안함 (Drafts Inbox) ═════════════════════════
-import { approveAndSend, discardDraft, editDraft } from "@/lib/drafts";
+import { approveAndSend, discardDraft, editDraft, saveToGmailDraft } from "@/lib/drafts";
 
 export async function approveDraftAction(
   id: string, edits?: { subject?: string; body?: string },
@@ -536,6 +536,17 @@ export async function approveDraftAction(
   const r = await approveAndSend(id, a.actor, edits);
   revalidatePath("/drafts");
   return { ok: r.ok, error: r.error, sent: r.sent };
+}
+
+/** Gmail 임시저장 — 지정 공용 메일함의 임시보관함에 초안 저장(담당자가 Gmail 에서 발송). */
+export async function saveGmailDraftAction(
+  id: string, edits?: { subject?: string; body?: string },
+): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const r = await saveToGmailDraft(id, a.actor, edits);
+  revalidatePath("/drafts");
+  return { ok: r.ok, error: r.error };
 }
 
 export async function editDraftAction(id: string, subject: string, body: string): Promise<ActionResult> {

@@ -53,7 +53,7 @@ export interface DraftReplyResult { ok: boolean; draftId?: string; error?: strin
  *   AI 키 없으면: 요약=snippet, 회신=수동작성 스켈레톤(담당자가 초안함에서 작성).
  */
 export async function draftReplyForMessage(msgId: string): Promise<DraftReplyResult> {
-  const msg = await queryOne<PendingInbound & { direction: string }>(
+  const msg = await queryOne<PendingInbound & { direction: string; owner_email: string | null }>(
     `SELECT m.*, b.brand_name FROM email_messages m JOIN brands b ON b.id=m.brand_id WHERE m.id=$1`, [msgId]);
   if (!msg) return { ok: false, error: "메일 없음", ai: false };
   if (msg.direction !== "in") return { ok: false, error: "수신 메일 아님", ai: false };
@@ -106,11 +106,12 @@ export async function draftReplyForMessage(msgId: string): Promise<DraftReplyRes
     }
   }
 
-  // 저장 — 초안함(draft) + 원본 연결 + 인바운드 요약(담당 검토용)
+  // 저장 — 초안함(draft) + 원본 연결 + 인바운드 요약(담당 검토용).
+  //   from_mailbox = 고객이 보낸 그 공용 메일함 → 회신도 같은 메일함 명의로 발송/임시저장.
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO email_drafts (brand_id, kind, to_email, subject, body_md, status, in_reply_to, context_summary, source)
-     VALUES ($1,'reply_transactional',$2,$3,$4,'draft',$5,$6,'inbound_agent') RETURNING id`,
-    [msg.brand_id, brand?.email || msg.from_addr, subject, body, msg.id, summary]).catch(() => null);
+    `INSERT INTO email_drafts (brand_id, kind, to_email, subject, body_md, status, in_reply_to, context_summary, source, from_mailbox)
+     VALUES ($1,'reply_transactional',$2,$3,$4,'draft',$5,$6,'inbound_agent',$7) RETURNING id`,
+    [msg.brand_id, brand?.email || msg.from_addr, subject, body, msg.id, summary, msg.owner_email ?? null]).catch(() => null);
   if (!row) return { ok: false, error: "초안 저장 실패", ai: usedAi };
 
   await query("UPDATE email_messages SET reply_state='drafted', ai_summary=$2 WHERE id=$1", [msg.id, summary]).catch(() => {});
