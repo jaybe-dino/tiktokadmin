@@ -153,23 +153,21 @@ function MailTab({ leadGroups, brands }: { leadGroups: LeadGroup[]; brands: Bran
               </select>
             </div>
           </div>
-          <div className="radio">
+          <div className="radio" style={{ opacity: 0.55 }} title="준비 중 — 현재는 리드 그룹 기준으로 발송됩니다">
             <span className="rb" />
             <div style={{ flex: 1 }}>
-              <b>필터 조합</b>
+              <b>필터 조합</b> <span className="chip" style={{ fontSize: 10 }}>준비 중</span>
               <div className="tagz" style={{ marginTop: 6 }}>
-                <span className="chip">상태: 리드·세미나 ✕</span>
-                <span className="chip">마지막 접촉 30일+ ✕</span>
-                <Link className="btn sm" href="/customers">
-                  + 필터
-                </Link>
+                <span className="chip">상태: 리드·세미나</span>
+                <span className="chip">마지막 접촉 30일+</span>
+                <Link className="btn sm" href="/customers">고객목록에서 필터</Link>
               </div>
             </div>
           </div>
-          <div className="radio">
+          <div className="radio" style={{ opacity: 0.55 }} title="준비 중">
             <span className="rb" />
             <div>
-              <b>직접 선택</b>{" "}
+              <b>직접 선택</b> <span className="chip" style={{ fontSize: 10 }}>준비 중</span>{" "}
               <span style={{ color: "var(--ink3)", fontSize: 11 }}>검색·체크 / 목록 붙여넣기</span>
             </div>
           </div>
@@ -179,11 +177,11 @@ function MailTab({ leadGroups, brands }: { leadGroups: LeadGroup[]; brands: Bran
           </div>
 
           <b style={{ fontSize: 12, color: "var(--acc)" }}>STEP 2 · 메일 작성</b>
-          <label className="f">발신 계정 (회사 이메일만 — 개인 메일 사용 불가)</label>
-          <select className="f">
-            <option>영업팀 대표 &lt;sales@dinostudio.kr&gt;</option>
-            <option>마케팅 &lt;marketing@dinostudio.kr&gt;</option>
-          </select>
+          <label className="f">발신 계정</label>
+          <div className="note" style={{ marginTop: 2 }}>
+            발신은 <b>설정 → 회사 공용 메일함</b>의 <b>기본 발신 메일함</b>에서 나갑니다 (개인 메일 사용 불가).
+            메일함별 발신은 설정에서 관리하세요.
+          </div>
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
             <select className="f" value={template} onChange={(e) => setTemplate(e.target.value)}>
               <option>박람회 환영 + 세미나 초대</option>

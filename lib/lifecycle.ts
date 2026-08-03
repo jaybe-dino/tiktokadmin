@@ -60,7 +60,7 @@ export async function runChurnChain(brandId: string, reason: string, actor: stri
  *   광고성 대량(campaign·newsletter·bulk_email·reactivation·upsell)만 동의 게이트 유지. */
 const TRANSACTIONAL_KINDS = new Set([
   "payment_notice", "reminder", "doc_request", "settlement", "reply_transactional",
-  "followup", "reply", "proposal",  // 개별 컨택 — 1:1 소통이라 동의 무관 발송 허용
+  "followup", "reply", "proposal", "manual",  // 개별 컨택 — 1:1 소통이라 동의 무관 발송 허용
 ]);
 export function isTransactionalKind(kind: string): boolean {
   return TRANSACTIONAL_KINDS.has(kind);

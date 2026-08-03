@@ -593,17 +593,19 @@ export async function sendSmsAction(input: {
   if (!a) return { ok: false, error: "세션 만료" };
   if (!input.receiver?.trim() || !input.msg?.trim()) return { ok: false, error: "수신번호·내용 필수" };
 
-  // 광고성 문자는 수신동의 게이트(17 §5)
-  if (input.brand_id && input.kind) {
-    const gate = await canSend(input.brand_id, input.kind);
+  // 수신동의 게이트(17 §5) — 진입점 무관 항상 검사. kind 미지정=개별 1:1 수동('manual', 거래성).
+  //   광고성 대량(campaign 등)만 동의 필요. 이렇게 통일해 진입점별 우회/과차단 제거.
+  const kind = input.kind ?? "manual";
+  if (input.brand_id) {
+    const gate = await canSend(input.brand_id, kind, input.receiver);
     if (!gate.ok) return { ok: false, error: gate.reason };
   }
 
   const res = await sendSms({ receiver: input.receiver, msg: input.msg, testmode: input.test });
   if (!res.ok) return { ok: false, error: res.message };
 
-  // 발송 기록: contact_logged(sms) + last_contact_at
-  if (input.brand_id) {
+  // 발송 기록: contact_logged(sms) + last_contact_at — 단, 테스트 발송은 접촉기록 제외.
+  if (input.brand_id && !input.test) {
     const { query } = await import("@/lib/db");
     await query(
       `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
