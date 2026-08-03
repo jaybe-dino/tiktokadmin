@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // 로딩 근본 개선: 방문한 동적 페이지를 클라이언트 라우터가 30초 캐시 —
+  // 메뉴 재방문·뒤로가기가 서버 왕복 없이 즉시 표시(30초 후 재검증).
+  experimental: {
+    staleTimes: { dynamic: 30, static: 180 },
+  },
   // 어드민은 내부 전용 툴. 서버 액션/route가 pg를 직접 쓰므로 외부 패키지로 표시.
   serverExternalPackages: ["pg"],
   eslint: {

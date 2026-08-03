@@ -107,6 +107,12 @@ export const env = {
     get saKeyJson() { return opt("GOOGLE_SA_KEY_JSON"); },
     get pubsubTopic() { return opt("GMAIL_PUBSUB_TOPIC"); },
   },
+  meta: {
+    // 메타(페이스북) Lead Ads 웹훅 — 리드 폼 제출 시 어드민으로 직접 유입
+    get verifyToken() { return opt("META_VERIFY_TOKEN"); },          // 웹훅 구독 검증용(내가 정한 문자열)
+    get accessToken() { return opt("META_PAGE_ACCESS_TOKEN"); },      // 페이지 액세스 토큰(leads_retrieval 권한)
+    get appSecret() { return opt("META_APP_SECRET"); },               // 서명 검증(선택·권장)
+  },
   aligo: {
     get apiKey() { return opt("ALIGO_API_KEY"); },
     get userId() { return opt("ALIGO_USER_ID"); },

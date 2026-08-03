@@ -80,30 +80,31 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       [user?.id ?? ""]).catch(() => [])).map((r) => r.id));
   const mine = sp.scope === "all" ? false : sp.scope === "mine" ? true : myBrandIds.size > 0;
 
-  // ── 상단 4개 타일 ──────────────────────────────────────────────
-  const [totalBrands, operating, slaBreach, slaT2, weekNew, semWeek, meetWeek, sem4w, meet4w] = await Promise.all([
-    count("SELECT count(*) c FROM brands WHERE coalesce(is_test,false)=false"),
-    count("SELECT count(*) c FROM brands WHERE state IN ('live_mall','live_onboarding','settling') AND coalesce(is_test,false)=false"),
-    count("SELECT count(*) c FROM alerts WHERE kind='sla_breach' AND resolved_at IS NULL"),
-    count("SELECT count(*) c FROM alerts WHERE kind='sla_breach' AND resolved_at IS NULL AND tier>=2"),
-    count("SELECT count(*) c FROM brands WHERE coalesce(is_test,false)=false AND created_at > now()-interval '7 days'"),
-    count("SELECT count(*) c FROM stage_history WHERE to_state='seminar' AND at > now()-interval '7 days'"),
-    count("SELECT count(*) c FROM stage_history WHERE to_state='meeting' AND at > now()-interval '7 days'"),
-    count("SELECT count(*) c FROM stage_history WHERE to_state='seminar' AND at > now()-interval '28 days'"),
-    count("SELECT count(*) c FROM stage_history WHERE to_state='meeting' AND at > now()-interval '28 days'"),
-  ]);
-  const operMall = await count("SELECT count(*) c FROM brands WHERE state='live_mall' AND coalesce(is_test,false)=false");
-  const operOnb = await count("SELECT count(*) c FROM brands WHERE state='live_onboarding' AND coalesce(is_test,false)=false");
+  // ── 상단 타일·헤더 카운트: 13회 DB 왕복 → 1회 통합(FILTER) — 로딩 근본 개선 ─
+  const kpi = await queryOne<Record<string, string>>(`SELECT
+    (SELECT count(*) FROM brands WHERE coalesce(is_test,false)=false) total,
+    (SELECT count(*) FROM brands WHERE coalesce(is_test,false)=false AND state IN ('live_mall','live_onboarding','settling')) operating,
+    (SELECT count(*) FROM brands WHERE coalesce(is_test,false)=false AND state='live_mall') oper_mall,
+    (SELECT count(*) FROM brands WHERE coalesce(is_test,false)=false AND state='live_onboarding') oper_onb,
+    (SELECT count(*) FROM brands WHERE coalesce(is_test,false)=false AND created_at > now()-interval '7 days') week_new,
+    (SELECT count(*) FROM brands WHERE coalesce(is_test,false)=false AND created_at > now()-interval '24 hours') new_24h,
+    (SELECT count(*) FROM alerts WHERE kind='sla_breach' AND resolved_at IS NULL) sla,
+    (SELECT count(*) FROM alerts WHERE kind='sla_breach' AND resolved_at IS NULL AND tier>=2) sla_t2,
+    (SELECT count(*) FILTER (WHERE to_state='seminar' AND at > now()-interval '7 days') FROM stage_history WHERE at > now()-interval '28 days') sem_w,
+    (SELECT count(*) FILTER (WHERE to_state='meeting' AND at > now()-interval '7 days') FROM stage_history WHERE at > now()-interval '28 days') meet_w,
+    (SELECT count(*) FILTER (WHERE to_state='seminar') FROM stage_history WHERE at > now()-interval '28 days') sem_4w,
+    (SELECT count(*) FILTER (WHERE to_state='meeting') FROM stage_history WHERE at > now()-interval '28 days') meet_4w,
+    (SELECT count(*) FROM meetings WHERE summary_md IS NOT NULL AND created_at > now()-interval '24 hours') recaps_24h
+  `).catch(() => null);
+  const k = (key: string) => num(kpi?.[key]);
+  const totalBrands = k("total"), operating = k("operating"), operMall = k("oper_mall"), operOnb = k("oper_onb");
+  const slaBreach = k("sla"), slaT2 = k("sla_t2"), weekNew = k("week_new");
+  const semWeek = k("sem_w"), meetWeek = k("meet_w"), sem4w = k("sem_4w"), meet4w = k("meet_4w");
+  const newLeads24h = k("new_24h"), recaps24h = k("recaps_24h");
   const dupCount = await findDuplicateGroups().then((g) => g.length).catch(() => 0);
   const convPct = semWeek > 0 ? Math.round((meetWeek / semWeek) * 100) : 0;
   const conv4wPct = sem4w > 0 ? Math.round((meet4w / sem4w) * 100) : 0;
   const convDiff = convPct - conv4wPct;
-
-  // ── 밤 사이 자동 처리 (헤더 문구) ─────────────────────────────
-  const [newLeads24h, recaps24h] = await Promise.all([
-    count("SELECT count(*) c FROM brands WHERE coalesce(is_test,false)=false AND created_at > now()-interval '24 hours'"),
-    count("SELECT count(*) c FROM meetings WHERE summary_md IS NOT NULL AND created_at > now()-interval '24 hours'"),
-  ]);
 
   // ── 퍼널 현황 ─────────────────────────────────────────────────
   const funnelRows = (await query<{ state: string; c: string }>(
