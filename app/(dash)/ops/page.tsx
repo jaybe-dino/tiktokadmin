@@ -1,5 +1,6 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
+import OpsAiButton from "@/components/OpsAiButton";
 import { opsDashboard, monthFirst, suggestCreators } from "@/lib/operations";
 import { PLAN_LABELS, type Plan } from "@/lib/types";
 
@@ -70,7 +71,10 @@ export default async function OpsPage() {
         </div>
       </div>
 
-      <div className="grid g2 gap-3.5">
+      {/* AI 월간 성과 리포트 초안 — opsDashboard 실데이터 요약(복사/저장용) */}
+      <OpsAiButton month={month} />
+
+      <div className="grid g2 gap-3.5" style={{ marginTop: 14 }}>
         {/* 브랜드별 사이클 보드 */}
         <div className="card">
           <div className="hd"><b>브랜드별 사이클 보드</b></div>

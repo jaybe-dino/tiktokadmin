@@ -8,6 +8,8 @@
 import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import { computeQuote, type QuoteTerm } from "@/lib/quote";
+import { aiEnabled, aiText } from "@/lib/ai";
+import { query } from "@/lib/db";
 import {
   addProposalV2,
   setProposalV2Status,
@@ -113,4 +115,105 @@ export async function setProposalStatusV2Action(
   revalidatePath("/proposals");
   revalidatePath(`/brand/${brandId ?? cur.brand_id}`);
   return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────
+// AI 제안서 커스텀 문구 생성.
+//   선택 브랜드의 카드 맥락(카테고리·단계·목표국·plan/grade/추천트랙)과
+//   견적 빌더의 현재 선택(plan·국가·약정)을 합쳐 제안서 소개/설득 문구를 생성.
+//   복사용 초안만 만든다 — 판정(등급·게이트·정산)·개인정보(연락처 등)는 다루지 않는다.
+// ─────────────────────────────────────────────────────────────
+
+// state 코드 → 한글 라벨(퍼널 단계). 프롬프트 맥락용.
+const STATE_KO: Record<string, string> = {
+  lead_new: "신규 리드",
+  seminar: "세미나",
+  meeting: "미팅",
+  contact: "컨택",
+  contract_review: "계약 검토",
+  contract_done: "계약 완료",
+  docs: "서류",
+  setup: "셋업",
+  live_mall: "몰 운영",
+  live_onboarding: "온보딩 운영",
+  settling: "정산",
+  dropped: "이탈",
+  churned: "해지",
+};
+
+const PLAN_KO: Record<string, string> = {
+  live_focus_490k: "Live Focus (49만)",
+  guarantee_1m: "Guarantee (100만)",
+  onboarding_onetime: "온보딩(원타임)",
+  pro_89k: "Pro (8.9만)",
+};
+
+export interface AiCopyResult {
+  ok: boolean;
+  error?: string;
+  text?: string;
+}
+
+export async function generateProposalCopyAction(input: {
+  brand_id: string;
+  plan?: string;
+  countries?: string[];
+  term?: QuoteTerm;
+}): Promise<AiCopyResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!input.brand_id) return { ok: false, error: "브랜드를 선택하세요." };
+  if (!aiEnabled()) return { ok: false, error: "ANTHROPIC_API_KEY 미설정" };
+
+  // 실데이터로 카드 맥락 구성(개인정보 컬럼은 조회하지 않는다).
+  const rows = await query<{
+    brand_name: string;
+    brand_name_en: string | null;
+    category: string | null;
+    state: string;
+    plan: string | null;
+    grade: string | null;
+    rec_track: string | null;
+    contract_type: string | null;
+    countries: string[] | null;
+  }>(
+    `SELECT brand_name, brand_name_en, category, state, plan, grade, rec_track, contract_type, countries
+       FROM brands WHERE id = $1`,
+    [input.brand_id],
+  ).catch(() => []);
+  const b = rows[0];
+  if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
+
+  // 빌더에서 고른 값이 있으면 우선, 없으면 카드 저장값.
+  const plan = input.plan || b.plan || "";
+  const countries =
+    input.countries && input.countries.length > 0
+      ? input.countries
+      : b.countries ?? [];
+  const planLabel = PLAN_KO[plan] ?? plan ?? "미정";
+  const stateLabel = STATE_KO[b.state] ?? b.state;
+
+  const ctxLines = [
+    `브랜드: ${b.brand_name}${b.brand_name_en ? ` (${b.brand_name_en})` : ""}`,
+    `카테고리: ${b.category || "미상"}`,
+    `현재 단계: ${stateLabel}`,
+    `목표국: ${countries.length ? countries.join(", ") : "미정"}`,
+    `플랜: ${planLabel}`,
+    b.rec_track ? `추천 트랙: ${b.rec_track}` : "",
+    input.term ? `약정: ${input.term === "6month" ? "6개월" : "3개월"}` : "",
+  ].filter(Boolean);
+
+  const system =
+    "너는 글로벌 커머스 대행사 GloveK 의 B2B 세일즈 카피라이터다. " +
+    "브랜드 맥락을 바탕으로 제안서에 넣을 한국어 소개/설득 문구 초안을 쓴다. " +
+    "규칙: 사실 기반으로 담백하고 신뢰감 있게, 과장·허위 수치 금지. " +
+    "등급·게이트·정산 등 내부 판정이나 개인정보(담당자명·연락처·사업자번호)는 절대 언급하지 마라. " +
+    "출력은 (1) 한 줄 소개 헤드라인, (2) 3문장 내 소개 단락, (3) 불릿 3개 설득 포인트 순서로만.";
+  const user =
+    `아래 브랜드 맥락으로 제안서 커스텀 문구를 작성해줘.\n\n` +
+    ctxLines.join("\n");
+
+  const text = await aiText({ system, user, maxTokens: 700 });
+  if (!text) return { ok: false, error: "문구 생성에 실패했습니다." };
+  return { ok: true, text };
 }

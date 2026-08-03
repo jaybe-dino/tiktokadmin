@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import ProductsAiButton from "@/components/ProductsAiButton";
 
 type Row = Record<string, unknown>;
 
@@ -149,6 +150,17 @@ export default function ProductsView({ products, risks }: { products: Row[]; ris
           })}
         </div>
       )}
+
+      {/* 인증 필요서류 AI 가이드 — 제품·국가 선택 맥락으로 체크리스트 초안 생성 */}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="hd">
+          <b>인증 필요서류 AI 가이드</b>
+          <div className="rt"><span style={{ color: "var(--ink3)", fontSize: 11 }}>제품·국가 선택 → 필요 인증·서류 체크리스트 초안</span></div>
+        </div>
+        <div className="bd">
+          <ProductsAiButton products={products} countries={countryOptions} />
+        </div>
+      </div>
 
       <div className="grid g31 gap-3.5">
         {/* 좌: 인증 현황 매트릭스 (제품 롤업) */}

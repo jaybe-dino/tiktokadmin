@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createQnaAction } from "@/app/(dash)/qna/actions";
+import QnaAiButton from "@/components/QnaAiButton";
 
 // QnA 지식베이스 헤더의 "+ 직접 등록" — 신규 질문/답변을 승인 전 상태로 등록.
 export default function QnaCreateButton({ categories }: { categories: string[] }) {
@@ -10,6 +11,9 @@ export default function QnaCreateButton({ categories }: { categories: string[] }
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const [err, setErr] = useState("");
+  const [question, setQuestion] = useState("");
+  const [category, setCategory] = useState("");
+  const [answer, setAnswer] = useState("");
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -24,6 +28,9 @@ export default function QnaCreateButton({ categories }: { categories: string[] }
       });
       if (res.ok) {
         form.reset();
+        setQuestion("");
+        setCategory("");
+        setAnswer("");
         setOpen(false);
         router.refresh();
       } else {
@@ -53,12 +60,13 @@ export default function QnaCreateButton({ categories }: { categories: string[] }
                 <div style={{ fontSize: 11.5, color: "var(--ink3)" }}>
                   등록 시 &quot;승인 대기&quot; 상태로 저장됩니다. 파트장 승인 시 지식화되어 답장 초안에 자동 삽입돼요.
                 </div>
-                <input name="question" className="f" placeholder="질문 *" required />
-                <input name="category" className="f" placeholder="카테고리 (예: 인증/물류/정산/플랜/운영)" list="qna-cat-list" />
+                <input name="question" className="f" placeholder="질문 *" required value={question} onChange={(e) => setQuestion(e.target.value)} />
+                <input name="category" className="f" placeholder="카테고리 (예: 인증/물류/정산/플랜/운영)" list="qna-cat-list" value={category} onChange={(e) => setCategory(e.target.value)} />
                 <datalist id="qna-cat-list">
                   {categories.map((c) => <option key={c} value={c} />)}
                 </datalist>
-                <textarea name="answer" className="f" rows={5} placeholder="답변 (비워두면 [답변 필요]로 표시)" />
+                <textarea name="answer" className="f" rows={5} placeholder="답변 (비워두면 [답변 필요]로 표시)" value={answer} onChange={(e) => setAnswer(e.target.value)} />
+                <QnaAiButton question={question} category={category} onDraft={(t) => setAnswer(t)} />
                 {err && <div className="note" style={{ color: "#b91c1c" }}>{err}</div>}
               </div>
               <div className="mf">

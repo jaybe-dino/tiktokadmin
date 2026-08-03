@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveQnaAnswerAction, approveQnaAction, unapproveQnaAction } from "@/app/(dash)/qna/actions";
+import QnaAiButton from "@/components/QnaAiButton";
 
 export type QnaRow = {
   id: string;
@@ -149,6 +150,11 @@ export default function QnaKnowledgeTable({ rows }: { rows: QnaRow[] }) {
                           value={draft}
                           onChange={(e) => setDraft(e.target.value)}
                           placeholder="답변을 작성하세요"
+                        />
+                        <QnaAiButton
+                          question={r.question}
+                          category={r.category || ""}
+                          onDraft={(t) => setDraft(t)}
                         />
                         <div style={{ display: "flex", gap: 6 }}>
                           <button className="btn sm" disabled={pending} onClick={() => saveAnswer(r.id)}>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import Brand360Actions from "@/components/Brand360Actions";
+import Brand360AiButton from "@/components/Brand360AiButton";
 import Brand360Tabs, { type Brand360Tab } from "@/components/Brand360Tabs";
 import CustomerDetail from "@/components/CustomerDetail";
 import CustomerEmails from "@/components/CustomerEmails";
@@ -154,6 +155,8 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
       </div>
 
       <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
+        <Brand360AiButton brandId={brand.id} />
+
         {gate && (
           <div className="gate">
             <h5>▶ 다음 스텝 게이트: {STATE_LABELS[gate.from]} → {STATE_LABELS[gate.to]}</h5>

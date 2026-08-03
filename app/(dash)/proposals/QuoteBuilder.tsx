@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { won } from "@/components/ScreenHeader";
 import { computeQuote, type QuoteTerm } from "@/lib/quote";
 import { createAndSendProposalAction } from "./actions";
+import ProposalsAiButton from "./ProposalsAiButton";
 
 interface BrandOpt {
   id: string;
@@ -200,6 +201,13 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
         >
           {pending ? "처리 중…" : "제안서 생성 → 발송"}
         </button>
+
+        <ProposalsAiButton
+          brandId={brandId}
+          plan={track.plan}
+          countries={countries}
+          term={term}
+        />
       </div>
     </div>
   );
