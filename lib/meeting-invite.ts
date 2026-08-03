@@ -184,7 +184,7 @@ export async function sendMeetingInvites(input: SendMeetingInvitesInput): Promis
       subject,
       text,
       replyTo: input.hostEmail,
-      attachments: [{ filename: "invite.ics", content: icsB64 }],
+      attachments: [{ filename: "invite.ics", content: icsB64, mimeType: "text/calendar; method=REQUEST; charset=UTF-8" }],
     });
     if (r.skipped) {
       // RESEND 미설정 — 전체 스킵으로 간주하고 종료(등록 자체는 성공 유지).

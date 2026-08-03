@@ -92,7 +92,13 @@ export async function approveAndSend(
   if (!gate.ok) return { ok: false, error: gate.reason, sent: false };
 
   const { gmailComposeEnabled } = await import("./gmail-client");
-  const useGmail = Boolean(d.from_mailbox) && gmailComposeEnabled();
+  // from_mailbox(인바운드 회신) > 기본 발신 메일함 순. Gmail 위임 켜져 있으면 Gmail 우선.
+  let sendFrom: string | null = d.from_mailbox;
+  if (!sendFrom && gmailComposeEnabled()) {
+    const { defaultSendMailbox } = await import("./shared-mailboxes");
+    sendFrom = await defaultSendMailbox();
+  }
+  const useGmail = Boolean(sendFrom) && gmailComposeEnabled();
 
   // 발송 수단이 하나도 없으면 승인 표시만.
   if (!useGmail && !env.resend.apiKey) {
@@ -108,11 +114,11 @@ export async function approveAndSend(
     let via: "gmail" | "resend";
 
     if (useGmail) {
-      // 지정 공용 메일함(예: cs@glovek.space) 명의로 발송 — 스레드에 이어붙임.
+      // 지정 공용 메일함(회신=받은 메일함, 그 외=기본 발신 메일함) 명의로 발송 — 스레드 이어붙임.
       const { sendGmailMessage } = await import("./gmail-client");
       const threadId = await resolveThread(d.in_reply_to);
       const r = await sendGmailMessage({
-        from: d.from_mailbox!, to: d.to_email, subject: d.subject, bodyText: bodyToSend, threadId,
+        from: sendFrom!, to: d.to_email, subject: d.subject, bodyText: bodyToSend, threadId,
       });
       if (!r.ok) return { ok: false, error: r.error ?? "Gmail 발송 실패", sent: false };
       sentId = r.id ?? null;

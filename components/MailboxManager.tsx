@@ -21,7 +21,7 @@ export default function MailboxManager({ mailboxes, canEdit }: { mailboxes: Shar
       </div>
       <div style={{ overflowX: "auto" }}>
         <table className="t">
-          <thead><tr><th>메일함</th><th>표시명</th><th>수집</th><th>담당자 전달</th><th></th></tr></thead>
+          <thead><tr><th>메일함</th><th>표시명</th><th>수집</th><th>담당자 전달</th><th>기본 발신</th><th></th></tr></thead>
           <tbody>
             {rows.map((m) => (
               <tr key={m.email}>
@@ -40,6 +40,15 @@ export default function MailboxManager({ mailboxes, canEdit }: { mailboxes: Shar
                   })} title="수신 시 현재 단계 담당자 자동 전달" />
                 </td>
                 <td>
+                  {m.is_default
+                    ? <span className="pill" style={{ background: "#eefcf3", color: "#0a7d3c", fontSize: 11 }}>✓ 기본</span>
+                    : canEdit && <button className="btn btn-sm" disabled={pending} title="아웃바운드(팔로업·자동안내) 기본 발신 메일함으로 지정"
+                        onClick={() => start(async () => {
+                          const r = await toggleMailboxAction(m.email, "default", true);
+                          if (r.ok) setRows((rs) => rs.map((x) => ({ ...x, is_default: x.email === m.email })));
+                        })}>기본 지정</button>}
+                </td>
+                <td>
                   {canEdit && <button className="btn btn-sm" disabled={pending} onClick={() => start(async () => {
                     if (!confirm(`${m.email} 삭제?`)) return;
                     const r = await removeMailboxAction(m.email);
@@ -48,7 +57,7 @@ export default function MailboxManager({ mailboxes, canEdit }: { mailboxes: Shar
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={5} style={{ color: "var(--ink3)" }}>등록된 공용 메일함이 없습니다.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={6} style={{ color: "var(--ink3)" }}>등록된 공용 메일함이 없습니다.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -59,7 +68,7 @@ export default function MailboxManager({ mailboxes, canEdit }: { mailboxes: Shar
           <button className="btn btn-primary" disabled={pending || !email} onClick={() => start(async () => {
             setMsg("");
             const r = await addMailboxAction(email, label);
-            if (r.ok) { setRows((rs) => [...rs, { email: email.toLowerCase(), label, enabled: true, forward_to_owner: true, note: "", last_sync_at: null, created_at: new Date().toISOString() }]); setEmail(""); setLabel(""); }
+            if (r.ok) { setRows((rs) => [...rs, { email: email.toLowerCase(), label, enabled: true, forward_to_owner: true, is_default: false, note: "", last_sync_at: null, created_at: new Date().toISOString() }]); setEmail(""); setLabel(""); }
             else setMsg(r.error ?? "실패");
           })}>{pending ? "처리 중…" : "추가"}</button>
           {msg && <span className="text-bad" style={{ fontSize: 12 }}>{msg}</span>}
@@ -67,7 +76,9 @@ export default function MailboxManager({ mailboxes, canEdit }: { mailboxes: Shar
       )}
       <div className="note" style={{ margin: "0 16px 14px" }}>
         회사 공용 메일함으로 온 고객 메일은 자동으로 고객(브랜드)과 매칭돼 커뮤 타임라인·AI 예상답변으로 정리되고,
-        <b> 현재 단계 담당자가 지정돼 있으면 그 담당자에게 자동 전달</b>됩니다. (Gmail 도메인위임 <code>GOOGLE_SA_KEY_JSON</code>, 전달 발송 <code>RESEND_API_KEY</code> 필요)
+        <b> 현재 단계 담당자가 지정돼 있으면 그 담당자에게 자동 전달</b>됩니다.
+        <br /><b>기본 발신</b>으로 지정한 메일함은 팔로업·신규리드 자동안내·미팅초대 등 <b>아웃바운드 발송</b>에 쓰입니다
+        (인바운드 회신은 받은 메일함으로 발송). Gmail 도메인위임(<code>GOOGLE_SA_KEY_JSON</code> + <code>gmail.compose</code> 스코프)만 있으면 <b>Resend 없이</b> 발송됩니다.
       </div>
     </div>
   );

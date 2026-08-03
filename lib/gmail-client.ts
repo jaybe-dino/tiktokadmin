@@ -147,6 +147,7 @@ export function gmailComposeEnabled(): boolean {
   return loadSaKey() !== null;
 }
 
+export interface OutAttachment { filename: string; content: string; mimeType?: string }  // content=base64
 export interface OutMail {
   from: string;              // 발신 공용 메일함(예: cs@glovek.space) = impersonate 대상
   to: string;
@@ -154,25 +155,43 @@ export interface OutMail {
   bodyText: string;
   threadId?: string | null;  // Gmail 스레드에 이어붙이기(회신) — 있으면 같은 대화에 묶임
   inReplyTo?: string | null; // 원본 Message-ID (수신자 클라이언트 스레딩용, 선택)
+  attachments?: OutAttachment[];  // ICS 초대 등 (multipart/mixed)
 }
+
+const b64wrap = (s: string) => s.replace(/(.{76})/g, "$1\r\n");
 
 /** RFC 2822 MIME(UTF-8 base64) 생성 → Gmail API raw 필드용 base64url 문자열. */
 function buildRawMessage(m: OutMail): string {
   const encWord = (s: string) => `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
-  const headers = [
-    `From: ${m.from}`,
-    `To: ${m.to}`,
-    `Subject: ${encWord(m.subject)}`,
-    "MIME-Version: 1.0",
+  const top: string[] = [`From: ${m.from}`, `To: ${m.to}`, `Subject: ${encWord(m.subject)}`, "MIME-Version: 1.0"];
+  if (m.inReplyTo) top.push(`In-Reply-To: ${m.inReplyTo}`, `References: ${m.inReplyTo}`);
+
+  const textPart = [
     'Content-Type: text/plain; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
-  ];
-  if (m.inReplyTo) {
-    headers.push(`In-Reply-To: ${m.inReplyTo}`, `References: ${m.inReplyTo}`);
+    "",
+    b64wrap(Buffer.from(m.bodyText, "utf8").toString("base64")),
+  ].join("\r\n");
+
+  let raw: string;
+  if (m.attachments?.length) {
+    const boundary = "gk_" + Buffer.from(m.subject + m.to).toString("base64url").slice(0, 16);
+    const parts = [`--${boundary}`, textPart];
+    for (const a of m.attachments) {
+      parts.push(
+        `--${boundary}`,
+        `Content-Type: ${a.mimeType ?? "application/octet-stream"}; name="${a.filename}"`,
+        "Content-Transfer-Encoding: base64",
+        `Content-Disposition: attachment; filename="${a.filename}"`,
+        "",
+        b64wrap(a.content),
+      );
+    }
+    parts.push(`--${boundary}--`);
+    raw = [...top, `Content-Type: multipart/mixed; boundary="${boundary}"`, "", parts.join("\r\n")].join("\r\n");
+  } else {
+    raw = [...top, textPart].join("\r\n");
   }
-  // 본문도 base64(라인 76자 wrap) — 한글 안전.
-  const body = Buffer.from(m.bodyText, "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
-  const raw = headers.join("\r\n") + "\r\n\r\n" + body;
   return Buffer.from(raw, "utf8").toString("base64url");
 }
 

@@ -647,7 +647,7 @@ export async function toggleAgentAction(key: string, enabled: boolean): Promise<
 }
 
 // ═══ 회사 공용 메일함 관리 (파트장/대표) ═══════════════════════
-import { upsertMailbox, setMailboxEnabled, setMailboxForward, removeMailbox } from "@/lib/shared-mailboxes";
+import { upsertMailbox, setMailboxEnabled, setMailboxForward, removeMailbox, setMailboxDefault } from "@/lib/shared-mailboxes";
 
 export async function addMailboxAction(email: string, label: string, note?: string): Promise<ActionResult> {
   const a = await requireLead();
@@ -658,10 +658,11 @@ export async function addMailboxAction(email: string, label: string, note?: stri
   return { ok: true };
 }
 
-export async function toggleMailboxAction(email: string, field: "enabled" | "forward", value: boolean): Promise<ActionResult> {
+export async function toggleMailboxAction(email: string, field: "enabled" | "forward" | "default", value: boolean): Promise<ActionResult> {
   const a = await requireLead();
   if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
   if (field === "enabled") await setMailboxEnabled(email, value);
+  else if (field === "default") await setMailboxDefault(email);  // 하나만 — 나머지 자동 해제
   else await setMailboxForward(email, value);
   revalidatePath("/settings");
   return { ok: true };

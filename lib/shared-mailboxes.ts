@@ -4,7 +4,21 @@ import { query, queryOne } from "./db";
 
 export interface SharedMailbox {
   email: string; label: string; enabled: boolean; forward_to_owner: boolean;
-  note: string; last_sync_at: string | null; created_at: string;
+  is_default: boolean; note: string; last_sync_at: string | null; created_at: string;
+}
+
+/** 아웃바운드(받은 메일 아님) 기본 발신 메일함 주소. is_default 우선, 없으면 첫 활성 메일함. */
+export async function defaultSendMailbox(): Promise<string | null> {
+  const r = await queryOne<{ email: string }>(
+    `SELECT email FROM shared_mailboxes WHERE enabled=true
+      ORDER BY is_default DESC, created_at ASC LIMIT 1`).catch(() => null);
+  return r?.email ?? null;
+}
+
+/** 기본 발신 메일함 지정(하나만) — 나머지는 자동 해제. */
+export async function setMailboxDefault(email: string): Promise<void> {
+  const e = email.toLowerCase();
+  await query("UPDATE shared_mailboxes SET is_default=(email=$1)", [e]);
 }
 
 export function listMailboxes(): Promise<SharedMailbox[]> {
