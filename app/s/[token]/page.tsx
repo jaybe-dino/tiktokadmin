@@ -1,5 +1,5 @@
 import { getSurveyByToken } from "@/lib/repo/card";
-import { POST_MEETING_QUESTIONS } from "@/lib/survey";
+import { questionsForKind } from "@/lib/survey";
 import SurveyForm from "./SurveyForm";
 
 export const dynamic = "force-dynamic";
@@ -32,16 +32,23 @@ export default async function SurveyPage({ params }: { params: Promise<{ token: 
     );
   }
 
+  const isPre = survey.kind === "pre_meeting";
   return (
     <Shell>
       <div className="mb-6">
-        <div className="text-sm text-pink-600 font-semibold">GloveK · 마케팅 사전 설문</div>
-        <h1 className="text-xl font-extrabold mt-1">{survey.brand_name}님, 몇 가지만 여쭤볼게요</h1>
+        <div className="text-sm text-pink-600 font-semibold">
+          {isPre ? "GloveK · 1:1 미팅 사전 설문" : "GloveK · 마케팅 사전 설문"}
+        </div>
+        <h1 className="text-xl font-extrabold mt-1">
+          {isPre ? `${survey.brand_name}님, 미팅 전에 몇 가지만 여쭤볼게요` : `${survey.brand_name}님, 몇 가지만 여쭤볼게요`}
+        </h1>
         <p className="text-sm text-gray-500 mt-1">
-          미팅에서 논의한 내용을 바탕으로 맞춤 제안을 준비하기 위한 설문입니다. 1분이면 됩니다.
+          {isPre
+            ? "1:1 미팅을 알차게 준비하기 위한 설문입니다. 마케팅 방향과 회사 기본정보를 여쭤봅니다 — 2분이면 됩니다."
+            : "미팅에서 논의한 내용을 바탕으로 맞춤 제안을 준비하기 위한 설문입니다. 1분이면 됩니다."}
         </p>
       </div>
-      <SurveyForm token={token} questions={POST_MEETING_QUESTIONS} />
+      <SurveyForm token={token} questions={questionsForKind(survey.kind)} />
     </Shell>
   );
 }

@@ -26,7 +26,13 @@ export const STATE_LABELS: Record<State, string> = {
 /** 종료 상태 (칸반에서 접힌 컬럼) */
 export const TERMINAL_STATES: State[] = ["dropped", "churned"];
 
-export type ContractType = "mall" | "onboarding";
+export type ContractType = "mall" | "onboarding" | "marketing";
+
+export const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
+  mall: "멀티몰",
+  onboarding: "온보딩",
+  marketing: "마케팅",
+};
 
 export const PLANS = ["live_focus_490k", "guarantee_1m", "onboarding_onetime", "pro_89k"] as const;
 export type Plan = (typeof PLANS)[number];

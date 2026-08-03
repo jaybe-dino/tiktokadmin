@@ -2,7 +2,11 @@
 //   RESEND_API_KEY 미설정 시 { ok:false, skipped:true } 반환(로컬/미연동 안전).
 import { env } from "./env";
 
-export async function sendEmail(input: { to: string; subject: string; text: string; replyTo?: string }): Promise<{ ok: boolean; id?: string; skipped?: boolean; error?: string }> {
+export async function sendEmail(input: {
+  to: string; subject: string; text: string; replyTo?: string;
+  /** Resend attachments — content 는 base64 문자열 (예: ICS 캘린더 초대) */
+  attachments?: { filename: string; content: string }[];
+}): Promise<{ ok: boolean; id?: string; skipped?: boolean; error?: string }> {
   if (!env.resend.apiKey) return { ok: false, skipped: true };
   if (!input.to || !input.to.includes("@")) return { ok: false, error: "수신 이메일 없음" };
   try {
@@ -12,6 +16,7 @@ export async function sendEmail(input: { to: string; subject: string; text: stri
       body: JSON.stringify({
         from: env.resend.from, to: input.to, subject: input.subject, text: input.text,
         ...(input.replyTo ? { reply_to: input.replyTo } : {}),
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       }),
     });
     const data = await res.json().catch(() => ({}));

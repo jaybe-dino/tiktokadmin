@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { transitionAction } from "@/app/actions";
-import { STATE_LABELS, SOURCE_LABELS, PLAN_LABELS, GRADES, type State } from "@/lib/types";
+import { STATES, STATE_LABELS, SOURCE_LABELS, PLAN_LABELS, GRADES, type State } from "@/lib/types";
 import type { BoardCard } from "@/lib/repo/queries";
+import BoardCardLayer, { TRACK_LABELS, TRACK_COLORS } from "@/components/BoardCardLayer";
 
-// v3.1 s-kanban: 9컬럼 (계약완료→계약 검토에 합류, 운영 컬럼 통합 표시).
+// v3.1 s-kanban → 기획 8절: 8컬럼 (계약완료→계약 검토에 합류, 정산중→운영 중에 통합 표시).
 // 상태 자체는 canonical enum 유지 — 표시만 병합.
 type ColDef = { key: string; label: string; part: string; dot: string; states: State[]; drop: State };
 
@@ -19,8 +20,7 @@ const COLS: ColDef[] = [
   { key: "contract", label: "계약 검토", part: "sales", dot: "var(--sales)", states: ["contract_review", "contract_done"], drop: "contract_review" },
   { key: "docs", label: "서류 수급", part: "onb", dot: "var(--onb)", states: ["docs"], drop: "docs" },
   { key: "setup", label: "입점 셋업", part: "onb", dot: "var(--onb)", states: ["setup"], drop: "setup" },
-  { key: "live", label: "운영 중", part: "ops", dot: "var(--ops)", states: ["live_mall", "live_onboarding"], drop: "live_mall" },
-  { key: "settling", label: "정산", part: "set", dot: "var(--set)", states: ["settling"], drop: "settling" },
+  { key: "live", label: "운영 중", part: "ops", dot: "var(--ops)", states: ["live_mall", "live_onboarding", "settling"], drop: "live_mall" },
 ];
 
 const PARTS: { value: string; label: string }[] = [
@@ -29,8 +29,11 @@ const PARTS: { value: string; label: string }[] = [
   { value: "sales", label: "영업" },
   { value: "onb", label: "온보딩" },
   { value: "ops", label: "운영" },
-  { value: "set", label: "정산" },
 ];
+
+// 계약완료 이후 상태부터 트랙 배지 노출
+const CONTRACT_DONE_IDX = STATES.indexOf("contract_done");
+const showTrack = (s: State) => STATES.indexOf(s) >= CONTRACT_DONE_IDX && s !== "dropped" && s !== "churned";
 
 function ageOf(iso: string): { hours: number; days: number; label: string } {
   const ms = Math.max(0, Date.now() - new Date(iso).getTime());
@@ -55,6 +58,8 @@ export default function Board({
   const [cards, setCards] = useState(propCards);
   const [toast, setToast] = useState<{ msg: string; bad: boolean } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  // 기획 8절: 카드 클릭 → 요약 레이어 (브랜드360은 레이어에서 이동)
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   // 필터 (v3.1 bar) — 파트 / 담당 / 등급
   const [part, setPart] = useState("");
   const [ownerF, setOwnerF] = useState<"mine" | "all">("all");
@@ -71,6 +76,7 @@ export default function Board({
   );
   const shownCols = COLS.filter((col) => part === "" || col.part === part);
   const inCol = (col: ColDef) => visible.filter((c) => col.states.includes(c.state));
+  const selected = selectedId ? (cards.find((c) => c.id === selectedId) ?? null) : null;
 
   async function onDrop(col: ColDef) {
     const id = dragId;
@@ -176,7 +182,7 @@ export default function Board({
                       key={c.id}
                       draggable
                       onDragStart={() => setDragId(c.id)}
-                      onClick={() => router.push(`/brand/${c.id}`)}
+                      onClick={() => setSelectedId(c.id)}
                       className="kcard"
                       style={c.has_breach ? { borderColor: "#fca5a5" } : undefined}
                     >
@@ -185,9 +191,25 @@ export default function Board({
                         <span className="truncate">{c.brand_name}</span>
                       </div>
                       {mt && <div className="mt truncate">{mt}</div>}
-                      {/* 기획 확정: 카드에 플랜·금액 + 기한 표시 */}
-                      {(c.plan || c.due_date) && (
+                      {/* 기획 확정: 카드에 플랜·금액 + 기한 + 트랙(계약완료 이후) + 정산중 표시 */}
+                      {(c.plan || c.due_date || (showTrack(c.state) && c.contract_type) || c.state === "settling") && (
                         <div style={{ display: "flex", gap: 4, marginTop: 3, flexWrap: "wrap", alignItems: "center" }}>
+                          {showTrack(c.state) && c.contract_type && (
+                            <span
+                              className="pill"
+                              style={{
+                                background: TRACK_COLORS[c.contract_type]?.bg ?? "#e2e8f0",
+                                color: TRACK_COLORS[c.contract_type]?.fg ?? "#334155",
+                                fontSize: 10,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {TRACK_LABELS[c.contract_type] ?? c.contract_type}
+                            </span>
+                          )}
+                          {c.state === "settling" && (
+                            <span className="pill" style={{ background: "#fef9c3", color: "#854d0e", fontSize: 10, fontWeight: 700 }}>정산중</span>
+                          )}
                           {c.plan && <span className="pill" style={{ background: "#eef2ff", color: "#3730a3", fontSize: 10 }}>{PLAN_LABELS[c.plan] ?? c.plan}</span>}
                           {c.due_date && <span className="pill" style={{ background: "#fef3c7", color: "#92400e", fontSize: 10 }}>기한 {String(c.due_date).slice(5, 10)}</span>}
                         </div>
@@ -216,6 +238,8 @@ export default function Board({
           );
         })}
       </div>
+
+      {selected && <BoardCardLayer card={selected} onClose={() => setSelectedId(null)} />}
 
       <div className="note" style={{ marginTop: 8 }}>
         💡 카드 드래그 시 서버 게이트 검증 → 미충족이면 <b style={{ color: "var(--danger)" }}>이동 거부 + 부족 항목 표시</b>{" "}

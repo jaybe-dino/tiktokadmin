@@ -106,6 +106,12 @@ export function CsvUploadCard({ today, groups }: { today: string; groups: GroupO
           <div style={{ color: "var(--ok)", fontWeight: 700 }}>
             신규 {result.created} · 병합 {result.updated} · 건너뜀 {result.skipped}
           </div>
+          {result.aiAnalyzed !== undefined && (
+            <div style={{ color: "var(--ink3)", marginTop: 2 }}>
+              {result.aiUsed ? "AI" : "규칙기반"} 1차 분석 {result.aiAnalyzed}건 완료
+              {(result.aiPending ?? 0) > 0 && <> · 나머지 {result.aiPending}건은 사전분석 에이전트가 처리</>}
+            </div>
+          )}
           {result.errors.length > 0 && (
             <ul style={{ color: "var(--danger)", fontSize: 11, marginTop: 4, paddingLeft: 16, listStyle: "disc" }}>
               {result.errors.map((e, i) => <li key={i}>{e}</li>)}
@@ -154,7 +160,12 @@ export function ManualRegisterCard({ today, groups }: { today: string; groups: G
           form.reset();
           setGroup(autoGroup);
           setNewGroup("");
-          setMsg({ t: res.briefed ? "등록·병합 완료 — 사전분석 브리프 생성" : "등록·병합 완료 (기존 브리프 유지)", bad: false, id: res.brand_id });
+          setMsg({
+            t: res.briefed
+              ? `등록·병합 완료 — ${res.ai ? "AI 1차 분석" : "규칙기반"} 브리프 생성`
+              : "등록·병합 완료 (기존 브리프 유지)",
+            bad: false, id: res.brand_id,
+          });
           router.refresh();
         } else {
           setMsg({ t: res.error || "등록 실패", bad: true });

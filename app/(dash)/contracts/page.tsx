@@ -9,6 +9,14 @@ import ContractRowActions from "./ContractRowActions";
 export const dynamic = "force-dynamic";
 
 const KIND: Record<string, string> = { mall: "멀티몰", onboarding: "온보딩", guarantee: "Guarantee", marketing: "마케팅", marketing_retainer: "마케팅 리테이너" };
+// 계약 종류 → 트랙 배지 (멀티몰/온보딩/마케팅 3트랙 — guarantee 는 멀티몰 트랙 취급)
+const TRACK_BADGE: Record<string, { ko: string; bg: string; fg: string }> = {
+  mall: { ko: "멀티몰", bg: "#ccfbf1", fg: "#115e59" },
+  guarantee: { ko: "멀티몰", bg: "#ccfbf1", fg: "#115e59" },
+  onboarding: { ko: "온보딩", bg: "#ede9fe", fg: "#5b21b6" },
+  marketing: { ko: "마케팅", bg: "#fce7f3", fg: "#9d174d" },
+  marketing_retainer: { ko: "마케팅", bg: "#fce7f3", fg: "#9d174d" },
+};
 const CC: Record<string, { ko: string; c: string }> = {
   draft: { ko: "작성중", c: "cc-warn" }, review: { ko: "검토", c: "cc-warn" }, sent: { ko: "발송·대기", c: "cc-warn" },
   signed: { ko: "서명 완료", c: "cc-ok" }, expired: { ko: "만료", c: "cc-exp" }, terminated: { ko: "해지", c: "cc-exp" },
@@ -58,7 +66,15 @@ export default async function ContractsPage() {
                 return (
                   <tr key={c.id as string}>
                     <td><Link href={`/brand/${c.brand_id}`} className="hover:underline"><b>{c.brand_name as string}</b></Link></td>
-                    <td>{KIND[c.kind as string] ?? (c.kind as string) ?? "—"}</td>
+                    <td>
+                      {(() => {
+                        const tb = TRACK_BADGE[c.kind as string];
+                        return tb ? (
+                          <span className="cellchip" style={{ background: tb.bg, color: tb.fg, marginRight: 6 }}>{tb.ko}</span>
+                        ) : null;
+                      })()}
+                      {KIND[c.kind as string] ?? (c.kind as string) ?? "—"}
+                    </td>
                     <td>{(c.start_date as string) ?? "—"} ~ {(c.end_date as string) ?? "—"}</td>
                     <td>수수료 {terms.fee_pct ?? "—"}%{c.signed_at ? <span className="sub">체결 {ym(c.signed_at)}</span> : <span className="sub">미체결</span>}</td>
                     <td><span className={`cellchip ${st.c}`}>{st.ko}</span></td>

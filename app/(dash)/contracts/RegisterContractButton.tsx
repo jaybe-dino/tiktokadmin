@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addContractAction } from "@/app/actions";
+import { markBrandMarketingTrackAction } from "./actions";
 
 // 헤더 "+ 계약 등록" — 인라인 폼 토글 → addContractAction(기존 액션) 으로 실제 계약 생성(draft).
 export default function RegisterContractButton({
@@ -38,6 +39,10 @@ export default function RegisterContractButton({
         note: note.trim() || undefined,
       });
       if (r.ok) {
+        // 마케팅 계약이면 원장 트랙 보정(contract_type 비어 있을 때만 'marketing').
+        if (kind.startsWith("marketing")) {
+          await markBrandMarketingTrackAction(brandId);
+        }
         setOpen(false);
         setFeePct("");
         setStart1("");

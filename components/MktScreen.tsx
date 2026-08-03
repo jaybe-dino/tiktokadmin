@@ -2,7 +2,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { setMktStatusAction } from "@/app/(dash)/mkt/actions";
+import {
+  createMktProposalAction,
+  draftMktProposalEmailAction,
+  setMktProposalStatusAction,
+  setMktStatusAction,
+} from "@/app/(dash)/mkt/actions";
 
 // 마케팅 프로젝트 화면 — 프로토타입 s-mkt 3탭 구성(파이프라인 / 루틴 운영대행 / 브랜드사별 매핑).
 // 데이터는 서버(allMktProjects)에서 내려온 실데이터만 사용한다.
@@ -14,6 +19,30 @@ export interface MktRow {
   note: string | null;
   brand_name: string;
   brand_id: string;
+}
+
+// 마케팅 제안서 행 (proposals kind='marketing' + 초안함 연결)
+export interface MktProposalRow {
+  id: string;
+  title: string;
+  amount: number | null;
+  status: string; // draft|sent|accepted|rejected
+  note: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  sent_at: string | null;
+  created_at: string;
+  brand_name: string;
+  brand_id: string;
+  /** 연결된 최신 발송 초안(email_drafts) 상태: draft|approved|sent|discarded */
+  draft_status: string | null;
+  draft_sent_at: string | null;
+}
+
+export interface MktBrandOpt {
+  id: string;
+  name: string;
+  contract_type: string | null;
 }
 
 // proposal_status → 라벨 · .cellchip 색상
@@ -34,9 +63,17 @@ const PIPE: { key: string; label: string; dot: string }[] = [
   { key: "dropped", label: "완료·드랍", dot: "#64748b" },
 ];
 
-type Tab = "pipe" | "routine" | "map";
+type Tab = "pipe" | "routine" | "map" | "prop";
 
-export default function MktScreen({ rows }: { rows: MktRow[] }) {
+export default function MktScreen({
+  rows,
+  proposals = [],
+  brands = [],
+}: {
+  rows: MktRow[];
+  proposals?: MktProposalRow[];
+  brands?: MktBrandOpt[];
+}) {
   const [tab, setTab] = useState<Tab>("pipe");
   const projects = rows.filter((r) => r.kind !== "routine");
   const routines = rows.filter((r) => r.kind === "routine");
@@ -50,6 +87,9 @@ export default function MktScreen({ rows }: { rows: MktRow[] }) {
         <button className={tab === "routine" ? "on" : ""} onClick={() => setTab("routine")}>
           루틴 운영대행 (시딩·라이브)
         </button>
+        <button className={tab === "prop" ? "on" : ""} onClick={() => setTab("prop")}>
+          마케팅 제안서 {proposals.length > 0 ? `(${proposals.length})` : ""}
+        </button>
         <button className={tab === "map" ? "on" : ""} onClick={() => setTab("map")}>
           브랜드사별 매핑
         </button>
@@ -57,6 +97,7 @@ export default function MktScreen({ rows }: { rows: MktRow[] }) {
 
       {tab === "pipe" && <Pipeline projects={projects} />}
       {tab === "routine" && <Routine routines={routines} />}
+      {tab === "prop" && <Proposals proposals={proposals} brands={brands} projects={rows} />}
       {tab === "map" && <BrandMap rows={rows} />}
     </div>
   );
@@ -254,6 +295,247 @@ function Routine({ routines }: { routines: MktRow[] }) {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 탭: 마케팅 제안서 (기획확정 7절) ──────────────────────────
+// 작성(브랜드·제목·금액·기간·범위 메모) → proposals(kind='marketing') 저장.
+// 발송은 초안함(email_drafts) 경유 — 여기서는 "발송 준비"까지, 승인·발송은 /drafts.
+const PROP_ST: Record<string, { ko: string; cc: string }> = {
+  draft: { ko: "작성", cc: "cc-ing" },
+  sent: { ko: "발송", cc: "cc-warn" },
+  accepted: { ko: "수락", cc: "cc-ok" },
+  rejected: { ko: "거절", cc: "cc-no" },
+};
+const DRAFT_ST: Record<string, { ko: string; cc: string }> = {
+  draft: { ko: "초안 대기(승인 전)", cc: "cc-warn" },
+  approved: { ko: "승인(발송 대기)", cc: "cc-warn" },
+  sent: { ko: "발송됨", cc: "cc-ok" },
+  discarded: { ko: "초안 폐기", cc: "cc-no" },
+};
+
+function fmtTs(iso: string | null): string {
+  return iso ? iso.slice(0, 16).replace("T", " ") : "";
+}
+
+function Proposals({
+  proposals,
+  brands,
+  projects,
+}: {
+  proposals: MktProposalRow[];
+  brands: MktBrandOpt[];
+  projects: MktRow[];
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
+
+  const [brandId, setBrandId] = useState(brands[0]?.id ?? "");
+  const [title, setTitle] = useState("");
+  const [amount, setAmount] = useState("");
+  const [ps, setPs] = useState("");
+  const [pe, setPe] = useState("");
+  const [note, setNote] = useState("");
+
+  // 브랜드별 mkt_projects 연결 수 (연결 표시용)
+  const projCount = new Map<string, number>();
+  for (const p of projects) projCount.set(p.brand_id, (projCount.get(p.brand_id) ?? 0) + 1);
+
+  function submit() {
+    setErr("");
+    setOk("");
+    start(async () => {
+      const r = await createMktProposalAction({
+        brand_id: brandId,
+        title,
+        amount,
+        period_start: ps,
+        period_end: pe,
+        note,
+      });
+      if (r.ok) {
+        setTitle("");
+        setAmount("");
+        setPs("");
+        setPe("");
+        setNote("");
+        setOk("제안서가 저장되었습니다 — 발송 준비 후 초안함에서 승인·발송하세요.");
+        router.refresh();
+      } else setErr(r.error ?? "저장 실패");
+    });
+  }
+
+  function run(fn: () => Promise<{ ok: boolean; error?: string }>, okMsg: string) {
+    setErr("");
+    setOk("");
+    start(async () => {
+      const r = await fn();
+      if (r.ok) {
+        setOk(okMsg);
+        router.refresh();
+      } else setErr(r.error ?? "실패");
+    });
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {/* 작성 폼 */}
+      <div className="card">
+        <div className="hd">
+          <b>마케팅 제안서 작성</b>
+          <span style={{ color: "var(--ink3)", fontSize: 11 }}>
+            저장 → 발송 준비(초안함) → 담당 승인 후 발송
+          </span>
+        </div>
+        <div className="bd" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+          <div>
+            <label className="f">브랜드</label>
+            <select className="f" value={brandId} onChange={(e) => setBrandId(e.target.value)} style={{ minWidth: 160 }}>
+              {brands.length === 0 && <option value="">브랜드가 없습니다</option>}
+              {brands.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                  {b.contract_type === "marketing" ? " · 마케팅 트랙" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <label className="f">제목</label>
+            <input className="f" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 8월 시딩+라이브 패키지 제안" />
+          </div>
+          <div>
+            <label className="f">금액(원)</label>
+            <input className="f" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="예: 3000000" style={{ width: 120 }} />
+          </div>
+          <div>
+            <label className="f">기간 시작</label>
+            <input className="f" type="date" value={ps} onChange={(e) => setPs(e.target.value)} />
+          </div>
+          <div>
+            <label className="f">기간 종료</label>
+            <input className="f" type="date" value={pe} onChange={(e) => setPe(e.target.value)} />
+          </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <label className="f">범위 메모</label>
+            <input className="f" value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 시딩 30건 + 라이브 2회 + 소재 4종" />
+          </div>
+          <button className="btn pri" disabled={pending || !brandId} onClick={submit}>
+            {pending ? "저장 중…" : "저장"}
+          </button>
+        </div>
+        {(err || ok) && (
+          <div className="bd" style={{ paddingTop: 0 }}>
+            {err && <span className="chip red" style={{ fontSize: 11 }}>{err}</span>}
+            {ok && <span className="chip grn" style={{ fontSize: 11 }}>{ok}</span>}
+          </div>
+        )}
+      </div>
+
+      {/* 목록 — 발송·기록 포함 */}
+      <div className="card overflow-x-auto">
+        <div className="hd">
+          <b>제안서 목록 · 발송 기록</b>
+          <span style={{ color: "var(--ink3)", fontSize: 11 }}>
+            발송은 초안함(email_drafts) 승인 경유 · 발송 확인 시 sent 기록
+          </span>
+        </div>
+        <table className="t">
+          <thead>
+            <tr>
+              <th>브랜드</th><th>제목</th><th>금액</th><th>기간</th><th>범위</th>
+              <th>상태</th><th>발송 기록(초안함)</th><th>프로젝트 연결</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {proposals.length === 0 && (
+              <tr><td colSpan={9} style={{ color: "var(--ink3)" }}>마케팅 제안서가 없습니다 — 위에서 작성하세요.</td></tr>
+            )}
+            {proposals.map((p) => {
+              const st = PROP_ST[p.status] ?? { ko: p.status, cc: "cc-ing" };
+              const ds = p.draft_status ? DRAFT_ST[p.draft_status] ?? { ko: p.draft_status, cc: "cc-ing" } : null;
+              const n = projCount.get(p.brand_id) ?? 0;
+              return (
+                <tr key={p.id}>
+                  <td>
+                    <Link href={`/brand/${p.brand_id}`} className="hover:underline"><b>{p.brand_name}</b></Link>
+                  </td>
+                  <td>{p.title || "—"}</td>
+                  <td>{p.amount != null ? `${p.amount.toLocaleString("ko-KR")}원` : "—"}</td>
+                  <td>{p.period_start || p.period_end ? `${p.period_start ?? "미정"} ~ ${p.period_end ?? "미정"}` : "—"}</td>
+                  <td>{p.note || "—"}</td>
+                  <td>
+                    <span className={`cellchip ${st.cc}`}>{st.ko}</span>
+                    {p.sent_at && <div className="sub">발송 {fmtTs(p.sent_at)}</div>}
+                  </td>
+                  <td>
+                    {ds ? (
+                      <>
+                        <span className={`cellchip ${ds.cc}`}>{ds.ko}</span>
+                        {p.draft_sent_at && <div className="sub">{fmtTs(p.draft_sent_at)}</div>}
+                      </>
+                    ) : (
+                      <span style={{ color: "var(--ink3)" }}>기록 없음</span>
+                    )}
+                  </td>
+                  <td>
+                    {n > 0 ? (
+                      <span className="cellchip cc-ing" title="같은 브랜드의 mkt_projects 파이프라인">프로젝트 {n}건</span>
+                    ) : (
+                      <span style={{ color: "var(--ink3)" }}>—</span>
+                    )}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {p.status === "draft" && (!p.draft_status || p.draft_status === "discarded") && (
+                      <button
+                        className="btn sm"
+                        disabled={pending}
+                        onClick={() => run(() => draftMktProposalEmailAction(p.id), "발송 초안 생성 — 초안함에서 승인·발송하세요.")}
+                      >
+                        발송 준비
+                      </button>
+                    )}
+                    {p.status === "draft" && p.draft_status === "sent" && (
+                      <button
+                        className="btn sm pri"
+                        disabled={pending}
+                        onClick={() => run(() => setMktProposalStatusAction(p.id, "sent"), "발송 처리되었습니다.")}
+                      >
+                        발송 확인
+                      </button>
+                    )}
+                    {p.status === "sent" && (
+                      <>
+                        <button
+                          className="btn sm pri"
+                          disabled={pending}
+                          onClick={() => run(() => setMktProposalStatusAction(p.id, "accepted"), "수락 처리되었습니다.")}
+                        >
+                          수락
+                        </button>{" "}
+                        <button
+                          className="btn sm dgr"
+                          disabled={pending}
+                          onClick={() => run(() => setMktProposalStatusAction(p.id, "rejected"), "거절 처리되었습니다.")}
+                        >
+                          거절
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div style={{ padding: "10px 16px" }} className="note">
+          📌 발송은 초안함(담당 승인·수신동의 게이트) 경유 — 승인·발송 후 이 목록에서 「발송 확인」으로 기록 확정 ·
+          열람·회신은 브랜드360 미팅·메일 탭의 연동 메일에서 확인
         </div>
       </div>
     </div>

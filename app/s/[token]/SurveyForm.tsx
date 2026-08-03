@@ -22,7 +22,8 @@ export default function SurveyForm({ token, questions }: { token: string; questi
     setBusy(true);
     setErr("");
     try {
-      const res = await fetch(`/api/survey/${token}`, {
+      // /s/[token]/submit — 응답 저장(기존 게이트) + 사전 설문 회사정보 반영·타임라인 기록.
+      const res = await fetch(`/s/${token}/submit`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ answers }),
@@ -71,6 +72,13 @@ export default function SurveyForm({ token, questions }: { token: string; questi
                 );
               })}
             </div>
+          )}
+
+          {q.type === "short" && (
+            <input type="text" value={(answers[q.key] as string) ?? ""}
+              onChange={(e) => set(q.key, e.target.value)}
+              style={{ width: "100%", border: "1px solid #ddd", borderRadius: 10, padding: 10, fontSize: 14 }}
+              placeholder={q.placeholder ?? ""} />
           )}
 
           {q.type === "text" && (

@@ -5,11 +5,18 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { approveDraftAction, discardDraftAction, editDraftAction, setNextActionAction } from "@/app/actions";
+import {
+  getMeetingInviteOptionsAction, scheduleMeetingAction,
+} from "@/app/(dash)/brand360/meeting-actions";
 
 export interface MeetingRow {
   id: string; topic: string; status: string; started_at: string | null; scheduled_at: string | null;
   duration_min: number | null; recording_url: string | null; transcript: string | null; summary_md: string | null;
 }
+interface AttendeeInput { name: string; email: string }
+interface HostOption { id: string; name: string; role: string; email: string }
+
+const HOST_ROLE_LABEL: Record<string, string> = { exec: "대표", lead: "파트장" };
 export interface DraftRow {
   id: string; kind: string; to_email: string; subject: string; body_md: string; created_at: string;
 }
@@ -40,12 +47,113 @@ export default function Brand360Meetings({ brandId, meetings, drafts }: {
   const [body, setBody] = useState("");
   const [msg, setMsg] = useState("");
 
+  // ── 1:1 미팅 잡기 (줌링크 발송 + 캘린더 등록 + ICS 초대) ──
+  const [schedOpen, setSchedOpen] = useState(false);
+  const [optLoaded, setOptLoaded] = useState(false);
+  const [hosts, setHosts] = useState<HostOption[]>([]);
+  const [schedAt, setSchedAt] = useState("");
+  const [hostId, setHostId] = useState("");
+  const [zoomUrl, setZoomUrl] = useState("");
+  const [topic, setTopic] = useState("1:1 미팅");
+  const [attendees, setAttendees] = useState<AttendeeInput[]>([]);
+  const [addName, setAddName] = useState("");
+  const [addEmail, setAddEmail] = useState("");
+  const [schedMsg, setSchedMsg] = useState("");
+
+  function openScheduler() {
+    setSchedOpen(!schedOpen);
+    setSchedMsg("");
+    if (schedOpen || optLoaded) return;
+    // 지정인(파트장/대표/담당) + 브랜드 담당자 이메일 자동 로드
+    start(async () => {
+      const r = await getMeetingInviteOptionsAction(brandId);
+      if (!r.ok) { setSchedMsg(r.error ?? "옵션 로드 실패"); return; }
+      setHosts(r.hosts ?? []);
+      setAttendees(r.attendees ?? []);
+      if ((r.hosts ?? []).length > 0) setHostId(r.hosts![0].id);
+      setOptLoaded(true);
+    });
+  }
+
+  function addAttendee() {
+    const email = addEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setSchedMsg("참석자 이메일 형식을 확인하세요."); return; }
+    if (attendees.some((a) => a.email.toLowerCase() === email.toLowerCase())) { setSchedMsg("이미 추가된 이메일입니다."); return; }
+    setAttendees([...attendees, { name: addName.trim(), email }]);
+    setAddName(""); setAddEmail(""); setSchedMsg("");
+  }
+
+  function submitSchedule() {
+    start(async () => {
+      const r = await scheduleMeetingAction(brandId, {
+        scheduledAt: schedAt, topic, hostId, zoomJoinUrl: zoomUrl, attendees,
+      });
+      if (!r.ok) { setSchedMsg(r.error ?? "등록 실패"); return; }
+      const inv = r.invite;
+      setSchedMsg(
+        inv?.skipped
+          ? "미팅 등록됨 · RESEND 미설정 — 초대 메일 스킵"
+          : `미팅 등록됨 · 초대 메일 ${inv?.sent ?? 0}건 발송${inv && inv.failed > 0 ? ` (실패 ${inv.failed})` : ""}`,
+      );
+      setSchedOpen(false);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="grid g2" style={{ gap: 14 }}>
       {/* ── 미팅 ── */}
       <div className="card">
-        <div className="hd"><b>미팅 {meetings.length}건</b></div>
+        <div className="hd" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <b>미팅 {meetings.length}건</b>
+          <button className="btn sm pri" onClick={openScheduler}>{schedOpen ? "닫기" : "🎥 1:1 미팅 잡기"}</button>
+        </div>
         <div className="bd" style={{ display: "grid", gap: 10 }}>
+          {schedOpen && (
+            <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", display: "grid", gap: 8 }}>
+              <b style={{ fontSize: 12.5 }}>1:1 미팅 잡기 — 캘린더 등록 + 줌링크·ICS 초대 발송</b>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <input className="f" type="datetime-local" style={{ width: 190 }} value={schedAt} onChange={(e) => setSchedAt(e.target.value)} />
+                <select className="f" style={{ width: 160 }} value={hostId} onChange={(e) => setHostId(e.target.value)}>
+                  <option value="">지정인 선택…</option>
+                  {hosts.map((h) => (
+                    <option key={h.id} value={h.id}>{h.name} ({HOST_ROLE_LABEL[h.role] ?? "담당"})</option>
+                  ))}
+                </select>
+                <input className="f" style={{ flex: 1, minWidth: 160 }} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="미팅 제목" />
+              </div>
+              <input className="f" value={zoomUrl} onChange={(e) => setZoomUrl(e.target.value)} placeholder="줌 링크 (https://zoom.us/j/…)" />
+              <div style={{ fontSize: 11.5, color: "var(--ink3)" }}>참석자 {attendees.length}명 — 브랜드 담당자 이메일 자동 포함, 추가 가능</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {attendees.map((a) => (
+                  <span key={a.email} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    {a.name ? `${a.name} <${a.email}>` : a.email}
+                    <button
+                      style={{ border: "none", background: "none", cursor: "pointer", fontSize: 11, color: "var(--ink3)" }}
+                      title="제외"
+                      onClick={() => setAttendees(attendees.filter((x) => x.email !== a.email))}
+                    >✕</button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <input className="f" style={{ width: 110 }} value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="이름(선택)" />
+                <input className="f" style={{ flex: 1, minWidth: 150 }} value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="참석자 이메일 추가" />
+                <button className="btn sm" onClick={addAttendee}>+ 추가</button>
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <button
+                  className="btn pri"
+                  disabled={pending || !schedAt || !hostId || !zoomUrl.trim() || attendees.length === 0}
+                  onClick={submitSchedule}
+                >
+                  {pending ? "등록 중…" : "등록 + 초대 발송"}
+                </button>
+                {schedMsg && <span className="note">{schedMsg}</span>}
+              </div>
+            </div>
+          )}
+          {!schedOpen && schedMsg && <div className="note">{schedMsg}</div>}
           {meetings.length === 0 && (
             <p className="note">기록된 미팅이 없습니다 — 줌 예약이 잡히면 자동 등록·회의록 등재됩니다.</p>
           )}

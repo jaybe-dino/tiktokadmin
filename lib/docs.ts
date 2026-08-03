@@ -28,6 +28,12 @@ export const DOC_TEMPLATES: Record<ContractType, DocTemplateItem[]> = {
     { item_key: "step5", label: "STEP5 · 물류/최종", source: "apply_step", apply_step_no: 5 },
     { item_key: "logistics", label: "물류계약서" },
   ],
+  // 마케팅 트랙 (0018) — 운영대행 미이용(마케팅만) 계약의 최소 서류.
+  marketing: [
+    { item_key: "biz_reg", label: "사업자등록증" },
+    { item_key: "mkt_contract", label: "마케팅 계약서(서명본)" },
+    { item_key: "mkt_scope", label: "마케팅 범위 합의서(기간·금액·범위)" },
+  ],
 };
 
 /** 템플릿 생성(멱등 — 이미 있으면 skip). */

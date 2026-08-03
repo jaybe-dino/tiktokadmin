@@ -67,6 +67,23 @@ const ALLOWED_NEXT: Record<string, string[]> = {
   signed: ["terminated"],
 };
 
+// ③ 마케팅 계약 등록 시 브랜드 원장 트랙 보정.
+//    운영대행 미이용(마케팅만) 팀: 브랜드 contract_type 이 비어 있으면 'marketing' 으로
+//    채워 원장 카드에 트랙 배지가 통합 표시되게 한다. 기존 mall/onboarding 은 덮지 않는다.
+//    (glovek 원본이 아닌 어드민 원장 brands 에만 기록 — 보정값 원칙)
+export async function markBrandMarketingTrackAction(brandId: string): Promise<ContractsActionResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!brandId) return { ok: false, error: "브랜드 ID 누락" };
+  await query(
+    "UPDATE brands SET contract_type='marketing', updated_at=now() WHERE id=$1 AND contract_type IS NULL",
+    [brandId],
+  ).catch(() => {});
+  revalidatePath("/contracts");
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 export async function stepContractStatusAction(
   id: string,
   brandId: string,

@@ -33,6 +33,10 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
   const [countries, setCountries] = useState<string[]>(["US"]);
   const [term, setTerm] = useState<QuoteTerm>("6month");
   const [discountPct, setDiscountPct] = useState(0);
+  // 계약 조건(0020) — 계약서 드라이브 링크(수기) · 계약기간 · 매월 결제일
+  const [contractFileUrl, setContractFileUrl] = useState("");
+  const [contractTerm, setContractTerm] = useState("");
+  const [billingDay, setBillingDay] = useState("");
 
   const track = TRACKS[trackIdx];
   const isOnboarding = track.plan === "onboarding_onetime";
@@ -72,6 +76,7 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
   function submit() {
     setMsg(null);
     start(async () => {
+      const bd = billingDay.trim() === "" ? undefined : Number(billingDay);
       const r = await createAndSendProposalAction({
         brand_id: brandId,
         plan: track.plan,
@@ -80,13 +85,22 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
         onboardingTier: track.onboardingTier,
         send: true,
         discountPct,
+        contractFileUrl: contractFileUrl.trim() || undefined,
+        contractTerm: contractTerm.trim() || undefined,
+        billingDay: bd,
       });
       if (r.ok && r.pendingApproval) {
         // 결재선: 20% 초과 할인은 발송 보류, 파트장 결재 대기.
         setMsg({ ok: true, text: "할인 20% 초과 — 파트장 결재 요청됨(결재함)" });
         router.refresh();
       } else if (r.ok) {
-        setMsg({ ok: true, text: `발송 완료 — ${won(r.quote ?? 0)}` });
+        // 생성→발송 준비: 메일은 초안함 승인 후 실제 발송된다.
+        setMsg({
+          ok: true,
+          text: r.draftReady
+            ? `제안서 생성 완료 — ${won(r.quote ?? 0)} · 발송 초안 생성됨 → 초안함에서 승인 후 발송됩니다.`
+            : `제안서 생성 완료 — ${won(r.quote ?? 0)}${r.note ? ` · ${r.note}` : ""}`,
+        });
         router.refresh();
       } else {
         setMsg({ ok: false, text: r.error ?? "처리 실패" });
@@ -176,6 +190,36 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
               Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 0,
             );
           }}
+        />
+
+        <label style={lbl}>계약서 첨부 — 구글드라이브 링크(수기)</label>
+        <input
+          className="f"
+          type="url"
+          placeholder="https://drive.google.com/…"
+          value={contractFileUrl}
+          onChange={(e) => setContractFileUrl(e.target.value)}
+        />
+
+        <label style={lbl}>계약기간</label>
+        <input
+          className="f"
+          type="text"
+          placeholder="예: 12개월 · 2026-09 ~ 2027-08"
+          value={contractTerm}
+          onChange={(e) => setContractTerm(e.target.value)}
+        />
+
+        <label style={lbl}>매월 결제일 (1~31)</label>
+        <input
+          className="f"
+          type="number"
+          min={1}
+          max={31}
+          step={1}
+          placeholder="예: 25"
+          value={billingDay}
+          onChange={(e) => setBillingDay(e.target.value)}
         />
 
         <hr className="hr" />

@@ -24,6 +24,12 @@ function prodStatus(total: number, ready: number, risk: number) {
   return { cls: "cc-ing", label: "진행" };
 }
 
+// 출처(products_master.source) — apply/glovek 유래는 원본 읽기전용, 어드민 보정값(원장) 우선.
+const SOURCE_CHIP: Record<string, { label: string; title: string }> = {
+  apply_step4: { label: "apply", title: "apply 스텝4 유래 — 원본 읽기전용, 어드민 보정값 우선" },
+  glovek_onb: { label: "glovek", title: "glovek 온보딩 유래 — 원본 읽기전용, 어드민 보정값 우선" },
+};
+
 // 서류(자료) 단위 상태
 function docChip(status?: string) {
   switch (status) {
@@ -188,8 +194,14 @@ export default function ProductsView({ products, risks }: { products: Row[]; ris
                 return (
                   <tr key={p.id as string}>
                     <td style={{ textAlign: "left" }}>
-                      <Link href={`/brand/${p.brand_id}`} className="hover:underline"><b>{p.brand_name as string}</b></Link>{" "}
+                      {/* 브랜드 클릭 → 브랜드360 제품·인증·재고 탭 딥링크(#tab=pd) */}
+                      <Link href={`/brand/${p.brand_id}#tab=pd`} className="hover:underline" title="브랜드360 제품 탭으로 이동"><b>{p.brand_name as string}</b></Link>{" "}
                       {p.name_kr as string}
+                      {SOURCE_CHIP[p.source as string] && (
+                        <span className="cellchip cc-warn" style={{ marginLeft: 6 }} title={SOURCE_CHIP[p.source as string].title}>
+                          {SOURCE_CHIP[p.source as string].label}
+                        </span>
+                      )}
                     </td>
                     <td>{(p.category as string) || "—"}</td>
                     <td>
@@ -270,7 +282,14 @@ export default function ProductsView({ products, risks }: { products: Row[]; ris
               return (
                 <tr key={r.id as string}>
                   <td><b>{(r.cert_type as string) || "—"}</b></td>
-                  <td>{r.brand_name as string} · {r.product as string}</td>
+                  <td>
+                    {r.brand_id ? (
+                      <Link href={`/brand/${r.brand_id}#tab=pd`} className="hover:underline" title="브랜드360 제품 탭으로 이동">{r.brand_name as string}</Link>
+                    ) : (
+                      r.brand_name as string
+                    )}{" "}
+                    · {r.product as string}
+                  </td>
                   <td>{flag(r.country as string)} {(r.country as string) || "공통"}</td>
                   <td><span className={`cellchip ${d.cls}`}>{d.label}</span></td>
                   <td style={{ color: "var(--ink3)" }}>{(r.expires_at as string) ?? "—"}</td>

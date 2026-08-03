@@ -50,7 +50,7 @@ export function allQna() {
 
 // 제품·인증 (제품별 인증 롤업)
 export function allProducts() {
-  return query(`SELECT pm.id, pm.name_kr, pm.category, pm.status, b.brand_name, b.id AS brand_id,
+  return query(`SELECT pm.id, pm.name_kr, pm.category, pm.status, pm.source, b.brand_name, b.id AS brand_id,
       count(pc.*)::int AS cert_total,
       count(pc.*) FILTER (WHERE pc.status='ready' AND (pc.expires_at IS NULL OR pc.expires_at >= current_date))::int AS cert_ready,
       count(pc.*) FILTER (WHERE pc.status IN ('expired','rejected','none'))::int AS cert_risk
@@ -61,7 +61,7 @@ export function allProducts() {
 
 // 인증 리스크 (만료·미비)
 export function certRisks() {
-  return query(`SELECT pc.id, pm.name_kr AS product, b.brand_name, pc.country, pc.cert_type, pc.status, pc.expires_at
+  return query(`SELECT pc.id, pm.name_kr AS product, b.brand_name, b.id AS brand_id, pc.country, pc.cert_type, pc.status, pc.expires_at
      FROM product_certs pc JOIN products_master pm ON pm.id=pc.product_id JOIN brands b ON b.id=pm.brand_id
     WHERE pc.status IN ('none','rejected','expired')
        OR (pc.expires_at IS NOT NULL AND pc.expires_at < current_date + interval '30 days')

@@ -1,10 +1,14 @@
 "use client";
 
-// v3.1 제품·인증·재고 탭 — 제품 마스터(+제품) · 국가×제품 인증 매트릭스(+인증 갱신) · 초기 재고 투입.
+// v3.1 제품·인증·재고 탭 — 제품 마스터(+제품) · 국가×제품 인증 매트릭스(+인증 등록/수정) · 초기 재고 투입.
 // products_master · product_certs · inventory_intakes 실데이터.
-import { useState, useTransition } from "react";
+// 출처 원칙(PLAN 8절): apply/glovek 유래 행은 출처를 표시하되 원본은 읽기전용 —
+// 어드민에서 저장하는 값은 전부 어드민 원장 테이블(products_master·product_certs)이며 보정값이 우선한다.
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addProductAction, upsertCertAction } from "@/app/actions";
+import { addProductAction } from "@/app/actions";
+import { upsertCertFullAction } from "@/app/(dash)/brand360/actions";
+import TabJumpButton from "@/components/TabJumpButton";
 import type { InventoryIntake, Product, ProductCert } from "@/lib/repo/card";
 
 const CERT_STATUS: Record<string, { label: string; cls: string }> = {
@@ -17,6 +21,18 @@ const CERT_STATUS: Record<string, { label: string; cls: string }> = {
 };
 const COUNTRY_FLAG: Record<string, string> = { US: "🇺🇸", VN: "🇻🇳", TH: "🇹🇭", MY: "🇲🇾", SG: "🇸🇬", PH: "🇵🇭" };
 const INV_STATUS: Record<string, string> = { planned: "계획", shipped: "발송", arrived: "도착", stocked: "입고", issue: "이슈" };
+// products_master.source — apply_step4|glovek_onb|manual (원본 읽기전용, 어드민 보정값 우선)
+const SOURCE_CHIP: Record<string, { label: string; cls: string; title: string }> = {
+  apply_step4: { label: "apply", cls: "cc-warn", title: "apply 스텝4 유래 — 원본 읽기전용, 어드민 보정값 우선" },
+  glovek_onb: { label: "glovek", cls: "cc-warn", title: "glovek 온보딩 유래 — 원본 읽기전용, 어드민 보정값 우선" },
+  manual: { label: "어드민", cls: "cc-no", title: "어드민 직접 입력" },
+};
+
+/** 인증 등록/수정 폼 프리필 값 — 매트릭스 셀 클릭 시 채워진다. */
+type CertDraft = {
+  product_id: string; country: string; cert_type: string; status: string;
+  cert_number: string; expires_at: string; note: string;
+};
 
 export default function Brand360Products({ brandId, products, certs, inventory, setupStage }: {
   brandId: string;
@@ -29,15 +45,37 @@ export default function Brand360Products({ brandId, products, certs, inventory, 
   const [pending, start] = useTransition();
   const [openProd, setOpenProd] = useState(false);
   const [openCert, setOpenCert] = useState(false);
+  const [certDraft, setCertDraft] = useState<CertDraft | null>(null);
   const [msg, setMsg] = useState("");
 
-  // 매트릭스 열: 인증 데이터에 존재하는 국가(없으면 표시 생략).
-  const matrixCountries = [...new Set(certs.map((c) => c.country))].sort();
+  // /products 등 외부 화면에서 "#tab=pd" 로 진입하면 제품 탭으로 전환.
+  // 탭 전환 이벤트 리스너(Brand360Tabs — 부모)는 자식 이펙트 이후에 등록되므로 한 틱 늦춰 발화.
+  useEffect(() => {
+    if (window.location.hash !== "#tab=pd") return;
+    const t = window.setTimeout(() => window.dispatchEvent(new CustomEvent("b360:tab", { detail: "pd" })), 0);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  // 매트릭스 열: 인증 데이터에 존재하는 국가 + 기본 진출국(제품이 있으면 항상 편집 가능하게).
+  const matrixCountries = [...new Set([...certs.map((c) => c.country), ...(products.length > 0 ? Object.keys(COUNTRY_FLAG) : [])])].sort();
   const bestCert = (productId: string, country: string) => {
     const rows = certs.filter((c) => c.product_id === productId && c.country === country);
     if (rows.length === 0) return null;
     const order = ["ready", "submitted", "preparing", "rejected", "expired", "none"];
     return rows.sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status))[0];
+  };
+
+  /** 셀 클릭 → 해당 인증을 폼에 프리필(없으면 제품·국가만 채운 신규). */
+  const editCell = (productId: string, country: string) => {
+    const cur = bestCert(productId, country);
+    setCertDraft(cur
+      ? {
+          product_id: cur.product_id, country: cur.country, cert_type: cur.cert_type,
+          status: cur.status, cert_number: cur.cert_number ?? "",
+          expires_at: cur.expires_at ? cur.expires_at.slice(0, 10) : "", note: cur.note ?? "",
+        }
+      : { product_id: productId, country, cert_type: "", status: "preparing", cert_number: "", expires_at: "", note: "" });
+    setOpenCert(true);
   };
 
   return (
@@ -86,12 +124,13 @@ export default function Brand360Products({ brandId, products, certs, inventory, 
           ) : (
             <table className="t">
               <thead>
-                <tr><th>제품</th><th>카테고리</th><th>판매가</th><th>인증</th></tr>
+                <tr><th>제품</th><th>카테고리</th><th>판매가</th><th>인증</th><th>출처</th></tr>
               </thead>
               <tbody>
                 {products.map((p) => {
                   const pc = certs.filter((c) => c.product_id === p.id);
                   const ok = pc.filter((c) => c.status === "ready").length;
+                  const src = SOURCE_CHIP[p.source] ?? SOURCE_CHIP.manual;
                   return (
                     <tr key={p.id}>
                       <td>
@@ -107,11 +146,17 @@ export default function Brand360Products({ brandId, products, certs, inventory, 
                           <span className={`cellchip ${ok > 0 ? "cc-ok" : "cc-warn"}`}>{ok}/{pc.length} 완료</span>
                         )}
                       </td>
+                      <td><span className={`cellchip ${src.cls}`} title={src.title}>{src.label}</span></td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          )}
+          {products.some((p) => p.source !== "manual") && (
+            <div className="note" style={{ marginTop: 8 }}>
+              apply·glovek 유래 행은 원본 읽기전용 — 수정하면 어드민 원장 보정값이 우선 적용됩니다.
+            </div>
           )}
           {msg && <div className="note" style={{ marginTop: 8 }}>{msg}</div>}
         </div>
@@ -122,49 +167,60 @@ export default function Brand360Products({ brandId, products, certs, inventory, 
         <div className="card">
           <div className="hd">
             <b>국가 × 제품 인증 매트릭스</b>
-            <div className="rt"><button className="btn sm" onClick={() => setOpenCert((o) => !o)}>{openCert ? "닫기" : "+ 인증 갱신"}</button></div>
+            <div className="rt">
+              <button
+                className="btn sm"
+                onClick={() => { setCertDraft(null); setOpenCert((o) => !o); }}
+              >
+                {openCert ? "닫기" : "+ 인증 등록·수정"}
+              </button>
+            </div>
           </div>
           <div className="bd">
             {openCert && (
               <form
+                // certDraft(셀 클릭 프리필)마다 key 를 바꿔 defaultValue 를 다시 적용.
+                key={certDraft ? `${certDraft.product_id}:${certDraft.country}:${certDraft.cert_type}` : "new"}
                 style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}
                 onSubmit={(e) => {
                   e.preventDefault();
                   const f = new FormData(e.currentTarget);
                   const form = e.currentTarget;
                   start(async () => {
-                    const r = await upsertCertAction(brandId, {
+                    const r = await upsertCertFullAction(brandId, {
                       product_id: String(f.get("product_id") ?? ""),
                       country: String(f.get("country") ?? "US"),
                       cert_type: String(f.get("cert_type") ?? ""),
                       status: String(f.get("status") ?? "preparing"),
                       cert_number: String(f.get("cert_number") ?? "") || undefined,
                       expires_at: String(f.get("expires_at") ?? "") || null,
+                      note: String(f.get("note") ?? "") || undefined,
                     });
                     setMsg(r.ok ? "인증 저장됨" : r.error ?? "실패");
-                    if (r.ok) { form.reset(); setOpenCert(false); }
+                    if (r.ok) { form.reset(); setOpenCert(false); setCertDraft(null); }
                     router.refresh();
                   });
                 }}
               >
-                <select name="product_id" className="f" style={{ flex: 1, minWidth: 130 }} required>
+                <select name="product_id" className="f" style={{ flex: 1, minWidth: 130 }} defaultValue={certDraft?.product_id ?? ""} required>
                   <option value="">제품 선택</option>
                   {products.map((p) => <option key={p.id} value={p.id}>{p.name_kr}</option>)}
                 </select>
-                <select name="country" className="f" style={{ width: 80 }}>
+                <select name="country" className="f" style={{ width: 80 }} defaultValue={certDraft?.country ?? "US"}>
                   {Object.keys(COUNTRY_FLAG).map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <input name="cert_type" className="f" style={{ width: 110 }} placeholder="인증종류(FDA…) *" required />
-                <select name="status" className="f" style={{ width: 90 }} defaultValue="preparing">
+                <input name="cert_type" className="f" style={{ width: 110 }} placeholder="인증종류(FDA…) *" defaultValue={certDraft?.cert_type ?? ""} required />
+                <select name="status" className="f" style={{ width: 90 }} defaultValue={certDraft?.status ?? "preparing"}>
                   {Object.entries(CERT_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                 </select>
-                <input name="cert_number" className="f" style={{ width: 110 }} placeholder="인증번호" />
-                <input name="expires_at" className="f" style={{ width: 130 }} type="date" title="만료일" />
+                <input name="cert_number" className="f" style={{ width: 110 }} placeholder="인증번호" defaultValue={certDraft?.cert_number ?? ""} />
+                <input name="expires_at" className="f" style={{ width: 130 }} type="date" title="만료일" defaultValue={certDraft?.expires_at ?? ""} />
+                <input name="note" className="f" style={{ flex: 1, minWidth: 180 }} placeholder="서류 링크(드라이브 URL)·메모" defaultValue={certDraft?.note ?? ""} />
                 <button className="btn sm pri" disabled={pending} type="submit">저장</button>
               </form>
             )}
             {products.length === 0 || matrixCountries.length === 0 ? (
-              <p className="note">인증 데이터가 없습니다 — 제품 등록 후 [+ 인증 갱신]으로 국가별 인증을 기록하세요.</p>
+              <p className="note">인증 데이터가 없습니다 — 제품 등록 후 [+ 인증 등록·수정]으로 국가별 인증을 기록하세요.</p>
             ) : (
               <table className="t matrix">
                 <thead>
@@ -180,9 +236,20 @@ export default function Brand360Products({ brandId, products, certs, inventory, 
                       {matrixCountries.map((c) => {
                         const cert = bestCert(p.id, c);
                         const st = cert ? CERT_STATUS[cert.status] ?? { label: cert.status, cls: "cc-no" } : { label: "—", cls: "cc-no" };
+                        const tip = cert
+                          ? `${cert.cert_type}${cert.expires_at ? ` · 만료 ${cert.expires_at.slice(0, 10)}` : ""}${cert.note ? ` · ${cert.note}` : ""} — 클릭해 수정`
+                          : "클릭해 인증 등록";
                         return (
-                          <td key={c} title={cert ? `${cert.cert_type}${cert.expires_at ? ` · 만료 ${cert.expires_at.slice(0, 10)}` : ""}` : ""}>
-                            <span className={`cellchip ${st.cls}`}>{st.label}</span>
+                          <td key={c}>
+                            <button
+                              type="button"
+                              className={`cellchip ${st.cls}`}
+                              style={{ cursor: "pointer", border: "none" }}
+                              title={tip}
+                              onClick={() => editCell(p.id, c)}
+                            >
+                              {st.label}
+                            </button>
                           </td>
                         );
                       })}
@@ -191,13 +258,21 @@ export default function Brand360Products({ brandId, products, certs, inventory, 
                 </tbody>
               </table>
             )}
-            <div className="note" style={{ marginTop: 8 }}>인증 만료 30일 전 자동 알림 · 갱신 작업 자동 생성</div>
+            <div className="note" style={{ marginTop: 8 }}>
+              셀 클릭 → 등록/수정 · 인증 만료 30일 전 자동 알림 · 갱신 작업 자동 생성
+            </div>
           </div>
         </div>
 
         {/* ── 초기 재고 투입 ── */}
         <div className="card">
-          <div className="hd"><b>초기 재고 투입</b></div>
+          <div className="hd">
+            <b>초기 재고 투입</b>
+            <div className="rt">
+              {/* 물류계약 등록·갱신은 서류·물류 탭(logistics_contracts 원장)에서 — 탭 점프 */}
+              <TabJumpButton label="서류·물류" className="btn sm">물류계약 등록 →</TabJumpButton>
+            </div>
+          </div>
           <div className="bd">
             {inventory.length === 0 ? (
               <div className="note">

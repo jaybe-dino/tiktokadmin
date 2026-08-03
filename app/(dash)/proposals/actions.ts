@@ -22,6 +22,10 @@ export interface ProposalActionResult {
   breakdown?: string;
   /** 할인 20% 초과 — 발송 보류, 파트장 결재 요청됨(결재함). */
   pendingApproval?: boolean;
+  /** 담당자 이메일 발송 초안이 초안함(email_drafts)에 생성됨 — 승인 후 발송. */
+  draftReady?: boolean;
+  /** 초안 미생성 사유 등 부가 안내. */
+  note?: string;
 }
 
 // 추가 할인 결재선 기준: 20% 초과는 파트장(lead) 결재 필요.
@@ -38,10 +42,29 @@ export async function createAndSendProposalAction(input: {
   send?: boolean;
   /** 추가 할인 % (0~100). 20% 초과 시 발송 대신 파트장 결재 요청. */
   discountPct?: number;
+  /** 계약서 첨부 — 구글드라이브 링크(수기). */
+  contractFileUrl?: string;
+  /** 계약기간(자유 텍스트, 예: "12개월"). */
+  contractTerm?: string;
+  /** 매월 결제일(1~31). */
+  billingDay?: number;
 }): Promise<ProposalActionResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!input.brand_id) return { ok: false, error: "브랜드를 선택하세요." };
+
+  const contractFileUrl = (input.contractFileUrl ?? "").trim();
+  if (contractFileUrl && !/^https:\/\//.test(contractFileUrl)) {
+    return { ok: false, error: "계약서 링크는 https:// 로 시작해야 합니다." };
+  }
+  const contractTerm = (input.contractTerm ?? "").trim();
+  const billingDay =
+    input.billingDay === undefined || input.billingDay === null || Number.isNaN(input.billingDay)
+      ? null
+      : Number(input.billingDay);
+  if (billingDay !== null && (!Number.isInteger(billingDay) || billingDay < 1 || billingDay > 31)) {
+    return { ok: false, error: "매월 결제일은 1~31 사이여야 합니다." };
+  }
 
   const discountPct = Number(input.discountPct ?? 0);
   if (!Number.isFinite(discountPct) || discountPct < 0 || discountPct > 100) {
@@ -85,6 +108,9 @@ export async function createAndSendProposalAction(input: {
             term: input.term,
             discountPct,
             quote_amount: q.total,
+            contract_file_url: contractFileUrl || null,
+            contract_term: contractTerm || null,
+            billing_day: billingDay,
             requested_by: `admin:${u.id}`,
           }),
           `admin:${u.id}`,
@@ -113,14 +139,131 @@ export async function createAndSendProposalAction(input: {
     return { ok: false, error: "제안서 저장 실패" };
   }
 
+  // 계약 조건 저장(0020) — 계약서 드라이브 링크 · 계약기간 · 매월 결제일.
+  await query(
+    `UPDATE proposals
+        SET contract_file_url = $2, contract_term = $3, billing_day = $4
+      WHERE id = $1`,
+    [id, contractFileUrl || null, contractTerm || null, billingDay],
+  ).catch(() => {});
+
+  // 미팅 직후 플로우 — 요약(summary_md)이 있는 브랜드면 타임라인에 제안 생성 로그.
+  //   brand_sources site CHECK('glovek','apply','tpartners','manual') → 'manual',
+  //   source_ref=proposal:{id} 로 멱등(UNIQUE(site,event,source_ref)).
+  const hasMeetingSummary = await query<{ id: string }>(
+    "SELECT id FROM meetings WHERE brand_id=$1 AND summary_md IS NOT NULL LIMIT 1",
+    [input.brand_id],
+  ).catch(() => []);
+  if (hasMeetingSummary.length > 0) {
+    await query(
+      `INSERT INTO brand_sources (brand_id, site, event, source_ref, payload, occurred_at)
+       VALUES ($1, 'manual', 'contact_logged', $2, $3, now())
+       ON CONFLICT (site, event, source_ref) DO NOTHING`,
+      [
+        input.brand_id,
+        `proposal:${id}`,
+        JSON.stringify({ kind: "proposal_sent", proposal_id: id }),
+      ],
+    ).catch(() => {});
+  }
+
   if (input.send) {
     // 발송 기록(sent_at 스탬프) — 계약검토 게이트 조건.
     await setProposalV2Status(id, "sent").catch(() => {});
+    // 발송 후 2~3일 미계약 팔로업 기한 = sent_at + 3일 (간이 크론 checkProposalFollowups 가 점검).
+    await query(
+      "UPDATE proposals SET followup_due = (sent_at + interval '3 days')::date WHERE id=$1 AND sent_at IS NOT NULL",
+      [id],
+    ).catch(() => {});
   }
 
+  // 담당자 이메일 발송 준비 — 초안함(email_drafts) 초안 생성.
+  //   kind 는 email_drafts 에 CHECK 없음 → 수신동의 게이트(lifecycle TRANSACTIONAL_KINDS)에
+  //   포함된 거래성 'doc_request' 사용(상담 후속 계약서류 안내). 실제 발송은 초안함 승인 경유.
+  const draft = await draftProposalEmail(id, input.brand_id, {
+    plan: input.plan,
+    countries: input.countries,
+    term: input.term,
+    quote: q.total,
+    contractFileUrl,
+    contractTerm,
+    billingDay,
+  });
+
   revalidatePath("/proposals");
+  revalidatePath("/drafts");
   revalidatePath(`/brand/${input.brand_id}`);
-  return { ok: true, quote: q.total, breakdown: q.breakdown };
+  return {
+    ok: true,
+    quote: q.total,
+    breakdown: q.breakdown,
+    draftReady: draft.ok,
+    note: draft.ok
+      ? "발송 초안이 초안함에 생성되었습니다 — 초안함에서 승인 후 실제 발송됩니다."
+      : draft.note,
+  };
+}
+
+// 제안서 발송용 이메일 초안 생성(초안함 경유). 실패해도 제안서 생성은 유지한다.
+async function draftProposalEmail(
+  proposalId: string,
+  brandId: string,
+  d: {
+    plan: string;
+    countries: string[];
+    term: string;
+    quote: number;
+    contractFileUrl: string;
+    contractTerm: string;
+    billingDay: number | null;
+  },
+): Promise<{ ok: boolean; note?: string }> {
+  const { queryOne } = await import("@/lib/db");
+  const b = await queryOne<{ brand_name: string; email: string | null }>(
+    "SELECT brand_name, email FROM brands WHERE id=$1",
+    [brandId],
+  ).catch(() => null);
+  if (!b) return { ok: false, note: "브랜드 조회 실패 — 발송 초안 미생성" };
+  if (!b.email) {
+    return { ok: false, note: "브랜드 담당자 이메일 미등록 — 발송 초안 미생성(회사정보에서 입력)" };
+  }
+
+  // 중복 방지: 같은 제안서로 대기 중(draft) 초안이 있으면 새로 만들지 않는다.
+  const dup = await queryOne<{ id: string }>(
+    "SELECT id FROM email_drafts WHERE proposal_id=$1 AND status='draft'",
+    [proposalId],
+  ).catch(() => null);
+  if (dup) return { ok: true };
+
+  const planLabel = PLAN_KO[d.plan] ?? d.plan;
+  const termLabel = d.term === "6month" ? "6개월 약정" : "3개월(월단위)";
+  const subject = `[GloveK] ${b.brand_name} 글로벌 진출 제안서 안내`;
+  const body = [
+    `안녕하세요, ${b.brand_name} 담당자님.`,
+    "",
+    "GloveK 제안 내용을 안내드립니다.",
+    `· 플랜: ${planLabel} (${termLabel})`,
+    d.countries.length > 0 ? `· 대상 국가: ${d.countries.join(", ")}` : null,
+    `· 견적: ${d.quote.toLocaleString("ko-KR")}원 + VAT`,
+    d.contractTerm ? `· 계약기간: ${d.contractTerm}` : null,
+    d.billingDay !== null ? `· 매월 결제일: ${d.billingDay}일` : null,
+    d.contractFileUrl ? `· 계약서: ${d.contractFileUrl}` : null,
+    "",
+    "검토 후 회신 주시면 계약 절차를 안내드리겠습니다.",
+    "",
+    "감사합니다.",
+    "GloveK 드림",
+  ]
+    .filter((l): l is string => l !== null)
+    .join("\n");
+
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO email_drafts (brand_id, kind, to_email, subject, body_md, status, proposal_id)
+     VALUES ($1, 'doc_request', $2, $3, $4, 'draft', $5) RETURNING id`,
+    [brandId, b.email, subject, body, proposalId],
+  ).catch(() => null);
+  if (!row) return { ok: false, note: "발송 초안 저장 실패" };
+  return { ok: true };
 }
 
 // 목록 행 상태 스텝 이동. 허용된 전이만 통과시킨다.
@@ -152,6 +295,14 @@ export async function setProposalStatusV2Action(
   }
 
   await setProposalV2Status(id, status);
+
+  if (status === "sent") {
+    // 발송 후 2~3일 미계약 팔로업 기한 = sent_at + 3일.
+    await query(
+      "UPDATE proposals SET followup_due = (sent_at + interval '3 days')::date WHERE id=$1 AND sent_at IS NOT NULL",
+      [id],
+    ).catch(() => {});
+  }
 
   revalidatePath("/proposals");
   revalidatePath(`/brand/${brandId ?? cur.brand_id}`);

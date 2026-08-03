@@ -2,6 +2,7 @@ import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { query } from "@/lib/db";
 import ConnectBrand from "./ConnectBrand";
+import MeetingEditor, { type CalendarMeeting } from "./MeetingEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -56,10 +57,20 @@ function weekDays(): { ymd: string; label: string; isToday: boolean }[] {
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 9); // 09~19시
 
 export default async function MeetingsPage() {
+  // 지정인(호스트) 이름 + 참석자·줌링크(0019)까지 조회 — 캘린더 블록·수정 레이어에 사용.
   const rows = (await query(
     `SELECT m.id, m.topic, m.status, m.followup_status, m.scheduled_at, m.started_at,
-        b.brand_name, b.id AS brand_id
-       FROM meetings m LEFT JOIN brands b ON b.id=m.brand_id
+        m.host_email, m.zoom_join_url, m.attendees,
+        b.brand_name, b.id AS brand_id, hu.name AS host_name
+       FROM meetings m
+       LEFT JOIN brands b ON b.id=m.brand_id
+       LEFT JOIN LATERAL (
+         SELECT au.name FROM admin_users au
+          WHERE au.id = m.host_email
+             OR (au.zoom_email IS NOT NULL AND m.host_email IS NOT NULL
+                 AND lower(au.zoom_email) = lower(m.host_email))
+          LIMIT 1
+       ) hu ON true
       ORDER BY COALESCE(m.scheduled_at, m.created_at) DESC LIMIT 200`,
   ).catch(() => [])) as Record<string, unknown>[];
 
@@ -122,12 +133,25 @@ export default async function MeetingsPage() {
               return (
                 <div key={`${d.ymd}-${h}`} className="c">
                   {items.map((m) => {
-                    const label = `${(m.brand_name as string) || "미매칭"} · ${(m.topic as string) || "미팅"}`;
-                    const cls = `mtg ${mtgClass(m.status as string)}`;
-                    return m.brand_id ? (
-                      <Link key={m.id as string} href={`/brand/${m.brand_id}`} className={cls} title={label}>{label}</Link>
-                    ) : (
-                      <div key={m.id as string} className={cls} title={label}>{label}</div>
+                    // 지정인(호스트)별 표시 유지 + 클릭 시 참석자·일시 수정 레이어.
+                    const meeting: CalendarMeeting = {
+                      id: m.id as string,
+                      topic: (m.topic as string) || "",
+                      status: m.status as string,
+                      brand_id: (m.brand_id as string) ?? null,
+                      brand_name: (m.brand_name as string) ?? null,
+                      scheduled_at: (m.scheduled_at as string) ?? null,
+                      host_email: (m.host_email as string) ?? null,
+                      host_name: (m.host_name as string) ?? null,
+                      zoom_join_url: (m.zoom_join_url as string) ?? null,
+                      attendees: (m.attendees as { name?: string; email: string }[]) ?? [],
+                    };
+                    return (
+                      <MeetingEditor
+                        key={m.id as string}
+                        meeting={meeting}
+                        cls={`mtg ${mtgClass(m.status as string)}`}
+                      />
                     );
                   })}
                 </div>

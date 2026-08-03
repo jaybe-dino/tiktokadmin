@@ -2,6 +2,38 @@
 import { query, queryOne } from "./db";
 import { env } from "./env";
 import { canSend } from "./lifecycle";
+import { createShortLink, isDriveUrl } from "./shortlink";
+
+/**
+ * 발송 직전 본문의 구글 드라이브 링크를 쇼트링크로 치환 (기획확정 8절 · 첨부 발송).
+ *   drive.google.com / docs.google.com URL → SHORTLINK_BASE/코드 (브랜드 연결·클릭 트래킹).
+ *   같은 URL 은 한 번만 생성해 재사용. 어느 단계든 실패하면 원본 본문 그대로 반환.
+ */
+async function shortenDriveLinks(bodyMd: string, brandId: string, createdBy: string): Promise<string> {
+  try {
+    const urlRe = /https?:\/\/[^\s<>()"'\]]+/g;
+    const found = bodyMd.match(urlRe) ?? [];
+    const driveUrls = [...new Set(found.filter(isDriveUrl))];
+    if (driveUrls.length === 0) return bodyMd;
+
+    const replacements = new Map<string, string>();
+    for (const url of driveUrls) {
+      const link = await createShortLink(url, {
+        brandId, createdBy, label: "드라이브 첨부(초안함 발송)",
+      });
+      replacements.set(url, link.url);
+    }
+    let out = bodyMd;
+    // 긴 URL 부터 치환 — 접두 관계 URL(같은 문서의 하위 경로) 오치환 방지
+    for (const url of [...replacements.keys()].sort((a, b) => b.length - a.length)) {
+      out = out.split(url).join(replacements.get(url)!);
+    }
+    return out;
+  } catch (e) {
+    console.error("[drafts] 드라이브 쇼트링크 치환 실패 — 원본 유지", (e as Error).message);
+    return bodyMd;
+  }
+}
 
 export interface EmailDraft {
   id: string; brand_id: string; brand_name: string; meeting_id: string | null;
@@ -55,16 +87,21 @@ export async function approveAndSend(
     return { ok: true, sent: false };
   }
 
+  // 발송 직전 드라이브 링크 → 쇼트링크 치환 (실패 시 원본 유지)
+  const bodyToSend = await shortenDriveLinks(d.body_md, d.brand_id, editedBy);
+
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { authorization: `Bearer ${env.resend.apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ from: env.resend.from, to: d.to_email, subject: d.subject, text: d.body_md }),
+      body: JSON.stringify({ from: env.resend.from, to: d.to_email, subject: d.subject, text: bodyToSend }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, error: data.message ?? "발송 실패", sent: false };
-    await query("UPDATE email_drafts SET status='sent', edited_by=$2, sent_at=now(), resend_id=$3 WHERE id=$1",
-      [id, editedBy, data.id ?? null]);
+    // body_md 는 실제 발송본(쇼트링크 치환 반영)으로 보존 — 기록·클릭 추적 대조용
+    await query(
+      "UPDATE email_drafts SET status='sent', edited_by=$2, sent_at=now(), resend_id=$3, body_md=$4 WHERE id=$1",
+      [id, editedBy, data.id ?? null, bodyToSend]);
     // 연결된 수신 메일이 있으면 회신 완료로 표시
     if (d.in_reply_to) {
       await query("UPDATE email_messages SET reply_state='replied' WHERE id=$1", [d.in_reply_to]).catch(() => {});

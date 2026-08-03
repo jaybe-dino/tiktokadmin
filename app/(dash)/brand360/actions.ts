@@ -187,3 +187,67 @@ ${prodLines}
   if (!md) return { ok: false, error: "AI 분석 생성 실패 (잠시 후 재시도)" };
   return { ok: true, md: md.trim() };
 }
+
+// ═══ 셋업 — 브랜드별 제품/인증/물류 보강 (PLAN 8절) ═══════════
+// @/app/actions.ts 수정 금지 규칙에 따라, 기존 upsertCertAction/upsertLogisticsAction 이
+// 받지 못하던 입력(서류링크=note·발급일·계약 시작일)을 이 화면 액션으로 확장한다.
+// 저장처는 어드민 원장 테이블(product_certs·logistics_contracts)뿐 — glovek 원본은 읽기전용.
+import { upsertCert as repoUpsertCert, upsertLogistics as repoUpsertLogistics } from "@/lib/repo/card";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CERT_STATUSES = new Set(["none", "preparing", "submitted", "ready", "rejected", "expired"]);
+const LOGI_STATUSES = new Set(["none", "negotiating", "contracted", "active", "expired"]);
+
+function dateOrNull(v?: string | null): string | null {
+  const s = (v ?? "").trim();
+  return DATE_RE.test(s) ? s : null;
+}
+
+/** 인증 등록·수정(전체 필드) — 기존 컬럼 범위(issued_at·expires_at·note=서류링크/메모). */
+export async function upsertCertFullAction(brandId: string, input: {
+  product_id: string; country: string; cert_type: string; status?: string;
+  cert_number?: string; issued_at?: string | null; expires_at?: string | null; note?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!UUID_RE.test(brandId)) return { ok: false, error: "잘못된 브랜드 ID" };
+  if (!UUID_RE.test(input.product_id)) return { ok: false, error: "제품을 선택하세요" };
+  const certType = (input.cert_type ?? "").trim();
+  if (!certType) return { ok: false, error: "인증 종류를 입력하세요" };
+  // 제품이 이 브랜드 소속인지 확인(다른 브랜드 제품에 인증이 붙는 것 방지).
+  const owns = await queryOne<{ id: string }>(
+    "SELECT id FROM products_master WHERE id=$1 AND brand_id=$2", [input.product_id, brandId]);
+  if (!owns) return { ok: false, error: "이 브랜드의 제품이 아닙니다" };
+  const status = CERT_STATUSES.has(input.status ?? "") ? input.status! : "preparing";
+  await repoUpsertCert({
+    product_id: input.product_id, country: input.country, cert_type: certType, status,
+    cert_number: (input.cert_number ?? "").trim(),
+    issued_at: dateOrNull(input.issued_at), expires_at: dateOrNull(input.expires_at),
+    note: (input.note ?? "").trim(),
+  });
+  revalidatePath(`/brand/${brandId}`);
+  revalidatePath("/products");
+  return { ok: true };
+}
+
+/** 물류 계약 등록(전체 필드) — 시작일·계약서/서류 링크(note) 포함. */
+export async function upsertLogisticsFullAction(input: {
+  brand_id: string; country: string; provider?: string; status?: string;
+  warehouse_region?: string; start_date?: string | null; end_date?: string | null; note?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!UUID_RE.test(input.brand_id)) return { ok: false, error: "잘못된 브랜드 ID" };
+  const country = (input.country ?? "").trim().toUpperCase();
+  if (!country) return { ok: false, error: "국가를 선택하세요" };
+  const status = LOGI_STATUSES.has(input.status ?? "") ? input.status! : "none";
+  await repoUpsertLogistics({
+    brand_id: input.brand_id, country,
+    provider: (input.provider ?? "").trim(), status,
+    warehouse_region: (input.warehouse_region ?? "").trim(),
+    start_date: dateOrNull(input.start_date), end_date: dateOrNull(input.end_date),
+    note: (input.note ?? "").trim(),
+  });
+  revalidatePath(`/brand/${input.brand_id}`);
+  return { ok: true };
+}
