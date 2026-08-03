@@ -1,0 +1,49 @@
+# GloveK 운영 어드민 — Slack 앱 매니페스트
+#   api.slack.com/apps → Create New App → "From a manifest" 에 아래 전체를 붙여넣기.
+#   (도메인이 tiktokadmin.vercel.app 이 아니면 아래 URL 4곳을 실제 도메인으로 교체)
+display_information:
+  name: GloveK 운영봇
+  description: 리드 유입·SLA·정산 알림 및 자연어 질의(원장 조회)
+  background_color: "#e6006e"
+features:
+  bot_user:
+    display_name: glovek
+    always_online: true
+  slash_commands:
+    - command: /brand
+      url: https://tiktokadmin.vercel.app/api/slack/commands
+      description: 브랜드 카드 조회
+      usage_hint: "[브랜드명 또는 도메인]"
+      should_escape: false
+    - command: /today
+      url: https://tiktokadmin.vercel.app/api/slack/commands
+      description: 오늘 할 일·미팅 요약
+      should_escape: false
+    - command: /sla
+      url: https://tiktokadmin.vercel.app/api/slack/commands
+      description: SLA 위반 목록
+      should_escape: false
+    - command: /ask
+      url: https://tiktokadmin.vercel.app/api/slack/commands
+      description: 자연어로 원장에 질의
+      usage_hint: "[질문]"
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write        # 채널·DM 메시지 발송/수정 (알림·결재 카드)
+      - commands          # 슬래시 커맨드
+      - app_mentions:read # @glovek 멘션 질의 수신
+      - im:write          # 담당자에게 DM(1:1 알림·에스컬레이션 T1)
+      - users:read        # 슬랙 사용자 ↔ 담당자 매핑
+settings:
+  event_subscriptions:
+    request_url: https://tiktokadmin.vercel.app/api/slack/events
+    bot_events:
+      - app_mention       # @glovek 자연어 질의
+  interactivity:
+    is_enabled: true
+    request_url: https://tiktokadmin.vercel.app/api/slack/actions   # 버튼(승인/전이) 응답
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
