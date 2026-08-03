@@ -41,7 +41,9 @@ export async function GET() {
     anthropic: Boolean(env.anthropicKey),
     openai: Boolean(env.openaiKey),
     gmail: Boolean(env.gmail.saKeyJson),
-    slack: Boolean(env.slack.botToken),
+    slack: Boolean(env.slack.botToken && env.slack.signingSecret),
+    meta: Boolean(env.meta.verifyToken && env.meta.accessToken),
+    zoom: Boolean(env.zoom.accountId && env.zoom.clientId && env.zoom.clientSecret),
   };
 
   out.latencyMs = Date.now() - started;
