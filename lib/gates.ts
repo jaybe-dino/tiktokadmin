@@ -95,6 +95,17 @@ function eq(field: keyof Brand, value: string, label: string): Rule {
   return { key: `eq:${String(field)}=${value}`, label, test: (c) => c.brand[field] === value };
 }
 
+// 기획 확정: 운영(live) 전이 전 등급 5대 지표(q1~q5) 전부 입력 필수(충족/미충족 무관, 미입력만 차단)
+const gradeChecksComplete: Rule = {
+  key: "gradeChecksComplete",
+  label: "등급 5대 지표 미입력 — 브랜드360에서 담당 보정 입력 필요",
+  test: (c) => {
+    const gc = (c.brand as unknown as Record<string, unknown>).grade_checks as Record<string, boolean> | null;
+    if (!gc) return false;
+    return (["q1", "q2", "q3", "q4", "q5"] as const).every((k) => k in gc);
+  },
+};
+
 export const GATES: Record<string, Rule[]> = {
   "lead_new→meeting": [hasContact, hasEmailOrPhone, hasSource, assigned("owner_intake", "유입담당 미지정")],
   "seminar→meeting": [hasContact, assigned("owner_intake", "유입담당 미지정")],
@@ -104,8 +115,8 @@ export const GATES: Record<string, Rule[]> = {
   "contract_review→contract_done": [paymentConfirmed],
   "contract_done→docs": [assigned("owner_onboard", "온보딩담당 미지정"), docTemplateCreated],
   "docs→setup": [allDocsDone, hasBizNo],
-  "setup→live_mall": [eq("contract_type", "mall", "계약형태 mall 아님"), assigned("owner_ads", "광고담당 미지정")],
-  "setup→live_onboarding": [eq("contract_type", "onboarding", "계약형태 onboarding 아님"), assigned("owner_ads", "광고담당 미지정")],
+  "setup→live_mall": [eq("contract_type", "mall", "계약형태 mall 아님"), assigned("owner_ads", "광고담당 미지정"), gradeChecksComplete],
+  "setup→live_onboarding": [eq("contract_type", "onboarding", "계약형태 onboarding 아님"), assigned("owner_ads", "광고담당 미지정"), gradeChecksComplete],
   "live_mall→settling": [eq("pay_status", "subscribed", "구독상태 아님"), hasFirstPerformance],
   "live_onboarding→settling": [hasFirstPerformance],
 };

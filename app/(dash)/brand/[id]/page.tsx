@@ -7,6 +7,7 @@ import Brand360Contacts from "@/components/Brand360Contacts";
 import Brand360Contract from "@/components/Brand360Contract";
 import Brand360Docs from "@/components/Brand360Docs";
 import Brand360GateCard, { type GateView } from "@/components/Brand360GateCard";
+import GradeChecksCard from "@/components/GradeChecksCard";
 import Brand360Header from "@/components/Brand360Header";
 import Brand360Meetings, { type DraftRow, type MeetingRow } from "@/components/Brand360Meetings";
 import Brand360Products from "@/components/Brand360Products";
@@ -153,8 +154,15 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
       <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
         <Brand360GateCard brandId={brand.id} gate={gate} gateNext={gateNext} stageReqs={stageReqs} />
 
+        {/* 기획 확정: 담당자 보정 + 미입력 "입력 필요" + 운영 전이 전 전부 입력 */}
+        <GradeChecksCard
+          brandId={brand.id}
+          initial={((brand as unknown as Record<string, unknown>).grade_checks as Record<string, boolean>) ?? {}}
+          grade={brand.grade}
+        />
+
         <div className="card">
-          <div className="hd"><b>등급 5대 지표</b>{brand.grade && <GradeBadge grade={brand.grade} />}</div>
+          <div className="hd"><b>진단 시그널</b>{brand.grade && <GradeBadge grade={brand.grade} />}</div>
           <div className="bd" style={{ fontSize: 12.5 }}>
             {brand.grade ? (
               <div className="gi" style={{ display: "flex", gap: 8, padding: "4px 0" }}>
