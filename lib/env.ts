@@ -36,6 +36,10 @@ export const env = {
   get ingestSecret() {
     return req("INGEST_SECRET");
   },
+  /** 커넥터 리드훅(/api/leadhook) 시크릿 — 미설정 시 INGEST_SECRET 폴백. */
+  get leadhookSecret() {
+    return opt("LEADHOOK_SECRET") || opt("INGEST_SECRET");
+  },
   get sessionSecret() {
     return req("ADMIN_SESSION_SECRET");
   },
