@@ -118,7 +118,8 @@ export const env = {
     get userId() { return opt("ALIGO_USER_ID"); },
     get sender() { return opt("ALIGO_SENDER"); },        // 사전등록 발신번호
     get testMode() { return opt("ALIGO_TEST_MODE").toUpperCase() === "Y"; },
-    get proxyUrl() { return opt("ALIGO_PROXY_URL"); },    // 고정 IP 프록시(선택) — Aligo 발송IP 등록용
+    // 고정 IP 프록시 — Aligo 발송IP 등록용. Fixie Vercel 연동은 FIXIE_URL 로 자동 주입되므로 폴백.
+    get proxyUrl() { return opt("ALIGO_PROXY_URL") || opt("FIXIE_URL"); },
   },
 };
 
