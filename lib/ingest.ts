@@ -52,10 +52,12 @@ const LEAD_STATE: Record<string, State> = {
 
 /**
  * 결제 이벤트 → 브랜드에 적용할 효과(순수). 02 §3-3.
- *  · subscribe_first + live_focus_490k(멀티몰 정기) → 계약(mall), 퍼널 contract_done 전진
- *  · subscribe_first + pro_89k(Pro SaaS, 별도 상품군) → 구독 표시만, 퍼널 전진/계약 없음
- *  · once(apply 온보딩 일회) → 계약(onboarding), contract_done 전진
+ *  · subscribe_first + live_focus_490k(멀티몰 정기) → 계약(mall), candidate=contract_done
+ *  · subscribe_first + pro_89k(Pro SaaS, 별도 상품군) → 구독 표시만, candidate/계약 없음
+ *  · once(apply 온보딩 일회) → 계약(onboarding), candidate=contract_done
  *  · renew/fail → pay_status 만, 상태 불변 / cancel → canceled
+ * 기획 확정: candidate 는 더 이상 자동 전진에 쓰지 않는다 — 결제 확인 알림
+ * (payment_confirmed)만 남기고 전진은 담당이 게이트 경유 수동으로 진행.
  */
 export function resolvePaymentEffect(
   payKind: string,
@@ -298,9 +300,13 @@ async function handleEvent(
       });
 
       const reloaded = (await getBrand(brand.id))!;
+      // 기획 확정: 결제 확인 시 상태 자동 전진 금지 — 전진은 담당이 게이트 경유 수동.
+      // candidate(contract_done 등)가 있어도 state 는 건드리지 않고 검토 알림만 남긴다.
+      // (pay_status/plan/contract_type 필드 갱신은 위 setFields 로 유지 — 그건 전진이 아님)
       if (candidate) {
-        await advanceStateIfAhead(reloaded, candidate, d.site);
-        // contract_done 도달 → 서류 템플릿
+        await upsertAlert(brand.id, "payment_confirmed", 1,
+          `${reloaded.brand_name} 결제 확인 — 상태 전진 검토`);
+        // 이미 contract_done 이상 도달한 브랜드는 기존대로 서류 템플릿 보장.
         const ct = contractType ?? reloaded.contract_type;
         if (reloaded.state === "contract_done" && ct) await ensureDocTemplate(reloaded.id, ct);
       }

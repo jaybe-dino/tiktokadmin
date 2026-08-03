@@ -79,12 +79,56 @@ async function summarize(transcript: string, topic: string): Promise<string> {
   return text.trim();
 }
 
-/** 노쇼 감지 (08 §3-0-5): scheduled + 예약시각+24h 경과 + recording 미수신. */
+/** 노쇼 감지 (08 §3-0-5): scheduled + 예약시각+24h 경과 + recording 미수신.
+ *  판정 시 후처리(영업 파트 기획 확정):
+ *   · 브랜드별 재예약 안내 메일 초안(email_drafts, kind='followup') 생성 — 동일 kind draft 존재 시 스킵(멱등)
+ *   · 노쇼 2회 이상 브랜드는 alerts(kind='noshow_repeat', tier 1) upsert
+ */
 export async function detectNoShows(): Promise<number> {
-  const res = await query<{ id: string }>(
+  const res = await query<{ id: string; brand_id: string | null }>(
     `UPDATE meetings SET status='no_show'
       WHERE status='scheduled' AND scheduled_at IS NOT NULL
         AND scheduled_at < now() - interval '24 hours'
-      RETURNING id`);
+      RETURNING id, brand_id`);
+
+  const brandIds = [...new Set(res.map((r) => r.brand_id).filter((b): b is string => !!b))];
+  for (const brandId of brandIds) {
+    try {
+      const brand = await queryOne<Brand>("SELECT * FROM brands WHERE id=$1", [brandId]);
+      if (!brand) continue;
+
+      // 재예약 안내 초안 — 브랜드당 동일 kind 의 draft 가 이미 있으면 스킵(멱등).
+      const dup = await queryOne<{ id: string }>(
+        "SELECT id FROM email_drafts WHERE brand_id=$1 AND kind='followup' AND status='draft' LIMIT 1",
+        [brandId]);
+      if (!dup) {
+        const subject = `[GloveK] ${brand.brand_name} 미팅 재예약 안내`;
+        const body = [
+          `${brand.contact_name || brand.brand_name}님, 안녕하세요. GloveK입니다.`,
+          ``,
+          `예정되었던 미팅이 진행되지 못한 것으로 확인되어 연락드립니다.`,
+          `일정이 여의치 않으셨다면 편하신 시간대를 회신 주시면 미팅을 다시 잡아드리겠습니다.`,
+          ``,
+          `가능하신 날짜/시간 2~3개를 알려주시면 빠르게 재예약 도와드리겠습니다.`,
+          ``,
+          `감사합니다.`,
+        ].join("\n");
+        await query(
+          `INSERT INTO email_drafts (brand_id, kind, to_email, subject, body_md, status)
+           VALUES ($1,'followup',$2,$3,$4,'draft')`,
+          [brandId, brand.email ?? "", subject, body]);
+      }
+
+      // 2회 이상 노쇼 → 반복 노쇼 알림(브랜드당 kind 1행 upsert 패턴).
+      const cnt = await queryOne<{ n: number }>(
+        "SELECT count(*)::int AS n FROM meetings WHERE brand_id=$1 AND status='no_show'",
+        [brandId]);
+      if ((cnt?.n ?? 0) >= 2) {
+        const { upsertAlert } = await import("./repo/alerts");
+        await upsertAlert(brandId, "noshow_repeat", 1,
+          `${brand.brand_name} · 미팅 노쇼 ${cnt!.n}회 — 재예약/이탈 검토`);
+      }
+    } catch { /* 후처리 실패는 노쇼 판정 자체에 영향 없음 */ }
+  }
   return res.length;
 }

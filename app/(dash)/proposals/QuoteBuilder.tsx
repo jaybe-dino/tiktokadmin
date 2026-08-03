@@ -32,6 +32,7 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
   const [trackIdx, setTrackIdx] = useState(0);
   const [countries, setCountries] = useState<string[]>(["US"]);
   const [term, setTerm] = useState<QuoteTerm>("6month");
+  const [discountPct, setDiscountPct] = useState(0);
 
   const track = TRACKS[trackIdx];
   const isOnboarding = track.plan === "onboarding_onetime";
@@ -78,8 +79,13 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
         term,
         onboardingTier: track.onboardingTier,
         send: true,
+        discountPct,
       });
-      if (r.ok) {
+      if (r.ok && r.pendingApproval) {
+        // 결재선: 20% 초과 할인은 발송 보류, 파트장 결재 대기.
+        setMsg({ ok: true, text: "할인 20% 초과 — 파트장 결재 요청됨(결재함)" });
+        router.refresh();
+      } else if (r.ok) {
         setMsg({ ok: true, text: `발송 완료 — ${won(r.quote ?? 0)}` });
         router.refresh();
       } else {
@@ -156,6 +162,22 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
           <option value="monthly">3개월</option>
         </select>
 
+        <label style={lbl}>추가 할인 % (20% 초과 시 파트장 결재)</label>
+        <input
+          className="f"
+          type="number"
+          min={0}
+          max={100}
+          step={1}
+          value={discountPct}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setDiscountPct(
+              Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 0,
+            );
+          }}
+        />
+
         <hr className="hr" />
 
         <div className="kv">
@@ -165,12 +187,20 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
           <dd>{quote && quote.multiDiscount > 0 ? `-${won(quote.multiDiscount)}` : "—"}</dd>
           <dt>약정 할인</dt>
           <dd>{quote && quote.termDiscount > 0 ? `-${won(quote.termDiscount)}` : "—"}</dd>
+          <dt>추가 할인</dt>
+          <dd>
+            {quote && discountPct > 0
+              ? `-${won(Math.round(quote.total * (discountPct / 100)))} (${discountPct}%)`
+              : "—"}
+          </dd>
           <dt>
             <b>합계</b>
           </dt>
           <dd>
             <b style={{ fontSize: 15 }}>
-              {quote ? `${won(quote.total)} + VAT` : "— + VAT"}
+              {quote
+                ? `${won(Math.round(quote.total * (1 - discountPct / 100)))} + VAT`
+                : "— + VAT"}
               {quote?.recurring ? " / 월" : ""}
             </b>
           </dd>

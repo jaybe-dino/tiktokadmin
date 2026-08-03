@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
 
     // 승인 + 드랍 결재면 브랜드를 dropped 로 전이.
     // (게이트 검증 생략 — 결재 승인 자체가 승인선 통과로 간주)
+    // kind='discount'(제안서 할인 20% 초과)는 자동실행 없음 — 승인 기록만 남기고
+    // 제안서 생성·발송은 담당이 다시 진행한다.
     if (decision === "approved" && updated.kind === "drop" && updated.brand_id) {
       await query("UPDATE brands SET state='dropped' WHERE id=$1", [updated.brand_id]).catch(() => []);
     }

@@ -20,7 +20,12 @@ export interface ProposalActionResult {
   error?: string;
   quote?: number;
   breakdown?: string;
+  /** 할인 20% 초과 — 발송 보류, 파트장 결재 요청됨(결재함). */
+  pendingApproval?: boolean;
 }
+
+// 추가 할인 결재선 기준: 20% 초과는 파트장(lead) 결재 필요.
+const DISCOUNT_APPROVAL_THRESHOLD = 20;
 
 // 견적 빌더 "제안서 생성 → 발송".
 //   금액은 computeQuote 결과만 사용(수기 금액 금지). send=true 면 sent_at 기록까지.
@@ -31,10 +36,17 @@ export async function createAndSendProposalAction(input: {
   term: QuoteTerm;
   onboardingTier?: string;
   send?: boolean;
+  /** 추가 할인 % (0~100). 20% 초과 시 발송 대신 파트장 결재 요청. */
+  discountPct?: number;
 }): Promise<ProposalActionResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!input.brand_id) return { ok: false, error: "브랜드를 선택하세요." };
+
+  const discountPct = Number(input.discountPct ?? 0);
+  if (!Number.isFinite(discountPct) || discountPct < 0 || discountPct > 100) {
+    return { ok: false, error: "추가 할인은 0~100% 범위여야 합니다." };
+  }
 
   const isOnboarding = input.plan === "onboarding_onetime";
   if (!isOnboarding && input.countries.length === 0) {
@@ -57,6 +69,34 @@ export async function createAndSendProposalAction(input: {
     return { ok: false, error: "견적 계산 실패 — 트랙(플랜)을 확인하세요." };
   }
 
+  // 할인 결재선: 20% 초과는 생성·발송하지 않고 파트장 결재 요청만 남긴다.
+  // 승인 후 발송은 담당이 다시 진행(자동실행 없음 — /api/ops/approve 는 기록만).
+  if (discountPct > DISCOUNT_APPROVAL_THRESHOLD) {
+    try {
+      await query(
+        `INSERT INTO approval_requests (brand_id, kind, payload, requested_by)
+         VALUES ($1, 'discount', $2, $3)`,
+        [
+          input.brand_id,
+          JSON.stringify({
+            brand_id: input.brand_id,
+            plan: input.plan,
+            countries: input.countries,
+            term: input.term,
+            discountPct,
+            quote_amount: q.total,
+            requested_by: `admin:${u.id}`,
+          }),
+          `admin:${u.id}`,
+        ],
+      );
+    } catch {
+      return { ok: false, error: "결재 요청 저장 실패" };
+    }
+    revalidatePath("/proposals");
+    return { ok: true, pendingApproval: true, quote: q.total, breakdown: q.breakdown };
+  }
+
   let id: string;
   try {
     id = await addProposalV2({
@@ -65,7 +105,8 @@ export async function createAndSendProposalAction(input: {
       countries: input.countries,
       term: input.term,
       quote_amount: q.total,
-      discount_note: q.breakdown,
+      discount_note:
+        discountPct > 0 ? `${q.breakdown} | 추가할인 ${discountPct}%` : q.breakdown,
       by: `admin:${u.id}`,
     });
   } catch {

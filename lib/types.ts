@@ -127,7 +127,9 @@ export interface Brand {
   updated_at: string;
 }
 
-export type AlertKind = "sla_breach" | "gate_violation" | "doc_missing" | "pay_overdue" | "stale";
+export type AlertKind =
+  | "sla_breach" | "gate_violation" | "doc_missing" | "pay_overdue" | "stale"
+  | "noshow_repeat" | "payment_confirmed";
 
 // 목표국/인증국 옵션 (Notion 틱톡샵 DB 반영)
 export const COUNTRY_OPTIONS = ["미국", "베트남", "태국", "싱가포르", "필리핀", "말레이시아"] as const;
