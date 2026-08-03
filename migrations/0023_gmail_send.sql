@@ -14,3 +14,8 @@ ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS sent_via text;
 
 -- status 에 'gmail_drafted'(임시저장 완료, 담당자가 Gmail 에서 발송 예정) 허용.
 --   기존 status 는 free text(체크제약 없음)라 값만 추가로 사용 — DDL 변경 불필요.
+
+-- ── 수신동의 출처 기록 ────────────────────────────────────────
+--   개별 컨택 원칙: 팔로업은 게이트 통과(코드). 광고성 대량은 여전히 동의 필요.
+--   어드민에서 직원이 동의를 체크한 경우 근거를 남긴다('admin' | 'survey').
+ALTER TABLE brand_contacts ADD COLUMN IF NOT EXISTS consent_source text;

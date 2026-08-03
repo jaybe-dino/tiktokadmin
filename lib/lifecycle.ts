@@ -55,9 +55,12 @@ export async function runChurnChain(brandId: string, reason: string, actor: stri
 // 불명확·광고성 전부)는 수신동의 필요. 광고성 kind 열거 방식은 신규/모호한 kind가
 // 검사 없이 새어나가므로(#6) 거래성 화이트리스트로 반전한다.
 
-/** 동의 무관으로 항상 발송 가능한 명확한 거래성 kind. 이 집합 외는 전부 동의 필요. */
+/** 동의 무관으로 항상 발송 가능한 kind. 이 집합 외는 전부 동의 필요.
+ *   운영 원칙: 리드는 우리가 개별 컨택 → 팔로업·회신은 1:1 거래성 소통으로 취급(동의 무관).
+ *   광고성 대량(campaign·newsletter·bulk_email·reactivation·upsell)만 동의 게이트 유지. */
 const TRANSACTIONAL_KINDS = new Set([
   "payment_notice", "reminder", "doc_request", "settlement", "reply_transactional",
+  "followup", "reply", "proposal",  // 개별 컨택 — 1:1 소통이라 동의 무관 발송 허용
 ]);
 export function isTransactionalKind(kind: string): boolean {
   return TRANSACTIONAL_KINDS.has(kind);

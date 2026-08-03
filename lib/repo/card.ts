@@ -79,6 +79,7 @@ export interface BrandContact {
   id: string; brand_id: string; name: string; title: string;
   email: string | null; phone: string | null; role: string;
   is_primary: boolean; note: string; created_at: string;
+  marketing_consent: boolean | null;  // null=미확인
 }
 export function listContacts(brandId: string): Promise<BrandContact[]> {
   return query<BrandContact>(

@@ -425,6 +425,23 @@ export async function deleteContactAction(brandId: string, id: string): Promise<
   return { ok: true };
 }
 
+/** 연락처 수신동의 체크(직원이 서면·구두 동의 확보 시). 근거='admin' 기록. */
+export async function setContactConsentAction(
+  brandId: string, id: string, consent: boolean,
+): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { query } = await import("@/lib/db");
+  await query(
+    `UPDATE brand_contacts SET marketing_consent=$2,
+       consent_at=CASE WHEN $2 THEN now() ELSE NULL END,
+       consent_source=CASE WHEN $2 THEN 'admin' ELSE NULL END
+     WHERE id=$1 AND brand_id=$3`,
+    [id, consent, brandId]);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 export async function addProductAction(input: {
   brand_id: string; name_kr: string; name_en?: string; category?: string; sku?: string; price_band?: string;
 }): Promise<ActionResult> {

@@ -4,7 +4,7 @@
 // + 인물 추가(addContactAction) · 삭제(deleteContactAction) 배선.
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addContactAction, deleteContactAction } from "@/app/actions";
+import { addContactAction, deleteContactAction, setContactConsentAction } from "@/app/actions";
 import type { BrandContact } from "@/lib/repo/card";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -77,7 +77,23 @@ export default function Brand360Contacts({ brandId, contacts }: { brandId: strin
               </div>
               <div className="ss">{[c.email, c.phone, c.note].filter(Boolean).join(" · ") || "연락처 미입력"}</div>
             </div>
-            <div className="rt">
+            <div className="rt" style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <button
+                className="chip"
+                title="광고성 대량발송 수신동의 — 개별 컨택은 동의 없이도 발송됩니다"
+                style={{ fontSize: 10, cursor: "pointer",
+                  background: c.marketing_consent ? "#eefcf3" : "#f3f4f6",
+                  color: c.marketing_consent ? "#0a7d3c" : "#9ca3af" }}
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    await setContactConsentAction(brandId, c.id, !c.marketing_consent);
+                    router.refresh();
+                  })
+                }
+              >
+                {c.marketing_consent ? "✓ 수신동의" : "수신동의"}
+              </button>
               <button
                 className="btn sm"
                 disabled={pending}
