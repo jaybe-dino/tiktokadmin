@@ -109,8 +109,15 @@ export async function approveAndSend(
   }
 
   // 원자적 클레임 — draft→sending 을 한 번에 선점. 동시 요청은 여기서 걸러져 이중발송 방지.
-  const claimed = await queryOne<{ id: string }>(
-    "UPDATE email_drafts SET status='sending' WHERE id=$1 AND status='draft' RETURNING id", [id]);
+  //   status 제약(0026) 미적용 시 'sending' 이 CHECK 위반 → try 로 감싸 안내(화면 크래시 방지).
+  let claimed: { id: string } | null;
+  try {
+    claimed = await queryOne<{ id: string }>(
+      "UPDATE email_drafts SET status='sending' WHERE id=$1 AND status='draft' RETURNING id", [id]);
+  } catch (e) {
+    const msg = (e as Error).message;
+    return { ok: false, sent: false, error: /status/.test(msg) ? "마이그레이션 필요(0026) — /api/admin/migrate 실행 후 재시도" : msg };
+  }
   if (!claimed) return { ok: false, error: "이미 처리 중이거나 완료된 초안", sent: false };
 
   // 발송 직전 드라이브 링크 → 쇼트링크 치환 (실패 시 원본 유지)
@@ -193,8 +200,13 @@ export async function saveToGmailDraft(
   });
   if (!r.ok) return { ok: false, error: r.error };
 
-  await query(
-    "UPDATE email_drafts SET status='gmail_drafted', gmail_draft_id=$2, body_md=$3, edited_by=$4 WHERE id=$1",
-    [id, r.draftId ?? null, bodyToSend, editedBy]);
+  try {
+    await query(
+      "UPDATE email_drafts SET status='gmail_drafted', gmail_draft_id=$2, body_md=$3, edited_by=$4 WHERE id=$1",
+      [id, r.draftId ?? null, bodyToSend, editedBy]);
+  } catch (e) {
+    const msg = (e as Error).message;
+    return { ok: false, error: /status/.test(msg) ? "마이그레이션 필요(0026) — /api/admin/migrate 실행 후 재시도" : msg };
+  }
   return { ok: true };
 }
