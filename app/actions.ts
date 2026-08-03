@@ -661,9 +661,15 @@ export async function addMailboxAction(email: string, label: string, note?: stri
 export async function toggleMailboxAction(email: string, field: "enabled" | "forward" | "default", value: boolean): Promise<ActionResult> {
   const a = await requireLead();
   if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
-  if (field === "enabled") await setMailboxEnabled(email, value);
-  else if (field === "default") await setMailboxDefault(email);  // 하나만 — 나머지 자동 해제
-  else await setMailboxForward(email, value);
+  try {
+    if (field === "enabled") await setMailboxEnabled(email, value);
+    else if (field === "default") await setMailboxDefault(email);  // 하나만 — 나머지 자동 해제
+    else await setMailboxForward(email, value);
+  } catch (e) {
+    // 예: 마이그레이션 0024 미적용(is_default 컬럼 없음) — 화면 크래시 대신 안내.
+    const msg = (e as Error).message;
+    return { ok: false, error: /is_default/.test(msg) ? "마이그레이션 필요(0024) — /api/admin/migrate 실행 후 재시도" : msg };
+  }
   revalidatePath("/settings");
   return { ok: true };
 }
