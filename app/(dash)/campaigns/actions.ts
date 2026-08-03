@@ -78,12 +78,11 @@ export async function generateAllDraftsAction(): Promise<CampaignResult> {
 
 /**
  * "승인·예약" — draft 캠페인을 승인하여 발송 대기(queued)로 전이.
- * 결재성 동작이므로 파트장/대표(lead·exec)만 허용.
+ * 기획 확정: 대량 발송은 담당 재량(활성 계정이면 가능) — 수신동의 게이트는 대상 산정에서 적용.
  */
 export async function approveCampaignAction(id: string): Promise<CampaignResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
-  if (!isLead(u.role)) return { ok: false, error: "권한 없음 (승인은 파트장/대표만)" };
 
   const row = await queryOne<{ id: string }>(
     `UPDATE bulk_sends
