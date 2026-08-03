@@ -57,10 +57,10 @@ export default function AssetsHeaderActions({ kindLabel }: { kindLabel: Record<s
         </span>
       )}
       <button className="btn" type="button" disabled={pending} onClick={sync}>
-        {pending ? "동기화 중…" : "🔄 드라이브 동기화"}
+        {pending ? "동기화 중…" : "🔄 동기화"}
       </button>
       <button className="btn pri" type="button" disabled={pending} onClick={() => { setToast(null); setOpen(true); }}>
-        + 업로드 → 드라이브 저장
+        + 업로드
       </button>
 
       {open && (
@@ -70,7 +70,7 @@ export default function AssetsHeaderActions({ kindLabel }: { kindLabel: Record<s
         >
           <div className="modal" style={{ width: 460, maxWidth: "92vw" }} onClick={(e) => e.stopPropagation()}>
             <div className="mh">
-              <b>+ 업로드 → 드라이브 저장</b>
+              <b>+ 업로드 — 색인 등록</b>
               <span className="x" onClick={() => setOpen(false)}>✕</span>
             </div>
             <form onSubmit={submitUpload}>

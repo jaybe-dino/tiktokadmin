@@ -98,3 +98,92 @@ ${mailLines}
   if (!draft) return { ok: false, error: "AI 제안 생성 실패 (잠시 후 재시도)" };
   return { ok: true, draft: draft.trim() };
 }
+
+// ═══ v3.1 재정합 추가 액션 ═══════════════════════════════════
+import { revalidatePath } from "next/cache";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 메모·협업 탭 코멘트 등록 — comments 테이블(0006). @멘션은 mentions 배열로 보존. */
+export async function addCommentAction(
+  brandId: string, body: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!UUID_RE.test(brandId)) return { ok: false, error: "잘못된 브랜드 ID" };
+  const text = (body ?? "").trim();
+  if (!text) return { ok: false, error: "내용을 입력하세요" };
+  const mentions = [...text.matchAll(/@([^\s@,]+)/g)].map((m) => m[1]);
+  await query(
+    "INSERT INTO comments (brand_id, author, body, mentions) VALUES ($1,$2,$3,$4)",
+    [brandId, u.name || u.id, text, mentions],
+  );
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+/**
+ * AI 기업·브랜드 심층 분석(회사정보 탭) — 브랜드·회사·시그널·제품 실데이터만으로
+ * 매출/구조/채널/포지셔닝 추정 요약을 생성해 반환한다(저장 테이블 없음 → 화면 표시용).
+ * 판단 참고용 문구만 작성하고 등급 판정·게이트 판정은 하지 않는다.
+ */
+export async function deepAnalysisAction(
+  brandId: string,
+): Promise<{ ok: boolean; error?: string; md?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!aiEnabled()) return { ok: false, error: "ANTHROPIC_API_KEY 미설정" };
+  if (!UUID_RE.test(brandId)) return { ok: false, error: "잘못된 브랜드 ID" };
+
+  const brand = await queryOne<{
+    brand_name: string; category: string; brand_url: string; biz_no: string | null;
+    countries: string[]; grade: string | null; brief_md: string | null;
+  }>(
+    `SELECT brand_name, category, brand_url, biz_no, countries, grade, brief_md
+       FROM brands WHERE id=$1`, [brandId],
+  ).catch(() => null);
+  if (!brand) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
+
+  const [signals, products] = await Promise.all([
+    query<{ source: string; metric: string; value_num: number | null; value_text: string | null; confidence: string }>(
+      "SELECT source, metric, value_num, value_text, confidence FROM brand_signals WHERE brand_id=$1 ORDER BY collected_at DESC LIMIT 20",
+      [brandId],
+    ).catch(() => []),
+    query<{ name_kr: string; category: string; price_band: string }>(
+      "SELECT name_kr, category, price_band FROM products_master WHERE brand_id=$1 LIMIT 20",
+      [brandId],
+    ).catch(() => []),
+  ]);
+
+  const sigLines = signals.length
+    ? signals.map((s) => `- ${s.source} · ${s.metric} = ${s.value_num ?? s.value_text ?? "-"} (신뢰도 ${s.confidence})`).join("\n")
+    : "- 수집된 시그널 없음";
+  const prodLines = products.length
+    ? products.map((p) => `- ${p.name_kr}${p.category ? ` (${p.category})` : ""}${p.price_band ? ` · ${p.price_band}` : ""}`).join("\n")
+    : "- 등록 제품 없음";
+
+  const system = `너는 GloveK 운영 어드민의 기업·브랜드 심층 분석 도우미다. 제공된 실데이터만 사용해 한국어 분석 요약을 작성한다.
+규칙:
+- 제공된 데이터에 없는 수치·사실을 지어내지 않는다. 데이터가 없으면 "데이터 부족"이라고 명시한다.
+- 등급 판정·게이트 판정·정산 금액 산정은 하지 않는다. 판단 참고용 요약만 작성한다.
+- 형식(마크다운): **매출 추정** / **회사 구조** / **채널 구조** / **브랜드 포지셔닝** 4개 소제목 각 1~2줄 + 마지막에 💡기회 / ⚠️리스크 각 1줄.`;
+
+  const user = `브랜드: ${brand.brand_name}
+카테고리: ${brand.category || "미상"} · URL: ${brand.brand_url || "없음"} · 사업자번호: ${brand.biz_no ? "있음" : "없음"}
+목표국: ${brand.countries?.length ? brand.countries.join(", ") : "미정"} · 진단 등급: ${brand.grade ?? "미진단"}
+
+사전분석 브리프:
+${brand.brief_md ? brand.brief_md.slice(0, 1200) : "(미생성)"}
+
+수집 시그널:
+${sigLines}
+
+제품:
+${prodLines}
+
+위 실데이터만으로 심층 분석 요약을 작성해줘.`;
+
+  const md = await aiText({ system, user, maxTokens: 900 }).catch(() => null);
+  if (!md) return { ok: false, error: "AI 분석 생성 실패 (잠시 후 재시도)" };
+  return { ok: true, md: md.trim() };
+}

@@ -83,6 +83,15 @@ export async function runEscalate(): Promise<{ dm: number; leads: number; exec: 
       // 담당 미지정 → 파트장 채널로
       await slackPost({ channelKey: "leads", blocks: [sectionText(`*담당 미지정 알림 ${list.length}건*\n${lines}`)] });
     }
+    // 기획 확정: Slack 외 이메일 채널 병행(담당자 회사 메일 = admin_users.id). RESEND 미설정 시 조용히 스킵.
+    if (ownerId !== "__unassigned__" && ownerId.includes("@")) {
+      const { sendEmail } = await import("./mailer");
+      await sendEmail({
+        to: ownerId,
+        subject: `[GloveK] 오늘 챙길 SLA 알림 ${list.length}건`,
+        text: `오늘 챙길 알림 ${list.length}건\n\n${list.map((a) => `- ${a.message} (${a.kind})`).join("\n")}\n\n워크큐: ${process.env.ADMIN_URL || ""}/queue`,
+      }).catch(() => {});
+    }
     // 첫 알림에 카드 부착(대표 1건)
     for (const a of list) {
       if (a.slack_ts) continue;

@@ -48,46 +48,48 @@ export default async function PortalProducts() {
   }
 
   return (
-    <div>
-      <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 12 }}>제품·인증 현황</h1>
+    <div style={{ maxWidth: 760, margin: "0 auto" }}>
+      <b style={{ fontSize: 13.5 }}>📦 제품·인증 현황</b>
 
       {products.length === 0 ? (
-        <p style={{ color: "#888", fontSize: 14 }}>등록된 제품이 없습니다.</p>
+        <p style={{ color: "var(--ink3)", fontSize: 12, marginTop: 8 }}>등록된 제품이 없습니다.</p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
           {products.map((p) => {
             const pc = byProduct.get(p.id) ?? [];
             return (
-              <div key={p.id} style={card()}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{p.name_kr}</div>
-                    {(p.name_en || p.category) && (
-                      <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-                        {[p.name_en, p.category].filter(Boolean).join(" · ")}
-                      </div>
-                    )}
+              <div key={p.id} className="card">
+                <div className="bd">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{p.name_kr}</div>
+                      {(p.name_en || p.category) && (
+                        <div style={{ fontSize: 12, color: "var(--ink3)", marginTop: 2 }}>
+                          {[p.name_en, p.category].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 12, color: "var(--ink3)" }}>{PRODUCT_STATUS_KO[p.status] ?? p.status}</span>
                   </div>
-                  <span style={{ fontSize: 12, color: "#666" }}>{PRODUCT_STATUS_KO[p.status] ?? p.status}</span>
-                </div>
 
-                {pc.length === 0 ? (
-                  <div className="note" style={{ marginTop: 10 }}>등록된 인증 항목이 없습니다.</div>
-                ) : (
-                  <table className="t" style={{ width: "100%", marginTop: 10 }}>
-                    <tbody>
-                      {pc.map((c, i) => (
-                        <tr key={`${c.country}-${c.cert_type}-${i}`}>
-                          <td style={{ fontWeight: 700 }}>{c.country}</td>
-                          <td>{c.cert_type}</td>
-                          <td style={{ textAlign: "right" }}>
-                            <span className={certChip(c.status)}>{CERT_STATUS_KO[c.status] ?? c.status}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                  {pc.length === 0 ? (
+                    <div className="note" style={{ marginTop: 10 }}>등록된 인증 항목이 없습니다.</div>
+                  ) : (
+                    <table className="t" style={{ width: "100%", marginTop: 10 }}>
+                      <tbody>
+                        {pc.map((c, i) => (
+                          <tr key={`${c.country}-${c.cert_type}-${i}`}>
+                            <td style={{ fontWeight: 700 }}>{c.country}</td>
+                            <td>{c.cert_type}</td>
+                            <td style={{ textAlign: "right" }}>
+                              <span className={certChip(c.status)}>{CERT_STATUS_KO[c.status] ?? c.status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -95,8 +97,4 @@ export default async function PortalProducts() {
       )}
     </div>
   );
-}
-
-function card(): React.CSSProperties {
-  return { background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,.05)" };
 }

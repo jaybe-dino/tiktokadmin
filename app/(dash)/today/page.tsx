@@ -2,7 +2,12 @@ import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { GradeBadge } from "@/components/badges";
 import { query, queryOne } from "@/lib/db";
+import { currentUser } from "@/lib/auth";
+import { listDrafts } from "@/lib/drafts";
+import { allApprovals } from "@/lib/repo/global";
+import { findDuplicateGroups } from "@/lib/repo/queries";
 import type { Grade } from "@/lib/types";
+import { AcceptLeadButton, ApproveSendButton } from "./TodayButtons";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +27,7 @@ async function count(sql: string): Promise<number> {
   return num(r?.c);
 }
 
-// 퍼널 단계 → 표시(짧은 이름·배지 클래스)
+// 퍼널 단계 → 표시(짧은 이름·배지 클래스) — v3.1 s-home 퍼널 현황.
 const FUNNEL: { states: string[]; label: string; cls: string }[] = [
   { states: ["lead_new"], label: "리드", cls: "st-lead" },
   { states: ["seminar"], label: "세미나", cls: "st-sem" },
@@ -43,21 +48,62 @@ const AGENT_LABEL: Record<string, string> = {
   inbound_reply: "인바운드 자동 회신",
 };
 
-export default async function TodayPage() {
+// 초안 kind → 승인 대기 행 표시 (아이콘 · 제목 라벨)
+const DRAFT_ROW: Record<string, { icon: string; ico: string; label: string }> = {
+  followup: { icon: "🎙️", ico: "i-pur", label: "팔로업 메일 초안" },
+  reply: { icon: "✉️", ico: "i-pur", label: "회신 초안" },
+  reply_transactional: { icon: "✉️", ico: "i-pur", label: "자동 회신 초안" },
+  reminder: { icon: "⏰", ico: "i-amb", label: "서류 리마인더" },
+  doc_request: { icon: "⏰", ico: "i-amb", label: "서류 요청" },
+  payment_notice: { icon: "💳", ico: "i-red", label: "결제 안내" },
+  settlement: { icon: "💳", ico: "i-red", label: "정산 안내" },
+};
+
+const APPROVAL_KO: Record<string, string> = { drop: "드랍", refund: "환불", settlement: "정산 확정" };
+
+function approvalReason(payload: Row): string {
+  const r = payload.reason ?? payload.note ?? payload.memo;
+  if (r) return String(r);
+  const s = Object.entries(payload).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  return s || "—";
+}
+
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ scope?: string }> }) {
   const todayLabel = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+  const user = await currentUser();
+
+  // 기획 확정: [내 담당만 ↔ 전체] 토글 (기본=내 담당만, 담당 브랜드 없으면 전체)
+  const sp = await searchParams;
+  const myBrandIds = new Set(
+    (await query<{ id: string }>(
+      `SELECT id FROM brands WHERE $1 IN (owner_intake, owner_sales, owner_onboard, owner_ads)`,
+      [user?.id ?? ""]).catch(() => [])).map((r) => r.id));
+  const mine = sp.scope === "all" ? false : sp.scope === "mine" ? true : myBrandIds.size > 0;
 
   // ── 상단 4개 타일 ──────────────────────────────────────────────
-  const [totalBrands, operating, slaBreach, weekNew, semWeek, meetWeek] = await Promise.all([
+  const [totalBrands, operating, slaBreach, slaT2, weekNew, semWeek, meetWeek, sem4w, meet4w] = await Promise.all([
     count("SELECT count(*) c FROM brands WHERE coalesce(is_test,false)=false"),
     count("SELECT count(*) c FROM brands WHERE state IN ('live_mall','live_onboarding','settling') AND coalesce(is_test,false)=false"),
     count("SELECT count(*) c FROM alerts WHERE kind='sla_breach' AND resolved_at IS NULL"),
+    count("SELECT count(*) c FROM alerts WHERE kind='sla_breach' AND resolved_at IS NULL AND tier>=2"),
     count("SELECT count(*) c FROM brands WHERE coalesce(is_test,false)=false AND created_at > now()-interval '7 days'"),
     count("SELECT count(*) c FROM stage_history WHERE to_state='seminar' AND at > now()-interval '7 days'"),
     count("SELECT count(*) c FROM stage_history WHERE to_state='meeting' AND at > now()-interval '7 days'"),
+    count("SELECT count(*) c FROM stage_history WHERE to_state='seminar' AND at > now()-interval '28 days'"),
+    count("SELECT count(*) c FROM stage_history WHERE to_state='meeting' AND at > now()-interval '28 days'"),
   ]);
   const operMall = await count("SELECT count(*) c FROM brands WHERE state='live_mall' AND coalesce(is_test,false)=false");
   const operOnb = await count("SELECT count(*) c FROM brands WHERE state='live_onboarding' AND coalesce(is_test,false)=false");
+  const dupCount = await findDuplicateGroups().then((g) => g.length).catch(() => 0);
   const convPct = semWeek > 0 ? Math.round((meetWeek / semWeek) * 100) : 0;
+  const conv4wPct = sem4w > 0 ? Math.round((meet4w / sem4w) * 100) : 0;
+  const convDiff = convPct - conv4wPct;
+
+  // ── 밤 사이 자동 처리 (헤더 문구) ─────────────────────────────
+  const [newLeads24h, recaps24h] = await Promise.all([
+    count("SELECT count(*) c FROM brands WHERE coalesce(is_test,false)=false AND created_at > now()-interval '24 hours'"),
+    count("SELECT count(*) c FROM meetings WHERE summary_md IS NOT NULL AND created_at > now()-interval '24 hours'"),
+  ]);
 
   // ── 퍼널 현황 ─────────────────────────────────────────────────
   const funnelRows = (await query<{ state: string; c: string }>(
@@ -65,35 +111,24 @@ export default async function TodayPage() {
   const funnelMap = new Map(funnelRows.map((r) => [r.state, num(r.c)]));
   const funnel = FUNNEL.map((f) => ({ ...f, n: f.states.reduce((s, st) => s + (funnelMap.get(st) ?? 0), 0) }));
 
-  // ── AI가 체크한 지금 해야 할 일 (실데이터 병합) ─────────────────
-  const unassigned = (await query(
-    `SELECT id, brand_name, grade, source, created_at FROM brands
-      WHERE coalesce(is_test,false)=false AND state NOT IN ('dropped','churned')
-        AND owner_intake IS NULL AND owner_sales IS NULL AND owner_onboard IS NULL AND owner_ads IS NULL
-      ORDER BY created_at DESC LIMIT 3`).catch(() => [])) as Row[];
-  const drafts = (await query(
-    `SELECT d.id, d.brand_id, d.kind, d.subject, b.brand_name FROM email_drafts d JOIN brands b ON b.id=d.brand_id
-      WHERE d.status='draft' ORDER BY d.created_at DESC LIMIT 4`).catch(() => [])) as Row[];
+  // ── 승인 대기 — AI가 준비해둔 것 (초안 + 결재 요청, scope 반영) ─
+  const draftsAll = await listDrafts("draft").catch(() => []);
+  const approvalsAll = ((await allApprovals().catch(() => [])) as Row[]).filter((a) => a.status === "pending");
+  const drafts = mine ? draftsAll.filter((d) => myBrandIds.has(d.brand_id)) : draftsAll;
+  const approvals = mine ? approvalsAll.filter((a) => !a.brand_id || myBrandIds.has(a.brand_id as string)) : approvalsAll;
+  const pendingTotal = drafts.length + approvals.length;
+  const draftRows = drafts.slice(0, 4);
+  const approvalRows = approvals.slice(0, 3);
 
-  type Todo = { icon: string; ico: string; title: string; sub: string; action: string; actionCls: string; href?: string; chip?: string };
-  const todos: Todo[] = [];
-  for (const u of unassigned) {
-    todos.push({ icon: "🆕", ico: "i-amb", title: `${u.brand_name} · 신규 유입 — 담당 수락 대기`, chip: "신규",
-      sub: `${(u.source as string) || "유입"} · 등급 ${(u.grade as string) || "미정"} · 수락해야 SLA 타이머가 내 것이 됩니다`,
-      action: "담당 수락", actionCls: "pri", href: `/brand/${u.id}` });
-  }
-  const KIND_KO: Record<string, string> = { reply: "답장", reply_transactional: "자동회신", followup: "팔로업", reminder: "리마인더", payment_notice: "결제안내", doc_request: "서류요청" };
-  for (const d of drafts) {
-    todos.push({ icon: "✉️", ico: "i-pur", title: `${d.brand_name} · ${KIND_KO[d.kind as string] ?? "메일"} 초안`,
-      sub: (d.subject as string) || "초안 검토 후 승인·발송", action: "승인·발송", actionCls: "grn", href: "/drafts" });
-  }
-
-  // ── 오늘 미팅 ─────────────────────────────────────────────────
-  const meetings = (await query(
-    `SELECT m.id, m.topic, m.scheduled_at, m.brand_id, b.brand_name, b.grade
+  // ── 오늘 미팅 (scope 반영) ────────────────────────────────────
+  const meetingsAll = (await query(
+    `SELECT m.id, m.topic, m.scheduled_at, m.host_email, m.brand_id, b.brand_name, b.grade
        FROM meetings m LEFT JOIN brands b ON b.id=m.brand_id
       WHERE m.scheduled_at::date = CURRENT_DATE AND coalesce(m.status,'') NOT IN ('canceled','error')
       ORDER BY m.scheduled_at ASC LIMIT 8`).catch(() => [])) as Row[];
+  const meetings = mine
+    ? meetingsAll.filter((m) => (m.brand_id && myBrandIds.has(m.brand_id as string)) || m.host_email === user?.id)
+    : meetingsAll;
 
   // ── 에이전트 활동 (지난 24h) ──────────────────────────────────
   const agentRuns = (await query(
@@ -102,31 +137,36 @@ export default async function TodayPage() {
 
   // ── 최근 유입 리드 (Slack 유입알림 카드) ──────────────────────
   const lead = (await queryOne<Row>(
-    `SELECT id, brand_name, grade, source, category FROM brands
+    `SELECT id, brand_name, grade, source, category, created_at FROM brands
       WHERE coalesce(is_test,false)=false ORDER BY created_at DESC NULLS LAST LIMIT 1`).catch(() => null));
 
   return (
     <div>
       <ScreenHeader
         title={`오늘 — ${todayLabel}`}
-        desc={`신규 유입 ${weekNew}건(7일) · 승인 대기 초안 ${drafts.length}건 · SLA 위반 ${slaBreach}건부터 확인하세요.`}
-        right={<div style={{ display: "flex", gap: 8 }}>
+        desc={`${user?.name ?? "운영자"}님, 밤 사이 신규 리드 ${newLeads24h}건 · 줌 회의록 ${recaps24h}건이 자동 처리됐어요. 승인 대기 ${pendingTotal}건부터 확인하세요.`}
+        right={<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {/* 기획 확정: 내 담당만 ↔ 전체 토글 (승인대기·오늘미팅에 적용) */}
+          <span style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+            <Link href="/today?scope=mine" className="btn sm" style={{ border: "none", borderRadius: 0, ...(mine ? { background: "var(--acc)", color: "#fff" } : {}) }}>내 담당만</Link>
+            <Link href="/today?scope=all" className="btn sm" style={{ border: "none", borderRadius: 0, ...(!mine ? { background: "var(--acc)", color: "#fff" } : {}) }}>전체</Link>
+          </span>
           <Link href="/monitor" className="btn">일일 점검 리포트</Link>
-          <Link href="/import" className="btn btn-primary">+ 리드 등록</Link>
+          <Link href="/import" className="btn pri">+ 리드 등록</Link>
         </div>}
       />
 
       {/* 상단 4개 타일 */}
       <div className="grid g4 gap-3.5 mb-3.5" style={{ display: "grid" }}>
-        <div className="tile"><div className="k">전체 브랜드 (원장)</div><div className="v">{totalBrands}</div><div className="d up">▲ 이번 주 +{weekNew}</div></div>
+        <div className="tile"><div className="k">전체 브랜드 (원장)</div><div className="v">{totalBrands}</div><div className="d up">▲ 이번 주 +{weekNew} · 중복 {dupCount}</div></div>
         <div className="tile"><div className="k">운영 중 (멀티몰+온보딩)</div><div className="v">{operating}</div><div className="d">멀티몰 {operMall} · 온보딩 {operOnb}</div></div>
-        <div className={`tile${slaBreach > 0 ? " alert" : ""}`}><div className="k">SLA 위반</div><div className="v" style={{ color: slaBreach > 0 ? "var(--danger)" : undefined }}>{slaBreach}</div><div className="d dn">미해소 — 파트장 확인 필요</div></div>
-        <div className="tile"><div className="k">이번 주 세미나→미팅 전환</div><div className="v">{convPct}<small>%</small></div><div className="d">세미나 {semWeek} · 미팅 {meetWeek}</div></div>
+        <div className={`tile${slaBreach > 0 ? " alert" : ""}`}><div className="k">SLA 위반</div><div className="v" style={{ color: slaBreach > 0 ? "var(--danger)" : undefined }}>{slaBreach}</div><div className="d dn">T2+ {slaT2}건 — 파트장 확인 필요</div></div>
+        <div className="tile"><div className="k">이번 주 세미나→미팅 전환</div><div className="v">{convPct}<small>%</small></div><div className={`d ${convDiff >= 0 ? "up" : "dn"}`}>{convDiff >= 0 ? "▲" : "▼"} 4주 평균 {conv4wPct}% 대비 {convDiff >= 0 ? "+" : ""}{convDiff}%p</div></div>
       </div>
 
       <div className="grid g31 gap-3.5" style={{ display: "grid" }}>
         {/* 좌측 */}
-        <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
+        <div style={{ display: "grid", gap: 14 }}>
           {/* 퍼널 현황 */}
           <div className="card">
             <div className="hd"><b>퍼널 현황</b><span style={{ color: "var(--ink3)", fontSize: 11.5 }}>브랜드 수 · 칸반에서 상세</span><div className="rt"><Link href="/" className="btn sm">보드 열기 →</Link></div></div>
@@ -140,21 +180,47 @@ export default async function TodayPage() {
             </div>
           </div>
 
-          {/* AI가 체크한 지금 해야 할 일 */}
+          {/* 승인 대기 — AI가 준비해둔 것 */}
           <div className="card">
-            <div className="hd"><b>AI가 체크한 지금 해야 할 일</b><span className="chip chip-amb">{todos.length}건</span><span style={{ color: "var(--ink3)", fontSize: 11 }}>우선순위 자동 정렬 — 유입·배정이 맨 위</span></div>
+            <div className="hd"><b>승인 대기 — AI가 준비해둔 것</b><span className="chip amb">{pendingTotal}건</span></div>
             <div className="bd" style={{ paddingTop: 6 }}>
-              {todos.length === 0 && <p style={{ color: "var(--ink3)", fontSize: 12.5 }}>처리할 항목이 없습니다.</p>}
-              {todos.map((t, i) => (
-                <div className="row" key={i}>
-                  <span className={`ico ${t.ico}`}>{t.icon}</span>
-                  <div>
-                    <div className="tt">{t.title} {t.chip && <span className="chip chip-red" style={{ fontSize: 10 }}>{t.chip}</span>}</div>
-                    <div className="ss">{t.sub}</div>
+              {pendingTotal === 0 && <p style={{ color: "var(--ink3)", fontSize: 12.5 }}>승인 대기 항목이 없습니다.</p>}
+              {draftRows.map((d) => {
+                const meta = d.meeting_id
+                  ? { icon: "🎙️", ico: "i-pur", label: "줌 회의록 + 팔로업 메일 초안" }
+                  : DRAFT_ROW[d.kind] ?? { icon: "✉️", ico: "i-pur", label: "메일 초안" };
+                return (
+                  <div className="row" key={d.id}>
+                    <span className={`ico ${meta.ico}`}>{meta.icon}</span>
+                    <div>
+                      <div className="tt">{d.brand_name} · {meta.label}</div>
+                      <div className="ss">{d.subject || "제목 없음"}{d.to_email ? ` · → ${d.to_email}` : " · 수신 이메일 없음 — 채우기 전 발송 불가"}</div>
+                    </div>
+                    <div className="rt" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <Link href="/drafts" className="btn sm">미리보기</Link>
+                      {d.to_email
+                        ? <ApproveSendButton id={d.id} />
+                        : <Link href="/drafts" className="btn sm dgr">답변 필요</Link>}
+                    </div>
                   </div>
-                  <div className="rt">{t.href
-                    ? <Link href={t.href} className={`btn sm ${t.actionCls}`}>{t.action}</Link>
-                    : <button className={`btn sm ${t.actionCls}`}>{t.action}</button>}</div>
+                );
+              })}
+              {approvalRows.map((a) => (
+                <div className="row" key={a.id as string}>
+                  <span className="ico i-blu">👤</span>
+                  <div>
+                    <div className="tt">
+                      {a.brand_id
+                        ? <Link href={`/brand/${a.brand_id}`} className="hover:underline">{(a.brand_name as string) || "브랜드"}</Link>
+                        : "브랜드 무관"}
+                      {" · "}{APPROVAL_KO[a.kind as string] ?? (a.kind as string)} 결재 요청
+                    </div>
+                    <div className="ss">요청자 {(a.requested_by as string) || "—"} · {approvalReason((a.payload as Row) ?? {})}</div>
+                  </div>
+                  <div className="rt" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {/* 기획 확정: 결재(드랍·환불·정산확정)는 홈에서 원클릭 금지 — 결재함에서 처리 */}
+                    <Link href="/approvals" className="btn sm pri">결재함에서 처리 →</Link>
+                  </div>
                 </div>
               ))}
             </div>
@@ -173,7 +239,7 @@ export default async function TodayPage() {
                   <span className="ico i-blu">📹</span>
                   <div>
                     <div className="tt">{fmtTime(m.scheduled_at)} {m.brand_id ? <Link href={`/brand/${m.brand_id}`} className="hover:underline">{(m.brand_name as string) || "브랜드"}</Link> : (m.brand_name as string) || "미매칭"} {m.grade ? <GradeBadge grade={m.grade as Grade} /> : null}</div>
-                    <div className="ss">{(m.topic as string) || "주제 미정"}</div>
+                    <div className="ss">{(m.topic as string) || "주제 미정"}{m.host_email ? ` · ${m.host_email}` : ""}</div>
                   </div>
                 </div>
               ))}
@@ -200,11 +266,11 @@ export default async function TodayPage() {
           {/* Slack 유입알림 */}
           {lead && (
             <div className="slk">
-              <b style={{ color: "#611f69" }}>#glovek-유입알림</b> <span style={{ color: "var(--ink3)", fontSize: 11 }}>최근</span><br />
+              <b style={{ color: "#611f69" }}>#glovek-유입알림</b> <span style={{ color: "var(--ink3)", fontSize: 11 }}>{fmtDateTime(lead.created_at)}</span><br />
               🆕 <b>{lead.brand_name as string}</b> · {(lead.source as string) || "유입"} 리드 · 등급 <b>{(lead.grade as string) || "미정"}</b><br />
               <span style={{ color: "var(--ink3)", fontSize: 11.5 }}>{(lead.category as string) || "카테고리 미상"}</span><br />
               <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
-                <Link href={`/brand/${lead.id}`} className="btn sm btn-primary">담당 수락</Link>
+                <AcceptLeadButton brandId={lead.id as string} />
                 <Link href={`/brand/${lead.id}`} className="btn sm">브리프 보기</Link>
               </div>
             </div>

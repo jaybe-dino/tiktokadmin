@@ -1,0 +1,330 @@
+"use client";
+
+// v3.1 회사정보 탭 — AI 심층 분석 + 사업자/세금계산서/정산 계좌/브랜드 정보 카드.
+// brand_company(0007)·brands 실데이터. 편집: saveCompanyAction / updateBrandAction / setCountriesAction.
+import { useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { saveCompanyAction, setCountriesAction, updateBrandAction } from "@/app/actions";
+import { deepAnalysisAction } from "@/app/(dash)/brand360/actions";
+import type { Brand } from "@/lib/types";
+import type { Asset, BrandCompany } from "@/lib/repo/card";
+
+const D = (v: string | null | undefined): string => (v && v.trim() ? v : "—");
+
+export default function Brand360Company({ brand, company, assets }: {
+  brand: Brand; company: BrandCompany | null; assets: Asset[];
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [edit, setEdit] = useState<"biz" | "tax" | "bank" | "brand" | null>(null);
+  const [msg, setMsg] = useState("");
+  const [aiMd, setAiMd] = useState<string | null>(null);
+  const [aiErr, setAiErr] = useState("");
+
+  function saveCompany(patch: Record<string, unknown>) {
+    start(async () => {
+      const r = await saveCompanyAction(brand.id, patch);
+      setMsg(r.ok ? "저장됨" : r.error ?? "실패");
+      if (r.ok) setEdit(null);
+      router.refresh();
+    });
+  }
+
+  const bizAsset = assets.find((a) => a.kind === "biz_cert");
+  const bankAsset = assets.find((a) => a.kind === "bank_cert");
+  const brandAssets = assets.filter((a) => a.kind === "logo" || a.kind === "brand_guide");
+  const canAnalyze = Boolean(brand.biz_no) || Boolean(brand.brand_url);
+
+  return (
+    <div>
+      {/* ── AI 기업·브랜드 심층 분석 ── */}
+      <div className="card" style={{ marginBottom: 14, borderColor: "#e9d5ff" }}>
+        <div className="hd" style={{ background: "linear-gradient(90deg,#faf5ff,#fff)", flexWrap: "wrap" }}>
+          <b>🤖 AI 기업·브랜드 심층 분석</b>
+          <span className={`chip ${canAnalyze ? "grn" : "amb"}`}>
+            {canAnalyze
+              ? `실행 가능 — 사업자번호 ${brand.biz_no ? "✓" : "✗"} · 자사몰 ${brand.brand_url ? "✓" : "✗"}`
+              : "사업자번호·자사몰 URL 입력 후 실행 가능"}
+          </span>
+          <span style={{ color: "var(--ink3)", fontSize: 11 }}>공개 데이터 기반 추정 · 판단 참고용, 확정은 미팅에서 검증</span>
+          <div className="rt">
+            <button
+              className="btn sm pri"
+              disabled={pending || !canAnalyze}
+              onClick={() =>
+                start(async () => {
+                  setAiErr("");
+                  const r = await deepAnalysisAction(brand.id);
+                  if (r.ok) setAiMd(r.md ?? "");
+                  else setAiErr(r.error ?? "실패");
+                })
+              }
+            >
+              {pending ? "분석 중…" : "심층 분석 실행"}
+            </button>
+          </div>
+        </div>
+        <div className="bd">
+          {aiMd ? (
+            <pre style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.7, fontFamily: "inherit" }}>{aiMd}</pre>
+          ) : (
+            <p className="note">
+              {aiErr || "아직 실행된 분석이 없습니다 — [심층 분석 실행]을 누르면 브랜드·시그널·제품 실데이터로 매출/구조/채널/포지셔닝 요약을 생성합니다."}
+            </p>
+          )}
+          <div className="note" style={{ marginTop: 10 }}>
+            이 분석은 영업 제안·견적 근거로 인용됩니다 — 수치가 미팅에서 확인되면 담당이 보정(보정값이 우선)
+          </div>
+        </div>
+      </div>
+
+      <div className="grid g3" style={{ gap: 14 }}>
+        {/* ── 사업자 정보 ── */}
+        <div className="card">
+          <div className="hd">
+            <b>사업자 정보</b>
+            {company?.source && <span className="chip" style={{ fontSize: 10 }}>{company.source} 동기 · 수기 보정 가능</span>}
+            <div className="rt"><button className="btn sm" onClick={() => setEdit(edit === "biz" ? null : "biz")}>{edit === "biz" ? "닫기" : "정보 수정"}</button></div>
+          </div>
+          <div className="bd">
+            {edit === "biz" ? (
+              <form
+                style={{ display: "grid", gap: 6 }}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  saveCompany({
+                    company_name_kr: String(f.get("company_name_kr") ?? ""),
+                    company_name_en: String(f.get("company_name_en") ?? ""),
+                    company_type: String(f.get("company_type") ?? ""),
+                    rep_name: String(f.get("rep_name") ?? ""),
+                    reg_date: String(f.get("reg_date") ?? "") || null,
+                    biz_category: String(f.get("biz_category") ?? ""),
+                    address_kr: String(f.get("address_kr") ?? ""),
+                    address_en: String(f.get("address_en") ?? ""),
+                  });
+                }}
+              >
+                <input name="company_name_kr" className="f" defaultValue={company?.company_name_kr ?? ""} placeholder="상호 (국문)" />
+                <input name="company_name_en" className="f" defaultValue={company?.company_name_en ?? ""} placeholder="상호 (영문)" />
+                <select name="company_type" className="f" defaultValue={company?.company_type ?? ""}>
+                  <option value="">구분</option>
+                  <option value="법인 사업자">법인 사업자</option>
+                  <option value="개인 사업자">개인 사업자</option>
+                </select>
+                <input name="rep_name" className="f" defaultValue={company?.rep_name ?? ""} placeholder="대표자" />
+                <input name="reg_date" className="f" type="date" defaultValue={company?.reg_date?.slice(0, 10) ?? ""} />
+                <input name="biz_category" className="f" defaultValue={company?.biz_category ?? ""} placeholder="업태·종목" />
+                <input name="address_kr" className="f" defaultValue={company?.address_kr ?? ""} placeholder="주소 (국문)" />
+                <input name="address_en" className="f" defaultValue={company?.address_en ?? ""} placeholder="주소 (영문)" />
+                <button className="btn sm pri" disabled={pending} type="submit">저장</button>
+              </form>
+            ) : (
+              <div className="kv">
+                <dt>상호 (국문)</dt><dd>{D(company?.company_name_kr)}</dd>
+                <dt>상호 (영문)</dt><dd>{D(company?.company_name_en)}</dd>
+                <dt>구분</dt><dd>{D(company?.company_type)}</dd>
+                <dt>대표자</dt><dd>{D(company?.rep_name)}</dd>
+                <dt>사업자번호</dt>
+                <dd>
+                  {D(brand.biz_no)}{" "}
+                  {brand.biz_no && (
+                    <span className={`cellchip ${company?.biz_verified ? "cc-ok" : "cc-no"}`} style={{ fontSize: 10 }}>
+                      {company?.biz_verified ? "진위확인 ✓" : "미확인"}
+                    </span>
+                  )}
+                </dd>
+                <dt>개업일</dt><dd>{company?.reg_date ? company.reg_date.slice(0, 10) : "—"}</dd>
+                <dt>업태·종목</dt><dd>{D(company?.biz_category)}</dd>
+                <dt>주소 (국문)</dt><dd>{D(company?.address_kr)}</dd>
+                <dt>주소 (영문)</dt><dd>{D(company?.address_en)}</dd>
+              </div>
+            )}
+            <hr className="hr" />
+            <div className="row" style={{ padding: "6px 0" }}>
+              <span className="ico i-blu" style={{ background: "#dbeafe" }}>📄</span>
+              <div>
+                <div className="tt">사업자등록증</div>
+                <div className="ss">{bizAsset ? `${bizAsset.filename} · 서류 체크리스트와 동기` : "미등록 — 자산 저장소에서 연결"}</div>
+              </div>
+              <div className="rt">
+                {bizAsset?.external_url || bizAsset?.storage_url ? (
+                  <a className="btn sm" href={bizAsset.external_url ?? bizAsset.storage_url ?? "#"} target="_blank">보기</a>
+                ) : (
+                  <Link className="btn sm" href="/assets">열기</Link>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 세금계산서 + 정산 계좌 ── */}
+        <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
+          <div className="card">
+            <div className="hd">
+              <b>세금계산서 정보</b>
+              <div className="rt"><button className="btn sm" onClick={() => setEdit(edit === "tax" ? null : "tax")}>{edit === "tax" ? "닫기" : "정보 수정"}</button></div>
+            </div>
+            <div className="bd">
+              {edit === "tax" ? (
+                <form
+                  style={{ display: "grid", gap: 6 }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const f = new FormData(e.currentTarget);
+                    saveCompany({
+                      tax_email: String(f.get("tax_email") ?? ""),
+                      tax_contact_name: String(f.get("tax_contact_name") ?? ""),
+                      tax_contact_phone: String(f.get("tax_contact_phone") ?? ""),
+                      tax_cycle: String(f.get("tax_cycle") ?? ""),
+                      tax_note: String(f.get("tax_note") ?? ""),
+                    });
+                  }}
+                >
+                  <input name="tax_email" className="f" defaultValue={company?.tax_email ?? ""} placeholder="발행 이메일" />
+                  <input name="tax_contact_name" className="f" defaultValue={company?.tax_contact_name ?? ""} placeholder="세금 담당자" />
+                  <input name="tax_contact_phone" className="f" defaultValue={company?.tax_contact_phone ?? ""} placeholder="담당자 연락처" />
+                  <input name="tax_cycle" className="f" defaultValue={company?.tax_cycle ?? ""} placeholder="발행 조건 (예: 월말 일괄)" />
+                  <input name="tax_note" className="f" defaultValue={company?.tax_note ?? ""} placeholder="특이사항" />
+                  <button className="btn sm pri" disabled={pending} type="submit">저장</button>
+                </form>
+              ) : (
+                <div className="kv">
+                  <dt>발행 이메일</dt><dd>{D(company?.tax_email)}</dd>
+                  <dt>세금 담당자</dt><dd>{[company?.tax_contact_name, company?.tax_contact_phone].filter(Boolean).join(" · ") || "—"}</dd>
+                  <dt>발행 조건</dt><dd>{D(company?.tax_cycle)}</dd>
+                  <dt>특이사항</dt><dd>{D(company?.tax_note)}</dd>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="hd">
+              <b>정산 계좌</b>
+              <div className="rt"><button className="btn sm" onClick={() => setEdit(edit === "bank" ? null : "bank")}>{edit === "bank" ? "닫기" : "정보 수정"}</button></div>
+            </div>
+            <div className="bd">
+              {edit === "bank" ? (
+                <form
+                  style={{ display: "grid", gap: 6 }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const f = new FormData(e.currentTarget);
+                    saveCompany({
+                      bank_name: String(f.get("bank_name") ?? ""),
+                      bank_holder: String(f.get("bank_holder") ?? ""),
+                      bank_account: String(f.get("bank_account") ?? ""),
+                    });
+                  }}
+                >
+                  <input name="bank_name" className="f" defaultValue={company?.bank_name ?? ""} placeholder="은행" />
+                  <input name="bank_holder" className="f" defaultValue={company?.bank_holder ?? ""} placeholder="예금주" />
+                  <input name="bank_account" className="f" defaultValue={company?.bank_account ?? ""} placeholder="계좌번호" />
+                  <button className="btn sm pri" disabled={pending} type="submit">저장</button>
+                </form>
+              ) : (
+                <div className="kv">
+                  <dt>은행</dt><dd>{D(company?.bank_name)}</dd>
+                  <dt>예금주</dt><dd>{D(company?.bank_holder)}{company?.bank_verified && <span className="cellchip cc-ok" style={{ fontSize: 10, marginLeft: 4 }}>일치 확인 ✓</span>}</dd>
+                  <dt>계좌번호</dt><dd>{D(company?.bank_account)}</dd>
+                </div>
+              )}
+              <div className="row" style={{ padding: "8px 0 0", border: "none" }}>
+                <span className="ico i-blu" style={{ background: "#dbeafe" }}>📄</span>
+                <div>
+                  <div className="tt">통장 사본</div>
+                  <div className="ss">{bankAsset ? bankAsset.filename : "미등록"}</div>
+                </div>
+                {bankAsset && (bankAsset.external_url || bankAsset.storage_url) && (
+                  <div className="rt"><a className="btn sm" href={bankAsset.external_url ?? bankAsset.storage_url ?? "#"} target="_blank">보기</a></div>
+                )}
+              </div>
+              <div className="note" style={{ marginTop: 8 }}>정산 지급 전 예금주·상호 일치 검증 — 불일치 시 정산 확정 차단</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── 브랜드 정보 ── */}
+        <div className="card">
+          <div className="hd">
+            <b>브랜드 정보</b>
+            <div className="rt"><button className="btn sm" onClick={() => setEdit(edit === "brand" ? null : "brand")}>{edit === "brand" ? "닫기" : "정보 수정"}</button></div>
+          </div>
+          <div className="bd">
+            {edit === "brand" ? (
+              <form
+                style={{ display: "grid", gap: 6 }}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  const countries = String(f.get("countries") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+                  const certified = String(f.get("certified") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+                  start(async () => {
+                    const r1 = await updateBrandAction(brand.id, {
+                      brand_name: String(f.get("brand_name") ?? ""),
+                      contact_name: String(f.get("contact_name") ?? "") || brand.contact_name,
+                      email: String(f.get("email") ?? ""),
+                      phone: String(f.get("phone") ?? ""),
+                      biz_no: String(f.get("biz_no") ?? ""),
+                      category: String(f.get("category") ?? ""),
+                      brand_url: String(f.get("brand_url") ?? ""),
+                      memo: String(f.get("memo") ?? ""),
+                    });
+                    const r2 = await setCountriesAction(brand.id, countries, certified);
+                    setMsg(r1.ok && r2.ok ? "저장됨" : r1.error || r2.error || "실패");
+                    if (r1.ok && r2.ok) setEdit(null);
+                    router.refresh();
+                  });
+                }}
+              >
+                <input name="brand_name" className="f" defaultValue={brand.brand_name} placeholder="브랜드명 (국문)" />
+                <input name="category" className="f" defaultValue={brand.category} placeholder="카테고리" />
+                <input name="brand_url" className="f" defaultValue={brand.brand_url} placeholder="대표 판매채널 URL" />
+                <input name="contact_name" className="f" defaultValue={brand.contact_name} placeholder="담당자명" />
+                <input name="email" className="f" defaultValue={brand.email ?? ""} placeholder="이메일" />
+                <input name="phone" className="f" defaultValue={brand.phone ?? ""} placeholder="전화" />
+                <input name="biz_no" className="f" defaultValue={brand.biz_no ?? ""} placeholder="사업자번호" />
+                <input name="countries" className="f" defaultValue={brand.countries.join(", ")} placeholder="목표국 (콤마 구분)" />
+                <input name="certified" className="f" defaultValue={brand.certified_countries.join(", ")} placeholder="인증국 (콤마 구분)" />
+                <textarea name="memo" className="f" style={{ minHeight: 50 }} defaultValue={brand.memo} placeholder="메모" />
+                <button className="btn sm pri" disabled={pending} type="submit">저장</button>
+              </form>
+            ) : (
+              <>
+                <div className="kv">
+                  <dt>브랜드명 (국문)</dt><dd>{brand.brand_name}</dd>
+                  <dt>브랜드명 (영문)</dt><dd>{D(company?.brand_name_en || brand.brand_name_en)}</dd>
+                  <dt>카테고리</dt><dd>{D(brand.category)}</dd>
+                  <dt>목표국</dt><dd>{brand.countries.length ? brand.countries.join(", ") : "미정"}</dd>
+                  <dt>인증국</dt><dd>{brand.certified_countries.length ? brand.certified_countries.join(", ") : "—"}</dd>
+                </div>
+                <hr className="hr" />
+                <b style={{ fontSize: 11.5, color: "var(--ink3)" }}>채널</b>
+                <div className="kv" style={{ marginTop: 6 }}>
+                  <dt>대표 채널</dt><dd>{D(brand.brand_url)}</dd>
+                  {Object.entries(company?.channel_urls ?? {}).map(([k, v]) => (
+                    <span key={k} style={{ display: "contents" }}><dt>{k}</dt><dd>{v}</dd></span>
+                  ))}
+                  <dt>연락처</dt><dd>{[brand.email, brand.phone].filter(Boolean).join(" · ") || "—"}</dd>
+                </div>
+              </>
+            )}
+            <hr className="hr" />
+            <div className="row" style={{ padding: "6px 0" }}>
+              <span className="ico" style={{ background: "#f3e8ff" }}>🎨</span>
+              <div>
+                <div className="tt">브랜드 자산 (로고·가이드)</div>
+                <div className="ss">{brandAssets.length ? brandAssets.map((a) => a.filename).join(" · ") : "미등록"} — 자산 저장소</div>
+              </div>
+              <div className="rt"><Link className="btn sm" href="/assets">열기</Link></div>
+            </div>
+            <div className="note" style={{ marginTop: 8 }}>여기 정보가 카드 상단 헤더(카테고리·URL·사업자번호)와 제안서·계약서·정산의 원천이 됩니다</div>
+          </div>
+        </div>
+      </div>
+      {msg && <div className="note" style={{ marginTop: 10 }}>{msg}</div>}
+    </div>
+  );
+}
