@@ -56,7 +56,7 @@ export default async function MonitorPage({
       <div className="grid g4" style={{ marginBottom: 14 }}>
         <div className="tile">
           <div className="k">활성 알림</div>
-          <div className="v">{alerts.length}</div>
+          <div className="v">{allAlerts.length}</div>
           <div className="d">T1 {t1} · T2 {t2} · T3 {t3}</div>
         </div>
         <div className="tile">

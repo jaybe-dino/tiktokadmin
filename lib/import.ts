@@ -133,6 +133,15 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord): Pro
     await recordStageHistory(brand.id, brand.state, state, `admin:${actorId}(import)`, true, "import");
   }
 
+  // 서류 체크리스트 보장 — import 로 contract_done 이상 단계로 올린 브랜드는 transitionBrand
+  //   부수효과를 안 타므로 doc_items 가 비어 docs→setup 게이트에 영구 고립됨. 여기서 생성.
+  const effectiveState = state ?? (brand.state as State);
+  const { ordinal } = await import("./states");
+  if (contractType && ordinal(effectiveState) >= ordinal("contract_done")) {
+    const { ensureDocTemplate } = await import("./docs");
+    await ensureDocTemplate(brand.id, contractType).catch(() => {});
+  }
+
   // 소스 이력
   await query(
     `INSERT INTO brand_sources (brand_id, site, event, source_ref, payload, occurred_at)
