@@ -107,6 +107,10 @@ function brandNameFrom(d: Common, keys: DedupKeys): string {
 }
 
 /** dedup 후 브랜드 확보(find or insert). 트랜잭션 내부에서 FOR UPDATE. */
+// 실데이터 소스 — 이 소스로 유입되면 기존 더미(is_test) 브랜드를 실데이터로 승격.
+//   (더미데이터 격리 원칙: "지금 데이터=더미", "실시간 연동 유입=실데이터")
+const REAL_SOURCES = new Set(["glovek_consult", "apply_consult", "meta_ads"]);
+
 async function resolveBrand(
   d: Common,
   keys: DedupKeys,
@@ -115,7 +119,14 @@ async function resolveBrand(
 ): Promise<{ brand: Brand; created: boolean }> {
   return tx(async (client) => {
     let found = await findBrand(client, keys);
-    if (found) return { brand: found, created: false };
+    if (found) {
+      // 실데이터 소스가 더미 브랜드를 건드리면 실데이터로 승격(1회).
+      if (REAL_SOURCES.has(extra.source as string) && (found as Brand & { is_test?: boolean }).is_test) {
+        await client.query("UPDATE brands SET is_test=false WHERE id=$1", [found.id]);
+        found = { ...found, is_test: false } as Brand;
+      }
+      return { brand: found, created: false };
+    }
 
     try {
       const r = await client.query<Brand>(
