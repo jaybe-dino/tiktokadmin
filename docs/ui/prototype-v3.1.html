@@ -102,8 +102,6 @@ table.t{width:100%;border-collapse:collapse;font-size:12.5px}
 .kcol h4 .c{margin-left:auto;background:#fff;border-radius:8px;padding:0 7px;font-size:11px;color:var(--ink3)}
 .kcard{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 11px;margin-bottom:8px;box-shadow:var(--sh);cursor:pointer}
 .kcard:hover{border-color:#b9c6da}
-.kcard[draggable="true"]{cursor:grab}
-.kcol.dragover{outline:2px dashed var(--acc);outline-offset:-4px;background:#eaf1fb}
 .kcard .nm{font-weight:700;font-size:12.5px;display:flex;gap:6px;align-items:center}
 .kcard .mt{color:var(--ink3);font-size:11px;margin-top:3px}
 .kcard .ft{display:flex;align-items:center;gap:6px;margin-top:8px}
@@ -280,14 +278,12 @@ button.done-btn{background:#dcfce7!important;border-color:#86efac!important;colo
           <div style="text-align:center;min-width:74px"><div style="font-size:20px;font-weight:800">87</div><span class="bdg st-live">운영</span></div>
           <div style="text-align:center;min-width:74px"><div style="font-size:20px;font-weight:800">64</div><span class="bdg st-set">정산</span></div>
         </div></div>
-      <div class="card"><div class="hd"><b>AI가 체크한 지금 해야 할 일</b><span class="chip amb">7건</span><span style="color:var(--ink3);font-size:11px">우선순위 자동 정렬 — 유입·배정이 맨 위</span></div><div class="bd" style="padding-top:6px">
-        <div class="row"><span class="ico i-amb">🆕</span><div><div class="tt">오가닉힐 · 신규 유입 — 담당 수락 대기 <span class="chip red" style="font-size:10px">2h 경과</span></div><div class="ss">메타 광고 · A(잠정) · 브리프 준비됨 — 수락해야 SLA 타이머가 내 것이 됩니다</div></div><div class="rt"><button class="btn sm pri">담당 수락</button> <button class="btn sm">브리프</button></div></div>
-        <div class="row"><span class="ico i-blu">👤</span><div><div class="tt">클린랩 · 담당 지정 제안 (줌 예약 감지)</div><div class="ss">호스트 박서연 → 영업 담당으로 지정할까요?</div></div><div class="rt"><button class="btn sm grn">승인</button> <button class="btn sm">거절</button></div></div>
+      <div class="card"><div class="hd"><b>승인 대기 — AI가 준비해둔 것</b><span class="chip amb">5건</span></div><div class="bd" style="padding-top:6px">
         <div class="row"><span class="ico i-pur">🎙️</span><div><div class="tt">루미에르코스 · 줌 회의록 + 팔로업 메일 초안</div><div class="ss">어제 16:00 미팅 · 설문 링크 + QnA 답변 2건 포함 · 다음 액션: 미국 단독 견적 송부</div></div><div class="rt"><button class="btn sm" onclick="go('b360')">미리보기</button> <button class="btn sm grn">승인·발송</button></div></div>
         <div class="row"><span class="ico i-pur">🎙️</span><div><div class="tt">그린바이트 · 줌 회의록 + 팔로업 초안</div><div class="ss">어제 11:00 · 새 질문 1건 [답변 필요] — 채우기 전 발송 불가</div></div><div class="rt"><button class="btn sm dgr">답변 필요</button></div></div>
         <div class="row"><span class="ico i-amb">⏰</span><div><div class="tt">베베숲 · 서류 리마인더 (3일째 미제출)</div><div class="ss">미제출: 통장 사본 · 상표등록증 — 이탈 위험 mid→high</div></div><div class="rt"><button class="btn sm grn">승인·발송</button></div></div>
         <div class="row"><span class="ico i-red">💳</span><div><div class="tt">서울수티 · 구독 연체 결제 안내</div><div class="ss">Live Focus 49만 · 2회차 실패 (D+4)</div></div><div class="rt"><button class="btn sm grn">승인·발송</button></div></div>
-        <div class="row"><span class="ico i-blu">📞</span><div><div class="tt">몽드푸드 · 첫 컨택 기한 초과 (8일)</div><div class="ss">박람회 리드 · AI 추천: 오전 전화 → 미팅 예약 링크 발송</div></div><div class="rt"><button class="btn sm">컨택 기록</button></div></div>
+        <div class="row"><span class="ico i-blu">👤</span><div><div class="tt">클린랩 · 담당 지정 제안 (줌 예약 감지)</div><div class="ss">호스트 박서연 → 영업 담당으로 지정할까요?</div></div><div class="rt"><button class="btn sm grn">승인</button> <button class="btn sm">거절</button></div></div>
       </div></div>
     </div>
     <div style="display:grid;gap:14px;align-content:start">
@@ -351,7 +347,7 @@ button.done-btn{background:#dcfce7!important;border-color:#86efac!important;colo
       <div class="kcard"><div class="nm"><span class="gr S">S</span>피치앤코</div><div class="mt">7월 정산 런 초안 대기</div><div class="ft"><span class="av">한상</span><span class="dy">-</span></div></div>
     </div>
   </div>
-  <div class="note" style="margin-top:8px">💡 <b>카드를 직접 끌어서 옮겨보세요</b> — 놓는 순간 ① 권한 검사(내 담당/파트장인가) → ② 게이트 검사(조건 충족?) 순으로 서버가 판정합니다. 미충족이면 이동이 거부되고 부족 항목+해결 바로가기가 뜹니다. 데모: 루미에르코스→컨택(성공) · 오가닉힐(게이트 차단) · 몽드푸드(권한 얼랏)</div>
+  <div class="note" style="margin-top:8px">💡 카드 드래그 시 서버 게이트 검증 → 미충족이면 <b style="color:var(--danger)">이동 거부 + 부족 항목 모달</b> (예: "진단 등급이 없습니다 · 영업 담당이 지정되지 않았습니다")</div>
 </section>
 
 <!-- ================= WORKQUEUE ================= -->
@@ -460,27 +456,6 @@ button.done-btn{background:#dcfce7!important;border-color:#86efac!important;colo
       <div style="margin-top:12px;display:flex;gap:8px"><button class="btn pri" style="flex:1">등록 → 사전분석 실행</button></div>
     </div></div>
   </div>
-  <div class="card" style="margin-top:14px;border-color:#fecaca"><div class="hd" style="background:linear-gradient(90deg,#fff7f7,#fff)"><b>🛡️ 등록 이후 가드레일 — 리드는 등록되는 순간부터 감시됩니다</b><div class="rt"><button class="btn sm" onclick="go('queue')">워크큐 →</button><button class="btn sm" onclick="go('monitor')">SLA 모니터 →</button></div></div>
-  <div class="bd"><div class="grid g4">
-    <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px">
-      <div style="font-size:10.5px;font-weight:800;color:var(--acc)">STEP 0 · 등록 즉시 (자동)</div>
-      <div style="font-size:12px;margin-top:4px;line-height:1.6">중복 판정 → 원장 1행 → <b>사전분석 브리프</b> → Slack 유입 카드 → <b>SLA 타이머 시작</b></div>
-    </div>
-    <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px">
-      <div style="font-size:10.5px;font-weight:800;color:var(--warn)">당일 · 담당 수락</div>
-      <div style="font-size:12px;margin-top:4px;line-height:1.6">배정 카드에서 수락 — 미수락 리드는 <b>다음날 아침 에이전트가 전원 앞에서 지적</b></div>
-    </div>
-    <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px">
-      <div style="font-size:10.5px;font-weight:800;color:var(--warn)">48시간 · 첫 컨택</div>
-      <div style="font-size:12px;margin-top:4px;line-height:1.6">컨택 기록이 없으면 <b>T1 — 매일 담당 DM 반복</b> · 기록해야만 타이머 리셋(시스템 밖 연락은 无기록)</div>
-    </div>
-    <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px">
-      <div style="font-size:10.5px;font-weight:800;color:var(--danger)">7일 · 방치 차단</div>
-      <div style="font-size:12px;margin-top:4px;line-height:1.6"><b>T2 파트장 채널</b> → +5일 T3 대표 적색 목록 · 미전환 30일+는 캠페인·윈백 세그먼트로 자동 편입</div>
-    </div>
-  </div>
-  <div class="note" style="margin-top:10px">결론: <b>어떤 리드도 조용히 사라질 수 없습니다.</b> CSV로 157건을 넣어도 전 건이 이 사다리를 각자 탑니다 — 담당자가 할 일은 "수락"과 "컨택 기록" 두 가지뿐이고, 나머지 추적은 시스템이 합니다.</div>
-  </div></div>
 </section>
 <!-- ================= BRAND 360 ================= -->
 <section class="screen" id="s-b360">
@@ -495,7 +470,7 @@ button.done-btn{background:#dcfce7!important;border-color:#86efac!important;colo
       <div><div style="color:var(--ink3);font-size:10.5px;font-weight:700">온보딩</div><div style="color:var(--ink3)">미지정</div></div>
       <div><div style="color:var(--ink3);font-size:10.5px;font-weight:700">다음 액션</div><div style="font-weight:700">미국 단독 견적 송부 <span style="color:var(--warn)">(D-2)</span></div></div>
     </div>
-    <div style="display:flex;gap:6px"><button class="btn">✉️ 메일</button><button class="btn">📱 문자</button><button class="btn">📹 미팅 제안</button><button class="btn">📞 접촉 기록</button><button class="btn pri" id="btnMove">상태 이동</button></div>
+    <div style="display:flex;gap:6px"><button class="btn">✉️ 메일</button><button class="btn">📱 문자</button><button class="btn">📞 접촉 기록</button><button class="btn pri" id="btnMove">상태 이동</button></div>
   </div>
   <div class="bd" style="border-top:1px solid var(--line);padding-top:10px">
     <div class="step">
@@ -529,15 +504,8 @@ button.done-btn{background:#dcfce7!important;border-color:#86efac!important;colo
         <div class="gi"><span class="no">⬜</span> 플랜 확정</div>
         <div class="gi"><span class="no">⬜</span> 제안서 발송 <button class="btn sm" style="margin-left:auto" onclick="go('proposals')">작성 →</button></div>
       </div>
-      <div class="card"><div class="hd"><b>등급 5대 지표 — 체크 관리</b><span class="gr S" style="margin-left:6px">S</span></div><div class="bd" style="font-size:12.5px">
-        <div style="font-size:11px;color:var(--ink3);margin-bottom:6px">출처: 고객 셀프진단 7/12 → <b>미팅에서 확인되면 담당이 여기서 보정</b>(보정값 우선) · 체크 변경 시 등급 자동 재계산</div>
-        <div class="chk c"><span class="cb"></span>국내 매출 월 5천만+ <span style="color:var(--ink3);font-size:10.5px;margin-left:auto">미팅 확인 ✓</span></div>
-        <div class="chk c"><span class="cb"></span>자사몰/스토어 운영 <span style="color:var(--ink3);font-size:10.5px;margin-left:auto">크롤러 확인</span></div>
-        <div class="chk c"><span class="cb"></span>수출 가능 인증 보유 <span style="color:var(--ink3);font-size:10.5px;margin-left:auto">FDA 서류 확인 ✓</span></div>
-        <div class="chk c"><span class="cb"></span>재고 여력 <span style="color:var(--ink3);font-size:10.5px;margin-left:auto">선언값</span></div>
-        <div class="chk c"><span class="cb"></span>전담 인력 <span style="color:var(--ink3);font-size:10.5px;margin-left:auto">선언값</span></div>
-        <div style="display:flex;gap:6px;margin-top:10px"><button class="btn sm pri" style="flex:1">저장 → 등급 재계산</button><button class="btn sm">AI 재진단 실행</button></div>
-        <div class="note" style="margin-top:8px;font-size:10.5px">5/5=S · 4=A · 2~3=B · 0~1=C — 판정 로직은 glovek 셀프진단과 동일(수기 계산 금지)</div>
+      <div class="card"><div class="hd"><b>등급 5대 지표</b></div><div class="bd" style="font-size:12.5px">
+        <div class="gi"><span style="color:var(--ok)">✓</span> 국내 매출 월 5천만+ </div><div class="gi"><span style="color:var(--ok)">✓</span> 자사몰/스토어 운영</div><div class="gi"><span style="color:var(--ok)">✓</span> 수출 가능 인증 보유</div><div class="gi"><span style="color:var(--ok)">✓</span> 재고 여력</div><div class="gi"><span style="color:var(--ok)">✓</span> 전담 인력</div>
       </div></div>
     </div>
   </div></div>
@@ -1116,94 +1084,21 @@ button.done-btn{background:#dcfce7!important;border-color:#86efac!important;colo
 
 <!-- ================= ASSETS ================= -->
 <section class="screen" id="s-assets">
-  <div class="ph"><div><h1>자산 저장소 — 파일·레퍼런스 단일 색인</h1><p>구글 드라이브와 양방향 동기화 — 드라이브에 올려도, 어드민에 올려도 같은 색인에 잡힙니다</p></div>
-  <div style="display:flex;gap:6px"><button class="btn" data-tip="드라이브 변경사항을 지금 가져옵니다 (평소엔 5분 주기 자동)">🔄 드라이브 동기화</button><button class="btn pri" data-tip="업로드하면 드라이브 파트 폴더에 저장되고 색인에 자동 등록됩니다">+ 업로드 → 드라이브 저장</button></div></div>
-
-  <div class="card" style="margin-bottom:12px"><div class="bd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px">
-    <span style="width:26px;height:26px;border-radius:7px;background:#fff;border:1px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-size:14px">🗂️</span>
-    <b>Google Drive 연결됨</b><span class="chip grn">● 동기화 정상</span>
-    <span style="color:var(--ink3)">계정 jaybe@dinostudio.kr · 루트 폴더 <b>GloveK_Assets</b> · 마지막 동기화 오늘 14:05 · 신규 3 / 변경 1 반영</span>
-    <button class="btn sm" style="margin-left:auto" onclick="var t=document.querySelector('#atabs [data-t=a-drive]');if(t)t.click();">연동 설정 →</button>
-  </div></div>
-
-  <div class="tabs" id="atabs">
-    <button class="on" data-t="a-files">📎 파일 목록</button>
-    <button data-t="a-refs">⭐ 레퍼런스 목록</button>
-    <button data-t="a-drive">🗂️ 드라이브 연동 · 파트 담당</button>
-  </div>
-
-  <!-- ─── 탭 1: 파일 목록 ─── -->
-  <div class="tp atp on" id="a-files">
-  <div class="bar"><input class="f" style="width:230px" placeholder="🔍 파일명·브랜드 검색 (드라이브 포함)"><select><option>종류 전체</option><option>계약서</option><option>제안서</option><option>인증 서류</option><option>라벨·디자인</option><option>정산서</option><option>RFP</option><option>리드 시트</option><option>회사 자료</option></select><select><option>파트 전체</option><option>고객</option><option>영업</option><option>마케팅</option><option>온보딩·제품</option><option>운영·정산</option></select><select><option>출처 전체</option><option>드라이브</option><option>어드민 업로드</option></select></div>
+  <div class="ph"><div><h1>자산 저장소 — 모든 자료의 단일 색인</h1><p>계약서·제안서·인증·라벨·정산서·RFP가 어느 카드에 있든 여기서 한 번에 검색됩니다</p></div>
+  <button class="btn pri">+ 업로드</button></div>
+  <div class="bar"><input class="f" style="width:230px" placeholder="🔍 파일명·브랜드 검색"><select><option>종류 전체</option><option>계약서</option><option>제안서</option><option>인증 서류</option><option>라벨·디자인</option><option>정산서</option><option>RFP</option><option>브랜드 자산</option></select><select><option>브랜드 전체</option></select></div>
   <div class="card"><table class="t">
-    <tr><th>파일</th><th>출처</th><th>브랜드/용도</th><th>파트</th><th>연결된 카드</th><th>업데이트</th><th>담당</th><th></th></tr>
-    <tr><td>📊 <b>glovek lead ai</b> <span class="sub">Google Sheets</span></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>리드 시트 (AI 스코어링)</td><td>고객</td><td>리드 가져오기</td><td>오늘</td><td>김지호</td><td><button class="btn sm" data-tip="드라이브에서 원본 열기 (새 탭)">열기 ↗</button></td></tr>
-    <tr><td>📊 <b>glovek.space lead</b> <span class="sub">Google Sheets</span></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>리드 시트 (웹 유입)</td><td>고객</td><td>리드 가져오기</td><td>어제</td><td>김지호</td><td><button class="btn sm">열기 ↗</button></td></tr>
-    <tr><td>📊 <b>메타_0730</b> <span class="sub">Google Sheets</span></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>메타 광고 DB</td><td>영업</td><td>리드 가져오기</td><td>7/30</td><td>최지연</td><td><button class="btn sm">열기 ↗</button></td></tr>
-    <tr><td>📊 <b>2026년 7월 전경련 AI 바이오/K-Beauty 세미나(응답)</b> <span class="sub">Google Sheets</span></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>세미나 응답</td><td>영업</td><td>캠페인·윈백</td><td>7/29</td><td>최지연</td><td><button class="btn sm">열기 ↗</button></td></tr>
-    <tr><td>📕 <b>디노스튜디오 소개자료 KR.pdf</b></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>회사 자료 (제안 첨부용)</td><td>영업</td><td>제안서</td><td>7/14</td><td>박서연</td><td><button class="btn sm">열기 ↗</button></td></tr>
-    <tr><td>📎 <b>계약서_루미에르_v2.pdf</b></td><td><span class="chip">어드민 업로드</span></td><td>루미에르코스 · 계약서</td><td>영업</td><td>계약·결제</td><td>7/29</td><td>김지호</td><td><button class="btn sm">열기 ↗</button></td></tr>
-    <tr><td>📎 <b>FDA_reg_2026.pdf</b></td><td><span class="chip">어드민 업로드</span></td><td>바른한끼 · 인증 서류</td><td>온보딩·제품</td><td>제품·인증 (BH-001)</td><td>7/21</td><td>최민아</td><td><button class="btn sm">열기 ↗</button></td></tr>
-    <tr><td>🎨 <b>label_US_v3.ai</b></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>바른한끼 · 라벨</td><td>온보딩·제품</td><td>제품·인증</td><td>7/25</td><td>정다은</td><td><button class="btn sm">열기 ↗</button></td></tr>
-    <tr><td>📊 <b>데일리 현금흐름(신규)</b> <span class="sub">Google Sheets · joon@</span></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>정산 참조</td><td>운영·정산</td><td>정산</td><td>오늘</td><td>한상우</td><td><button class="btn sm">열기 ↗</button></td></tr>
-    <tr><td>📎 <b>정산서_글로우랩_2607.pdf</b></td><td><span class="chip">어드민 업로드</span></td><td>글로우랩 · 정산서</td><td>운영·정산</td><td>정산 (7월 런)</td><td>7/28</td><td>한상우</td><td><button class="btn sm">열기 ↗</button></td></tr>
+    <tr><th>파일</th><th>브랜드</th><th>종류</th><th>연결된 카드</th><th>버전</th><th>업데이트</th><th>담당</th></tr>
+    <tr><td>📎 <b>계약서_v2.pdf</b></td><td>루미에르코스</td><td>계약서</td><td>계약·결제</td><td>v2</td><td>7/29</td><td>김지호</td></tr>
+    <tr><td>📎 <b>RFP_v1.pdf</b></td><td>글로우랩</td><td>RFP</td><td>마케팅 프로젝트</td><td>v1</td><td>7/18</td><td>정다은</td></tr>
+    <tr><td>📎 <b>FDA_reg_2026.pdf</b></td><td>바른한끼</td><td>인증 서류</td><td>제품·인증 (BH-001)</td><td>v1</td><td>7/21</td><td>최민아</td></tr>
+    <tr><td>📎 <b>label_US_v3.ai</b></td><td>바른한끼</td><td>라벨·디자인</td><td>제품·인증</td><td>v3</td><td>7/25</td><td>정다은</td></tr>
+    <tr><td>📎 <b>제안서_허브얌_3M.pdf</b></td><td>허브얌</td><td>제안서</td><td>제안서</td><td>v1</td><td>7/24</td><td>박서연</td></tr>
+    <tr><td>📎 <b>정산서_글로우랩_2607.pdf</b></td><td>글로우랩</td><td>정산서</td><td>정산 (7월 런)</td><td>—</td><td>7/28</td><td>한상우</td></tr>
+    <tr><td>📎 <b>logo_kit.zip</b></td><td>루미에르코스</td><td>브랜드 자산</td><td>회사정보</td><td>—</td><td>7/26</td><td>—</td></tr>
+    <tr><td>📎 <b>ingredients_en_v2.xlsx</b></td><td>바른한끼</td><td>인증 서류</td><td>제품·인증</td><td>v2</td><td>7/27</td><td>최민아</td></tr>
   </table>
-  <div style="padding:10px 16px" class="note">🔒 민감서류(신분증·여권·카드정보)는 색인 제외 — 원본 시스템 링크만 · 드라이브에서 수정하면 어드민 색인도 자동 갱신(버전 증가) · <b>모든 화면의 [📎 파일 첨부]는 이 색인(자산 선택기)을 통해서만 첨부됩니다</b></div></div>
-  </div>
-
-  <!-- ─── 탭 2: 레퍼런스 목록 ─── -->
-  <div class="tp atp" id="a-refs">
-  <div class="bar"><input class="f" style="width:230px" placeholder="🔍 레퍼런스 검색"><select><option>유형 전체</option><option>성과 콘텐츠</option><option>제안서 템플릿</option><option>베스트 사례</option><option>외부 링크</option><option>가이드 문서</option></select><button class="btn pri" style="margin-left:auto" data-tip="드라이브 파일 또는 URL을 레퍼런스로 등록">+ 레퍼런스 추가</button></div>
-  <div class="card"><table class="t">
-    <tr><th>레퍼런스</th><th>유형</th><th>태그</th><th>출처</th><th>사용</th><th>담당</th><th></th></tr>
-    <tr><td>⭐ <b>틱톡 라이브 후킹 인트로 5종</b></td><td>성과 콘텐츠</td><td><span class="chip">라이브커머스</span> <span class="chip">US</span></td><td><span class="chip amb">Remake Studio</span></td><td>12회</td><td>정다은</td><td><button class="btn sm">보기</button></td></tr>
-    <tr><td>⭐ <b>제안서 템플릿 — 온보딩 3M (설득 구조 v4)</b></td><td>제안서 템플릿</td><td><span class="chip">영업</span></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>31회</td><td>박서연</td><td><button class="btn sm">보기</button></td></tr>
-    <tr><td>⭐ <b>의적단 시즌 3_협찬범용제안서_ver0720</b></td><td>제안서 템플릿</td><td><span class="chip">협찬</span> <span class="chip">마케팅</span></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>4회</td><td>정다은</td><td><button class="btn sm">보기</button></td></tr>
-    <tr><td>⭐ <b>바른한끼 FDA 통과 케이스 정리</b></td><td>베스트 사례</td><td><span class="chip">FDA</span> <span class="chip">식품</span></td><td><span class="chip">어드민</span></td><td>9회</td><td>최민아</td><td><button class="btn sm">보기</button></td></tr>
-    <tr><td>⭐ <b>디노스튜디오_IR_자료</b></td><td>가이드 문서</td><td><span class="chip">회사</span></td><td><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브</span></td><td>7회</td><td>김지호</td><td><button class="btn sm">보기</button></td></tr>
-    <tr><td>⭐ <b>어필리에이트 시딩 100개 운영 체크리스트</b></td><td>가이드 문서</td><td><span class="chip">시딩</span></td><td><span class="chip">어드민</span></td><td>18회</td><td>정다은</td><td><button class="btn sm">보기</button></td></tr>
-    <tr><td>⭐ <b>TikTok Shop US 인기 셀링포인트 모음 (외부)</b></td><td>외부 링크</td><td><span class="chip">리서치</span></td><td><span class="chip">URL</span></td><td>5회</td><td>최지연</td><td><button class="btn sm">보기</button></td></tr>
-  </table>
-  <div style="padding:10px 16px" class="note">⭐ 레퍼런스는 제안서 작성·AI 초안·콘텐츠 제작 시 근거로 자동 추천됩니다 — Remake Studio 성과 콘텐츠는 성과 기준 충족 시 자동 유입 · "사용" 횟수는 첨부·인용된 횟수</div></div>
-  </div>
-
-  <!-- ─── 탭 3: 드라이브 연동 · 파트 담당 ─── -->
-  <div class="tp atp" id="a-drive">
-  <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:14px;align-items:start">
-    <div style="display:grid;gap:14px">
-      <div class="card"><div class="hd"><b>🗂️ Google Drive 연동 설정</b><span class="chip grn">연결됨</span></div><div class="bd" style="font-size:12.5px">
-        <div class="kv"><dt>연결 계정</dt><dd>jaybe@dinostudio.kr (워크스페이스 공용)</dd><dt>루트 폴더</dt><dd>GloveK_Assets <button class="btn sm">변경</button></dd><dt>동기화</dt><dd>양방향 · 5분 주기 (수동: 상단 🔄)</dd><dt>삭제 정책</dt><dd>드라이브에서 삭제 시 어드민에선 <b>아카이브</b> 처리(색인 유지)</dd></div>
-        <div style="margin-top:10px;font-weight:700;font-size:12px">폴더 ↔ 파트 매핑</div>
-        <table class="t" style="margin-top:6px">
-          <tr><th>드라이브 폴더</th><th>파트</th><th>자동 규칙</th></tr>
-          <tr><td>📁 GloveK_Assets/01_고객</td><td>고객</td><td>리드 시트·설문 자동 분류</td></tr>
-          <tr><td>📁 GloveK_Assets/02_영업</td><td>영업</td><td>제안서·계약서</td></tr>
-          <tr><td>📁 GloveK_Assets/03_마케팅</td><td>마케팅</td><td>RFP·콘텐츠·레퍼런스</td></tr>
-          <tr><td>📁 GloveK_Assets/04_온보딩제품</td><td>온보딩·제품</td><td>인증·라벨·서류</td></tr>
-          <tr><td>📁 GloveK_Assets/05_운영정산</td><td>운영·정산</td><td>정산서·리포트</td></tr>
-        </table>
-        <div class="note" style="margin-top:8px">폴더에 올리기만 하면 파트·종류가 자동 분류되어 색인에 등록 — 파일명에 브랜드명이 있으면 해당 브랜드 카드에 자동 연결</div>
-      </div></div>
-    </div>
-    <div style="display:grid;gap:14px">
-      <div class="card"><div class="hd"><b>👤 파트별 주요 담당</b><span class="sub" style="margin-left:6px">로그인 = 기본 담당</span></div><div class="bd" style="font-size:12.5px">
-        <table class="t">
-          <tr><th>파트</th><th>주요 담당 (기본)</th><th>지금 수정 중 = 담당</th></tr>
-          <tr><td>고객</td><td><select class="f" style="width:100px"><option selected>김지호</option><option>최지연</option><option>박서연</option></select></td><td><span class="av" style="width:18px;height:18px;font-size:9px">김지</span> 김지호 <span class="chip grn" style="font-size:9.5px">● 나</span></td></tr>
-          <tr><td>영업</td><td><select class="f" style="width:100px"><option selected>박서연</option><option>김지호</option><option>최지연</option></select></td><td><span class="av" style="width:18px;height:18px;font-size:9px;background:#fb923c">박서</span> 박서연 <span class="sub">수정 중 3분 전</span></td></tr>
-          <tr><td>마케팅</td><td><select class="f" style="width:100px"><option selected>정다은</option><option>박서연</option></select></td><td><span class="sub">활동 없음 → 기본 담당</span></td></tr>
-          <tr><td>온보딩·제품</td><td><select class="f" style="width:100px"><option selected>최민아</option><option>정다은</option></select></td><td><span class="av" style="width:18px;height:18px;font-size:9px;background:#34d399">최민</span> 최민아 <span class="sub">수정 중 12분 전</span></td></tr>
-          <tr><td>운영·정산</td><td><select class="f" style="width:100px"><option selected>한상우</option><option>최민아</option></select></td><td><span class="sub">활동 없음 → 기본 담당</span></td></tr>
-        </table>
-        <div class="note" style="margin-top:8px"><b>담당 규칙</b>: 로그인한 사용자가 자기 파트의 기본 담당 — 자료를 열어 수정하는 순간 그 사람이 해당 자료의 담당자로 자동 기록됩니다(마지막 수정자 = 현재 담당). 파트 기본 담당은 여기서 지정.</div>
-        <button class="btn pri sm" style="width:100%;margin-top:8px">담당 지정 저장</button>
-      </div></div>
-      <div class="card"><div class="hd"><b>📎 첨부 정책</b></div><div class="bd" style="font-size:12px;line-height:1.8">
-        모든 화면의 파일 첨부는 <b>자산 선택기</b>를 통합니다:<br>① 드라이브 검색 → 선택 ② 최근 파일 ③ 새 업로드(→드라이브 저장)<br>어디서 첨부해도 원본은 드라이브 1곳 — 카드에는 링크만 걸려 중복 파일이 생기지 않습니다.
-      </div></div>
-    </div>
-  </div>
-  </div>
+  <div style="padding:10px 16px" class="note">🔒 민감서류(신분증·여권·카드정보)는 여기 저장되지 않습니다 — 원본 시스템 링크만 · 같은 파일 재업로드 시 버전 자동 증가 · 모든 카드의 첨부가 이 색인에 자동 등록</div></div>
 </section>
 
 <!-- ================= GUIDE ================= -->
@@ -1606,63 +1501,55 @@ button.done-btn{background:#dcfce7!important;border-color:#86efac!important;colo
 
 <!-- ================= FLOW: PROPOSAL→CONTRACT ================= -->
 <section class="screen" id="s-f-prop">
-  <div class="ph"><div><h1>플로우 ⑤ 제안 → 계약 → 결제 확인</h1><p>6스텝 — 견적은 시스템이 계산하고, 돈은 glovek이 받고, 확인은 자동으로 옵니다</p></div></div>
-  <div style="display:flex;gap:0;align-items:center;margin-bottom:14px;flex-wrap:wrap">
-    <span class="chip" style="background:#dbeafe;color:#1e40af">1 제안서 작성</span><span style="color:#94a3b8;padding:0 6px">→</span>
-    <span class="chip amb">2 (조건부) 할인 결재</span><span style="color:#94a3b8;padding:0 6px">→</span>
-    <span class="chip" style="background:#dbeafe;color:#1e40af">3 발송·추적</span><span style="color:#94a3b8;padding:0 6px">→</span>
-    <span class="chip" style="background:#dbeafe;color:#1e40af">4 계약 확정</span><span style="color:#94a3b8;padding:0 6px">→</span>
-    <span class="chip" style="background:#dcfce7;color:#166534">5 결제 안내 발송</span><span style="color:#94a3b8;padding:0 6px">→</span>
-    <span class="chip grn">6 결제 확인 → 상태 전진</span>
-  </div>
+  <div class="ph"><div><h1>플로우 ⑤ 제안 → 계약 → 결제 확인</h1><p>견적 계산은 시스템, 할인 상한 초과는 자동으로 결재선을 탑니다</p></div></div>
   <div class="flow">
-    <div class="fstep"><div class="fh"><span class="no">1</span><b>제안서 작성</b><span class="who hum">영업 담당</span></div>
-      <div class="modal"><div class="mh"><b>제안서 — 루미에르코스</b><span class="x">✕</span></div><div class="mb">
-        <label class="f">트랙 (진단 추천: 온보딩)</label><select class="f"><option>온보딩 3M — 3,000,000원</option><option>온보딩 5M</option><option>Live Focus 49만/월</option></select>
-        <label class="f">국가 / 약정</label><div style="display:flex;gap:5px"><input class="f" value="🇺🇸 US 단독"><select class="f" style="width:130px"><option>6개월</option></select></div>
-        <div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:8px;background:#f8fafc">
-          <div class="dfrow"><span>시스템 견적 (자동 계산)</span><b>3,000,000원 + VAT</b></div>
-          <div class="dfrow"><span>추가 할인</span><b>0% <span style="color:var(--ink3);font-weight:400">(상한 20%)</span></b></div>
-        </div>
-        <div class="fnote" style="margin-top:8px">금액은 <b>수기로 고칠 수 없습니다</b> — 견적 로직(computeQuote) 단일 원천 · AI가 브리프·회의록 기반 제안 문구 초안 작성</div>
-      </div><div class="mf"><button class="btn sm pri">제안서 생성</button></div></div>
+    <div class="fstep"><div class="fh"><span class="no">1</span><b>제안서 위저드</b><span class="who hum">담당자</span></div>
+      <div class="modal"><div class="mh"><b>제안서 — 루미에르코스 (1/3)</b></div><div class="mb">
+        <div class="wiz"><i class="on"></i><i></i><i></i></div>
+        <label class="f">트랙 (진단 추천: 온보딩)</label><select class="f"><option>온보딩 5M</option></select>
+        <label class="f">국가</label><div class="tagz"><span class="chip">🇺🇸 US ✕</span><button class="btn sm">+</button></div>
+        <label class="f">약정</label><select class="f"><option>6개월 (20% 할인)</option></select>
+        <label class="f">추가 할인 (상한 20%)</label><input class="f" value="5%">
+        <div class="dfrow" style="margin-top:8px"><span>합계</span><b>3,800만 + VAT</b></div>
+      </div><div class="mf"><button class="btn sm pri">미리보기 →</button></div></div>
+      <div class="fnote"><b>계산 잠금</b> — 견적은 시스템(computeQuote)만 산출. 수기로 금액을 고칠 수 없다.</div>
     </div>
     <div class="farr">→</div>
-    <div class="fstep"><div class="fh"><span class="no">2</span><b>할인 결재 (조건부)</b><span class="who sys">결재선</span></div>
-      <div class="modal"><div class="mh"><b>할인 20% 이하 — 이 스텝 자동 통과</b></div><div class="mb" style="font-size:12px;line-height:1.8">
-        <div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:8px;padding:8px 10px">✅ 이번 건 할인 0% → <b>결재 불필요, 바로 발송 가능</b></div>
-        <div style="border:1px solid #fecaca;background:#fff7f7;border-radius:8px;padding:8px 10px;margin-top:8px">⚠️ 만약 20% 초과였다면 — 발송 버튼이 잠기고 <b>파트장 승인 요청이 자동 생성</b>됩니다 (사유 필수 · 승인 시 발송 잠금 해제 · 전 과정 이력)</div>
-      </div><div class="mf"><button class="btn sm pri">다음 →</button></div></div>
+    <div class="fstep"><div class="fh"><span class="no">1-b</span><b>분기: 할인 초과</b><span class="who sys">결재선</span></div>
+      <div class="modal err"><div class="mh"><b style="color:#b91c1c">할인 25% — 상한(20%) 초과</b></div><div class="mb" style="font-size:11.5px;line-height:1.7">
+        이 제안은 바로 발송할 수 없어요.<br><b>파트장 승인 요청</b>이 자동 생성됩니다.
+        <label class="f">요청 사유 (필수)</label><textarea class="f" rows="2">경쟁 제안 대응 — 3개국 확장 약속 조건</textarea>
+      </div><div class="mf"><button class="btn sm pri">승인 요청 보내기</button></div></div>
+      <div class="fnote"><b>승인되면</b> — 발송 버튼이 열림 · 반려되면 사유와 함께 회귀. 요청·결정 전부 이력.</div>
     </div>
     <div class="farr">→</div>
-    <div class="fstep"><div class="fh"><span class="no">3</span><b>발송·추적</b><span class="who sys">자동</span></div>
-      <div class="modal okc"><div class="mh"><b style="color:#166534">제안서 발송됨 — 반응 추적 중</b></div><div class="mb" style="font-size:12px;line-height:1.8">
-        7/29 10:12 발송 (회사 이메일 발신)<br>👁 열람 <b>3회</b> · 마지막 오늘 09:02<br>
-        <div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px">게이트 반영: <b style="color:var(--ok)">"제안서 발송 ✓"</b> — 계약검토 이동 조건 충족<br>⏰ 7일 무응답 시 → 팔로업 리마인더 초안 자동 생성</div>
+    <div class="fstep"><div class="fh"><span class="no">2</span><b>발송·열람 추적</b><span class="who sys">자동</span></div>
+      <div class="modal okc"><div class="mh"><b style="color:#166534">제안서 발송됨</b></div><div class="mb" style="font-size:11.5px;line-height:1.7">
+        7/29 10:12 · sera@lumiere.kr<br>열람 <b>3회</b> · 마지막 오늘 09:02<br>
+        <div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px">게이트 반영: <b style="color:var(--ok)">제안서 발송 ✓</b> — 계약검토 이동 조건 1/3 충족</div>
       </div></div>
+      <div class="fnote"><b>7일 무응답 시</b> — 팔로업 리마인더 초안이 자동 생성되어 승인 대기에 올라옴.</div>
     </div>
     <div class="farr">→</div>
-    <div class="fstep"><div class="fh"><span class="no">4</span><b>계약 확정</b><span class="who hum">영업 담당</span></div>
-      <div class="modal"><div class="mh"><b>계약 등록 — 수락 회신 후</b><span class="x">✕</span></div><div class="mb">
-        <div class="kv" style="font-size:11.5px"><dt>종류/기간</dt><dd>온보딩 3M · 26.9–26.12</dd><dt>조건</dt><dd>정산율 20% · 시딩 100개/월</dd><dt>계약서</dt><dd>📎 v2.pdf · <b style="color:var(--ok)">서명 완료 ✓</b></dd></div>
-        <div class="fnote" style="margin-top:8px">조건(terms)이 구조화 저장되어야 정산 자동화가 가능 — 파일만 올리고 조건을 안 넣으면 저장 불가</div>
-      </div><div class="mf"><button class="btn sm pri">저장 → 결제 안내로</button></div></div>
+    <div class="fstep"><div class="fh"><span class="no">3</span><b>계약 확정 · 결제 안내 발송</b><span class="who hum">담당자</span></div>
+      <div class="modal"><div class="mh"><b>결제 안내 — 루미에르코스</b><span class="x">✕</span></div><div class="mb">
+        <div style="font-size:11px;color:var(--ink3);margin-bottom:6px">계약: 온보딩 3M · 26.9–26.12 · 계약서_v2.pdf 서명 완료 ✓</div>
+        <label class="f">결제 항목</label><select class="f"><option>온보딩 3M — 3,000,000원 (카드)</option><option>추가 결제 — 금액 직접 입력</option></select>
+        <label class="f">결제 방식</label>
+        <div class="radio sel"><span class="rb"></span><div><b>① glovek 카드결제 링크 발송</b><div style="color:var(--ink3);font-size:10.5px">브랜드가 glovek 로그인 → 개런티/온보딩 트랙 카드결제</div></div></div>
+        <div class="radio"><span class="rb"></span><div><b>② 계약서·계좌이체 (수기 확인)</b><div style="color:var(--ink3);font-size:10.5px">입금 확인 후 어드민에서 수동 입력</div></div></div>
+        <label class="f">발송 채널</label><div class="tagz"><span class="chip">✉️ sera@lumiere.kr</span></div>
+      </div><div class="mf"><button class="btn sm pri">결제 안내 메일 발송</button></div></div>
+      <div class="fnote"><b>발송 후</b> — 브랜드 카드가 "결제 대기" 표시 · 링크 열람 추적 · 미결제 3일 시 리마인더 초안 자동.</div>
     </div>
     <div class="farr">→</div>
-    <div class="fstep"><div class="fh"><span class="no">5</span><b>결제 안내 발송</b><span class="who hum">담당 → <span class="who brd" style="margin-left:4px">브랜드</span></span></div>
-      <div class="modal"><div class="mh"><b>결제 안내 — 300만원</b><span class="x">✕</span></div><div class="mb">
-        <div class="radio sel"><span class="rb"></span><div><b>① glovek 카드결제</b><div style="color:var(--ink3);font-size:10.5px">안내 메일 발송 → 브랜드가 glovek 로그인 → 카드결제</div></div></div>
-        <div class="radio"><span class="rb"></span><div><b>② 계좌이체 (계약서 기반)</b><div style="color:var(--ink3);font-size:10.5px">입금 확인 후 수기 입력</div></div></div>
-        <div class="fnote" style="margin-top:8px">발송 후 카드에 <b>"결제 대기"</b> 표시 · 링크 열람 추적 · 미결제 3일 시 리마인더 자동</div>
-      </div><div class="mf"><button class="btn sm pri">안내 메일 발송</button></div></div>
-    </div>
-    <div class="farr">→</div>
-    <div class="fstep"><div class="fh"><span class="no">6</span><b>결제 확인 → 상태 전진</b><span class="who sys">자동</span></div>
-      <div class="modal okc"><div class="mh"><b style="color:#166534">✓ 결제 확인 — 연쇄 자동 실행</b></div><div class="mb" style="font-size:12px;line-height:1.8">
-        <b>카드</b>: glovek 웹훅 자동 수신 (사람 개입 0)<br><b>이체</b>: 수기 확인 입력 → 동일 연쇄<br>
-        <div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px">① pay_status 갱신 → 게이트 충족<br>② <b>계약완료 전진 제안 카드</b> (승인 클릭)<br>③ 서류 체크리스트 자동 생성<br>④ 온보딩 담당 지정 요구 → 핸드오프<br>⑤ 정산 채널 카드 · 세금계산서 발행 예약</div>
+    <div class="fstep"><div class="fh"><span class="no">4</span><b>결제 확인 — 자동/수동</b><span class="who sys">시스템</span></div>
+      <div class="modal okc"><div class="mh"><b style="color:#166534">✓ 결제 확인 → 상태 전진</b></div><div class="mb" style="font-size:11.5px;line-height:1.75">
+        <b>자동 (카드)</b> — glovek 웹훅 payment 수신<br><span style="color:var(--ink3)">3,000,000원 · pay:tid 멱등 · pay_status=once_paid → 게이트 충족 → <b>계약완료 자동 전진 제안 카드</b> (승인 클릭)</span>
+        <div style="border-top:1px dashed var(--line);margin:7px 0;padding-top:7px"><b>수동 (계약서·이체)</b> — 수기 확인 입력 시 동일 연쇄<br><span style="color:var(--ink3)">금액·입금일 입력 → 게이트 충족 → 상태 전진</span></div>
+        어느 쪽이든: 서류 템플릿 자동 생성 · 정산 채널 카드 · 온보딩 담당 지정 요구
       </div></div>
-      <div class="fnote"><b>10만원 미만</b>은 테스트 격리 · 환불은 pay_status 조정+정산 차감</div>
+      <div class="fnote"><b>10만원 미만</b>은 테스트로 격리 · 환불 시 pay_status 조정 + 정산 차감(17 규칙).</div>
     </div>
   </div>
 </section>
@@ -1960,12 +1847,6 @@ document.querySelectorAll('#stabs button').forEach(b=>b.addEventListener('click'
   document.querySelectorAll('.stp').forEach(t=>t.classList.remove('on'));
   document.getElementById(this.dataset.t).classList.add('on');
 }));
-document.querySelectorAll('#atabs button').forEach(b=>b.addEventListener('click',function(){
-  document.querySelectorAll('#atabs button').forEach(x=>x.classList.remove('on'));
-  this.classList.add('on');
-  document.querySelectorAll('.atp').forEach(t=>t.classList.remove('on'));
-  document.getElementById(this.dataset.t).classList.add('on');
-}));
 /* ===== toast ===== */
 var tEl=document.createElement('div');tEl.id='toast';document.body.appendChild(tEl);var tT;
 function toast(m){tEl.innerHTML=m;tEl.classList.add('show');clearTimeout(tT);tT=setTimeout(function(){tEl.classList.remove('show')},3000);}
@@ -2090,89 +1971,16 @@ function doTransition(){
 }
 document.getElementById('ovOk').addEventListener('click',doTransition);
 var bgp=document.getElementById('btnGatePass');if(bgp)bgp.addEventListener('click',function(e){e.stopPropagation();doTransition();});
-/* ===== 워크큐 발송류 버튼 → 메일 내용 미리보기 모달 ===== */
-var QMAILS={
- '그린바이트':{k:'리마인더',to:'강태우 <kt@greenbite.kr>',s:'[GloveK] 지난 제안서 검토 진행 상황 확인드립니다',b:'강태우 님, 안녕하세요.\n7/24 보내드린 Live Focus 제안서(US·VN) 검토는 어떻게 진행되고 계실까요?\n궁금하신 점이 있으면 회신 주시거나, 아래 링크로 15분 통화 예약도 가능합니다.\n· 제안서 다시 보기 · 통화 예약: scheduler.zoom.us/seoyeon'},
- '베베숲':{k:'서류 리마인더',to:'이하늘 <hn@bebesoop.kr>',s:'[GloveK] 입점 서류 2건 제출 안내 — 통장 사본·상표등록증',b:'이하늘 님, 입점 셋업이 서류 2건만 남았습니다!\n· 통장 사본 (법인 계좌)\n· 상표등록증 (US 출원분)\n제출 링크: apply.tpartners.live/docs (3분 소요)\n이번 주 내 제출되면 예정대로 8월 중 오픈이 가능합니다.'},
- '서울수티':{k:'결제 안내',to:'김수현 <soo@seoulsooty.com>',s:'[GloveK] Live Focus 구독 결제 실패 안내 (2회차)',b:'김수현 님, 등록된 카드로 2회차 결제가 실패했습니다 (D+4).\nglovek.space 로그인 → 결제 수단 갱신으로 1분 만에 해결됩니다.\n결제가 계속 지연되면 운영 캠페인이 일시 중지될 수 있어요.'}
-};
+/* ===== row-processing buttons (워크큐·결재함) ===== */
 document.addEventListener('click',function(e){
   var b=e.target.closest('button.btn');if(!b||b.dataset.done)return;
   var sec=e.target.closest('section');if(!sec)return;
-  var t=b.textContent.replace(/\s+/g,' ').trim();
-  if((sec.id==='s-queue'||sec.id==='s-approvals')&&e.target.closest('tr')){
+  if((sec.id==='s-queue'||sec.id==='s-approvals')&&e.target.closest('tr')&&(b.classList.contains('grn')||b.classList.contains('dgr')||b.textContent.indexOf('승인')>-1)){
     if(b.getAttribute('onclick'))return;
-    var tr=e.target.closest('tr');
-    var brand=(tr.querySelector('b')||{}).textContent||'';brand=brand.trim();
-    // 발송류 → 내용 미리보기 모달 (바로 발송 금지)
-    if(/발송|리마인더|안내/.test(t)&&QMAILS[brand]){
-      e.stopPropagation();
-      var m=QMAILS[brand];
-      openGm('발송 전 확인 — '+brand+' · '+m.k,
-        '<div class="kv" style="font-size:12px"><dt>받는이</dt><dd>'+m.to+'</dd><dt>발신</dt><dd>jiho@dinostudio.kr (회사 계정)</dd><dt>제목</dt><dd>'+m.s+'</dd></div>'
-        +'<label class="f">본문 (AI 초안 — 수정 가능)</label><textarea class="f" rows="6">'+m.b+'</textarea>'
-        +'<div class="note" style="margin-top:8px">발송 즉시 카드에 컨택 기록 · 관련 알림 해제 · 회신은 자동 수집</div>',
-        '승인·발송',
-        function(){tr.classList.add('done-row');b.dataset.done='1';toast('✉️ 발송 완료 (데모) — 카드 기록 · 알림 해제 · 워크큐에서 제거');});
-      return;
-    }
-    if(b.classList.contains('grn')||b.classList.contains('dgr')||t.indexOf('승인')>-1){
-      e.stopPropagation();tr.classList.add('done-row');b.dataset.done='1';
-      toast('처리됨 ✓ — DB 반영 · 관련 알림 해제 · 이력 기록 (데모)');
-    }
+    var tr=e.target.closest('tr');tr.classList.add('done-row');b.dataset.done='1';
+    toast('처리됨 ✓ — DB 반영 · 관련 알림 해제 · 이력 기록 (데모)');e.stopPropagation();
   }
 },true);
-/* ===== 칸반 드래그&드랍 — 권한 → 게이트 순 검사 ===== */
-document.querySelectorAll('#s-kanban .kcard').forEach(function(c){c.setAttribute('draggable','true');});
-var dragCard=null,dragMtg=null;
-document.addEventListener('dragstart',function(e){
-  var c=e.target.closest('.kcard');if(c){dragCard=c;return;}
-  var m=e.target.closest('.mtg');if(m){dragMtg=m;}
-});
-document.querySelectorAll('#s-kanban .kcol').forEach(function(col){
-  col.addEventListener('dragover',function(e){e.preventDefault();col.classList.add('dragover');});
-  col.addEventListener('dragleave',function(){col.classList.remove('dragover');});
-  col.addEventListener('drop',function(e){
-    e.preventDefault();col.classList.remove('dragover');if(!dragCard)return;
-    var name=dragCard.querySelector('.nm').textContent.trim();
-    var target=col.querySelector('h4').textContent.replace(/\d+.*$/,'').trim();
-    if(name.indexOf('몽드푸드')>-1){
-      openGm('⚠️ 권한 확인 — 담당이 아닙니다',
-        '<div style="font-size:12.5px;line-height:1.8">이 브랜드의 담당은 <b>정다은</b>입니다.<br>상태 이동은 <b>담당 본인 또는 파트장</b>만 가능해요.<br><br>김지호 님은 <b>파트장</b> 권한이 있습니다 — 대행 이동을 진행할까요?<br><span style="color:#8b93a1;font-size:11px">진행 시 "파트장 대행"으로 이력에 기록되고 담당에게 알림이 갑니다</span></div>',
-        '파트장 권한으로 진행',function(){toast('파트장 대행 이동 (데모) — 게이트 검사 후 반영 · 담당 알림');});
-      dragCard=null;return;
-    }
-    if(name.indexOf('오가닉힐')>-1){
-      openGm('🚫 이동 불가 — 게이트 미충족 (422)',
-        '<div style="font-size:12px;margin-bottom:8px"><b>'+target+'</b>(으)로 가려면 아래 조건이 필요합니다:</div>'
-        +'<div class="chk"><span class="cb"></span><b style="color:#dc2626">유입 담당 미지정</b><button class="btn sm" style="margin-left:auto">담당 수락 →</button></div>'
-        +'<div class="chk"><span class="cb"></span><b style="color:#dc2626">첫 컨택 기록 없음</b><button class="btn sm" style="margin-left:auto">접촉 기록 →</button></div>'
-        +'<div class="note" style="margin-top:10px">부족 항목을 채우면 이동이 열립니다 — 실패 시도도 이력에 남고, 반복 우회는 게이트 위반 알림(즉시 파트장)</div>',
-        '닫기',null);
-      dragCard=null;return;
-    }
-    if(name.indexOf('루미에르코스')>-1&&target.indexOf('개별 컨택')>-1){
-      col.appendChild(dragCard);
-      toast('✅ 루미에르코스 → 컨택 이동 — 게이트 3/3 통과 · 이력 기록 · Slack 카드 갱신 (데모)');
-      dragCard=null;return;
-    }
-    openGm('게이트 검사 — '+name,
-      '<div style="font-size:12.5px;line-height:1.8"><b>'+target+'</b>(으)로 이동 시도.<br>서버가 ① 권한(담당/파트장) → ② 전진 전이 여부 → ③ 게이트 조건 순으로 검사합니다.<br><br><span style="color:#8b93a1;font-size:11px">데모 케이스: 루미에르코스→컨택(성공) · 오가닉힐(게이트 차단) · 몽드푸드(권한 얼랏)</span></div>','닫기',null);
-    dragCard=null;
-  });
-});
-/* ===== 미팅 캘린더 드래그&드랍 (일정 변경) ===== */
-document.querySelectorAll('#s-meetings .mtg').forEach(function(m){m.setAttribute('draggable','true');});
-document.querySelectorAll('#s-meetings .cal .c').forEach(function(cell){
-  cell.addEventListener('dragover',function(e){e.preventDefault();cell.style.background='#eaf1fb';});
-  cell.addEventListener('dragleave',function(){cell.style.background='';});
-  cell.addEventListener('drop',function(e){
-    e.preventDefault();cell.style.background='';if(!dragMtg)return;
-    cell.appendChild(dragMtg);dragMtg.style.outline='2px dashed #d97706';
-    toast('📅 일정 변경 제안 (데모) — 브랜드 확인 메일 초안 생성 → 승인 발송 · 상대 수락 시 줌 일정 확정(점선 해제)');
-    dragMtg=null;
-  });
-});
 /* ===== generic form modal (계약 등록 · 수기 결제 · 결제 안내) ===== */
 var gm=document.createElement('div');gm.id='gmwrap';gm.innerHTML='<div id="gmo" style="position:fixed;inset:0;background:rgba(15,36,64,.45);display:none;align-items:center;justify-content:center;z-index:210"><div class="modal" style="width:430px;max-width:92vw;background:#fff;border:1px solid #e5e9f0;border-radius:14px;box-shadow:0 18px 50px rgba(15,36,64,.3);overflow:hidden"><div class="mh" style="padding:12px 15px;border-bottom:1px solid #e5e9f0;display:flex;gap:8px;align-items:center"><b id="gmT"></b><span id="gmX" style="margin-left:auto;cursor:pointer;color:#8b93a1">✕</span></div><div class="mb" id="gmB" style="padding:13px 15px;font-size:12.5px;max-height:70vh;overflow:auto"></div><div class="mf" style="padding:10px 15px;border-top:1px solid #e5e9f0;display:flex;gap:6px;justify-content:flex-end;background:#fafbfd"><button class="btn sm" id="gmC">취소</button><button class="btn sm pri" id="gmOk"></button></div></div></div>';
 document.body.appendChild(gm);
@@ -2180,10 +1988,6 @@ var gmo=document.getElementById('gmo'),gmDone=null;
 function openGm(title,body,okLabel,onOk){document.getElementById('gmT').textContent=title;document.getElementById('gmB').innerHTML=body;document.getElementById('gmOk').textContent=okLabel;gmDone=onOk;gmo.style.display='flex';}
 function closeGm(){gmo.style.display='none';}
 document.getElementById('gmX').addEventListener('click',closeGm);
-document.getElementById('gmo').addEventListener('click',function(e){
-  var b=e.target.closest('button');if(!b)return;
-  if(/파일 첨부|파일 선택/.test(b.textContent)&&b.id!=='gmOk'&&b.id!=='gmC'){e.stopPropagation();openModalTpl('assetpick');}
-});
 document.getElementById('gmC').addEventListener('click',closeGm);
 document.getElementById('gmOk').addEventListener('click',function(){closeGm();if(gmDone)gmDone();});
 var TPL={
@@ -2198,32 +2002,6 @@ var TPL={
   +'<label class="f">다음 회차 (정기일 경우)</label><input class="f" placeholder="(일시납이면 비움)">'
   +'<div class="note" style="margin-top:10px">입력 즉시 pay_status 갱신 → 계약완료 이동 가능 여부 재계산 · 10만원 미만은 테스트 격리</div>',
   done:function(){toast('✅ 수기 결제 확인 (데모) — 게이트 충족 · 상태 전진 제안 카드 생성');}},
- assetpick:{t:'자산 선택기 — 첨부는 드라이브 원본으로',ok:'선택한 자산 연결',b:'<input class="f" placeholder="🔍 드라이브·색인 검색 (파일명·브랜드)" style="margin-bottom:8px">'
-  +'<div style="display:flex;gap:6px;margin-bottom:8px"><span class="chip" style="background:#e8f0fe;color:#1a56db">드라이브 검색</span><span class="chip">최근 파일</span><span class="chip">+ 새 업로드 → 드라이브 저장</span></div>'
-  +'<div class="radio r on"><span class="rb"></span><div><b>📊 glovek lead ai</b><div style="color:var(--ink3);font-size:11px">Google Sheets · 01_고객 · 오늘 수정 · 담당 김지호</div></div></div>'
-  +'<div class="radio"><span class="rb"></span><div><b>📕 디노스튜디오 소개자료 KR.pdf</b><div style="color:var(--ink3);font-size:11px">02_영업 · 7/14 · 제안 첨부용</div></div></div>'
-  +'<div class="radio"><span class="rb"></span><div><b>📎 FDA_reg_2026.pdf</b><div style="color:var(--ink3);font-size:11px">04_온보딩제품 · 바른한끼 카드 연결됨</div></div></div>'
-  +'<div class="radio"><span class="rb"></span><div><b>🎨 label_US_v3.ai</b><div style="color:var(--ink3);font-size:11px">04_온보딩제품 · v3 · 정다은</div></div></div>'
-  +'<div class="note" style="margin-top:8px">원본은 드라이브 1곳 — 카드에는 링크만 연결되어 중복 파일이 생기지 않습니다 · 새 업로드도 드라이브에 저장 후 연결</div>',
-  done:function(){toast('📎 자산 연결됨 (데모) — 카드 첨부 + 색인 사용 횟수 +1');}},
- assetup:{t:'업로드 → 드라이브 저장',ok:'업로드 · 색인 등록',b:'<button class="btn" style="width:100%;padding:18px;border-style:dashed">📂 파일 선택 또는 끌어다 놓기</button>'
-  +'<label class="f">저장 위치 (파트 폴더)</label><select class="f"><option>GloveK_Assets/01_고객</option><option>02_영업</option><option>03_마케팅</option><option selected>04_온보딩제품</option><option>05_운영정산</option></select>'
-  +'<label class="f">브랜드 연결 (선택)</label><select class="f"><option>자동 감지 (파일명)</option><option>루미에르코스</option><option>바른한끼</option></select>'
-  +'<div class="note" style="margin-top:8px">드라이브에 저장 → 색인 등록 → 파트·종류 자동 분류 · 같은 파일명은 버전 자동 증가</div>',
-  done:function(){toast('☁️ 드라이브 저장 + 색인 등록 (데모) — 담당: 지금 로그인한 김지호');}},
- refadd:{t:'레퍼런스 추가',ok:'등록',b:'<label class="f">제목</label><input class="f" placeholder="예: 라이브 후킹 인트로 모음">'
-  +'<label class="f">유형 / 태그</label><div style="display:flex;gap:6px"><select class="f"><option>성과 콘텐츠</option><option>제안서 템플릿</option><option>베스트 사례</option><option>외부 링크</option><option>가이드 문서</option></select><input class="f" placeholder="태그 (쉼표)"></div>'
-  +'<label class="f">출처</label><div class="radio r on"><span class="rb"></span><div><b>드라이브 파일에서 선택</b><div style="color:var(--ink3);font-size:11px">자산 선택기로 연결</div></div></div>'
-  +'<div class="radio"><span class="rb"></span><div><b>외부 URL</b></div></div>'
-  +'<div class="note" style="margin-top:8px">등록된 레퍼런스는 제안서·AI 초안 작성 시 자동 추천됩니다</div>',
-  done:function(){toast('⭐ 레퍼런스 등록 (데모) — AI 추천 풀에 반영');}},
- zoominvite:{t:'줌 미팅 제안 — 루미에르코스',ok:'제안 발송 → 카드 기록',b:'<label class="f">받는이</label><select class="f"><option>윤세라 대표 (메일+문자)</option><option>조민규 팀장</option></select>'
-  +'<label class="f">제안 방식</label>'
-  +'<div class="radio sel"><span class="rb"></span><div><b>① 내 예약 링크 보내기</b><div style="color:#8b93a1;font-size:11px">scheduler.zoom.us/jiho — 브랜드가 편한 시간을 직접 선택</div></div></div>'
-  +'<div class="radio"><span class="rb"></span><div style="flex:1"><b>② 시간 직접 제안 (2~3개)</b><div style="display:flex;gap:5px;margin-top:6px"><input class="f" value="8/1 (금) 14:00"><input class="f" value="8/4 (월) 10:00"><input class="f" placeholder="+"></div></div></div>'
-  +'<label class="f">메시지 <button class="btn sm" style="float:right">AI 초안 (카드 맥락)</button></label><textarea class="f" rows="3">윤세라 대표님, 견적서 관련 논의를 위해 30분 미팅을 제안드립니다. 편하신 시간을 아래 링크에서 선택해 주세요.</textarea>'
-  +'<div class="note" style="margin-top:8px">예약이 확정되면 줌 웹훅으로 <b>미팅 캘린더 자동 등록 + 담당 매핑 + D-1 리마인더</b>까지 자동 · 발송 즉시 컨택 기록</div>',
-  done:function(){toast('📹 미팅 제안 발송 (데모) — 컨택 기록 · 예약 확정 시 캘린더 자동 등록');}},
  sendmail:{t:'개별 메일 — 루미에르코스',ok:'발송 → 카드 기록',b:'<label class="f">받는이 (카드 연락처)</label><select class="f"><option>윤세라 대표 &lt;sera@lumiere.kr&gt;</option><option>조민규 팀장 &lt;mk@lumiere.kr&gt;</option></select>'
   +'<label class="f">발신 (회사 이메일만 — 개인 메일 불가)</label><select class="f"><option>김지호 &lt;jiho@dinostudio.kr&gt;</option><option>영업팀 &lt;sales@dinostudio.kr&gt;</option></select>'
   +'<label class="f">제목</label><input class="f" value="[GloveK] 미국 진출 견적서 송부드립니다">'
@@ -2279,11 +2057,6 @@ document.addEventListener('click',function(e){
   if(e.target.closest('#ovl')||e.target.closest('#gmo'))return;
   if(e.target.closest('section[id^="s-f-"]'))return; /* flows handle themselves */
   var t=b.textContent.replace(/\s+/g,' ').trim();if(!t)return;
-  if(/파일 첨부|자산에서 선택/.test(t)){openModalTpl('assetpick');return;}
-  if(/업로드 → 드라이브/.test(t)){openModalTpl('assetup');return;}
-  if(/레퍼런스 추가/.test(t)){openModalTpl('refadd');return;}
-  if(/드라이브 동기화/.test(t)){toast('🔄 동기화 완료 (데모) — 신규 0 · 변경 0 · 색인 최신 상태');return;}
-  if(/담당 지정 저장/.test(t)){toast('👤 파트 담당 저장 (데모) — 이후 수정자가 곧 담당으로 자동 기록됩니다');return;}
   if(/계약 등록/.test(t)){openModalTpl('contract');return;}
   if(/브랜드사 추가/.test(t)){openModalTpl('mktbrand');return;}
   if(/정보 수정/.test(t)){openModalTpl('company');return;}
@@ -2292,9 +2065,6 @@ document.addEventListener('click',function(e){
   if(/^\+ 새 대량 발송$|발송 만들기/.test(t)){go('send');toast('발송 센터 — STEP 1부터 대상 그룹을 지정하세요');return;}
   if(/개별 메일|^✉️ 메일$/.test(t)){openModalTpl('sendmail');return;}
   if(/개별 문자|^📱 문자$/.test(t)){openModalTpl('sendsms');return;}
-  if(/미팅 제안/.test(t)){openModalTpl('zoominvite');return;}
-  if(/AI 재진단 실행/.test(t)){toast('🤖 재진단 큐 등록 (데모) — 크롤러+공개신호 재수집 → 브리프·등급 갱신 (2~3분)');return;}
-  if(/저장 → 등급 재계산/.test(t)){toast('✅ 지표 저장 — 5/5 충족 → 등급 S 유지 (변경 이력 기록 · 담당 보정값 우선)');return;}
   if(/프로젝트 제안|프로젝트로 등록/.test(t)){openModalTpl('mktproject');return;}
   if(/서류 업로드/.test(t)){openModalTpl('certdoc');return;}
   if(/수기 (결제|확인)/.test(t)){openModalTpl('manualpay');return;}
