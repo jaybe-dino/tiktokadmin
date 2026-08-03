@@ -11,11 +11,14 @@ export interface BoardCard extends Brand {
 }
 
 export async function boardCards(): Promise<BoardCard[]> {
+  // 종료(dropped/churned)·테스트(is_test) 브랜드는 SQL 에서 제외 —
+  //   JS 후필터/전행 전송 제거(성능) + KPI 격리 기준과 일치(테스트 데이터 미표시).
   return query<BoardCard>(
     `SELECT b.*,
             EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind='sla_breach' AND a.resolved_at IS NULL) AS has_breach,
             NULLIF(concat_ws(', ', b.owner_intake, b.owner_sales, b.owner_onboard, b.owner_ads), '') AS owners_display
        FROM brands b
+      WHERE b.state NOT IN ('dropped','churned') AND coalesce(b.is_test,false)=false
       ORDER BY b.stage_entered_at ASC`,
   );
 }

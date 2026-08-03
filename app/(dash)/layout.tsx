@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import SideNav from "@/components/SideNav";
@@ -47,11 +48,12 @@ export default async function DashLayout({ children }: { children: React.ReactNo
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="h-[52px] bg-white flex items-center gap-3 px-[18px] sticky top-0 z-40"
           style={{ borderBottom: "1px solid var(--line)" }}>
-          <div className="flex-[0_1_420px] flex items-center gap-2 rounded-[9px] px-3 py-1.5"
+          {/* 정적 안내가 아니라 실제 고객목록 검색으로 연결(어포던스 일치) */}
+          <Link href="/customers" className="flex-[0_1_420px] flex items-center gap-2 rounded-[9px] px-3 py-1.5"
             style={{ background: "var(--bg)", border: "1px solid var(--line)", color: "var(--ink3)" }}>
             <span>🔍</span>
-            <span className="text-[13px]">브랜드·담당자 검색은 고객 목록에서</span>
-          </div>
+            <span className="text-[13px]">브랜드·담당자 검색 (고객 목록으로)</span>
+          </Link>
         </header>
         <main className="flex-1 min-w-0 px-[22px] py-5 pb-16" style={{ maxWidth: 1440 }}>{children}</main>
       </div>

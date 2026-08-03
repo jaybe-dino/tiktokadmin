@@ -157,7 +157,7 @@ export default function Brand360Docs({ brandId, docItems, done, total, logistics
               </tbody>
             </table>
           )}
-          <div className="note" style={{ marginTop: 10 }}>서류 단계 게이트는 물류 계약 상태와 동기됩니다 — 계약 없으면 셋업 이동 불가.</div>
+          <div className="note" style={{ marginTop: 10 }}>docs→setup 게이트는 <b>서류 체크리스트 전체 완료 + 사업자번호</b>가 조건입니다 (물류계약은 별도 원장에서 관리).</div>
         </div>
       </div>
     </div>

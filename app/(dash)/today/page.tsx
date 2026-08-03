@@ -88,8 +88,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     (SELECT count(*) FROM brands WHERE coalesce(is_test,false)=false AND state='live_onboarding') oper_onb,
     (SELECT count(*) FROM brands WHERE coalesce(is_test,false)=false AND created_at > now()-interval '7 days') week_new,
     (SELECT count(*) FROM brands WHERE coalesce(is_test,false)=false AND created_at > now()-interval '24 hours') new_24h,
-    (SELECT count(*) FROM alerts WHERE kind='sla_breach' AND resolved_at IS NULL) sla,
-    (SELECT count(*) FROM alerts WHERE kind='sla_breach' AND resolved_at IS NULL AND tier>=2) sla_t2,
+    (SELECT count(*) FROM alerts a JOIN brands b ON b.id=a.brand_id WHERE a.kind='sla_breach' AND a.resolved_at IS NULL AND coalesce(b.is_test,false)=false) sla,
+    (SELECT count(*) FROM alerts a JOIN brands b ON b.id=a.brand_id WHERE a.kind='sla_breach' AND a.resolved_at IS NULL AND a.tier>=2 AND coalesce(b.is_test,false)=false) sla_t2,
     (SELECT count(*) FILTER (WHERE to_state='seminar' AND at > now()-interval '7 days') FROM stage_history WHERE at > now()-interval '28 days') sem_w,
     (SELECT count(*) FILTER (WHERE to_state='meeting' AND at > now()-interval '7 days') FROM stage_history WHERE at > now()-interval '28 days') meet_w,
     (SELECT count(*) FILTER (WHERE to_state='seminar') FROM stage_history WHERE at > now()-interval '28 days') sem_4w,
@@ -101,20 +101,36 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const slaBreach = k("sla"), slaT2 = k("sla_t2"), weekNew = k("week_new");
   const semWeek = k("sem_w"), meetWeek = k("meet_w"), sem4w = k("sem_4w"), meet4w = k("meet_4w");
   const newLeads24h = k("new_24h"), recaps24h = k("recaps_24h");
-  const dupCount = await findDuplicateGroups().then((g) => g.length).catch(() => 0);
   const convPct = semWeek > 0 ? Math.round((meetWeek / semWeek) * 100) : 0;
   const conv4wPct = sem4w > 0 ? Math.round((meet4w / sem4w) * 100) : 0;
   const convDiff = convPct - conv4wPct;
 
+  // ── 서로 독립인 조회들을 한 번에 병렬 실행(직렬 왕복 제거 — 홈 로딩 근본 개선) ─
+  const [dupCount, funnelRows, draftsAll, approvalsAllRaw, meetingsAll, agentRuns, lead] = await Promise.all([
+    findDuplicateGroups().then((g) => g.length).catch(() => 0),
+    query<{ state: string; c: string }>(
+      "SELECT state, count(*) c FROM brands WHERE coalesce(is_test,false)=false GROUP BY state").catch(() => []),
+    listDrafts("draft").catch(() => []),
+    allApprovals().catch(() => []) as Promise<Row[]>,
+    query(
+      `SELECT m.id, m.topic, m.scheduled_at, m.host_email, m.brand_id, b.brand_name, b.grade
+         FROM meetings m LEFT JOIN brands b ON b.id=m.brand_id
+        WHERE m.scheduled_at::date = CURRENT_DATE AND coalesce(m.status,'') NOT IN ('canceled','error')
+        ORDER BY m.scheduled_at ASC LIMIT 8`).catch(() => []) as Promise<Row[]>,
+    query(
+      `SELECT agent, status, summary, actions, started_at FROM agent_runs
+        WHERE started_at > now()-interval '24 hours' ORDER BY started_at DESC LIMIT 5`).catch(() => []) as Promise<Row[]>,
+    queryOne<Row>(
+      `SELECT id, brand_name, grade, source, category, created_at FROM brands
+        WHERE coalesce(is_test,false)=false ORDER BY created_at DESC NULLS LAST LIMIT 1`).catch(() => null),
+  ]);
+
   // ── 퍼널 현황 ─────────────────────────────────────────────────
-  const funnelRows = (await query<{ state: string; c: string }>(
-    "SELECT state, count(*) c FROM brands WHERE coalesce(is_test,false)=false GROUP BY state").catch(() => []));
   const funnelMap = new Map(funnelRows.map((r) => [r.state, num(r.c)]));
   const funnel = FUNNEL.map((f) => ({ ...f, n: f.states.reduce((s, st) => s + (funnelMap.get(st) ?? 0), 0) }));
 
   // ── 승인 대기 — AI가 준비해둔 것 (초안 + 결재 요청, scope 반영) ─
-  const draftsAll = await listDrafts("draft").catch(() => []);
-  const approvalsAll = ((await allApprovals().catch(() => [])) as Row[]).filter((a) => a.status === "pending");
+  const approvalsAll = approvalsAllRaw.filter((a) => a.status === "pending");
   const drafts = mine ? draftsAll.filter((d) => myBrandIds.has(d.brand_id)) : draftsAll;
   const approvals = mine ? approvalsAll.filter((a) => !a.brand_id || myBrandIds.has(a.brand_id as string)) : approvalsAll;
   const pendingTotal = drafts.length + approvals.length;
@@ -122,24 +138,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const approvalRows = approvals.slice(0, 3);
 
   // ── 오늘 미팅 (scope 반영) ────────────────────────────────────
-  const meetingsAll = (await query(
-    `SELECT m.id, m.topic, m.scheduled_at, m.host_email, m.brand_id, b.brand_name, b.grade
-       FROM meetings m LEFT JOIN brands b ON b.id=m.brand_id
-      WHERE m.scheduled_at::date = CURRENT_DATE AND coalesce(m.status,'') NOT IN ('canceled','error')
-      ORDER BY m.scheduled_at ASC LIMIT 8`).catch(() => [])) as Row[];
   const meetings = mine
     ? meetingsAll.filter((m) => (m.brand_id && myBrandIds.has(m.brand_id as string)) || m.host_email === user?.id)
     : meetingsAll;
-
-  // ── 에이전트 활동 (지난 24h) ──────────────────────────────────
-  const agentRuns = (await query(
-    `SELECT agent, status, summary, actions, started_at FROM agent_runs
-      WHERE started_at > now()-interval '24 hours' ORDER BY started_at DESC LIMIT 5`).catch(() => [])) as Row[];
-
-  // ── 최근 유입 리드 (Slack 유입알림 카드) ──────────────────────
-  const lead = (await queryOne<Row>(
-    `SELECT id, brand_name, grade, source, category, created_at FROM brands
-      WHERE coalesce(is_test,false)=false ORDER BY created_at DESC NULLS LAST LIMIT 1`).catch(() => null));
 
   return (
     <div>
@@ -161,8 +162,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <div className="grid g4 gap-3.5 mb-3.5" style={{ display: "grid" }}>
         <div className="tile"><div className="k">전체 브랜드 (원장)</div><div className="v">{totalBrands}</div><div className="d up">▲ 이번 주 +{weekNew} · 중복 {dupCount}</div></div>
         <div className="tile"><div className="k">운영 중 (멀티몰+온보딩)</div><div className="v">{operating}</div><div className="d">멀티몰 {operMall} · 온보딩 {operOnb}</div></div>
-        <div className={`tile${slaBreach > 0 ? " alert" : ""}`}><div className="k">SLA 위반</div><div className="v" style={{ color: slaBreach > 0 ? "var(--danger)" : undefined }}>{slaBreach}</div><div className="d dn">T2+ {slaT2}건 — 파트장 확인 필요</div></div>
-        <div className="tile"><div className="k">이번 주 세미나→미팅 전환</div><div className="v">{convPct}<small>%</small></div><div className={`d ${convDiff >= 0 ? "up" : "dn"}`}>{convDiff >= 0 ? "▲" : "▼"} 4주 평균 {conv4wPct}% 대비 {convDiff >= 0 ? "+" : ""}{convDiff}%p</div></div>
+        <div className={`tile${slaBreach > 0 ? " alert" : ""}`}><div className="k">SLA 위반</div><div className="v" style={{ color: slaBreach > 0 ? "var(--danger)" : undefined }}>{slaBreach}</div><div className={`d ${slaT2 > 0 ? "dn" : ""}`}>{slaT2 > 0 ? `T2+ ${slaT2}건 — 파트장 확인 필요` : "이상 없음"}</div></div>
+        <div className="tile"><div className="k">이번 주 세미나→미팅(flow)</div><div className="v">{convPct}<small>%</small></div><div className={`d ${convDiff >= 0 ? "up" : "dn"}`}>{convDiff >= 0 ? "▲" : "▼"} 4주 평균 {conv4wPct}% 대비 {convDiff >= 0 ? "+" : ""}{convDiff}%p</div></div>
       </div>
 
       <div className="grid g31 gap-3.5" style={{ display: "grid" }}>

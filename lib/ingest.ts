@@ -286,7 +286,9 @@ async function handleEvent(
         glovek_onb_id: p.glovek_onb_id ?? brand.glovek_onb_id,
         brief_md: null, // 브리프 재생성 큐(⑤ 에이전트가 채움)
       });
-      await recordSource(brand.id, d.site, "diagnosis", d.source_ref ?? null, d.source_url ?? null, p, d.occurred_at);
+      // 재진단 스냅샷 보존 — source_ref 를 occurred_at 로 유니크화(고정 onb_id 는 ON CONFLICT DO NOTHING 로 최초만 남음).
+      const diagRef = `${d.source_ref ?? "diag"}:${d.occurred_at}`;
+      await recordSource(brand.id, d.site, "diagnosis", diagRef, d.source_url ?? null, p, d.occurred_at);
       return { http: 200, body: { ok: true, brand_id: brand.id, created, need_brief: true } };
     }
 

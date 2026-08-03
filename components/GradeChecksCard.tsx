@@ -2,6 +2,7 @@
 // 등급 5대 지표 카드 (기획 확정) — 담당자 보정 + 미입력 "입력 필요" + 저장→등급 재계산.
 //   운영(live) 전이 전 5개 모두 입력 필수 — 게이트에서 검사, 여기선 진행 상태 표시.
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { saveGradeChecksAction, type CheckValue } from "@/app/(dash)/brand360/grade-actions";
 
 const LABELS: Record<string, string> = {
@@ -20,6 +21,7 @@ export default function GradeChecksCard({ brandId, initial, grade }: {
   });
   const [msg, setMsg] = useState("");
   const [pending, start] = useTransition();
+  const router = useRouter();
   const missing = KEYS.filter((k) => checks[k] === null).length;
 
   const cycle = (k: string) => setChecks((p) => ({ ...p, [k]: p[k] === null ? true : p[k] === true ? false : null }));
@@ -52,6 +54,7 @@ export default function GradeChecksCard({ brandId, initial, grade }: {
             setMsg("");
             const r = await saveGradeChecksAction(brandId, checks);
             setMsg(r.ok ? `✓ 저장됨 · 등급 ${r.grade}${(r.missing ?? 0) > 0 ? ` · 입력 필요 ${r.missing}개 남음` : ""}` : r.error ?? "실패");
+            if (r.ok) router.refresh();  // 헤더 등급 배지·진단 시그널 즉시 갱신
           })}>{pending ? "저장 중…" : "저장 → 등급 재계산"}</button>
         </div>
         {msg && <div className="note" style={{ marginTop: 8, fontSize: 11 }}>{msg}</div>}
