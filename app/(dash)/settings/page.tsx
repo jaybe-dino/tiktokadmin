@@ -10,6 +10,8 @@ import { getWelcomeConfig } from "@/lib/welcome";
 import WelcomeConfigCard from "@/components/WelcomeConfig";
 import TestNotify from "@/components/TestNotify";
 import { env } from "@/lib/env";
+import { listTemplates } from "@/lib/templates";
+import TemplateManager from "@/components/TemplateManager";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +32,7 @@ export default async function SettingsPage() {
     listMailboxes().catch(() => []),
     getWelcomeConfig(),
   ]);
+  const templates = await listTemplates();
 
   const activeUsers = users.filter((u) => u.active).length;
   const activeReqs = requirements.filter((r) => r.active).length;
@@ -149,6 +152,9 @@ export default async function SettingsPage() {
 
           {/* 신규 리드 자동 안내 */}
           <WelcomeConfigCard config={welcomeCfg} canEdit={canEdit} />
+
+          {/* 발송 템플릿 CRUD */}
+          <TemplateManager templates={templates} canEdit={canEdit} />
 
           {/* SLA 정책 */}
           <div className="card">

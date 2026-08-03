@@ -44,14 +44,22 @@ export async function sendWelcome(brandId: string, force = false): Promise<Welco
   const vars = { "브랜드명": b.brand_name, "담당자명": b.contact_name || b.brand_name };
   const sent: string[] = [];
 
+  // 템플릿 CRUD(기획 9절): msg_templates 의 welcome_sms/welcome_email 이 있으면 우선 사용
+  const { getTemplate, renderTemplate } = await import("./templates");
+  const tplSms = await getTemplate("welcome_sms");
+  const tplEmail = await getTemplate("welcome_email");
+
   // 문자 — 유입(문의)에 대한 거래성 응답(kind=welcome)
   if (cfg.send_sms && b.phone) {
-    const r = await sendSms({ receiver: b.phone, msg: render(cfg.sms_template, vars) }).catch(() => ({ ok: false } as { ok: boolean }));
+    const body = tplSms ? renderTemplate(tplSms.body, vars) : render(cfg.sms_template, vars);
+    const r = await sendSms({ receiver: b.phone, msg: body }).catch(() => ({ ok: false } as { ok: boolean }));
     if (r.ok) sent.push("sms");
   }
   // 이메일
   if (cfg.send_email && b.email) {
-    const r = await sendEmail({ to: b.email, subject: render(cfg.email_subject, vars), text: render(cfg.email_body, vars) });
+    const subject = tplEmail?.subject ? renderTemplate(tplEmail.subject, vars) : render(cfg.email_subject, vars);
+    const body = tplEmail ? renderTemplate(tplEmail.body, vars) : render(cfg.email_body, vars);
+    const r = await sendEmail({ to: b.email, subject, text: body });
     if (r.ok) sent.push("email");
   }
 
