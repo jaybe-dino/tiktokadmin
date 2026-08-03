@@ -63,14 +63,17 @@ export async function sendWelcome(brandId: string, force = false): Promise<Welco
     if (r.ok) sent.push("email");
   }
 
-  await query("UPDATE brands SET welcome_sent_at=now(), welcome_channels=$2, last_contact_at=now() WHERE id=$1", [brandId, sent]);
+  // 실제로 한 채널이라도 나갔을 때만 발송기록. 미발송(수단 없음/실패)이면
+  //   welcome_sent_at 미세팅 → 조건 충족 시 재시도 가능(영구 차단 방지).
   if (sent.length) {
+    await query("UPDATE brands SET welcome_sent_at=now(), welcome_channels=$2, last_contact_at=now() WHERE id=$1", [brandId, sent]);
     await query(
       `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
        VALUES ($1,'admin','contact_logged',$2,now())`,
       [brandId, JSON.stringify({ channel: sent.join("+"), kind: "welcome" })]).catch(() => {});
+    return { ok: true, sent };
   }
-  return { ok: true, sent };
+  return { ok: true, sent, skipped: "발송 수단 없음(연락처·발송설정 확인) — 재시도 가능" };
 }
 
 /** 유입 즉시 자동 안내: enabled + source 대상 + 미발송일 때만. (ingest 에서 호출) */

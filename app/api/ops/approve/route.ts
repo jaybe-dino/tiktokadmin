@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
-import { query, queryOne } from "@/lib/db";
+import { queryOne } from "@/lib/db";
+import { transitionBrand } from "@/lib/transition";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,12 +42,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "not_pending" }, { status: 409 });
     }
 
-    // 승인 + 드랍 결재면 브랜드를 dropped 로 전이.
-    // (게이트 검증 생략 — 결재 승인 자체가 승인선 통과로 간주)
-    // kind='discount'(제안서 할인 20% 초과)는 자동실행 없음 — 승인 기록만 남기고
-    // 제안서 생성·발송은 담당이 다시 진행한다.
+    // 승인 + 드랍 결재면 단일 전이 경로(transitionBrand)로 dropped 처리 —
+    //   stage_history 기록 + stage_entered_at 갱신 + SLA/게이트/stale 알림 해제까지 동반.
+    //   raw UPDATE 로 우회하면 드랍 브랜드의 sla_breach 알림이 영구 미해제되어 지표가 오염됨.
+    // (refund/settlement 는 기록용 승인 — 실제 정산 확정은 /settlements, 환불은 /pay 경유)
+    // kind='discount'(제안서 할인 20% 초과)도 승인 기록만 — 제안서 생성·발송은 담당이 진행.
     if (decision === "approved" && updated.kind === "drop" && updated.brand_id) {
-      await query("UPDATE brands SET state='dropped' WHERE id=$1", [updated.brand_id]).catch(() => []);
+      await transitionBrand({
+        brandId: updated.brand_id, to: "dropped",
+        actor: `admin:${user.id}`, actorRole: user.role,
+        reason: "결재 승인(드랍)",
+      }).catch(() => {});
     }
 
     return NextResponse.json({ ok: true });

@@ -65,13 +65,21 @@ export function hasDedupKey(k: DedupKeys): boolean {
  * client 를 받아 트랜잭션 내에서 사용 (FOR UPDATE 잠금).
  */
 export async function findBrand(client: PoolClient, k: DedupKeys): Promise<Brand | null> {
-  // 1) email
+  // 1) email (brands.email)
   if (k.email) {
     const r = await client.query<Brand>(
       "SELECT * FROM brands WHERE email = $1 LIMIT 1 FOR UPDATE",
       [k.email],
     );
     if (r.rows[0]) return r.rows[0];
+    // 1-b) email 별칭(brand_email_aliases) — 보조 이메일로 온 리드도 기존 브랜드에 병합.
+    //   (email-sync 매칭 우선순위와 정합 유지 — 미적용 시 중복 브랜드 생성)
+    const a = await client.query<Brand>(
+      `SELECT b.* FROM brands b JOIN brand_email_aliases e ON e.brand_id=b.id
+        WHERE lower(e.email)=lower($1) LIMIT 1 FOR UPDATE OF b`,
+      [k.email],
+    ).catch(() => ({ rows: [] as Brand[] }));
+    if (a.rows[0]) return a.rows[0];
   }
   // 2) phone
   if (k.phone) {

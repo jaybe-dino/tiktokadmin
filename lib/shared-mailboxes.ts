@@ -15,10 +15,15 @@ export async function defaultSendMailbox(): Promise<string | null> {
   return r?.email ?? null;
 }
 
-/** 기본 발신 메일함 지정(하나만) — 나머지는 자동 해제. */
+/** 기본 발신 메일함 지정(하나만) — 나머지는 자동 해제.
+ *   부분 유니크 인덱스(is_default) 충돌 방지 위해 트랜잭션에서 해제→지정 2단계. */
 export async function setMailboxDefault(email: string): Promise<void> {
   const e = email.toLowerCase();
-  await query("UPDATE shared_mailboxes SET is_default=(email=$1)", [e]);
+  const { tx } = await import("./db");
+  await tx(async (c) => {
+    await c.query("UPDATE shared_mailboxes SET is_default=false WHERE is_default AND email<>$1", [e]);
+    await c.query("UPDATE shared_mailboxes SET is_default=true WHERE email=$1", [e]);
+  });
 }
 
 export function listMailboxes(): Promise<SharedMailbox[]> {

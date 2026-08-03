@@ -283,11 +283,15 @@ export async function setProposalStatusV2Action(
 
   // 현재 상태 확인 후 허용 전이만.
   const { queryOne } = await import("@/lib/db");
-  const cur = await queryOne<{ status: string; brand_id: string }>(
-    "SELECT status, brand_id FROM proposals WHERE id=$1",
+  const cur = await queryOne<{ status: string; brand_id: string; kind: string | null }>(
+    "SELECT status, brand_id, kind FROM proposals WHERE id=$1",
     [id],
   ).catch(() => null);
   if (!cur) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+  // 마케팅 제안서는 영업 경로(초안함·수신동의 게이트 우회)로 발송 금지 — /mkt 전용.
+  if ((cur.kind ?? "sales") === "marketing") {
+    return { ok: false, error: "마케팅 제안서는 마케팅(/mkt) 화면에서 발송하세요." };
+  }
 
   const next = ALLOWED_NEXT[cur.status] ?? [];
   if (!next.includes(status)) {

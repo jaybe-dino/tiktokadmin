@@ -75,7 +75,11 @@ async function certWatch(): Promise<AgentResult> {
     const exists = await queryOne<{ id: string }>(
       "SELECT id FROM alerts WHERE brand_id=$1 AND kind='cert_risk' AND resolved_at IS NULL", [r.brand_id]).catch(() => null);
     if (exists) continue;
-    await query("INSERT INTO alerts (brand_id, kind, tier, message) VALUES ($1,'cert_risk',1,$2) ON CONFLICT (brand_id,kind) DO NOTHING",
+    // UNIQUE(brand_id,kind) — 과거 resolved 행이 있으면 DO NOTHING 이라 재발생 안 됨(버그).
+    //   ON CONFLICT 시 resolved_at=NULL 로 되살려 재알림. (다른 인증이 새로 만료돼도 다시 뜸)
+    await query(
+      `INSERT INTO alerts (brand_id, kind, tier, message) VALUES ($1,'cert_risk',1,$2)
+       ON CONFLICT (brand_id,kind) DO UPDATE SET resolved_at=NULL, tier=1, message=EXCLUDED.message, created_at=now()`,
       [r.brand_id, `${r.brand_name} · 인증 만료/미비 ${r.n}건 — 판매 리스크`]).catch(() => {});
     made++;
   }

@@ -87,6 +87,8 @@ export async function approveAndSend(
   }
   const d = await queryOne<EmailDraft>("SELECT * FROM email_drafts WHERE id=$1", [id]);
   if (!d) return { ok: false, error: "초안 없음", sent: false };
+  // 상태 가드 — 이미 처리된 초안 재발송/더블클릭 중복발송 방지.
+  if (d.status !== "draft") return { ok: false, error: `이미 처리된 초안(${d.status})`, sent: false };
 
   const gate = await canSend(d.brand_id, d.kind, d.to_email);
   if (!gate.ok) return { ok: false, error: gate.reason, sent: false };
@@ -106,8 +108,16 @@ export async function approveAndSend(
     return { ok: true, sent: false };
   }
 
+  // 원자적 클레임 — draft→sending 을 한 번에 선점. 동시 요청은 여기서 걸러져 이중발송 방지.
+  const claimed = await queryOne<{ id: string }>(
+    "UPDATE email_drafts SET status='sending' WHERE id=$1 AND status='draft' RETURNING id", [id]);
+  if (!claimed) return { ok: false, error: "이미 처리 중이거나 완료된 초안", sent: false };
+
   // 발송 직전 드라이브 링크 → 쇼트링크 치환 (실패 시 원본 유지)
   const bodyToSend = await shortenDriveLinks(d.body_md, d.brand_id, editedBy);
+
+  // 발송 실패 시 draft 로 복원(재시도 가능). 발송 성공 경로에선 sent 로 확정.
+  const revert = () => query("UPDATE email_drafts SET status='draft' WHERE id=$1 AND status='sending'", [id]).catch(() => {});
 
   try {
     let sentId: string | null = null;
@@ -120,7 +130,7 @@ export async function approveAndSend(
       const r = await sendGmailMessage({
         from: sendFrom!, to: d.to_email, subject: d.subject, bodyText: bodyToSend, threadId,
       });
-      if (!r.ok) return { ok: false, error: r.error ?? "Gmail 발송 실패", sent: false };
+      if (!r.ok) { await revert(); return { ok: false, error: r.error ?? "Gmail 발송 실패", sent: false }; }
       sentId = r.id ?? null;
       via = "gmail";
     } else {
@@ -130,14 +140,14 @@ export async function approveAndSend(
         body: JSON.stringify({ from: env.resend.from, to: d.to_email, subject: d.subject, text: bodyToSend }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) return { ok: false, error: data.message ?? "발송 실패", sent: false };
+      if (!res.ok) { await revert(); return { ok: false, error: data.message ?? "발송 실패", sent: false }; }
       sentId = data.id ?? null;
       via = "resend";
     }
 
     // body_md 는 실제 발송본(쇼트링크 치환 반영)으로 보존 — 기록·클릭 추적 대조용
     await query(
-      "UPDATE email_drafts SET status='sent', edited_by=$2, sent_at=now(), resend_id=$3, body_md=$4, sent_via=$5 WHERE id=$1",
+      "UPDATE email_drafts SET status='sent', edited_by=$2, sent_at=now(), resend_id=$3, body_md=$4, sent_via=$5 WHERE id=$1 AND status='sending'",
       [id, editedBy, sentId, bodyToSend, via]);
     // 연결된 수신 메일이 있으면 회신 완료로 표시
     if (d.in_reply_to) {
@@ -151,6 +161,7 @@ export async function approveAndSend(
     await query("UPDATE brands SET last_contact_at=now() WHERE id=$1", [d.brand_id]);
     return { ok: true, sent: true };
   } catch (e) {
+    await revert();
     return { ok: false, error: (e as Error).message, sent: false };
   }
 }

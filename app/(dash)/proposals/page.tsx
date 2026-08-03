@@ -40,12 +40,13 @@ export default async function ProposalsPage({
        FROM proposals p
        JOIN brands b ON b.id = p.brand_id
        LEFT JOIN brand_company bc ON bc.brand_id = b.id
-      WHERE $1 = ''
+      WHERE COALESCE(p.kind,'sales') = 'sales'
+        AND ($1 = ''
          OR b.brand_name ILIKE $2
          OR COALESCE(b.brand_name_en, '') ILIKE $2
          OR COALESCE(bc.company_name_kr, '') ILIKE $2
          OR COALESCE(bc.company_name_en, '') ILIKE $2
-         OR COALESCE(b.biz_no, '') ILIKE $2
+         OR COALESCE(b.biz_no, '') ILIKE $2)
       ORDER BY p.created_at DESC LIMIT 200`,
     [q, `%${q}%`],
   ).catch(() => [])) as Record<string, unknown>[];

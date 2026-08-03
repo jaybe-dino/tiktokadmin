@@ -43,24 +43,17 @@ export default async function CustomersPage({
   searchParams: Promise<{ q?: string; state?: string; source?: string; grade?: string; plan?: string; owner?: string; breach?: string; page?: string }>;
 }) {
   const sp = await searchParams;
-  const { rows: fetchedRows, total, page, pages } = await customersList({
+  const breachOn = sp.breach === "1";
+  // 모든 필터(plan/owner/breach 포함)를 서버 WHERE 로 내려 전 페이지 대상으로 정확히 필터·페이지네이션.
+  const { rows, total, page, pages } = await customersList({
     q: sp.q, state: sp.state, source: sp.source, grade: sp.grade,
+    plan: sp.plan, owner: sp.owner, breach: breachOn,
     page: sp.page ? Number(sp.page) : 1,
   });
 
-  // 담당자 옵션 (조회 실패에도 화면 유지)
+  // 담당자 옵션 — value=id(저장값과 일치), 표시=name.
   const admins = await adminUserList().catch(() => []);
-  const ownerOptions = Array.from(new Set(admins.map((a) => a.name).filter(Boolean)));
-
-  // plan/owner/SLA위반 은 customersList 미지원 필터 → 현재 페이지 내 정제(searchParams 기반).
-  const breachOn = sp.breach === "1";
-  const rows = fetchedRows.filter((r) => {
-    if (sp.plan && r.plan !== sp.plan) return false;
-    if (sp.owner && ![r.owner_intake, r.owner_sales, r.owner_onboard, r.owner_ads].includes(sp.owner)) return false;
-    if (breachOn && !r.has_breach) return false;
-    return true;
-  });
-  const localFiltered = Boolean(sp.plan || sp.owner || breachOn);
+  const ownerOptions = admins.filter((a) => a.name).map((a) => ({ id: a.id, name: a.name }));
 
   const baseParams = { q: sp.q, state: sp.state, source: sp.source, grade: sp.grade, plan: sp.plan, owner: sp.owner, breach: sp.breach };
   const qs = (over: Record<string, string | number | undefined>) => {
@@ -108,7 +101,7 @@ export default async function CustomersPage({
         </select>
         <select name="owner" defaultValue={sp.owner ?? ""} style={{ width: 130 }}>
           <option value="">담당 전체</option>
-          {ownerOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+          {ownerOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
         <select name="source" defaultValue={sp.source ?? ""} style={{ width: 150 }}>
           <option value="">유입 전체</option>
@@ -219,7 +212,7 @@ export default async function CustomersPage({
           </tbody>
         </table>
         <div style={{ padding: "10px 16px", color: "var(--ink3)", fontSize: 11.5, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>{localFiltered ? `${rows.length}건 (현재 페이지 내 필터)` : `${start}–${end} / ${total}`}</span>
+          <span>{`${start}–${end} / ${total}`}</span>
           {pages > 1 && (
             <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {page > 1 && <Link href={qs({ page: page - 1 })} className="btn btn-sm">‹ 이전</Link>}

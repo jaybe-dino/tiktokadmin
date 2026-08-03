@@ -288,7 +288,8 @@ export interface CustomerRow extends Brand {
 }
 
 export async function customersList(f: {
-  q?: string; state?: string; source?: string; grade?: string; page?: number;
+  q?: string; state?: string; source?: string; grade?: string;
+  plan?: string; owner?: string; breach?: boolean; page?: number;
 }): Promise<{ rows: CustomerRow[]; total: number; page: number; pages: number }> {
   const where: string[] = ["1=1"];
   const p: unknown[] = [];
@@ -299,6 +300,15 @@ export async function customersList(f: {
   if (f.state) { p.push(f.state); where.push(`b.state=$${p.length}`); }
   if (f.source) { p.push(f.source); where.push(`b.source=$${p.length}`); }
   if (f.grade) { p.push(f.grade); where.push(`b.grade=$${p.length}`); }
+  if (f.plan) { p.push(f.plan); where.push(`b.plan=$${p.length}`); }
+  // 담당 필터 — owner_* 는 admin_users.id 저장 → 넘어온 값도 id 여야 매칭됨(전 페이지 대상).
+  if (f.owner) {
+    p.push(f.owner);
+    where.push(`$${p.length} IN (b.owner_intake, b.owner_sales, b.owner_onboard, b.owner_ads)`);
+  }
+  if (f.breach) {
+    where.push(`EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind='sla_breach' AND a.resolved_at IS NULL)`);
+  }
 
   const whereSql = where.join(" AND ");
   const countRow = await queryOne<{ n: string }>(`SELECT count(*)::text n FROM brands b WHERE ${whereSql}`, p);

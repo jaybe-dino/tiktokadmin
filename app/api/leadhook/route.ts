@@ -61,8 +61,12 @@ export async function POST(req: NextRequest) {
   // 멱등키: 리드ID > 이메일 > 전화 (같은 리드 재전송 시 중복 방지).
   const idemKey = `leadhook:${leadId || email || phone}`;
 
+  // 커넥터가 생성시각을 주면 우선 사용, 없으면 수신시각. (occurred_at 은 Common 필수)
+  const occurredAt = pick("created_time", "created_at", "timestamp", "occurred_at") || new Date().toISOString();
+
   const result = await processIngest("lead", idemKey, {
     site: "manual",
+    occurred_at: occurredAt,
     email: email || null,
     phone: phone || null,
     brand_name: brandName || null,
