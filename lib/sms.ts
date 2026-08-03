@@ -125,7 +125,7 @@ export async function smsRemain(): Promise<{ ok: boolean; sms?: number; lms?: nu
   if (!aligoConfigured()) return { ok: false, message: "ALIGO 환경변수 미설정" };
   const body = new URLSearchParams({ key: env.aligo.apiKey, user_id: env.aligo.userId });
   try {
-    const res = await fetch(REMAIN_URL, {
+    const res = await aligoFetch(REMAIN_URL, {
       method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body,
     });
     const data = await res.json();
@@ -140,7 +140,8 @@ export async function smsRemain(): Promise<{ ok: boolean; sms?: number; lms?: nu
 
 async function postAligo(url: string, body: URLSearchParams, type: string): Promise<SmsResult> {
   try {
-    const res = await fetch(url, {
+    // ⚠ 반드시 aligoFetch(프록시 경유) — 일반 fetch 는 Vercel 유동 IP → ALIGO "인증오류-IP"
+    const res = await aligoFetch(url, {
       method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body,
     });
     const data = await res.json();
