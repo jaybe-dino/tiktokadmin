@@ -150,8 +150,14 @@ export async function importBrandsAction(
     const rec = detectImportRecord(rows[i]);
     const res = await importBrandRecord(a.actor, rec);
     if (res.ok) {
-      if (res.created) created++;
-      else updated++;
+      if (res.created) {
+        created++;
+        // 신규 리드 자동 안내(문자·메일) — welcome_config 활성 + 대상 소스일 때 1회(멱등)
+        if (res.brand_id) {
+          const { maybeAutoWelcome } = await import("@/lib/welcome");
+          await maybeAutoWelcome(res.brand_id, String(rec.source ?? "etc")).catch(() => {});
+        }
+      } else updated++;
     } else {
       skipped++;
       if (errors.length < 10) errors.push(`행 ${i + 2}: ${res.error}`);
