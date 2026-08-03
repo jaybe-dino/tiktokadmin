@@ -22,7 +22,7 @@ function authorized(req: NextRequest): boolean {
   return false;
 }
 
-async function runMigrations() {
+async function runMigrations(force: boolean) {
   const dir = path.join(process.cwd(), "migrations");
   const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
   const client = await getPool().connect();
@@ -38,7 +38,9 @@ async function runMigrations() {
     const done = new Set(rows.map((r) => r.name));
 
     for (const file of files) {
-      if (done.has(file)) {
+      // force=1: schema_migrations 기록 무시하고 전부 재적용(모든 마이그레이션이 IF NOT EXISTS라 안전).
+      //   "기록은 됐지만 테이블이 실제로 없는" 불일치 상태 복구용.
+      if (!force && done.has(file)) {
         skipped.push(file);
         continue;
       }
@@ -46,7 +48,9 @@ async function runMigrations() {
       await client.query("BEGIN");
       try {
         await client.query(sql);
-        await client.query("INSERT INTO schema_migrations (name) VALUES ($1)", [file]);
+        await client.query(
+          "INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET applied_at=now()",
+          [file]);
         await client.query("COMMIT");
         applied.push(file);
       } catch (err) {
@@ -54,10 +58,17 @@ async function runMigrations() {
         throw new Error(`${file}: ${(err as Error).message}`);
       }
     }
+
+    // 진단: 실제 테이블 존재 여부 + 현재 DB — "기록 vs 실제" 불일치 확인용.
+    const diag = await client.query<{ db: string; shared_mailboxes: string | null; brands: string | null; email_drafts: string | null }>(
+      `SELECT current_database() AS db,
+              to_regclass('public.shared_mailboxes')::text AS shared_mailboxes,
+              to_regclass('public.brands')::text AS brands,
+              to_regclass('public.email_drafts')::text AS email_drafts`);
+    return { applied, skipped, total: files.length, diagnostic: diag.rows[0] };
   } finally {
     client.release();
   }
-  return { applied, skipped, total: files.length };
 }
 
 async function handle(req: NextRequest) {
@@ -65,8 +76,9 @@ async function handle(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized (CRON_SECRET 필요)" }, { status: 401 });
   }
   try {
-    const result = await runMigrations();
-    return NextResponse.json({ ok: true, ...result });
+    const force = req.nextUrl.searchParams.get("force") === "1";
+    const result = await runMigrations(force);
+    return NextResponse.json({ ok: true, force, ...result });
   } catch (err) {
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 500 });
   }
