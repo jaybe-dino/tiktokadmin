@@ -100,3 +100,30 @@ ${behindLines}
   if (!draft) return { ok: false, error: "AI 초안 생성 실패 (잠시 후 재시도)", month };
   return { ok: true, draft: draft.trim(), month };
 }
+
+/**
+ * 워크아이템 진척 입력 — qty_done 갱신(운영중 진척 기록). (ops#1·#3)
+ *   qty_done>=qty_target 이면 status='done', 0 초과면 'in_progress', 0 이면 'open'.
+ *   이 경로가 없어 이행률이 영구 0% 였음(대시보드·cycle-watch 오탐 원인).
+ */
+export async function setWorkItemProgressAction(id: string, qtyDone: number): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const n = Math.floor(Number(qtyDone));
+  if (!Number.isFinite(n) || n < 0) return { ok: false, error: "진척 수량이 올바르지 않습니다." };
+  try {
+    const { revalidatePath } = await import("next/cache");
+    await query(
+      `UPDATE work_items
+          SET qty_done = LEAST($2, GREATEST(0, $2)),
+              status = CASE WHEN $2 >= qty_target THEN 'done'
+                            WHEN $2 > 0 THEN 'in_progress' ELSE 'open' END
+        WHERE id = $1`,
+      [id, n],
+    );
+    revalidatePath("/ops");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "저장 실패" };
+  }
+}

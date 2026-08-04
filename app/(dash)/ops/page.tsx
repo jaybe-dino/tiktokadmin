@@ -1,8 +1,9 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import OpsAiButton from "@/components/OpsAiButton";
-import { opsDashboard, monthFirst, suggestCreators } from "@/lib/operations";
+import { opsDashboard, monthFirst, suggestCreators, workItemsForCycles, type WorkItemRow } from "@/lib/operations";
 import { PLAN_LABELS, type Plan } from "@/lib/types";
+import CycleProgress from "./CycleProgress";
 
 export const dynamic = "force-dynamic";
 
@@ -28,11 +29,19 @@ function rateColor(rate: number): string {
 export default async function OpsPage() {
   const month = monthFirst();
   const rows = await opsDashboard(month).catch(() => []);
-  // 시딩 추천은 creators(읽기전용) 미연동 시 [] 반환 → 자연스러운 빈 상태.
-  const creators = await suggestCreators("", "US", 5).catch(() => []);
+  const workItems = await workItemsForCycles(rows.map((r) => r.id)).catch((): Record<string, WorkItemRow[]> => ({}));
+  // 시딩 추천 — 활성 사이클 브랜드의 카테고리·운영국가 기준(고정 'US' 제거, ops#14).
+  const firstBrand = rows[0];
+  const brandCtx = firstBrand
+    ? await import("@/lib/db").then(({ queryOne }) =>
+        queryOne<{ category: string | null; countries: string[] | null }>(
+          "SELECT category, countries FROM brands WHERE id=$1", [firstBrand.brand_id]).catch(() => null))
+    : null;
+  const suggestCountry = brandCtx?.countries?.[0] ?? "US";
+  const creators = await suggestCreators(brandCtx?.category ?? "", suggestCountry, 5).catch(() => []);
 
-  // 집계(실데이터에서 파생 — 하드코딩 금지)
-  const total = rows.reduce((s, r) => s + (r.items_total ?? 0), 0);
+  // 집계(실데이터에서 파생 — 하드코딩 금지). 이행률 분모는 수량합(qty_target)으로 통일.
+  const total = rows.reduce((s, r) => s + (r.target_total ?? 0), 0);
   const done = rows.reduce((s, r) => s + (r.items_done ?? 0), 0);
   const active = rows.filter((r) => r.status === "active").length;
   const closed = rows.filter((r) => r.status === "closed").length;
@@ -92,6 +101,7 @@ export default async function OpsPage() {
                     <th>이행</th>
                     <th>이행률</th>
                     <th>상태</th>
+                    <th>진척</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -103,7 +113,7 @@ export default async function OpsPage() {
                           <Link href={`/brand/${r.brand_id}`}>{r.brand_name}</Link>
                         </td>
                         <td>{PLAN_LABELS[r.plan as Plan] ?? r.plan}</td>
-                        <td style={{ whiteSpace: "nowrap" }}>{r.items_done}/{r.items_total}</td>
+                        <td style={{ whiteSpace: "nowrap" }} title={`워크아이템 ${r.items_total}종`}>{r.items_done}/{r.target_total}</td>
                         <td>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <div className="pr" style={{ width: 96 }}>
@@ -117,6 +127,7 @@ export default async function OpsPage() {
                             {CYCLE_STATUS_LABELS[r.status] ?? r.status}
                           </span>
                         </td>
+                        <td><CycleProgress items={workItems[r.id] ?? []} /></td>
                       </tr>
                     );
                   })}

@@ -174,16 +174,31 @@ export async function suggestCreators(brandCategory: string, country = "US", lim
 // ── 조회 (화면) ────────────────────────────────────────────────
 export interface CycleRow {
   id: string; brand_id: string; brand_name: string; month: string; plan: string;
-  status: string; items_total: number; items_done: number; rate: number;
+  status: string; items_total: number; items_done: number; target_total: number; rate: number;
 }
 export async function opsDashboard(month = monthFirst()): Promise<CycleRow[]> {
   return query<CycleRow>(
     `SELECT c.id, c.brand_id, b.brand_name, c.month, c.plan, c.status, c.items_total,
             COALESCE(sum(wi.qty_done),0)::int items_done,
+            COALESCE(sum(wi.qty_target),0)::int target_total,
             CASE WHEN COALESCE(sum(wi.qty_target),0)=0 THEN 0
                  ELSE round(COALESCE(sum(wi.qty_done),0)::numeric/sum(wi.qty_target)*100) END AS rate
        FROM ops_cycles c JOIN brands b ON b.id=c.brand_id
        LEFT JOIN work_items wi ON wi.cycle_id=c.id
       WHERE c.month=$1
       GROUP BY c.id, b.brand_name ORDER BY rate ASC`, [month]);
+}
+
+export interface WorkItemRow {
+  id: string; cycle_id: string; kind: string; qty_target: number; qty_done: number; status: string;
+}
+/** 월 사이클들의 워크아이템 — 진척 입력 UI 용. */
+export async function workItemsForCycles(cycleIds: string[]): Promise<Record<string, WorkItemRow[]>> {
+  if (cycleIds.length === 0) return {};
+  const rows = await query<WorkItemRow>(
+    "SELECT id, cycle_id, kind, qty_target, qty_done, status FROM work_items WHERE cycle_id = ANY($1) ORDER BY kind",
+    [cycleIds]).catch(() => []);
+  const map: Record<string, WorkItemRow[]> = {};
+  for (const r of rows) (map[r.cycle_id] ??= []).push(r);
+  return map;
 }
