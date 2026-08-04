@@ -51,25 +51,25 @@ export async function POST(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   // 2-키 인증: key=전역 Vercel 시크릿(마스터 게이트) + source=소스 id 키(어느 유입 루트).
   const key = req.headers.get("x-lead-secret") ?? sp.get("key");
-  const sourceId = req.headers.get("x-lead-source") ?? sp.get("source") ?? sp.get("sid") ?? sp.get("channel");
 
+  const f = await readBody(req);
+  // URL 쿼리스트링도 필드로 병합(본문 우선). 인증 파라미터는 리드 필드에서 제외.
+  const AUTH_PARAMS = new Set(["key", "source", "sid", "channel"]);
+  for (const [k, v] of sp.entries()) {
+    const nk = norm(k);
+    if (!AUTH_PARAMS.has(nk) && v && !f[nk]) f[nk] = v;
+  }
+
+  // 소스 id(채널) — 헤더 > URL쿼리 > 본문 Data 순. (커넥터가 Data 에 source 를 넣어도 인식)
+  const sourceId = req.headers.get("x-lead-source") ?? sp.get("source") ?? sp.get("sid") ?? sp.get("channel")
+    ?? f.source ?? f.sid ?? f.channel;
   const { resolveChannel } = await import("@/lib/intake-channels");
-  // 채널은 source id 로 우선 조회. (구버전: key 자체가 채널키인 경우도 폴백 허용)
   let channel = sourceId ? await resolveChannel(sourceId) : null;
   const globalOk = secretOk(key);
   if (!channel && !globalOk && key) channel = await resolveChannel(key);  // 하위호환(key=채널키)
 
   // 인가: 전역 시크릿이 맞거나(권장) 유효한 채널키면 통과.
   if (!globalOk && !channel) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const f = await readBody(req);
-  // URL 쿼리스트링도 필드로 병합(본문 우선) — 커넥터 Data 가 한 개만 허용될 때
-  //   URL 에 email/phone/name/lead_id 를 실어 보낼 수 있게. 'key'(시크릿)는 제외.
-  const AUTH_PARAMS = new Set(["key", "source", "sid", "channel"]);
-  for (const [k, v] of req.nextUrl.searchParams.entries()) {
-    const nk = norm(k);
-    if (!AUTH_PARAMS.has(nk) && v && !f[nk]) f[nk] = v;
-  }
   // 정규화 키로 조회 — 인자도 norm 적용해 형식 무관 매칭.
   const pick = (...names: string[]) => names.map((n) => f[norm(n)]).find((v) => v && v.trim()) ?? "";
 
@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
   const contactName = pick("name", "full_name", "fullname", "이름", "성함", "담당자명", "contact_name", "first_name") || pick("last_name");
   const leadId = pick("lead_id", "leadgen_id", "id", "leadid", "leadgenid");
   const website = pick("website", "url", "웹사이트", "홈페이지", "site_url", "homepage");
+  const category = pick("category", "categori", "카테고리", "브랜드 주력 카테고리", "brand_category");
 
   if (!email && !phone) {
     // 진단 — 어떤 키로 왔는지 반환(값 아님, 키 이름만)해서 매핑을 정확히 맞춘다.
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest) {
     brand_name: brandName || null,
     contact_name: contactName || null,
     brand_url: website || null,
+    category: category || null,
     source,
     source_ref: leadId || null,
     utm: {
