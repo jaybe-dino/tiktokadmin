@@ -32,8 +32,9 @@ export default function ChannelManager({ channels, canEdit }: { channels: Intake
     });
 
   const copyUrl = (key: string) => {
-    const url = `${originOf()}/api/leadhook?key=${key}`;
-    navigator.clipboard?.writeText(url).then(() => { setMsg("POST URL 복사됨"); setTimeout(() => setMsg(""), 1500); });
+    // 2-키: key=전역 Vercel 시크릿(직접 채워넣기) + source=이 소스 id 키.
+    const url = `${originOf()}/api/leadhook?key=<VERCEL_KEY>&source=${key}`;
+    navigator.clipboard?.writeText(url).then(() => { setMsg("POST URL 복사됨 — <VERCEL_KEY>를 실제 값으로 교체하세요"); setTimeout(() => setMsg(""), 2500); });
   };
 
   return (
@@ -92,9 +93,10 @@ export default function ChannelManager({ channels, canEdit }: { channels: Intake
       </div>
 
       <div className="note" style={{ margin: "8px 16px 14px" }}>
-        <b>키 = 유입 루트(DB) 인증</b> — 소스마다 <b>전용 POST URL</b>이 발급되고, Zapier·외부 DB 를 그 URL 로 연결합니다.
-        <b> 자동발송 허용</b>에 체크된 소스로 들어온 리드만 자동 문자·메일이 나갑니다(체크 해제 시 유입만·발송 안 함, 실시간 on/off).
-        문구는 <b>비우면 전역 「신규 리드 자동 안내」 문구</b>를 쓰고, 소스별로 다르게 하려면 「내용」에서 개별 지정. <code>{"{브랜드명}"}</code> <code>{"{담당자명}"}</code> 치환.
+        <b>2-키 인증</b>: POST URL 은 <code>?key=&lt;VERCEL_KEY&gt;&source=&lt;소스id&gt;</code> 형태입니다.
+        <b>key</b> = Vercel 환경변수 <code>LEADHOOK_SECRET</code>(마스터 게이트, 직접 채워넣기) · <b>source</b> = 이 소스의 id(어느 유입 루트인지).
+        복사한 URL의 <code>&lt;VERCEL_KEY&gt;</code>를 실제 값으로 바꿔 Zapier·외부 DB 에 넣으세요.
+        <b> 자동발송 허용</b> 체크된 소스만 자동 문자·메일 발송(해제 시 유입만). 문구는 <b>비우면 전역 「신규 리드 자동 안내」</b>, 개별 지정은 「내용」. <code>{"{브랜드명}"}</code> <code>{"{담당자명}"}</code> 치환.
       </div>
       {msg && <div className="note" style={{ margin: "0 16px 10px", color: "var(--ok)" }}>{msg}</div>}
     </div>
