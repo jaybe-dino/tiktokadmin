@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
   const brandName = pick("company", "company_name", "회사명", "브랜드명", "brand", "brand_name", "회사");
   const contactName = pick("name", "full_name", "fullname", "이름", "성함", "담당자명", "contact_name", "first_name") || pick("last_name");
   const leadId = pick("lead_id", "leadgen_id", "id", "leadid", "leadgenid");
+  const website = pick("website", "url", "웹사이트", "홈페이지", "site_url", "homepage");
 
   if (!email && !phone) {
     // 진단 — 어떤 키로 왔는지 반환(값 아님, 키 이름만)해서 매핑을 정확히 맞춘다.
@@ -87,6 +88,7 @@ export async function POST(req: NextRequest) {
     phone: phone || null,
     brand_name: brandName || null,
     contact_name: contactName || null,
+    brand_url: website || null,
     source: "meta_ads",
     source_ref: leadId || null,
     utm: {
