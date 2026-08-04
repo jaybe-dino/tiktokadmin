@@ -1,5 +1,6 @@
 // 유입 채널(주제별 키) — Zapier/외부 DB 가 채널 키로 POST 하면 채널별 문자·메일 내용/토글 적용.
 //   /api/leadhook?key=<채널키> → resolveChannel → ingest(source) → sendChannelWelcome(토글·템플릿).
+import { randomBytes } from "node:crypto";
 import { query, queryOne } from "./db";
 import { sendSms } from "./sms";
 import { sendEmail } from "./mailer";
@@ -24,8 +25,7 @@ export function resolveChannel(key: string): Promise<IntakeChannel | null> {
 /** 랜덤 채널 키 생성 (URL-safe, 24자). */
 function genKey(): string {
   const abc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  // crypto 랜덤 — 예측 불가 키.
-  const buf = require("node:crypto").randomBytes(24) as Buffer;
+  const buf = randomBytes(24);  // crypto 랜덤 — 예측 불가 키.
   let s = "";
   for (const b of buf) s += abc[b % abc.length];
   return s;
@@ -40,7 +40,8 @@ export async function createChannel(input: {
     `INSERT INTO intake_channels (key, name, source, note, sms_template, email_subject, email_body, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
     [key, input.name.trim(), input.source, input.note ?? "",
-     input.sms_template ?? "", input.email_subject ?? "", input.email_body ?? "", input.createdBy]);
+     input.sms_template ?? "", input.email_subject ?? "", input.email_body ?? "", input.createdBy])
+    .catch(() => null);  // 테이블 미생성(마이그 0027 미적용) 등 → null → 액션이 안내 반환
 }
 
 export async function updateChannel(id: string, patch: Partial<IntakeChannel>): Promise<void> {

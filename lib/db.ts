@@ -47,6 +47,10 @@ function makePool(connectionString: string): Pool {
     // 매니지드 Postgres 는 SSL 필수. 대부분 유효 인증서지만 provider 별 self-signed 대응.
     ssl: needsSsl(connectionString) ? { rejectUnauthorized: false } : undefined,
   });
+  // 세션 타임존 KST — CURRENT_DATE·::date·now() 텍스트가 한국시간 기준이 되도록.
+  //   connect 시 SET(세션모드 지속·트랜잭션풀은 매번 재적용). 실패해도 무시(연결 유지).
+  //   저장은 timestamptz 절대시각 그대로 · glovek 공유 데이터 값은 불변.
+  pool.on("connect", (client) => { client.query("SET TIME ZONE 'Asia/Seoul'").catch(() => {}); });
   pool.on("error", (err) => console.error("[pg] idle client error", err.message));
   return pool;
 }
