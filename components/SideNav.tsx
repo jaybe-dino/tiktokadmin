@@ -49,6 +49,7 @@ const GROUPS: Group[] = [
     { href: "/approvals", label: "결재함", ic: "🗳️" },
     { href: "/slack", label: "Slack 알림", ic: "💬" },
     { href: "/channels", label: "유입 소스·자동발송", ic: "🔑" },
+    { href: "/accounts", label: "계정·권한", ic: "👤" },
     { href: "/settings", label: "설정·조직", ic: "⚙️" },
     { href: "/guide", label: "사용 가이드", ic: "📖" },
   ]},

@@ -30,7 +30,7 @@ export default function WelcomeConfigCard({ config, canEdit }: { config: Welcome
   return (
     <div className="card">
       <div className="card-hd">
-        <b>신규 리드 자동 안내</b>
+        <b>신규 리드 자동 안내 — 전역 기본(폴백)</b>
         <span className={`chip ${c.enabled ? "chip-grn" : "chip-amb"}`} style={{ marginLeft: "auto" }}>{c.enabled ? "자동 발송 ON" : "OFF"}</span>
       </div>
       <div className="card-bd" style={{ display: "grid", gap: 12 }}>
@@ -81,8 +81,9 @@ export default function WelcomeConfigCard({ config, canEdit }: { config: Welcome
           </div>
         )}
         <div className="note">
-          유입 즉시 대상 소스면 <b>문자·이메일 1회 자동 발송</b>(고객이 먼저 문의한 거래성 응답). 문자는 <code>ALIGO_*</code>, 메일은 <code>RESEND_*</code> 키 필요.
-          메타/페북 광고 리드는 소스 <code>meta_ads</code> 로 유입 시 자동 포함됩니다.
+          <b>이건 전역 기본값입니다</b> — ① 채널 없이 들어오는 리드(수동·CSV·메타 직접 웹훅 등 위 대상 소스)에 적용되고,
+          ② <b>「유입 소스·자동발송」 탭</b>에서 소스별 문구를 <b>비워두면 이 문구로 폴백</b>됩니다.
+          소스(키)별로 다른 문구·토글·발송이력은 그 탭에서 관리하세요. 문자 <code>ALIGO_*</code> · 메일 Gmail/<code>RESEND_*</code>.
         </div>
       </div>
     </div>

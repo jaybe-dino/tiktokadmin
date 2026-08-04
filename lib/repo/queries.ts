@@ -349,6 +349,17 @@ export async function adminUserList(): Promise<{ id: string; name: string; role:
   return query("SELECT id, name, role, slack_user_id, active FROM admin_users ORDER BY role, name");
 }
 
+export interface AccountRow {
+  id: string; name: string; role: string; active: boolean;
+  zoom_email: string | null; has_password: boolean; password_set_at: string | null; created_at: string | null;
+}
+export async function accountList(): Promise<AccountRow[]> {
+  return query<AccountRow>(
+    `SELECT id, name, role, active, zoom_email,
+            (password_hash IS NOT NULL) AS has_password, password_set_at, created_at
+       FROM admin_users ORDER BY (role='exec') DESC, (role='lead') DESC, name`).catch(() => []);
+}
+
 export async function slaPolicyList(): Promise<{ state: string; max_days: number; note: string }[]> {
   return query("SELECT state, max_days, note FROM sla_policies ORDER BY max_days");
 }
