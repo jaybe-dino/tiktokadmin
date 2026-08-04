@@ -78,19 +78,19 @@ export interface ChannelSend {
   id: string; channel_id: string; brand_id: string | null; brand_name: string;
   sms_sent: boolean; email_sent: boolean; dry_run: boolean;
   to_masked: string | null; sms_body: string | null; email_subject: string | null; email_body: string | null;
-  sent_at: string;
+  error: string | null; sent_at: string;
 }
 
 /** 소스별 자동발송 이력 기록 — 실제 발송 내용 스냅샷 포함(오발송 감사). 수신처 마스킹. */
 export async function recordChannelSend(channelId: string, brandId: string, brandName: string, r: {
   smsSent: boolean; emailSent: boolean; dryRun: boolean;
-  to?: string | null; smsBody?: string; emailSubject?: string; emailBody?: string;
+  to?: string | null; smsBody?: string; emailSubject?: string; emailBody?: string; error?: string | null;
 }): Promise<void> {
   await query(
-    `INSERT INTO channel_sends (channel_id, brand_id, brand_name, sms_sent, email_sent, dry_run, to_masked, sms_body, email_subject, email_body)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    `INSERT INTO channel_sends (channel_id, brand_id, brand_name, sms_sent, email_sent, dry_run, to_masked, sms_body, email_subject, email_body, error)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [channelId, brandId, brandName, r.smsSent, r.emailSent, r.dryRun, maskContact(r.to ?? null),
-     r.smsBody ?? null, r.emailSubject ?? null, r.emailBody ?? null]).catch(() => {});
+     r.smsBody ?? null, r.emailSubject ?? null, r.emailBody ?? null, r.error ?? null]).catch(() => {});
 }
 
 /** 여러 채널의 최근 발송 이력 (채널 카드용). */
@@ -146,18 +146,25 @@ export async function sendChannelWelcome(brandId: string, channel: IntakeChannel
   const emBody = channel.send_email && (emailSubj || emailBody) ? render(emailBody, vars) : "";
   const dry = channel.test_mode;  // 테스트 모드 — 실발송 없이 내용만 기록.
 
-  if (channel.send_sms && b.phone && smsBody) {
+  // 시도 여부(대상 연락처 + 토글 + 문구 존재)와 결과·사유를 분리 추적 → 실패도 이력에 남긴다.
+  const smsAttempted = channel.send_sms && !!b.phone && !!smsBody;
+  const emailAttempted = channel.send_email && !!b.email && !!(emSubject || emBody);
+  let smsErr = "", emailErr = "";
+
+  if (smsAttempted) {
     if (dry) { sent.push("sms"); }
     else {
-      const r = await sendSms({ receiver: b.phone, msg: smsBody }).catch(() => ({ ok: false } as { ok: boolean }));
+      const r = await sendSms({ receiver: b.phone!, msg: smsBody }).catch((e) => ({ ok: false, message: (e as Error).message } as { ok: boolean; message?: string }));
       if (r.ok) sent.push("sms");
+      else smsErr = r.message || "문자 발송 미설정/실패";
     }
   }
-  if (channel.send_email && b.email && (emSubject || emBody)) {
+  if (emailAttempted) {
     if (dry) { sent.push("email"); }
     else {
-      const r = await sendEmail({ to: b.email, subject: emSubject, text: emBody });
+      const r = await sendEmail({ to: b.email!, subject: emSubject, text: emBody });
       if (r.ok) sent.push("email");
+      else emailErr = r.skipped ? "메일 발송 미설정(Gmail/RESEND)" : (r.error || "메일 발송 실패");
     }
   }
 
@@ -169,11 +176,13 @@ export async function sendChannelWelcome(brandId: string, channel: IntakeChannel
        VALUES ($1,'admin','contact_logged',$2,now())`,
       [brandId, JSON.stringify({ channel: sent.join("+"), kind: "welcome", intake: channel.name })]).catch(() => {});
   }
-  // 발송 히스토리는 테스트 포함 항상 기록(내용 스냅샷) — 오발송 감사.
-  if (sent.length) {
+  // 발송 히스토리 — 시도가 있었으면 성공/실패 무관 항상 기록(내용 스냅샷 + 실패 사유).
+  //   기존엔 성공 시에만 기록 → provider 미설정이면 "유입 N건 · 발송 0" 만 보이고 이유가 없었음.
+  if (smsAttempted || emailAttempted) {
+    const error = [smsErr && `문자: ${smsErr}`, emailErr && `메일: ${emailErr}`].filter(Boolean).join(" · ") || null;
     await recordChannelSend(channel.id, brandId, b.brand_name, {
       smsSent: sent.includes("sms"), emailSent: sent.includes("email"), dryRun: dry,
-      to: b.email || b.phone, smsBody, emailSubject: emSubject, emailBody: emBody,
+      to: b.email || b.phone, smsBody, emailSubject: emSubject, emailBody: emBody, error,
     });
   }
   return sent;

@@ -112,11 +112,13 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
                           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                             <b>{s.brand_name || "—"}</b>
                             <span style={{ color: "var(--ink3)" }}>{s.to_masked}</span>
-                            {s.sms_sent && <span className="pill" style={{ fontSize: 10 }}>문자</span>}
-                            {s.email_sent && <span className="pill" style={{ fontSize: 10 }}>메일</span>}
+                            {s.sms_sent && <span className="pill grn" style={{ fontSize: 10 }}>문자 ✓</span>}
+                            {s.email_sent && <span className="pill grn" style={{ fontSize: 10 }}>메일 ✓</span>}
                             {s.dry_run && <span className="pill" style={{ fontSize: 10, background: "#fef3c7", color: "#b45309" }}>🧪 테스트(미발송)</span>}
+                            {!s.sms_sent && !s.email_sent && !s.dry_run && <span className="pill" style={{ fontSize: 10, background: "#fee2e2", color: "#b91c1c" }}>발송 실패</span>}
                             <span style={{ marginLeft: "auto", color: "var(--ink3)" }}>{new Date(s.sent_at).toLocaleString("ko-KR")}</span>
                           </div>
+                          {s.error && <div style={{ marginTop: 3, color: "#b91c1c", fontSize: 11 }}>⚠ {s.error}</div>}
                           {s.sms_body && <div style={{ marginTop: 3, color: "var(--ink2)" }}>📱 {s.sms_body}</div>}
                           {(s.email_subject || s.email_body) && (
                             <div style={{ marginTop: 3, color: "var(--ink2)" }}>
