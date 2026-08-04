@@ -38,7 +38,9 @@ function completeness(b: Row): number {
   return Math.round(((filled + cn) / (keys.length + 1)) * 100);
 }
 
-export default function CustomerTable({ rows, canEdit }: { rows: Row[]; canEdit: boolean }) {
+export default function CustomerTable({ rows, canEdit, ownerNames = {} }: { rows: Row[]; canEdit: boolean; ownerNames?: Record<string, string> }) {
+  // owner_* 에는 admin_users.id(이메일)가 저장됨 → 사람 이름으로 표기(없으면 원값). (pipeline#1)
+  const nm = (id: string | null | undefined) => (id ? ownerNames[id] ?? id : null);
   const router = useRouter();
   const [pending, start] = useTransition();
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -104,8 +106,8 @@ export default function CustomerTable({ rows, canEdit }: { rows: Row[]; canEdit:
             const sub = [category, site, SOURCE_LABELS[source] ?? source].filter(Boolean).join(" · ");
             const countries = (b.countries as string[] | null) ?? [];
             const ctyLabel = countries.length === 0 ? "—" : countries.length > 3 ? `${countries.length}개국` : countries.join("·");
-            const ownerSales = b.owner_sales as string | null;
-            const ownerOnboard = b.owner_onboard as string | null;
+            const ownerSales = nm(b.owner_sales as string | null);
+            const ownerOnboard = nm(b.owner_onboard as string | null);
             const unassigned = !ownerSales && !ownerOnboard;
             const contact = sinceLabel(b.last_contact_at);
             const pct = completeness(b);

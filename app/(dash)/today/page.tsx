@@ -96,6 +96,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     (SELECT count(*) FILTER (WHERE to_state='meeting') FROM stage_history WHERE at > now()-interval '28 days') meet_4w,
     (SELECT count(*) FROM meetings WHERE summary_md IS NOT NULL AND created_at > now()-interval '24 hours') recaps_24h
   `).catch(() => null);
+  const kpiFailed = kpi === null; // 통합 지표 쿼리 실패 — 타일이 0 으로 위장되지 않게 배지로 노출(pipeline#2)
   const k = (key: string) => num(kpi?.[key]);
   const totalBrands = k("total"), operating = k("operating"), operMall = k("oper_mall"), operOnb = k("oper_onb");
   const slaBreach = k("sla"), slaT2 = k("sla_t2"), weekNew = k("week_new");
@@ -153,7 +154,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             <Link href="/today?scope=mine" className="btn sm" style={{ border: "none", borderRadius: 0, ...(mine ? { background: "var(--acc)", color: "#fff" } : {}) }}>내 담당만</Link>
             <Link href="/today?scope=all" className="btn sm" style={{ border: "none", borderRadius: 0, ...(!mine ? { background: "var(--acc)", color: "#fff" } : {}) }}>전체</Link>
           </span>
-          <Link href="/monitor" className="btn">일일 점검 리포트</Link>
+          {kpiFailed && <span className="chip" style={{ background: "#fee2e2", color: "#b91c1c" }}>지표 로드 실패</span>}
+          <Link href="/monitor" className="btn">SLA 모니터</Link>
           <Link href="/import" className="btn pri">+ 리드 등록</Link>
         </div>}
       />
@@ -163,7 +165,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         <div className="tile"><div className="k">전체 브랜드 (원장)</div><div className="v">{totalBrands}</div><div className="d up">▲ 이번 주 +{weekNew} · 중복 {dupCount}</div></div>
         <div className="tile"><div className="k">운영 중 (멀티몰+온보딩)</div><div className="v">{operating}</div><div className="d">멀티몰 {operMall} · 온보딩 {operOnb}</div></div>
         <div className={`tile${slaBreach > 0 ? " alert" : ""}`}><div className="k">SLA 위반</div><div className="v" style={{ color: slaBreach > 0 ? "var(--danger)" : undefined }}>{slaBreach}</div><div className={`d ${slaT2 > 0 ? "dn" : ""}`}>{slaT2 > 0 ? `T2+ ${slaT2}건 — 파트장 확인 필요` : "이상 없음"}</div></div>
-        <div className="tile"><div className="k">이번 주 세미나→미팅(flow)</div><div className="v">{convPct}<small>%</small></div><div className={`d ${convDiff >= 0 ? "up" : "dn"}`}>{convDiff >= 0 ? "▲" : "▼"} 4주 평균 {conv4wPct}% 대비 {convDiff >= 0 ? "+" : ""}{convDiff}%p</div></div>
+        <div className="tile" title="같은 코호트 추적이 아니라 이번 주 세미나 전이수 대비 미팅 전이수 비율입니다."><div className="k">주간 세미나·미팅 비율</div><div className="v">{convPct}<small>%</small></div><div className={`d ${convDiff >= 0 ? "up" : "dn"}`}>{convDiff >= 0 ? "▲" : "▼"} 4주 평균 {conv4wPct}% 대비 {convDiff >= 0 ? "+" : ""}{convDiff}%p</div></div>
       </div>
 
       <div className="grid g31 gap-3.5" style={{ display: "grid" }}>

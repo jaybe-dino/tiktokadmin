@@ -16,9 +16,10 @@ export default async function MonitorPage({
   searchParams: Promise<{ tier?: string; kind?: string }>;
 }) {
   const sp = await searchParams;
-  const { alerts: allAlerts, gateViolations } = await monitorData().catch(() => ({
+  const { alerts: allAlerts, gateViolations, gateViolationCount } = await monitorData().catch(() => ({
     alerts: [] as Awaited<ReturnType<typeof monitorData>>["alerts"],
     gateViolations: [] as Awaited<ReturnType<typeof monitorData>>["gateViolations"],
+    gateViolationCount: 0,
   }));
 
   // KPI 타일은 전체 기준(필터 무관), 아래 표만 필터 적용.
@@ -66,8 +67,8 @@ export default async function MonitorPage({
         </div>
         <div className="tile">
           <div className="k">게이트 위반 (14일)</div>
-          <div className="v">{gateViolations.length}</div>
-          <div className="d">stage_history 기준</div>
+          <div className="v">{gateViolationCount}</div>
+          <div className="d">stage_history 기준{gateViolationCount > gateViolations.length ? ` · 최근 ${gateViolations.length}건 표시` : ""}</div>
         </div>
         <div className="tile">
           <div className="k">T1 알림</div>

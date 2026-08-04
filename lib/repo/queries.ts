@@ -135,18 +135,20 @@ export interface DuplicateGroup {
 export async function findDuplicateGroups(): Promise<DuplicateGroup[]> {
   const agg =
     "json_agg(json_build_object('id',id,'brand_name',brand_name,'email',email,'phone',phone,'state',state) ORDER BY created_at)";
+  // 테스트·종료(dropped/churned) 브랜드는 중복 후보에서 제외 — 다른 화면과 수치 일관. (pipeline#4)
+  const notTestActive = "coalesce(is_test,false)=false AND state NOT IN ('dropped','churned')";
   const [byPhone, byBiz, byName] = await Promise.all([
     query<{ key: string; brands: DuplicateGroup["brands"] }>(
       `SELECT phone AS key, ${agg} AS brands FROM brands
-        WHERE phone IS NOT NULL AND phone<>'' GROUP BY phone HAVING count(*)>1`,
+        WHERE phone IS NOT NULL AND phone<>'' AND ${notTestActive} GROUP BY phone HAVING count(*)>1`,
     ),
     query<{ key: string; brands: DuplicateGroup["brands"] }>(
       `SELECT biz_no AS key, ${agg} AS brands FROM brands
-        WHERE biz_no IS NOT NULL AND biz_no<>'' GROUP BY biz_no HAVING count(*)>1`,
+        WHERE biz_no IS NOT NULL AND biz_no<>'' AND ${notTestActive} GROUP BY biz_no HAVING count(*)>1`,
     ),
     query<{ key: string; brands: DuplicateGroup["brands"] }>(
       `SELECT lower(brand_name) AS key, ${agg} AS brands FROM brands
-        WHERE brand_name<>'' AND brand_name<>'(미상)' GROUP BY lower(brand_name) HAVING count(*)>1`,
+        WHERE brand_name<>'' AND brand_name<>'(미상)' AND ${notTestActive} GROUP BY lower(brand_name) HAVING count(*)>1`,
     ),
   ]);
   return [
@@ -180,10 +182,11 @@ export async function queueBrands(ownerField: string | null, ownerId: string): P
 export interface MonitorData {
   alerts: { id: string; brand_id: string; brand_name: string; kind: string; tier: number; message: string; snoozed_until: string | null; created_at: string }[];
   gateViolations: { brand_name: string; reason: string; at: string; actor: string }[];
+  gateViolationCount: number;
 }
 
 export async function monitorData(): Promise<MonitorData> {
-  const [alerts, gateViolations] = await Promise.all([
+  const [alerts, gateViolations, gvCount] = await Promise.all([
     query<MonitorData["alerts"][number]>(
       `SELECT a.id, a.brand_id, b.brand_name, a.kind, a.tier, a.message, a.snoozed_until, a.created_at
          FROM alerts a JOIN brands b ON b.id=a.brand_id
@@ -195,8 +198,12 @@ export async function monitorData(): Promise<MonitorData> {
         WHERE sh.gate_passed = false AND sh.at > now() - interval '14 days'
         ORDER BY sh.at DESC LIMIT 50`,
     ),
+    // 타일 수치는 목록 LIMIT 와 무관하게 전체 건수로 집계(50 초과 언더카운트 방지, pipeline#11).
+    queryOne<{ n: string }>(
+      `SELECT count(*)::text n FROM stage_history sh
+        WHERE sh.gate_passed = false AND sh.at > now() - interval '14 days'`),
   ]);
-  return { alerts, gateViolations };
+  return { alerts, gateViolations, gateViolationCount: Number(gvCount?.n ?? gateViolations.length) };
 }
 
 export interface PayData {

@@ -49,7 +49,7 @@ export function CsvUploadCard({ today, groups }: { today: string; groups: GroupO
       >
         {fileName
           ? <>📄 {fileName}<br /><small>{rowCount}행 인식 · 헤더 자동 매칭 (미리보기)</small></>
-          : <>📄 파일을 끌어다 놓거나 클릭<br /><small>박람회 명단 · 광고 내보내기 (xlsx/csv)</small></>}
+          : <>📄 파일을 끌어다 놓거나 클릭<br /><small>박람회 명단 · 광고 내보내기 (csv · xlsx는 csv로 저장 후 업로드)</small></>}
       </div>
       <input
         ref={fileRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
@@ -121,7 +121,7 @@ export function CsvUploadCard({ today, groups }: { today: string; groups: GroupO
       )}
 
       <div className="note" style={{ marginTop: 10 }}>
-        업로드 후 <b>미리보기 → 중복 병합 리허설 → 반영</b> 3단계. 파일해시+행번호 멱등키로 재업로드 안전.
+        업로드 시 헤더 자동 매칭·행수 미리보기 후 반영합니다 · 이메일·전화·사업자번호로 <b>중복 자동 병합</b>(같은 연락처 재업로드 안전).
       </div>
     </div>
   );

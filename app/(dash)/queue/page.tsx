@@ -111,7 +111,7 @@ export default async function QueuePage() {
       />
 
       <div className="note" style={{ marginTop: 10 }}>
-        🔕 우선순위는 위반 → 오늘마감 → 액션없음 순으로 자동 계산됩니다 · 처리하면 큐에서 사라집니다
+        🔕 우선순위는 위반 → 오늘마감 → 액션없음 순으로 자동 계산됩니다 · 카드를 열어 처리하면 큐에서 사라집니다
       </div>
     </div>
   );
