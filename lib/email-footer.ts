@@ -16,8 +16,15 @@ export const EMAIL_FOOTER = [
  */
 export function appendFooter(body: string): string {
   let out = body ?? "";
-  // 구 서명 제거 — "--" 구분선 뒤 '글로브케이'와 '목표'가 있는 블록.
-  out = out.replace(/\n*--\s*\n[^\n]*글로브케이[\s\S]*?glovek\.space[^\n]*/gi, "").trimEnd();
+  // 구 서명 블록 제거 — "--" 구분선부터 글로브케이/목표/glovek.space 포함 블록.
+  out = out.replace(/\n*-{2,}\s*\n[\s\S]*?글로브케이[\s\S]*?glovek\.space\s*(?:<[^>]*>)?/gi, "");
+  // 잔여 구서명 라인 개별 제거(구분선 유무·순서 무관).
+  out = out
+    .replace(/^\s*글로브케이\s*$/gm, "")
+    .replace(/^\s*목표\s*$/gm, "")
+    .replace(/^\s*https?:\/\/glovek\.space\s*<[^>]*>\s*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd();
   // 이미 신규 푸터가 있으면 중복 부착 안 함.
   if (out.includes("No.1 tiktokshop partners Glovek")) return out;
   return `${out}\n\n${EMAIL_FOOTER}`;

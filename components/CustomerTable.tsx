@@ -27,7 +27,9 @@ function sinceLabel(iso: unknown): { text: string; danger: boolean } {
 function ymd(iso: unknown): string {
   if (!iso) return "—";
   const d = new Date(String(iso));
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" });
+  if (Number.isNaN(d.getTime())) return "—";
+  // 날짜 + 시간(KST) — 예: 2026. 8. 4. 14:32
+  return d.toLocaleString("ko-KR", { timeZone: "Asia/Seoul", dateStyle: "short", timeStyle: "short" });
 }
 function completeness(b: Row): number {
   const keys = ["brand_name", "category", "state", "grade", "plan", "source", "owner_sales", "email", "next_action"];
