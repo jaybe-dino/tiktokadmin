@@ -19,8 +19,13 @@ export default function Brand360Company({ brand, company, assets }: {
   const [pending, start] = useTransition();
   const [edit, setEdit] = useState<"biz" | "tax" | "bank" | "brand" | null>(null);
   const [msg, setMsg] = useState("");
-  const [aiMd, setAiMd] = useState<string | null>(null);
+  // 저장된 심층분석을 초기값으로 — 재실행 없이 열람.
+  const savedMd = (brand as Brand & { deep_analysis_md?: string | null }).deep_analysis_md ?? null;
+  const savedAt = (brand as Brand & { deep_analysis_at?: string | null }).deep_analysis_at ?? null;
+  const savedSrc = (brand as Brand & { deep_analysis_src?: string | null }).deep_analysis_src ?? null;
+  const [aiMd, setAiMd] = useState<string | null>(savedMd);
   const [aiErr, setAiErr] = useState("");
+  const [fetched, setFetched] = useState<string[]>(savedSrc ? savedSrc.split(", ").filter(Boolean) : []);
 
   function saveCompany(patch: Record<string, unknown>) {
     start(async () => {
@@ -56,21 +61,29 @@ export default function Brand360Company({ brand, company, assets }: {
                 start(async () => {
                   setAiErr("");
                   const r = await deepAnalysisAction(brand.id);
-                  if (r.ok) setAiMd(r.md ?? "");
+                  if (r.ok) { setAiMd(r.md ?? ""); setFetched(r.fetched ?? []); }
                   else setAiErr(r.error ?? "실패");
                 })
               }
             >
-              {pending ? "분석 중…" : "심층 분석 실행"}
+              {pending ? "분석 중…" : savedMd ? "🔄 재분석" : "심층 분석 실행"}
             </button>
           </div>
         </div>
         <div className="bd">
           {aiMd ? (
-            <pre style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.7, fontFamily: "inherit" }}>{aiMd}</pre>
+            <>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.7, fontFamily: "inherit" }}>{aiMd}</pre>
+              {(fetched.length > 0 || savedAt) && (
+                <div className="note" style={{ marginTop: 8, fontSize: 11 }}>
+                  {fetched.length > 0 && <>📄 근거 페이지: {fetched.join(" · ")} · </>}
+                  {savedAt && <>생성 {new Date(savedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</>}
+                </div>
+              )}
+            </>
           ) : (
             <p className="note">
-              {aiErr || "아직 실행된 분석이 없습니다 — [심층 분석 실행]을 누르면 브랜드·시그널·제품 실데이터로 매출/구조/채널/포지셔닝 요약을 생성합니다."}
+              {aiErr || "아직 실행된 분석이 없습니다 — [심층 분석 실행]을 누르면 등록된 회사 웹사이트를 수집·학습하고, 브랜드·시그널·제품 실데이터와 합쳐 8개 층(회사개요·제품·포지셔닝·타깃·TikTok Shop 적합도·경쟁·리스크·추천액션) 심층 분석을 생성합니다."}
             </p>
           )}
           <div className="note" style={{ marginTop: 10 }}>

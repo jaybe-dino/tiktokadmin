@@ -129,7 +129,7 @@ export async function addCommentAction(
  */
 export async function deepAnalysisAction(
   brandId: string,
-): Promise<{ ok: boolean; error?: string; md?: string }> {
+): Promise<{ ok: boolean; error?: string; md?: string; fetched?: string[] }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!aiEnabled()) return { ok: false, error: "ANTHROPIC_API_KEY 미설정" };
@@ -162,30 +162,61 @@ export async function deepAnalysisAction(
     ? products.map((p) => `- ${p.name_kr}${p.category ? ` (${p.category})` : ""}${p.price_band ? ` · ${p.price_band}` : ""}`).join("\n")
     : "- 등록 제품 없음";
 
-  const system = `너는 GloveK 운영 어드민의 기업·브랜드 심층 분석 도우미다. 제공된 실데이터만 사용해 한국어 분석 요약을 작성한다.
-규칙:
-- 제공된 데이터에 없는 수치·사실을 지어내지 않는다. 데이터가 없으면 "데이터 부족"이라고 명시한다.
-- 등급 판정·게이트 판정·정산 금액 산정은 하지 않는다. 판단 참고용 요약만 작성한다.
-- 형식(마크다운): **매출 추정** / **회사 구조** / **채널 구조** / **브랜드 포지셔닝** 4개 소제목 각 1~2줄 + 마지막에 💡기회 / ⚠️리스크 각 1줄.`;
+  // ── 회사 웹사이트 수집(있으면) — 심층 분석 근거 ──────────────
+  let site = { ok: false, text: "", fetched: [] as string[] };
+  if (brand.brand_url) {
+    const { fetchSiteText } = await import("@/lib/site-fetch");
+    site = await fetchSiteText(brand.brand_url).catch(() => site);
+  }
 
-  const user = `브랜드: ${brand.brand_name}
+  // ── 다층 프롬프트 프리셋 — TikTok Shop 해외진출 대행 관점 심층 분석 ──
+  const system = `너는 GloveK(TikTok Shop 해외진출 대행사) 운영 어드민의 기업·브랜드 심층 분석가다. 제공된 실데이터 + 회사 웹사이트 발췌만 근거로 한국어 심층 분석을 작성한다.
+원칙:
+- 근거는 제공된 데이터/웹사이트 텍스트만. 없는 수치·사실은 지어내지 말고 "웹사이트/데이터 근거 없음"으로 표기. 추정은 "추정:"으로 명시하고 근거를 붙인다.
+- 등급·게이트·정산금액 확정 판정은 하지 않는다(참고용 분석만).
+- 개인정보(대표 개인정보·연락처 나열) 나열 금지.
+다음 다층 구조(마크다운 소제목)로 작성한다. 각 2~4줄, 근거 있는 것만:
+## 1. 회사·브랜드 개요 (사업/설립/규모/대표 브랜드)
+## 2. 제품·카테고리 (주력 라인·가격대·강점 SKU)
+## 3. 브랜드 포지셔닝·차별점 (핵심 메시지·USP·톤)
+## 4. 타깃 시장·고객 (국내/해외, 연령·성별·니즈)
+## 5. 해외·TikTok Shop 진출 적합도 ★ (숏폼/라이브 적합성, 콘텐츠 소재, 시딩 가능성, 진입 난이도)
+## 6. 경쟁·기회 (경쟁 강도, 진출 가능 국가·기회 포인트)
+## 7. 리스크·인증 (규제/인증 필요 카테고리, 물류·법적 리스크)
+## 8. 추천 액션 (다음 단계 3가지 — 제안 방향/시딩/셋업 우선순위)
+마지막 줄: **핵심 한 줄 요약**.`;
+
+  const user = `[브랜드 원장 데이터]
+브랜드: ${brand.brand_name}
 카테고리: ${brand.category || "미상"} · URL: ${brand.brand_url || "없음"} · 사업자번호: ${brand.biz_no ? "있음" : "없음"}
 목표국: ${brand.countries?.length ? brand.countries.join(", ") : "미정"} · 진단 등급: ${brand.grade ?? "미진단"}
 
-사전분석 브리프:
+[사전분석 브리프]
 ${brand.brief_md ? brand.brief_md.slice(0, 1200) : "(미생성)"}
 
-수집 시그널:
+[수집 시그널]
 ${sigLines}
 
-제품:
+[제품]
 ${prodLines}
 
-위 실데이터만으로 심층 분석 요약을 작성해줘.`;
+[회사 웹사이트 발췌]
+${site.ok ? site.text : "(웹사이트 미등록 또는 수집 실패 — 이 경우 원장 데이터만으로 분석하고 5~7번은 '웹사이트 근거 없음'으로 표기)"}
 
-  const md = await aiText({ system, user, maxTokens: 900 }).catch(() => null);
+위 근거로 8개 층 심층 분석을 작성해줘.`;
+
+  const md = await aiText({ system, user, maxTokens: 1800 }).catch(() => null);
   if (!md) return { ok: false, error: "AI 분석 생성 실패 (잠시 후 재시도)" };
-  return { ok: true, md: md.trim() };
+  const text = md.trim();
+
+  // 결과 저장 — 재실행 없이 카드에서 열람(근거 URL·시각 기록).
+  await query(
+    "UPDATE brands SET deep_analysis_md=$2, deep_analysis_at=now(), deep_analysis_src=$3 WHERE id=$1",
+    [brandId, text, site.fetched.join(", ") || null],
+  ).catch(() => {});
+
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true, md: text, fetched: site.fetched };
 }
 
 // ═══ 셋업 — 브랜드별 제품/인증/물류 보강 (PLAN 8절) ═══════════
