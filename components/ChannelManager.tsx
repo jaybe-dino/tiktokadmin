@@ -29,7 +29,7 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
   const [histId, setHistId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
-  const toggle = (c: IntakeChannel, field: "enabled" | "send_sms" | "send_email") =>
+  const toggle = (c: IntakeChannel, field: "enabled" | "send_sms" | "send_email" | "test_mode") =>
     start(async () => {
       await updateChannelAction(c.id, { [field]: !c[field] } as Partial<IntakeChannel>);
       router.refresh();
@@ -93,6 +93,11 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: c.enabled ? 1 : 0.45 }}>
                 <span className={`tgl ${c.send_email ? "on" : ""}`} onClick={() => canEdit && c.enabled && toggle(c, "send_email")} /> 메일
               </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginLeft: "auto" }}
+                title="테스트 모드 — 실제 발송 없이 '발송될 내용'만 히스토리에 기록(오발송 사전검증)">
+                <span className={`tgl ${c.test_mode ? "on" : ""}`} onClick={() => canEdit && toggle(c, "test_mode")} />
+                <b style={{ color: c.test_mode ? "#b45309" : undefined }}>🧪 테스트 모드{c.test_mode ? "(실발송 안 함)" : ""}</b>
+              </label>
             </div>
 
             {histId === c.id && (
@@ -101,19 +106,26 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
                 {(sends[c.id] ?? []).length === 0
                   ? <div style={{ fontSize: 12, color: "var(--ink3)" }}>아직 발송 내역이 없습니다.</div>
                   : (
-                    <table className="t" style={{ fontSize: 12 }}>
-                      <thead><tr><th>브랜드</th><th>문자</th><th>메일</th><th>발송 시각</th></tr></thead>
-                      <tbody>
-                        {(sends[c.id] ?? []).map((s) => (
-                          <tr key={s.id}>
-                            <td>{s.brand_name || "—"}</td>
-                            <td>{s.sms_sent ? "✓" : "—"}</td>
-                            <td>{s.email_sent ? "✓" : "—"}</td>
-                            <td style={{ color: "var(--ink3)" }}>{new Date(s.sent_at).toLocaleString("ko-KR")}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {(sends[c.id] ?? []).map((s) => (
+                        <div key={s.id} style={{ borderBottom: "1px solid var(--line)", paddingBottom: 6, fontSize: 12 }}>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <b>{s.brand_name || "—"}</b>
+                            <span style={{ color: "var(--ink3)" }}>{s.to_masked}</span>
+                            {s.sms_sent && <span className="pill" style={{ fontSize: 10 }}>문자</span>}
+                            {s.email_sent && <span className="pill" style={{ fontSize: 10 }}>메일</span>}
+                            {s.dry_run && <span className="pill" style={{ fontSize: 10, background: "#fef3c7", color: "#b45309" }}>🧪 테스트(미발송)</span>}
+                            <span style={{ marginLeft: "auto", color: "var(--ink3)" }}>{new Date(s.sent_at).toLocaleString("ko-KR")}</span>
+                          </div>
+                          {s.sms_body && <div style={{ marginTop: 3, color: "var(--ink2)" }}>📱 {s.sms_body}</div>}
+                          {(s.email_subject || s.email_body) && (
+                            <div style={{ marginTop: 3, color: "var(--ink2)" }}>
+                              ✉️ <b>{s.email_subject}</b>{s.email_body ? <span style={{ color: "var(--ink3)" }}> — {s.email_body.slice(0, 120)}{s.email_body.length > 120 ? "…" : ""}</span> : null}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
               </div>
             )}

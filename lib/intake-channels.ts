@@ -7,11 +7,17 @@ import { sendEmail } from "./mailer";
 
 export interface IntakeChannel {
   id: string; key: string; name: string; source: string;
-  enabled: boolean; send_sms: boolean; send_email: boolean;
+  enabled: boolean; send_sms: boolean; send_email: boolean; test_mode: boolean;
   sms_template: string; email_subject: string; email_body: string;
   note: string; lead_count: number; last_lead_at: string | null;
   created_by: string | null; created_at: string;
 }
+
+const maskContact = (s: string | null): string => {
+  if (!s) return "";
+  if (s.includes("@")) { const [a, b] = s.split("@"); return `${a.slice(0, 2)}***@${b}`; }
+  return s.length > 4 ? `${s.slice(0, 3)}***${s.slice(-2)}` : "***";
+};
 
 export function listChannels(): Promise<IntakeChannel[]> {
   return query<IntakeChannel>("SELECT * FROM intake_channels ORDER BY created_at DESC").catch(() => []);
@@ -50,11 +56,11 @@ export async function updateChannel(id: string, patch: Partial<IntakeChannel>): 
        name=COALESCE($2,name), source=COALESCE($3,source), enabled=COALESCE($4,enabled),
        send_sms=COALESCE($5,send_sms), send_email=COALESCE($6,send_email),
        sms_template=COALESCE($7,sms_template), email_subject=COALESCE($8,email_subject),
-       email_body=COALESCE($9,email_body), note=COALESCE($10,note)
+       email_body=COALESCE($9,email_body), note=COALESCE($10,note), test_mode=COALESCE($11,test_mode)
      WHERE id=$1`,
     [id, patch.name ?? null, patch.source ?? null, patch.enabled ?? null,
      patch.send_sms ?? null, patch.send_email ?? null, patch.sms_template ?? null,
-     patch.email_subject ?? null, patch.email_body ?? null, patch.note ?? null]);
+     patch.email_subject ?? null, patch.email_body ?? null, patch.note ?? null, patch.test_mode ?? null]);
 }
 
 export async function deleteChannel(id: string): Promise<void> {
@@ -68,14 +74,21 @@ export async function recordChannelLead(id: string): Promise<void> {
 
 export interface ChannelSend {
   id: string; channel_id: string; brand_id: string | null; brand_name: string;
-  sms_sent: boolean; email_sent: boolean; sent_at: string;
+  sms_sent: boolean; email_sent: boolean; dry_run: boolean;
+  to_masked: string | null; sms_body: string | null; email_subject: string | null; email_body: string | null;
+  sent_at: string;
 }
 
-/** 소스별 자동발송 이력 기록 (개인정보 최소화 — 브랜드 참조·매체 여부만). */
-export async function recordChannelSend(channelId: string, brandId: string, brandName: string, sent: string[]): Promise<void> {
+/** 소스별 자동발송 이력 기록 — 실제 발송 내용 스냅샷 포함(오발송 감사). 수신처 마스킹. */
+export async function recordChannelSend(channelId: string, brandId: string, brandName: string, r: {
+  smsSent: boolean; emailSent: boolean; dryRun: boolean;
+  to?: string | null; smsBody?: string; emailSubject?: string; emailBody?: string;
+}): Promise<void> {
   await query(
-    "INSERT INTO channel_sends (channel_id, brand_id, brand_name, sms_sent, email_sent) VALUES ($1,$2,$3,$4,$5)",
-    [channelId, brandId, brandName, sent.includes("sms"), sent.includes("email")]).catch(() => {});
+    `INSERT INTO channel_sends (channel_id, brand_id, brand_name, sms_sent, email_sent, dry_run, to_masked, sms_body, email_subject, email_body)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [channelId, brandId, brandName, r.smsSent, r.emailSent, r.dryRun, maskContact(r.to ?? null),
+     r.smsBody ?? null, r.emailSubject ?? null, r.emailBody ?? null]).catch(() => {});
 }
 
 /** 여러 채널의 최근 발송 이력 (채널 카드용). */
@@ -128,26 +141,41 @@ export async function sendChannelWelcome(brandId: string, channel: IntakeChannel
   const vars = { "브랜드명": b.brand_name, "담당자명": b.contact_name || b.brand_name };
   const sent: string[] = [];
 
-  if (channel.send_sms && b.phone && smsTpl) {
-    const r = await sendSms({ receiver: b.phone, msg: render(smsTpl, vars) }).catch(() => ({ ok: false } as { ok: boolean }));
-    if (r.ok) sent.push("sms");
+  // 발송될 실제 내용(렌더링) — 감사·미리보기용 스냅샷.
+  const smsBody = channel.send_sms && smsTpl ? render(smsTpl, vars) : "";
+  const emSubject = channel.send_email && (emailSubj || emailBody) ? render(emailSubj || `[GloveK] ${b.brand_name}님 안내`, vars) : "";
+  const emBody = channel.send_email && (emailSubj || emailBody) ? render(emailBody, vars) : "";
+  const dry = channel.test_mode;  // 테스트 모드 — 실발송 없이 내용만 기록.
+
+  if (channel.send_sms && b.phone && smsBody) {
+    if (dry) { sent.push("sms"); }
+    else {
+      const r = await sendSms({ receiver: b.phone, msg: smsBody }).catch(() => ({ ok: false } as { ok: boolean }));
+      if (r.ok) sent.push("sms");
+    }
   }
-  if (channel.send_email && b.email && (emailSubj || emailBody)) {
-    const r = await sendEmail({
-      to: b.email, subject: render(emailSubj || `[GloveK] ${b.brand_name}님 안내`, vars),
-      text: render(emailBody, vars),
-    });
-    if (r.ok) sent.push("email");
+  if (channel.send_email && b.email && (emSubject || emBody)) {
+    if (dry) { sent.push("email"); }
+    else {
+      const r = await sendEmail({ to: b.email, subject: emSubject, text: emBody });
+      if (r.ok) sent.push("email");
+    }
   }
 
-  if (sent.length) {
+  // 실발송(테스트 아님)일 때만 브랜드 발송 상태 갱신. 테스트는 재발송 가능하게 미표시.
+  if (sent.length && !dry) {
     await query("UPDATE brands SET welcome_sent_at=now(), welcome_channels=$2, last_contact_at=now() WHERE id=$1", [brandId, sent]);
     await query(
       `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
        VALUES ($1,'admin','contact_logged',$2,now())`,
       [brandId, JSON.stringify({ channel: sent.join("+"), kind: "welcome", intake: channel.name })]).catch(() => {});
-    // 소스별 발송 히스토리 기록.
-    await recordChannelSend(channel.id, brandId, b.brand_name, sent);
+  }
+  // 발송 히스토리는 테스트 포함 항상 기록(내용 스냅샷) — 오발송 감사.
+  if (sent.length) {
+    await recordChannelSend(channel.id, brandId, b.brand_name, {
+      smsSent: sent.includes("sms"), emailSent: sent.includes("email"), dryRun: dry,
+      to: b.email || b.phone, smsBody, emailSubject: emSubject, emailBody: emBody,
+    });
   }
   return sent;
 }
