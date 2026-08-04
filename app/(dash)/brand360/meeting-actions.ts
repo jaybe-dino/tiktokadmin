@@ -105,6 +105,7 @@ export interface ScheduleMeetingResult {
   error?: string;
   meetingId?: string;
   invite?: InviteSendResult;
+  smsSent?: boolean;
 }
 
 export async function scheduleMeetingAction(
@@ -122,8 +123,8 @@ export async function scheduleMeetingAction(
   const attendees = cleanAttendees(input.attendees);
   if (attendees.length === 0) return { ok: false, error: "참석자 이메일을 1명 이상 입력하세요." };
 
-  const brand = await queryOne<{ id: string; brand_name: string }>(
-    "SELECT id, brand_name FROM brands WHERE id=$1", [brandId]);
+  const brand = await queryOne<{ id: string; brand_name: string; phone: string | null }>(
+    "SELECT id, brand_name, phone FROM brands WHERE id=$1", [brandId]);
   if (!brand) return { ok: false, error: "존재하지 않는 브랜드입니다." };
 
   // 지정인 검증 — 실존 활성 admin_users 만 (하드코딩·유령 지정 방지)
@@ -134,27 +135,50 @@ export async function scheduleMeetingAction(
 
   const topic = String(input.topic ?? "").trim().slice(0, 200) || "1:1 미팅";
 
+  // 줌 링크에서 미팅 ID 추출(예: /j/1234567890) → zoom_meeting_id 저장.
+  //   추후 recording.completed 웹훅이 이 미팅 ID 로 예약 미팅(회사)과 연결 가능.
+  const zoomMeetingId = joinUrl.match(/\/j\/(\d+)/)?.[1] || "manual";
+
   // 어드민 수동 등록 — zoom_uuid 는 NOT NULL UNIQUE 라 admin: 접두 멱등키 생성.
   const row = await queryOne<{ id: string }>(
     `INSERT INTO meetings
        (brand_id, zoom_meeting_id, zoom_uuid, topic, host_email, scheduled_at,
         attendees, zoom_join_url, created_by, status)
-     VALUES ($1,'manual',$2,$3,$4,$5,$6,$7,$8,'scheduled')
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'scheduled')
      RETURNING id`,
-    [brandId, `admin:${crypto.randomUUID()}`, topic, hostEmail, start.toISOString(),
+    [brandId, zoomMeetingId, `admin:${crypto.randomUUID()}`, topic, hostEmail, start.toISOString(),
      JSON.stringify(attendees), joinUrl, u.id],
   ).catch(() => null);
   if (!row) return { ok: false, error: "미팅 등록 실패 (마이그레이션 0019 적용 여부 확인)" };
 
-  // 참석자 이메일 초대(ICS) — RESEND 미설정이면 스킵되고 등록은 유지.
+  // 참석자 이메일 초대(ICS) — RESEND/Gmail 미설정이면 스킵되고 등록은 유지.
   const invite = await sendMeetingInvites({
     meetingId: row.id, topic, brandName: brand.brand_name, start,
     zoomJoinUrl: joinUrl, hostEmail, hostName: host.name, attendees,
   }).catch((e: Error): InviteSendResult => ({ sent: 0, failed: attendees.length, skipped: false, errors: [e.message] }));
 
+  // 브랜드 연락처로 1:1 안내 문자 발송(전화 있으면). 거래성(reminder)이라 동의 게이트 통과.
+  let smsSent = false;
+  if (brand.phone) {
+    const whenKst = start.toLocaleString("ko-KR", { timeZone: "Asia/Seoul", dateStyle: "medium", timeStyle: "short" });
+    const { sendSms } = await import("@/lib/sms");
+    const r = await sendSms({
+      receiver: brand.phone,
+      msg: `[GloveK] ${brand.brand_name}님, 1:1 미팅 안내\n일시: ${whenKst}\n줌 참여: ${joinUrl}`,
+    }).catch(() => ({ ok: false } as { ok: boolean }));
+    smsSent = r.ok;
+    if (r.ok) {
+      await query(
+        `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
+         VALUES ($1,'admin','contact_logged',$2,now())`,
+        [brandId, JSON.stringify({ channel: "sms", kind: "meeting_invite", meeting_id: row.id })]).catch(() => {});
+      await query("UPDATE brands SET last_contact_at=now() WHERE id=$1", [brandId]).catch(() => {});
+    }
+  }
+
   revalidatePath(`/brand/${brandId}`);
   revalidatePath("/meetings");
-  return { ok: true, meetingId: row.id, invite };
+  return { ok: true, meetingId: row.id, invite, smsSent };
 }
 
 // ── 미팅캘린더: 참석자·일시 수정 (+재초대 옵션) ──────────────

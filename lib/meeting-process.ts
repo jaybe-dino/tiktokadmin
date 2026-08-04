@@ -45,6 +45,13 @@ export async function processMeetings(limit = 5): Promise<{ summarized: number; 
       const summary = await summarize(transcript, m.topic);
       await query("UPDATE meetings SET summary_md=$2, status='ready' WHERE id=$1", [m.id, summary]);
 
+      // 자동 번역 — 전사가 한국어가 아니면 한국어 번역본 저장(히스토리). 실패해도 요약은 유지.
+      try {
+        const tr = await translateToKorean(transcript);
+        if (tr) await query("UPDATE meetings SET transcript_ko=$2, transcript_lang=$3 WHERE id=$1",
+          [m.id, tr.ko, tr.lang]).catch(() => {});
+      } catch { /* 번역 컬럼 미적용(마이그 0029) 등 방어 */ }
+
       if (m.brand_id) {
         const brand = await queryOne<Brand>("SELECT * FROM brands WHERE id=$1", [m.brand_id]);
         if (brand) {
@@ -77,6 +84,22 @@ async function summarize(transcript: string, topic: string): Promise<string> {
   });
   const text = resp.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n");
   return text.trim();
+}
+
+/** 전사 자동 번역 — 원문 언어 감지 후 한국어 번역. 이미 한국어면 lang='ko'·번역 생략(null). */
+async function translateToKorean(transcript: string): Promise<{ ko: string; lang: string } | null> {
+  if (!env.anthropicKey) return null;
+  const client = new Anthropic({ apiKey: env.anthropicKey });
+  const resp = await client.messages.create({
+    model: MODEL, max_tokens: 4000,
+    system: "회의 전사를 처리한다. 먼저 원문의 주 언어 코드(ko/en/zh/ja 등)를 판별한다. 주 언어가 한국어면 첫 줄에 'LANG: ko' 만 출력하고 끝낸다. 한국어가 아니면 첫 줄 'LANG: <코드>' 뒤 빈 줄, 그다음 화자 구분을 유지한 자연스러운 한국어 번역 전문을 출력한다. 개인정보(카드·신분증·비밀번호)는 출력하지 않는다.",
+    messages: [{ role: "user", content: transcript.slice(0, 40000) }],
+  });
+  const out = resp.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n").trim();
+  const lang = out.match(/^LANG:\s*([a-z]{2})/i)?.[1]?.toLowerCase() ?? "ko";
+  if (lang === "ko") return { ko: "", lang: "ko" };  // 한국어 원문 — 번역 불필요
+  const ko = out.replace(/^LANG:\s*[a-z]{2}\s*/i, "").trim();
+  return ko ? { ko, lang } : null;
 }
 
 /** 노쇼 감지 (08 §3-0-5): scheduled + 예약시각+24h 경과 + recording 미수신.
