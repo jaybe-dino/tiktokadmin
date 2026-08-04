@@ -39,9 +39,9 @@ export default function ChannelManager({ channels, canEdit }: { channels: Intake
   return (
     <div className="card">
       <div className="card-hd">
-        <b>유입 채널 — 주제별 키 · 자동 문자·메일</b>
-        <span style={{ color: "var(--ink3)", fontSize: 11 }}>Zapier/외부 DB POST · {channels.length}개</span>
-        {canEdit && <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => setOpenAdd((v) => !v)}>{openAdd ? "닫기" : "+ 채널 추가"}</button>}
+        <b>자동발송 허용 유입 소스 — 키 관리</b>
+        <span style={{ color: "var(--ink3)", fontSize: 11 }}>체크된 소스만 자동발송 · {channels.length}개</span>
+        {canEdit && <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => setOpenAdd((v) => !v)}>{openAdd ? "닫기" : "+ 소스 추가"}</button>}
       </div>
 
       {openAdd && canEdit && (
@@ -76,7 +76,7 @@ export default function ChannelManager({ channels, canEdit }: { channels: Intake
             {/* 실시간 토글 */}
             <div style={{ display: "flex", gap: 16, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-                <span className={`tgl ${c.enabled ? "on" : ""}`} onClick={() => canEdit && toggle(c, "enabled")} /> 자동발송 {c.enabled ? "ON" : "OFF(유입만)"}
+                <span className={`tgl ${c.enabled ? "on" : ""}`} onClick={() => canEdit && toggle(c, "enabled")} /> <b>자동발송 허용</b> {c.enabled ? "✓" : "(유입만·발송 안 함)"}
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: c.enabled ? 1 : 0.45 }}>
                 <span className={`tgl ${c.send_sms ? "on" : ""}`} onClick={() => canEdit && c.enabled && toggle(c, "send_sms")} /> 문자
@@ -92,8 +92,9 @@ export default function ChannelManager({ channels, canEdit }: { channels: Intake
       </div>
 
       <div className="note" style={{ margin: "8px 16px 14px" }}>
-        각 채널마다 <b>전용 POST URL</b>(주제별 키)이 있어, Zapier·외부 DB 를 그 URL 로 연결하면 그 채널의 <b>문자·메일 내용</b>으로 자동 발송됩니다.
-        <b> 자동발송 토글</b>로 실시간 on/off (OFF 여도 리드 유입·기록은 유지). 문자·메일 <b>템플릿</b>은 <code>{"{브랜드명}"}</code> <code>{"{담당자명}"}</code> 치환.
+        <b>키 = 유입 루트(DB) 인증</b> — 소스마다 <b>전용 POST URL</b>이 발급되고, Zapier·외부 DB 를 그 URL 로 연결합니다.
+        <b> 자동발송 허용</b>에 체크된 소스로 들어온 리드만 자동 문자·메일이 나갑니다(체크 해제 시 유입만·발송 안 함, 실시간 on/off).
+        문구는 <b>비우면 전역 「신규 리드 자동 안내」 문구</b>를 쓰고, 소스별로 다르게 하려면 「내용」에서 개별 지정. <code>{"{브랜드명}"}</code> <code>{"{담당자명}"}</code> 치환.
       </div>
       {msg && <div className="note" style={{ margin: "0 16px 10px", color: "var(--ok)" }}>{msg}</div>}
     </div>

@@ -70,8 +70,10 @@ function render(tpl: string, vars: Record<string, string>): string {
 }
 
 /**
- * 채널별 자동 안내 발송 — 채널 토글·템플릿 사용. 유입 즉시 1회(멱등: welcome_sent_at 공유).
- *   channel.enabled=false 면 발송 스킵(유입은 이미 됨). 실제 발송분만 기록.
+ * 채널별 자동 안내 발송 — 유입 즉시 1회(멱등: welcome_sent_at 공유).
+ *   channel.enabled(자동발송 허용 체크)=false 면 스킵(유입은 이미 됨).
+ *   문구는 채널 템플릿 우선, 비어 있으면 **전역 자동안내 문구**(신규 리드 자동 안내)로 폴백.
+ *   → 키(유입 루트 허용)와 문구(공용)를 분리 관리.
  */
 export async function sendChannelWelcome(brandId: string, channel: IntakeChannel): Promise<string[]> {
   if (!channel.enabled) return [];
@@ -79,17 +81,24 @@ export async function sendChannelWelcome(brandId: string, channel: IntakeChannel
     "SELECT brand_name, contact_name, email, phone, welcome_sent_at FROM brands WHERE id=$1", [brandId]);
   if (!b || b.welcome_sent_at) return [];  // 이미 안내 발송됨(1회)
 
+  // 전역 자동안내 문구(폴백) — 채널이 자체 문구를 안 가지면 이걸 사용.
+  const { getWelcomeConfig } = await import("./welcome");
+  const g = await getWelcomeConfig().catch(() => null);
+  const smsTpl = channel.sms_template.trim() || (g?.sms_template ?? "").trim();
+  const emailSubj = channel.email_subject.trim() || (g?.email_subject ?? "").trim();
+  const emailBody = channel.email_body.trim() || (g?.email_body ?? "").trim();
+
   const vars = { "브랜드명": b.brand_name, "담당자명": b.contact_name || b.brand_name };
   const sent: string[] = [];
 
-  if (channel.send_sms && b.phone && channel.sms_template.trim()) {
-    const r = await sendSms({ receiver: b.phone, msg: render(channel.sms_template, vars) }).catch(() => ({ ok: false } as { ok: boolean }));
+  if (channel.send_sms && b.phone && smsTpl) {
+    const r = await sendSms({ receiver: b.phone, msg: render(smsTpl, vars) }).catch(() => ({ ok: false } as { ok: boolean }));
     if (r.ok) sent.push("sms");
   }
-  if (channel.send_email && b.email && (channel.email_subject.trim() || channel.email_body.trim())) {
+  if (channel.send_email && b.email && (emailSubj || emailBody)) {
     const r = await sendEmail({
-      to: b.email, subject: render(channel.email_subject || `[GloveK] ${b.brand_name}님 안내`, vars),
-      text: render(channel.email_body, vars),
+      to: b.email, subject: render(emailSubj || `[GloveK] ${b.brand_name}님 안내`, vars),
+      text: render(emailBody, vars),
     });
     if (r.ok) sent.push("email");
   }
