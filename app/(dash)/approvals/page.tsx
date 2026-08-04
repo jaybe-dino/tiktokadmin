@@ -9,7 +9,11 @@ const KIND: Record<string, { ko: string; bdg: string }> = {
   drop: { ko: "드랍", bdg: "st-dropped" },
   refund: { ko: "환불", bdg: "st-churned" },
   settlement: { ko: "정산 확정", bdg: "st-set" },
+  discount: { ko: "할인 초과", bdg: "st-warn" },
 };
+
+// 승인 시 자동으로 실제 처리가 실행되는 종류(현재는 드랍만). 나머지는 '기록용 승인'.
+const AUTO_EXECUTED = new Set(["drop"]);
 
 function kindOf(k: string) {
   return KIND[k] ?? { ko: k, bdg: "" };
@@ -78,7 +82,14 @@ export default async function ApprovalsPage() {
                     )}
                   </td>
                   <td>{(a.requested_by as string) ?? "—"}</td>
-                  <td>{reasonOf(payload)}</td>
+                  <td>
+                    {reasonOf(payload)}
+                    {!AUTO_EXECUTED.has(a.kind as string) && (
+                      <div style={{ fontSize: 10.5, color: "var(--warn)", marginTop: 2 }}>
+                        ※ 기록용 승인 — 실제 처리는 담당 화면에서({(a.kind as string) === "settlement" ? "정산" : (a.kind as string) === "refund" ? "결제" : "제안서"})
+                      </div>
+                    )}
+                  </td>
                   <td>{fmtDate(a.created_at)}</td>
                   <td>
                     <ApprovalActions id={a.id as string} />

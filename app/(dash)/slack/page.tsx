@@ -163,7 +163,9 @@ export default async function SlackPage({
                       <td>{r.bundle}</td>
                       <td>{n == null ? "—" : n}</td>
                       <td>
-                        <span className="tgl on" />
+                        <span className="pill" title="라우팅 on/off 는 환경변수·워커에서 관리 — 이 화면에서 전환 불가">
+                          환경변수 관리
+                        </span>
                       </td>
                     </tr>
                   );
@@ -329,16 +331,11 @@ export default async function SlackPage({
           <div className="card">
             <div className="card-hd">
               <b>개인 알림 설정</b>
+              <span className="pill" style={{ fontSize: 10, marginLeft: 6 }}>준비 중</span>
             </div>
             <div className="bd" style={{ fontSize: 12, lineHeight: 1.7 }}>
-              방해금지(기본 22–08시, T3는 예외) · 다이제스트 시각 · DM/채널 선호는{" "}
-              <b>설정·조직 → 계정 상세</b>에서 개인별로 관리합니다. 부재 설정 시 T0/T1이
-              위임자에게 전달됩니다.
-              <div style={{ marginTop: 8 }}>
-                <Link className="btn sm" href="/settings">
-                  계정 설정으로 →
-                </Link>
-              </div>
+              현재는 <b>전역 기본값</b>으로 동작합니다 — 방해금지 22–08시(T3 예외), T0/T1 즉시,
+              그 외 다이제스트. 개인별 방해금지·다이제스트 시각·DM/채널 선호·부재 위임은 추후 제공 예정입니다.
             </div>
           </div>
         </div>

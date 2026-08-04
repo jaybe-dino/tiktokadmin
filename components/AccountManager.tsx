@@ -34,7 +34,12 @@ export default function AccountManager({ accounts, meId, canEdit }: { accounts: 
   const [pw, setPw] = useState("");
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>, okMsg: string) =>
-    start(async () => { const r = await fn(); setMsg(r.ok ? okMsg : r.error ?? "실패"); if (r.ok) router.refresh(); });
+    start(async () => {
+      const r = await fn();
+      setMsg(r.ok ? okMsg : r.error ?? "실패");
+      // 성공·실패 모두 새로고침 — 실패 시 uncontrolled 셀렉트(역할)를 실제 값으로 되돌린다.
+      router.refresh();
+    });
 
   return (
     <div className="card">

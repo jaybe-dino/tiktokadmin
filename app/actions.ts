@@ -404,18 +404,28 @@ export async function upsertAdminUserAction(input: {
 }): Promise<ActionResult> {
   const a = await requireLead();
   if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
-  const { query } = await import("@/lib/db");
-  await query(
-    `INSERT INTO admin_users (id, name, role, slack_user_id) VALUES ($1,$2,$3,$4)
-     ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, role=EXCLUDED.role, slack_user_id=EXCLUDED.slack_user_id`,
-    [input.id.toLowerCase(), input.name, input.role, input.slack_user_id || null],
-  );
-  // 비밀번호 지정 시 해시 저장(신규 계정 로그인 가능해짐)
-  if (input.password && input.password.trim().length >= 6) {
-    const { setPassword } = await import("@/lib/auth");
-    await setPassword(input.id, input.password.trim());
+  const id = (input.id || "").trim().toLowerCase();
+  if (!id.includes("@")) return { ok: false, error: "이메일 형식의 계정 ID 필요" };
+  // /accounts 와 동일한 역할 검증 — DB CHECK 제약과 일치.
+  const OK_ROLES = new Set(["intake", "sales", "onboard", "ads", "settle", "lead", "exec"]);
+  if (!OK_ROLES.has(input.role)) return { ok: false, error: "권한 값이 올바르지 않습니다" };
+  try {
+    const { query } = await import("@/lib/db");
+    await query(
+      `INSERT INTO admin_users (id, name, role, slack_user_id) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, role=EXCLUDED.role, slack_user_id=EXCLUDED.slack_user_id`,
+      [id, input.name.trim() || id.split("@")[0], input.role, input.slack_user_id || null],
+    );
+    // 비밀번호 지정 시 해시 저장(신규 계정 로그인 가능해짐)
+    if (input.password && input.password.trim().length >= 6) {
+      const { setPassword } = await import("@/lib/auth");
+      await setPassword(id, input.password.trim());
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "저장 실패" };
   }
   revalidatePath("/settings");
+  revalidatePath("/accounts");
   return { ok: true };
 }
 
@@ -854,10 +864,19 @@ export async function sendWelcomeAction(brandId: string, force = false): Promise
 }
 
 /** 테스트 발송 — 내 번호/이메일로 문자·메일을 직접 보내 연동(ALIGO·RESEND) 동작 확인. */
-export async function testNotifyAction(input: { phone?: string; email?: string }): Promise<ActionResult & { sms?: string; email?: string }> {
+export async function testNotifyAction(input: { phone?: string; email?: string; slack?: boolean }): Promise<ActionResult & { sms?: string; email?: string; slack?: string }> {
   const a = await requireLead();
   if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
-  let sms: string | undefined, email: string | undefined;
+  let sms: string | undefined, email: string | undefined, slack: string | undefined;
+  if (input.slack) {
+    const { slackPost } = await import("@/lib/slack");
+    const { env } = await import("@/lib/env");
+    if (!env.slack.botToken) slack = "✗ SLACK_BOT_TOKEN 미설정";
+    else {
+      const r = await slackPost({ channelKey: "daily", text: "[GloveK] 테스트 알림입니다. Slack 연동 확인용." });
+      slack = r.ok ? `✓ 발송 성공(#${r.channel ?? "daily"})` : "✗ 발송 실패(채널 미설정 또는 봇 미초대 — SLACK_CH_DAILY 확인)";
+    }
+  }
   if (input.phone?.trim()) {
     const { sendSms } = await import("@/lib/sms");
     const { env } = await import("@/lib/env");
@@ -870,5 +889,5 @@ export async function testNotifyAction(input: { phone?: string; email?: string }
     const r = await sendEmail({ to: input.email.trim(), subject: "[GloveK] 테스트 메일", text: "GloveK 어드민 연동 확인용 테스트 메일입니다." });
     email = r.ok ? "✓ 발송 성공" : r.skipped ? "✗ RESEND_API_KEY 미설정" : `✗ ${r.error}`;
   }
-  return { ok: true, sms, email };
+  return { ok: true, sms, email, slack };
 }

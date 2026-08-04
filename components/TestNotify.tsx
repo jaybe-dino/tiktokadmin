@@ -14,7 +14,7 @@ function Chip({ on, label }: { on: boolean; label: string }) {
 export default function TestNotify({ status, canEdit }: { status: IntegrationStatus; canEdit: boolean }) {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [res, setRes] = useState<{ sms?: string; email?: string } | null>(null);
+  const [res, setRes] = useState<{ sms?: string; email?: string; slack?: string } | null>(null);
   const [pending, start] = useTransition();
 
   return (
@@ -42,10 +42,16 @@ export default function TestNotify({ status, canEdit }: { status: IntegrationSta
                 const r = await testNotifyAction({ phone, email });
                 if (r.ok) setRes({ sms: r.sms, email: r.email }); else setRes({ sms: r.error });
               })}>{pending ? "발송 중…" : "테스트 발송"}</button>
+              <button className="btn" disabled={pending} onClick={() => start(async () => {
+                setRes(null);
+                const r = await testNotifyAction({ slack: true });
+                if (r.ok) setRes({ slack: r.slack }); else setRes({ slack: r.error });
+              })}>{pending ? "발송 중…" : "Slack 테스트"}</button>
               {res && (
                 <span className="text-xs" style={{ color: "var(--ink2)" }}>
                   {res.sms && <span style={{ marginRight: 10 }}>문자: {res.sms}</span>}
-                  {res.email && <span>메일: {res.email}</span>}
+                  {res.email && <span style={{ marginRight: 10 }}>메일: {res.email}</span>}
+                  {res.slack && <span>Slack: {res.slack}</span>}
                 </span>
               )}
             </div>

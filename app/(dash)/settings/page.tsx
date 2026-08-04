@@ -15,9 +15,13 @@ import TemplateManager from "@/components/TemplateManager";
 
 export const dynamic = "force-dynamic";
 
+// admin_users.role CHECK(0001) 과 일치하는 한글 라벨 — /accounts 와 동일 셋.
 const ROLE_LABEL: Record<string, string> = {
-  viewer: "viewer",
-  member: "담당",
+  intake: "리드접수",
+  sales: "영업",
+  onboard: "온보딩",
+  ads: "광고",
+  settle: "정산",
   lead: "파트장",
   exec: "대표",
 };
@@ -79,6 +83,10 @@ export default async function SettingsPage() {
               <span style={{ color: "var(--ink3)", fontSize: 11 }}>
                 담당자 {users.length}명 · 활성 {activeUsers}
               </span>
+              <a href="/accounts" className="btn btn-sm" style={{ marginLeft: "auto" }} title="비밀번호·삭제·활성 등 상세 관리">계정·권한 상세 →</a>
+            </div>
+            <div className="note" style={{ margin: "0 16px", fontSize: 11 }}>
+              비밀번호 설정·삭제·활성 토글 등 상세 계정 관리는 <b>「계정·권한」</b> 탭에서. 여기서는 빠른 추가·권한 지정만.
             </div>
             <div style={{ overflowX: "auto" }}>
               <table className="t">
