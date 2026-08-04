@@ -435,7 +435,8 @@ export async function setPasswordAction(email: string, password: string): Promis
 }
 
 // ═══ 계정 관리 (파트장/대표) — 권한·활성·삭제·zoom_email ══════════
-const VALID_ROLES = new Set(["staff", "lead", "exec"]);
+// admin_users.role CHECK 제약과 반드시 일치해야 함(0001_init).
+const VALID_ROLES = new Set(["intake", "sales", "onboard", "ads", "settle", "lead", "exec"]);
 
 /** 계정 생성/수정 — 이메일·이름·권한·zoom_email·(선택)비번. */
 export async function saveAccountAction(input: {
@@ -445,15 +446,19 @@ export async function saveAccountAction(input: {
   if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
   const id = (input.id || "").trim().toLowerCase();
   if (!id.includes("@")) return { ok: false, error: "이메일 형식의 계정 ID 필요" };
-  if (!VALID_ROLES.has(input.role)) return { ok: false, error: "권한은 staff/lead/exec" };
-  const { query } = await import("@/lib/db");
-  await query(
-    `INSERT INTO admin_users (id, name, role, zoom_email, active) VALUES ($1,$2,$3,$4,true)
-     ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, role=EXCLUDED.role, zoom_email=EXCLUDED.zoom_email`,
-    [id, input.name.trim() || id.split("@")[0], input.role, (input.zoom_email || "").trim().toLowerCase() || null]);
-  if (input.password && input.password.trim().length >= 6) {
-    const { setPassword } = await import("@/lib/auth");
-    await setPassword(id, input.password.trim());
+  if (!VALID_ROLES.has(input.role)) return { ok: false, error: "권한 값이 올바르지 않습니다" };
+  try {
+    const { query } = await import("@/lib/db");
+    await query(
+      `INSERT INTO admin_users (id, name, role, zoom_email, active) VALUES ($1,$2,$3,$4,true)
+       ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, role=EXCLUDED.role, zoom_email=EXCLUDED.zoom_email`,
+      [id, input.name.trim() || id.split("@")[0], input.role, (input.zoom_email || "").trim().toLowerCase() || null]);
+    if (input.password && input.password.trim().length >= 6) {
+      const { setPassword } = await import("@/lib/auth");
+      await setPassword(id, input.password.trim());
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "저장 실패" };
   }
   revalidatePath("/accounts");
   return { ok: true };
@@ -465,12 +470,16 @@ export async function setAccountActiveAction(id: string, active: boolean): Promi
   if (!me) return { ok: false, error: "권한 없음 (파트장/대표만)" };
   const target = (id || "").trim().toLowerCase();
   if (!active && me.actor === target) return { ok: false, error: "본인 계정은 비활성화할 수 없습니다" };
-  const { query, queryOne } = await import("@/lib/db");
-  if (!active) {
-    const execs = await queryOne<{ n: string }>("SELECT count(*)::text n FROM admin_users WHERE role='exec' AND active=true AND id<>$1", [target]);
-    if (Number(execs?.n ?? 0) === 0) return { ok: false, error: "마지막 활성 대표(exec)는 비활성화 불가" };
+  try {
+    const { query, queryOne } = await import("@/lib/db");
+    if (!active) {
+      const execs = await queryOne<{ n: string }>("SELECT count(*)::text n FROM admin_users WHERE role='exec' AND active=true AND id<>$1", [target]);
+      if (Number(execs?.n ?? 0) === 0) return { ok: false, error: "마지막 활성 대표(exec)는 비활성화 불가" };
+    }
+    await query("UPDATE admin_users SET active=$2 WHERE id=$1", [target, active]);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "변경 실패" };
   }
-  await query("UPDATE admin_users SET active=$2 WHERE id=$1", [target, active]);
   revalidatePath("/accounts");
   return { ok: true };
 }
@@ -481,18 +490,22 @@ export async function deleteAccountAction(id: string): Promise<ActionResult> {
   if (!me) return { ok: false, error: "권한 없음 (파트장/대표만)" };
   const target = (id || "").trim().toLowerCase();
   if (me.actor === target) return { ok: false, error: "본인 계정은 삭제할 수 없습니다" };
-  const { query, queryOne } = await import("@/lib/db");
-  const isExec = await queryOne<{ role: string }>("SELECT role FROM admin_users WHERE id=$1", [target]);
-  if (isExec?.role === "exec") {
-    const execs = await queryOne<{ n: string }>("SELECT count(*)::text n FROM admin_users WHERE role='exec' AND id<>$1", [target]);
-    if (Number(execs?.n ?? 0) === 0) return { ok: false, error: "마지막 대표(exec)는 삭제 불가" };
+  try {
+    const { query, queryOne } = await import("@/lib/db");
+    const isExec = await queryOne<{ role: string }>("SELECT role FROM admin_users WHERE id=$1", [target]);
+    if (isExec?.role === "exec") {
+      const execs = await queryOne<{ n: string }>("SELECT count(*)::text n FROM admin_users WHERE role='exec' AND id<>$1", [target]);
+      if (Number(execs?.n ?? 0) === 0) return { ok: false, error: "마지막 대표(exec)는 삭제 불가" };
+    }
+    // 담당 지정 해제(원장 owner_* 가 이 계정을 가리키면 NULL)
+    await query(
+      `UPDATE brands SET owner_intake=NULLIF(owner_intake,$1), owner_sales=NULLIF(owner_sales,$1),
+         owner_onboard=NULLIF(owner_onboard,$1), owner_ads=NULLIF(owner_ads,$1)
+       WHERE $1 IN (owner_intake,owner_sales,owner_onboard,owner_ads)`, [target]).catch(() => {});
+    await query("DELETE FROM admin_users WHERE id=$1", [target]);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "삭제 실패" };
   }
-  // 담당 지정 해제(원장 owner_* 가 이 계정을 가리키면 NULL)
-  await query(
-    `UPDATE brands SET owner_intake=NULLIF(owner_intake,$1), owner_sales=NULLIF(owner_sales,$1),
-       owner_onboard=NULLIF(owner_onboard,$1), owner_ads=NULLIF(owner_ads,$1)
-     WHERE $1 IN (owner_intake,owner_sales,owner_onboard,owner_ads)`, [target]).catch(() => {});
-  await query("DELETE FROM admin_users WHERE id=$1", [target]);
   revalidatePath("/accounts");
   return { ok: true };
 }

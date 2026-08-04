@@ -5,8 +5,25 @@ import { useRouter } from "next/navigation";
 import { saveAccountAction, setAccountActiveAction, deleteAccountAction, setPasswordAction } from "@/app/actions";
 import type { AccountRow } from "@/lib/repo/queries";
 
-const ROLES: [string, string][] = [["staff", "직원(담당)"], ["lead", "파트장"], ["exec", "대표"]];
-const ROLE_LABEL: Record<string, string> = { staff: "직원", lead: "파트장", exec: "대표" };
+// admin_users.role CHECK 제약과 일치(0001_init). 담당(직원) 5개 + 관리 2개.
+const STAFF_ROLES: [string, string][] = [
+  ["intake", "리드접수"], ["sales", "영업"], ["onboard", "온보딩"], ["ads", "광고"], ["settle", "정산"],
+];
+const MGR_ROLES: [string, string][] = [["lead", "파트장"], ["exec", "대표"]];
+const ROLE_LABEL: Record<string, string> = {
+  intake: "리드접수", sales: "영업", onboard: "온보딩", ads: "광고", settle: "정산", lead: "파트장", exec: "대표",
+};
+
+function RoleSelect({ value, disabled, onChange }: { value: string; disabled?: boolean; onChange: (v: string) => void }) {
+  return (
+    <select className="input" defaultValue={value} disabled={disabled} style={{ padding: "2px 6px", fontSize: 12 }}
+      onChange={(e) => onChange(e.target.value)}>
+      {!ROLE_LABEL[value] && <option value={value}>{value}</option>}
+      <optgroup label="담당(직원)">{STAFF_ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</optgroup>
+      <optgroup label="관리">{MGR_ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</optgroup>
+    </select>
+  );
+}
 
 export default function AccountManager({ accounts, meId, canEdit }: { accounts: AccountRow[]; meId: string; canEdit: boolean }) {
   const router = useRouter();
@@ -40,10 +57,8 @@ export default function AccountManager({ accounts, meId, canEdit }: { accounts: 
                 <td>{u.name}</td>
                 <td>
                   {canEdit ? (
-                    <select className="input" defaultValue={u.role} style={{ padding: "2px 6px", fontSize: 12 }}
-                      onChange={(e) => run(() => saveAccountAction({ id: u.id, name: u.name, role: e.target.value, zoom_email: u.zoom_email ?? "" }), "권한 변경됨")}>
-                      {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
+                    <RoleSelect value={u.role}
+                      onChange={(v) => run(() => saveAccountAction({ id: u.id, name: u.name, role: v, zoom_email: u.zoom_email ?? "" }), "권한 변경됨")} />
                   ) : ROLE_LABEL[u.role] ?? u.role}
                 </td>
                 <td style={{ fontSize: 12, color: "var(--ink3)" }}>{u.zoom_email || "—"}</td>
@@ -73,7 +88,7 @@ export default function AccountManager({ accounts, meId, canEdit }: { accounts: 
       </div>
       {msg && <div className="note" style={{ margin: "8px 16px", color: "var(--ok)" }}>{msg}</div>}
       <div className="note" style={{ margin: "0 16px 14px" }}>
-        <b>권한</b>: 대표(exec)=전체 · 파트장(lead)=편집·계정관리 · 직원(staff)=담당 범위. <b>Zoom 이메일</b>은 그 담당자가 연 미팅 녹화를 자동 귀속하는 데 씁니다.
+        <b>권한</b>: 대표=전체 · 파트장=편집·계정관리 · 담당(리드접수/영업/온보딩/광고/정산)=담당 범위. <b>Zoom 이메일</b>은 그 담당자가 연 미팅 녹화를 자동 귀속하는 데 씁니다.
         본인 계정·마지막 대표는 비활성/삭제할 수 없습니다.
       </div>
     </div>
@@ -82,14 +97,15 @@ export default function AccountManager({ accounts, meId, canEdit }: { accounts: 
 
 function AccountForm({ onDone, setMsg }: { onDone: () => void; setMsg: (s: string) => void }) {
   const [pending, start] = useTransition();
-  const [f, setF] = useState({ id: "", name: "", role: "staff", zoom_email: "", password: "" });
+  const [f, setF] = useState({ id: "", name: "", role: "intake", zoom_email: "", password: "" });
   return (
     <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
       <div><label className="label">이메일(로그인 ID)</label><input className="input" style={{ width: 200 }} placeholder="name@dinostudio.kr" value={f.id} onChange={(e) => setF({ ...f, id: e.target.value })} /></div>
       <div><label className="label">이름</label><input className="input" style={{ width: 120 }} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
       <div><label className="label">권한</label>
         <select className="input" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
-          {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          <optgroup label="담당(직원)">{STAFF_ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</optgroup>
+          <optgroup label="관리">{MGR_ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</optgroup>
         </select>
       </div>
       <div><label className="label">Zoom 이메일(선택)</label><input className="input" style={{ width: 180 }} placeholder="zoom 로그인 이메일" value={f.zoom_email} onChange={(e) => setF({ ...f, zoom_email: e.target.value })} /></div>
