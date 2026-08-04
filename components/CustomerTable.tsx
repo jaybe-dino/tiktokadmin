@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge } from "@/components/badges";
 import { SOURCE_LABELS } from "@/lib/types";
-import { deleteBrandsAction } from "@/app/actions";
+import { deleteBrandsAction, dropBrandsAction } from "@/app/actions";
 
 type Row = Record<string, unknown>;
 
@@ -49,12 +49,21 @@ export default function CustomerTable({ rows, canEdit }: { rows: Row[]; canEdit:
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAll = () => setSel(allChecked ? new Set() : new Set(ids));
 
+  const doDrop = () => {
+    if (sel.size === 0) return;
+    if (!confirm(`선택한 ${sel.size}개를 목록에서 제외(dropped)할까요? (데이터는 보존, 목록에서 숨김 — 동기화 복원 방지)`)) return;
+    start(async () => {
+      const r = await dropBrandsAction([...sel]);
+      if (r.ok) { setMsg(`${r.dropped}건 제외됨(dropped)`); setSel(new Set()); router.refresh(); }
+      else setMsg(r.error ?? "실패");
+    });
+  };
   const doDelete = () => {
     if (sel.size === 0) return;
-    if (!confirm(`선택한 ${sel.size}개 브랜드를 삭제할까요? (연관 데이터도 함께 삭제, 되돌릴 수 없음)`)) return;
+    if (!confirm(`선택한 ${sel.size}개를 완전 삭제할까요? (연관 데이터까지 삭제·복구 불가. glovek 원본 고객은 동기화로 되살아날 수 있음)`)) return;
     start(async () => {
       const r = await deleteBrandsAction([...sel]);
-      if (r.ok) { setMsg(`${r.deleted}건 삭제됨`); setSel(new Set()); router.refresh(); }
+      if (r.ok) { setMsg(`${r.deleted}건 완전삭제됨`); setSel(new Set()); router.refresh(); }
       else setMsg(r.error ?? "삭제 실패");
     });
   };
@@ -64,11 +73,15 @@ export default function CustomerTable({ rows, canEdit }: { rows: Row[]; canEdit:
       {canEdit && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--line)" }}>
           <span style={{ fontSize: 12, color: "var(--ink3)" }}>{sel.size > 0 ? `${sel.size}건 선택됨` : "행 왼쪽 체크로 선택"}</span>
-          <button className="btn btn-sm" disabled={pending || sel.size === 0}
-            style={{ marginLeft: "auto", color: sel.size ? "var(--danger)" : undefined }} onClick={doDelete}>
-            {pending ? "삭제 중…" : `🗑 선택 삭제${sel.size ? ` (${sel.size})` : ""}`}
-          </button>
           {msg && <span style={{ fontSize: 12, color: "var(--ok)" }}>{msg}</span>}
+          <button className="btn btn-sm" disabled={pending || sel.size === 0}
+            style={{ marginLeft: "auto" }} onClick={doDrop} title="목록에서 제외(데이터 보존·복원 방지)">
+            {pending ? "처리 중…" : `📥 선택 제외${sel.size ? ` (${sel.size})` : ""}`}
+          </button>
+          <button className="btn btn-sm" disabled={pending || sel.size === 0}
+            style={{ color: sel.size ? "var(--danger)" : undefined }} onClick={doDelete} title="완전 삭제(테스트 데이터 정리용)">
+            🗑 완전삭제
+          </button>
         </div>
       )}
       <table className="t">

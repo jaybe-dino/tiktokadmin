@@ -275,7 +275,8 @@ export async function deleteBrandAction(brandId: string): Promise<ActionResult> 
   return { ok: true };
 }
 
-/** 브랜드 원장 일괄 삭제(체크 선택). 파트장/대표만. 연관 데이터 CASCADE. */
+/** 브랜드 원장 일괄 삭제(체크 선택). 파트장/대표만. 연관 데이터 CASCADE.
+ *   ⚠️ 완전삭제 — glovek 원본 고객은 동기화로 복원될 수 있음(테스트 데이터 정리용). */
 export async function deleteBrandsAction(ids: string[]): Promise<ActionResult & { deleted?: number }> {
   const a = await requireLead();
   if (!a) return { ok: false, error: "권한 없음 (삭제는 파트장/대표만)" };
@@ -286,6 +287,29 @@ export async function deleteBrandsAction(ids: string[]): Promise<ActionResult & 
   revalidatePath("/customers");
   revalidatePath("/");
   return { ok: true, deleted: r.length };
+}
+
+/** 브랜드 원장 일괄 제외(dropped) — soft delete. 목록에서 숨기고 동기화 복원 방지(행 유지).
+ *   완전삭제와 달리 glovek 재동기화 시 기존 dropped 행이 갱신될 뿐 되살아나지 않음. */
+export async function dropBrandsAction(ids: string[]): Promise<ActionResult & { dropped?: number }> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  const clean = (ids ?? []).filter((s) => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s));
+  if (clean.length === 0) return { ok: false, error: "선택된 항목 없음" };
+  const { query } = await import("@/lib/db");
+  const r = await query<{ id: string }>(
+    "UPDATE brands SET state='dropped', stage_entered_at=now() WHERE id = ANY($1) AND state NOT IN ('dropped','churned') RETURNING id",
+    [clean]);
+  // 활성 알림 해제(드랍 브랜드가 SLA 지표 오염 방지)
+  await query("UPDATE alerts SET resolved_at=now() WHERE brand_id = ANY($1) AND resolved_at IS NULL", [clean]).catch(() => {});
+  // 감사 이력
+  await query(
+    `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
+       SELECT unnest($1::uuid[]), 'admin', 'transition', '{"to":"dropped","by":"bulk"}'::jsonb, now()`,
+    [clean]).catch(() => {});
+  revalidatePath("/customers");
+  revalidatePath("/");
+  return { ok: true, dropped: r.length };
 }
 
 export async function attachEmailAction(input: {

@@ -309,6 +309,8 @@ export async function customersList(f: {
     where.push(`(b.brand_name ILIKE $${p.length} OR b.email ILIKE $${p.length} OR b.phone ILIKE $${p.length})`);
   }
   if (f.state) { p.push(f.state); where.push(`b.state=$${p.length}`); }
+  // 상태 지정이 없으면 종료(dropped/churned) 제외 — 관리 목록에서 숨김. 명시 필터 시엔 표시.
+  else where.push(`b.state NOT IN ('dropped','churned')`);
   if (f.source) { p.push(f.source); where.push(`b.source=$${p.length}`); }
   if (f.grade) { p.push(f.grade); where.push(`b.grade=$${p.length}`); }
   if (f.plan) { p.push(f.plan); where.push(`b.plan=$${p.length}`); }
