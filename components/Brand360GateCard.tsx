@@ -77,7 +77,7 @@ export default function Brand360GateCard({ brandId, gate, gateNext, stageReqs }:
               start(async () => {
                 const r = await transitionAction(brandId, gate.toState);
                 if (r.ok) setMsg({ t: `게이트 통과 — ${gate.to}(으)로 이동됨`, bad: false });
-                else setMsg({ t: r.failed?.map((f) => f.label).join(" · ") || r.error || "게이트 미충족", bad: true });
+                else setMsg({ t: r.failed?.length ? `이동 조건 미충족: ${r.failed.map((f) => f.label).join(" · ")}` : (r.error || "게이트 미충족"), bad: true });
                 setTimeout(() => setMsg(null), 4000);
                 router.refresh();
               })

@@ -601,6 +601,11 @@ export async function createProposalAction(input: {
     brand_id: input.brand_id, plan: input.plan, countries: input.countries,
     term: input.term, quote_amount: q.total, discount_note: q.breakdown, by: a.actor,
   });
+  // 브랜드 플랜·계약형태 반영(비어 있을 때만) — 계약검토 게이트 통과 가능하게.
+  const { contractTypeFromPlan } = await import("@/lib/track");
+  const { query } = await import("@/lib/db");
+  await query("UPDATE brands SET plan = COALESCE(plan, $2), contract_type = COALESCE(contract_type, $3), updated_at = now() WHERE id = $1",
+    [input.brand_id, input.plan, contractTypeFromPlan(input.plan)]).catch(() => {});
   revalidatePath(`/brand/${input.brand_id}`);
   return { ok: true, quote: q.total, breakdown: q.breakdown };
 }
@@ -617,6 +622,13 @@ export async function addContractAction(input: {
       terms: { fee_pct: input.fee_pct ?? null, term_months: input.term_months ?? null, countries: input.countries ?? [] },
       start_date: input.start_date || null, end_date: input.end_date || null, note: input.note,
     });
+    // 계약 종류 → 브랜드 계약형태(트랙) 반영(비어 있을 때만) — 제안서/계약/원장 배지 정합.
+    const { contractTypeFromKind } = await import("@/lib/track");
+    const ct = contractTypeFromKind(input.kind);
+    if (ct) {
+      const { query } = await import("@/lib/db");
+      await query("UPDATE brands SET contract_type = COALESCE(contract_type, $2), updated_at = now() WHERE id = $1", [input.brand_id, ct]).catch(() => {});
+    }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "계약 등록 실패" };
   }

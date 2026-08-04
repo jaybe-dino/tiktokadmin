@@ -152,6 +152,14 @@ export async function createAndSendProposalAction(input: {
     [id, contractFileUrl || null, contractTerm || null, billingDay],
   ).catch(() => {});
 
+  // 브랜드 플랜·계약형태 반영 — 제안 시점에 트랙이 결정되므로 비어 있으면 채운다.
+  //   (없으면 contact→contract_review 게이트가 "계약형태 미정/플랜 미정"으로 영구 차단됨.)
+  const { contractTypeFromPlan } = await import("@/lib/track");
+  await query(
+    "UPDATE brands SET plan = COALESCE(plan, $2), contract_type = COALESCE(contract_type, $3), updated_at = now() WHERE id = $1",
+    [input.brand_id, input.plan, contractTypeFromPlan(input.plan)],
+  ).catch(() => {});
+
   // 미팅 직후 플로우 — 요약(summary_md)이 있는 브랜드면 타임라인에 제안 생성 로그.
   //   brand_sources site CHECK('glovek','apply','tpartners','manual') → 'manual',
   //   source_ref=proposal:{id} 로 멱등(UNIQUE(site,event,source_ref)).
