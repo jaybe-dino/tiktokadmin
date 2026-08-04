@@ -24,19 +24,25 @@ function secretOk(provided: string | null): boolean {
   return timingSafeEqual(a, b);
 }
 
-/** JSON 또는 form-urlencoded 본문을 평평한 문자열 맵으로. */
+// 키 정규화 — 대소문자·공백·언더스코어·하이픈 무시 (예: "Phone Number"="phone_number"="phonenumber").
+//   커넥터(메타/Zapier)가 라벨형 키(공백 포함)로 보내도 매핑되도록.
+const norm = (s: string) => s.toLowerCase().replace(/[\s_\-]/g, "");
+
+/** JSON 또는 form-urlencoded 본문을 정규화 키 맵으로. 중첩 객체는 값만 평탄화. */
 async function readBody(req: NextRequest): Promise<Record<string, string>> {
   const ct = req.headers.get("content-type") ?? "";
   const flat: Record<string, string> = {};
+  const put = (k: string, v: unknown) => {
+    if (v == null) return;
+    if (typeof v === "object") { for (const [k2, v2] of Object.entries(v)) put(`${k}_${k2}`, v2); return; }
+    flat[norm(k)] = String(v);
+  };
   if (ct.includes("application/json")) {
     const j = await req.json().catch(() => ({}));
-    for (const [k, v] of Object.entries(j as Record<string, unknown>)) {
-      flat[k.toLowerCase()] = v == null ? "" : String(v);
-    }
+    for (const [k, v] of Object.entries(j as Record<string, unknown>)) put(k, v);
   } else {
     const raw = await req.text();
-    const p = new URLSearchParams(raw);
-    for (const [k, v] of p.entries()) flat[k.toLowerCase()] = v;
+    for (const [k, v] of new URLSearchParams(raw).entries()) flat[norm(k)] = v;
   }
   return flat;
 }
@@ -46,13 +52,14 @@ export async function POST(req: NextRequest) {
   if (!secretOk(key)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const f = await readBody(req);
-  const pick = (...names: string[]) => names.map((n) => f[n]).find((v) => v && v.trim()) ?? "";
+  // 정규화 키로 조회 — 인자도 norm 적용해 형식 무관 매칭.
+  const pick = (...names: string[]) => names.map((n) => f[norm(n)]).find((v) => v && v.trim()) ?? "";
 
-  const email = pick("email", "이메일", "work_email", "e-mail").toLowerCase();
-  const phone = pick("phone", "phone_number", "전화번호", "연락처", "휴대폰번호", "mobile").replace(/[^0-9+]/g, "");
-  const brandName = pick("company", "company_name", "회사명", "브랜드명", "brand", "brand_name");
-  const contactName = pick("name", "full_name", "이름", "성함", "담당자명", "contact_name");
-  const leadId = pick("lead_id", "leadgen_id", "id", "leadid");
+  const email = pick("email", "이메일", "work_email", "e-mail", "email_address", "이메일주소").toLowerCase();
+  const phone = pick("phone", "phone_number", "전화번호", "연락처", "휴대폰번호", "휴대폰", "mobile", "mobile_number", "tel").replace(/[^0-9+]/g, "");
+  const brandName = pick("company", "company_name", "회사명", "브랜드명", "brand", "brand_name", "회사");
+  const contactName = pick("name", "full_name", "fullname", "이름", "성함", "담당자명", "contact_name", "first_name") || pick("last_name");
+  const leadId = pick("lead_id", "leadgen_id", "id", "leadid", "leadgenid");
 
   if (!email && !phone) {
     return NextResponse.json({ error: "validation", fields: ["email 또는 phone 최소 하나 필요"] }, { status: 400 });
