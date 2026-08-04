@@ -1,6 +1,6 @@
 import ScreenHeader from "@/components/ScreenHeader";
 import { currentUser } from "@/lib/auth";
-import { listChannels } from "@/lib/intake-channels";
+import { listChannels, recentChannelSends, channelSendCounts } from "@/lib/intake-channels";
 import { getWelcomeConfig } from "@/lib/welcome";
 import ChannelManager from "@/components/ChannelManager";
 import Link from "next/link";
@@ -14,6 +14,11 @@ export default async function ChannelsPage() {
   const [channels, welcomeCfg] = await Promise.all([
     listChannels(),
     getWelcomeConfig().catch(() => null),
+  ]);
+  const ids = channels.map((c) => c.id);
+  const [sends, sendCounts] = await Promise.all([
+    recentChannelSends(ids).catch(() => ({})),
+    channelSendCounts(ids).catch(() => ({})),
   ]);
 
   const active = channels.filter((c) => c.enabled).length;
@@ -34,7 +39,7 @@ export default async function ChannelsPage() {
         <div className="tile"><div className="tile-k">누적 유입</div><div className="tile-v">{totalLeads}</div></div>
       </div>
 
-      <ChannelManager channels={channels} canEdit={canEdit} />
+      <ChannelManager channels={channels} canEdit={canEdit} sends={sends} sendCounts={sendCounts} />
 
       <div className="card" style={{ marginTop: 14, padding: 16 }}>
         <b>동작 방식</b>

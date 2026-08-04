@@ -66,6 +66,42 @@ export async function recordChannelLead(id: string): Promise<void> {
   await query("UPDATE intake_channels SET lead_count=lead_count+1, last_lead_at=now() WHERE id=$1", [id]).catch(() => {});
 }
 
+export interface ChannelSend {
+  id: string; channel_id: string; brand_id: string | null; brand_name: string;
+  sms_sent: boolean; email_sent: boolean; sent_at: string;
+}
+
+/** 소스별 자동발송 이력 기록 (개인정보 최소화 — 브랜드 참조·매체 여부만). */
+export async function recordChannelSend(channelId: string, brandId: string, brandName: string, sent: string[]): Promise<void> {
+  await query(
+    "INSERT INTO channel_sends (channel_id, brand_id, brand_name, sms_sent, email_sent) VALUES ($1,$2,$3,$4,$5)",
+    [channelId, brandId, brandName, sent.includes("sms"), sent.includes("email")]).catch(() => {});
+}
+
+/** 여러 채널의 최근 발송 이력 (채널 카드용). */
+export async function recentChannelSends(channelIds: string[], perChannel = 8): Promise<Record<string, ChannelSend[]>> {
+  if (channelIds.length === 0) return {};
+  const rows = await query<ChannelSend & { rn: number }>(
+    `SELECT * FROM (
+       SELECT *, row_number() OVER (PARTITION BY channel_id ORDER BY sent_at DESC) rn
+         FROM channel_sends WHERE channel_id = ANY($1)
+     ) t WHERE rn <= $2`, [channelIds, perChannel]).catch(() => []);
+  const map: Record<string, ChannelSend[]> = {};
+  for (const r of rows) (map[r.channel_id] ??= []).push(r);
+  return map;
+}
+
+/** 소스별 발송 건수(문자·메일). */
+export async function channelSendCounts(channelIds: string[]): Promise<Record<string, { sms: number; email: number }>> {
+  if (channelIds.length === 0) return {};
+  const rows = await query<{ channel_id: string; sms: string; email: string }>(
+    `SELECT channel_id, count(*) FILTER (WHERE sms_sent) sms, count(*) FILTER (WHERE email_sent) email
+       FROM channel_sends WHERE channel_id = ANY($1) GROUP BY channel_id`, [channelIds]).catch(() => []);
+  const map: Record<string, { sms: number; email: number }> = {};
+  for (const r of rows) map[r.channel_id] = { sms: Number(r.sms), email: Number(r.email) };
+  return map;
+}
+
 function render(tpl: string, vars: Record<string, string>): string {
   return tpl.replace(/\{(브랜드명|담당자명)\}/g, (_, k) => vars[k] ?? "").replace(/\\n/g, "\n");
 }
@@ -110,6 +146,8 @@ export async function sendChannelWelcome(brandId: string, channel: IntakeChannel
       `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
        VALUES ($1,'admin','contact_logged',$2,now())`,
       [brandId, JSON.stringify({ channel: sent.join("+"), kind: "welcome", intake: channel.name })]).catch(() => {});
+    // 소스별 발송 히스토리 기록.
+    await recordChannelSend(channel.id, brandId, b.brand_name, sent);
   }
   return sent;
 }

@@ -4,7 +4,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createChannelAction, updateChannelAction, deleteChannelAction } from "@/app/actions";
-import type { IntakeChannel } from "@/lib/intake-channels";
+import type { IntakeChannel, ChannelSend } from "@/lib/intake-channels";
 
 const SOURCE_OPTS: [string, string][] = [
   ["meta_ads", "메타/페북 광고"], ["expo", "전시/팝업"], ["referrer", "영업 직접"],
@@ -16,13 +16,17 @@ function originOf(): string {
   return "https://tiktokadmin.vercel.app";
 }
 
-export default function ChannelManager({ channels, canEdit }: { channels: IntakeChannel[]; canEdit: boolean }) {
+export default function ChannelManager({ channels, canEdit, sends = {}, sendCounts = {} }: {
+  channels: IntakeChannel[]; canEdit: boolean;
+  sends?: Record<string, ChannelSend[]>; sendCounts?: Record<string, { sms: number; email: number }>;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [openAdd, setOpenAdd] = useState(false);
   const [name, setName] = useState("");
   const [source, setSource] = useState("meta_ads");
   const [editId, setEditId] = useState<string | null>(null);
+  const [histId, setHistId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
   const toggle = (c: IntakeChannel, field: "enabled" | "send_sms" | "send_email") =>
@@ -68,8 +72,12 @@ export default function ChannelManager({ channels, canEdit }: { channels: Intake
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <b>{c.name}</b>
               <span className="pill" style={{ fontSize: 10 }}>{SOURCE_OPTS.find(([v]) => v === c.source)?.[1] ?? c.source}</span>
-              <span style={{ color: "var(--ink3)", fontSize: 11 }}>유입 {c.lead_count}건{c.last_lead_at ? ` · 최근 ${new Date(c.last_lead_at).toLocaleString("ko-KR")}` : ""}</span>
+              <span style={{ color: "var(--ink3)", fontSize: 11 }}>
+                유입 {c.lead_count}건 · 발송 문자 {sendCounts[c.id]?.sms ?? 0}·메일 {sendCounts[c.id]?.email ?? 0}
+                {c.last_lead_at ? ` · 최근 ${new Date(c.last_lead_at).toLocaleString("ko-KR")}` : ""}
+              </span>
               <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => copyUrl(c.key)} title="이 채널 전용 POST URL 복사">📋 POST URL</button>
+              <button className="btn btn-sm" onClick={() => setHistId(histId === c.id ? null : c.id)}>{histId === c.id ? "접기" : "📊 발송내역"}</button>
               {canEdit && <button className="btn btn-sm" onClick={() => setEditId(editId === c.id ? null : c.id)}>{editId === c.id ? "접기" : "✏️ 내용"}</button>}
               {canEdit && <button className="btn btn-sm" disabled={pending} onClick={() => start(async () => { if (confirm(`'${c.name}' 채널 삭제?`)) { await deleteChannelAction(c.id); router.refresh(); } })}>삭제</button>}
             </div>
@@ -87,6 +95,28 @@ export default function ChannelManager({ channels, canEdit }: { channels: Intake
               </label>
             </div>
 
+            {histId === c.id && (
+              <div style={{ marginTop: 10, padding: 10, background: "var(--bg)", borderRadius: 8 }}>
+                <div style={{ fontSize: 11, color: "var(--ink3)", marginBottom: 6 }}>자동발송 내역 (최근 {(sends[c.id] ?? []).length}건)</div>
+                {(sends[c.id] ?? []).length === 0
+                  ? <div style={{ fontSize: 12, color: "var(--ink3)" }}>아직 발송 내역이 없습니다.</div>
+                  : (
+                    <table className="t" style={{ fontSize: 12 }}>
+                      <thead><tr><th>브랜드</th><th>문자</th><th>메일</th><th>발송 시각</th></tr></thead>
+                      <tbody>
+                        {(sends[c.id] ?? []).map((s) => (
+                          <tr key={s.id}>
+                            <td>{s.brand_name || "—"}</td>
+                            <td>{s.sms_sent ? "✓" : "—"}</td>
+                            <td>{s.email_sent ? "✓" : "—"}</td>
+                            <td style={{ color: "var(--ink3)" }}>{new Date(s.sent_at).toLocaleString("ko-KR")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+              </div>
+            )}
             {editId === c.id && canEdit && <ChannelEditor channel={c} onSaved={() => { setEditId(null); router.refresh(); }} />}
           </div>
         ))}
