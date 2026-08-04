@@ -44,13 +44,13 @@ function makePool(connectionString: string): Pool {
     statement_timeout: 15_000,
     query_timeout: 20_000,
     application_name: "tiktokadmin",
+    // 세션 타임존 KST — 시작 파라미터로 설정(연결 수립 시 서버가 적용).
+    //   connect 리스너에서 SET 을 쏘던 방식은 첫 쿼리와 겹쳐 "already executing a query"
+    //   경고를 유발했음 → options 로 이관해 경고 제거 + 트랜잭션 풀에서도 매 연결 보장.
+    options: "-c timezone=Asia/Seoul",
     // 매니지드 Postgres 는 SSL 필수. 대부분 유효 인증서지만 provider 별 self-signed 대응.
     ssl: needsSsl(connectionString) ? { rejectUnauthorized: false } : undefined,
   });
-  // 세션 타임존 KST — CURRENT_DATE·::date·now() 텍스트가 한국시간 기준이 되도록.
-  //   connect 시 SET(세션모드 지속·트랜잭션풀은 매번 재적용). 실패해도 무시(연결 유지).
-  //   저장은 timestamptz 절대시각 그대로 · glovek 공유 데이터 값은 불변.
-  pool.on("connect", (client) => { client.query("SET TIME ZONE 'Asia/Seoul'").catch(() => {}); });
   pool.on("error", (err) => console.error("[pg] idle client error", err.message));
   return pool;
 }
@@ -97,8 +97,15 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   params: unknown[] = [],
 ): Promise<T[]> {
   assertNotGlovekWrite(sql);
-  const res = await getPool().query<T>(sql, params as never[]);
-  return res.rows;
+  try {
+    const res = await getPool().query<T>(sql, params as never[]);
+    return res.rows;
+  } catch (e) {
+    // 호출부의 .catch(()=>[]) 가 실패를 "빈 상태"로 위장하기 전에 서버 로그에 남긴다.
+    // (진짜 빈 결과와 쿼리 실패를 구분 가능하게 — QA 온보딩#12 silent-catch 가시화.)
+    console.error("[pg] query 실패:", (e as Error).message, "·", sql.slice(0, 120).replace(/\s+/g, " "));
+    throw e;
+  }
 }
 
 /** 단일 행 (없으면 null) */
