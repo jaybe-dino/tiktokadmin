@@ -684,6 +684,37 @@ export async function removeMailboxAction(email: string): Promise<ActionResult> 
   return { ok: true };
 }
 
+// ═══ 유입 채널(주제별 키) 관리 (파트장/대표) ═══════════════════
+import { createChannel, updateChannel, deleteChannel, type IntakeChannel } from "@/lib/intake-channels";
+
+export async function createChannelAction(input: {
+  name: string; source: string; note?: string;
+}): Promise<ActionResult & { key?: string }> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  if (!input.name?.trim()) return { ok: false, error: "채널명 필수" };
+  const ch = await createChannel({ name: input.name, source: input.source || "meta_ads", note: input.note, createdBy: a.actor });
+  revalidatePath("/settings");
+  return { ok: Boolean(ch), key: ch?.key, error: ch ? undefined : "생성 실패(마이그레이션 0027 확인)" };
+}
+
+export async function updateChannelAction(id: string, patch: Partial<IntakeChannel>): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  try { await updateChannel(id, patch); }
+  catch (e) { return { ok: false, error: (e as Error).message }; }
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function deleteChannelAction(id: string): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  await deleteChannel(id);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 // ═══ 신규 리드 자동 안내 (파트장/대표) ═════════════════════════
 import { saveWelcomeConfig, sendWelcome, type WelcomeConfig } from "@/lib/welcome";
 

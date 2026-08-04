@@ -49,7 +49,10 @@ async function readBody(req: NextRequest): Promise<Record<string, string>> {
 
 export async function POST(req: NextRequest) {
   const key = req.headers.get("x-lead-secret") ?? req.nextUrl.searchParams.get("key");
-  if (!secretOk(key)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // 인증 — 주제별 유입 채널 키(우선) 또는 전역 시크릿(하위호환).
+  const { resolveChannel } = await import("@/lib/intake-channels");
+  const channel = key ? await resolveChannel(key) : null;
+  if (!channel && !secretOk(key)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const f = await readBody(req);
   // URL 쿼리스트링도 필드로 병합(본문 우선) — 커넥터 Data 가 한 개만 허용될 때
@@ -75,11 +78,15 @@ export async function POST(req: NextRequest) {
       { status: 400 });
   }
 
-  // 멱등키: 리드ID > 이메일 > 전화 (같은 리드 재전송 시 중복 방지).
-  const idemKey = `leadhook:${leadId || email || phone}`;
+  // 멱등키: 채널 접두 + 리드ID > 이메일 > 전화 (같은 리드 재전송 시 중복 방지).
+  const prefix = channel ? `ch:${channel.id}` : "leadhook";
+  const idemKey = `${prefix}:${leadId || email || phone}`;
 
   // 커넥터가 생성시각을 주면 우선 사용, 없으면 수신시각. (occurred_at 은 Common 필수)
   const occurredAt = pick("created_time", "created_at", "timestamp", "occurred_at") || new Date().toISOString();
+
+  // 소스 라벨 — 채널이 지정한 source(주제별) 우선, 없으면 meta_ads.
+  const source = channel?.source || "meta_ads";
 
   const result = await processIngest("lead", idemKey, {
     site: "manual",
@@ -89,14 +96,26 @@ export async function POST(req: NextRequest) {
     brand_name: brandName || null,
     contact_name: contactName || null,
     brand_url: website || null,
-    source: "meta_ads",
+    source,
     source_ref: leadId || null,
     utm: {
-      source: pick("utm_source") || "meta",
-      campaign: pick("campaign", "campaign_name", "utm_campaign"),
+      source: pick("utm_source") || (channel ? "channel" : "meta"),
+      campaign: pick("campaign", "campaign_name", "utm_campaign") || (channel?.name ?? ""),
       content: pick("ad", "ad_name", "utm_content"),
     },
   });
+
+  // 채널 매칭 시: 통계 갱신 + 채널별 문자·메일 자동발송(토글·템플릿). 신규 리드에만.
+  if (channel && result.http === 200) {
+    const brandId = (result.body as { brand_id?: string }).brand_id;
+    const created = (result.body as { created?: boolean }).created;
+    if (brandId) {
+      const { recordChannelLead, sendChannelWelcome } = await import("@/lib/intake-channels");
+      await recordChannelLead(channel.id).catch(() => {});
+      if (created) await sendChannelWelcome(brandId, channel).catch(() => {});
+    }
+  }
+
   return NextResponse.json(result.body, { status: result.http });
 }
 
