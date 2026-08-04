@@ -120,8 +120,9 @@ export async function approveAndSend(
   }
   if (!claimed) return { ok: false, error: "이미 처리 중이거나 완료된 초안", sent: false };
 
-  // 발송 직전 드라이브 링크 → 쇼트링크 치환 (실패 시 원본 유지)
-  const bodyToSend = await shortenDriveLinks(d.body_md, d.brand_id, editedBy);
+  // 발송 직전 드라이브 링크 → 쇼트링크 치환 (실패 시 원본 유지) + 회사 공용 푸터.
+  const { appendFooter } = await import("./email-footer");
+  const bodyToSend = appendFooter(await shortenDriveLinks(d.body_md, d.brand_id, editedBy));
 
   // 발송 실패 시 draft 로 복원(재시도 가능). 발송 성공 경로에선 sent 로 확정.
   const revert = () => query("UPDATE email_drafts SET status='draft' WHERE id=$1 AND status='sending'", [id]).catch(() => {});

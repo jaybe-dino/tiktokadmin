@@ -12,6 +12,10 @@ export async function sendEmail(input: {
 }): Promise<{ ok: boolean; id?: string; skipped?: boolean; error?: string; via?: string }> {
   if (!input.to || !input.to.includes("@")) return { ok: false, error: "수신 이메일 없음" };
 
+  // 회사 공용 푸터 부착(구 서명 제거·멱등).
+  const { appendFooter } = await import("./email-footer");
+  const bodyText = appendFooter(input.text);
+
   // ① Gmail 위임 — 기본 발신 메일함(또는 명시 from)에서 발송.
   const { gmailComposeEnabled, sendGmailMessage } = await import("./gmail-client");
   if (gmailComposeEnabled()) {
@@ -19,7 +23,7 @@ export async function sendEmail(input: {
     const from = input.from || (await defaultSendMailbox());
     if (from) {
       const r = await sendGmailMessage({
-        from, to: input.to, subject: input.subject, bodyText: input.text,
+        from, to: input.to, subject: input.subject, bodyText,
         attachments: input.attachments,
       });
       if (r.ok) return { ok: true, id: r.id, via: "gmail" };
@@ -35,7 +39,7 @@ export async function sendEmail(input: {
       method: "POST",
       headers: { authorization: `Bearer ${env.resend.apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
-        from: env.resend.from, to: input.to, subject: input.subject, text: input.text,
+        from: env.resend.from, to: input.to, subject: input.subject, text: bodyText,
         ...(input.replyTo ? { reply_to: input.replyTo } : {}),
         ...(input.attachments?.length
           ? { attachments: input.attachments.map((a) => ({ filename: a.filename, content: a.content })) }
