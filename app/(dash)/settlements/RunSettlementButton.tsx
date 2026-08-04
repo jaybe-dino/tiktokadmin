@@ -12,6 +12,8 @@ export default function RunSettlementButton() {
   const [err, setErr] = useState("");
 
   function run() {
+    // 파괴적 일괄 작업 — 이번 달 활성 사이클을 전부 마감한다. 오클릭 방지 확인. (ops#11)
+    if (!confirm("이번 달 활성 사이클을 모두 '마감'하고 정산 초안을 생성합니다.\n마감된 사이클은 이번 달 진척 입력이 중단됩니다. 계속할까요?")) return;
     setMsg("");
     setErr("");
     start(async () => {

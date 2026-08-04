@@ -44,12 +44,12 @@ export default async function SettlementsPage() {
         <div className="tile">
           <div className="k">GMV 합계</div>
           <div className="v">{won(gmvSum)}</div>
-          <div className="d">정산 런 대상 합산</div>
+          <div className="d">라이브 GMV 피드 기준 (미연동 시 구독분만 정산)</div>
         </div>
         <div className="tile">
           <div className="k">수수료 수익 (추정)</div>
           <div className="v">{won(feeSum)}</div>
-          <div className="d">환불 차감 반영</div>
+          <div className="d">GMV × 수수료율 · 환불 미반영</div>
         </div>
         <div className={`tile${anomalyRows.length ? " alert" : ""}`}>
           <div className="k">이상치</div>
@@ -92,7 +92,7 @@ export default async function SettlementsPage() {
               ))}
             </tbody>
           </table>
-          <div style={{ padding: "10px 16px" }} className="note">확정 → 파트장 결재 → 브랜드 포털에 리포트 게시 + 발송 기록</div>
+          <div style={{ padding: "10px 16px" }} className="note">확정 시 상태가 잠기고 결재 이력에 남습니다 — 브랜드 포털 리포트 게시·발송은 별도(수동) 처리.</div>
         </div>
 
         <div style={{ display: "grid", gap: 14, alignContent: "start" }}>

@@ -31,6 +31,8 @@ export async function createTicket(t: {
 }
 
 export async function setTicketStatus(id: string, status: string): Promise<void> {
-  const resolved = status === "resolved" || status === "closed" ? ", resolved_at=now()" : "";
-  await query(`UPDATE cs_tickets SET status=$2${resolved} WHERE id=$1`, [id, status]);
+  // resolved/closed 로 가면 resolved_at 스탬프, 그 외(재오픈)로 가면 resolved_at 초기화 —
+  // 재오픈된 미해결 티켓이 SLA 초과 뱃지를 다시 받도록. (ops#5)
+  const resolvedSql = status === "resolved" || status === "closed" ? "resolved_at=now()" : "resolved_at=NULL";
+  await query(`UPDATE cs_tickets SET status=$2, ${resolvedSql} WHERE id=$1`, [id, status]);
 }
