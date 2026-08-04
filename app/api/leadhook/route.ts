@@ -62,7 +62,10 @@ export async function POST(req: NextRequest) {
   const leadId = pick("lead_id", "leadgen_id", "id", "leadid", "leadgenid");
 
   if (!email && !phone) {
-    return NextResponse.json({ error: "validation", fields: ["email 또는 phone 최소 하나 필요"] }, { status: 400 });
+    // 진단 — 어떤 키로 왔는지 반환(값 아님, 키 이름만)해서 매핑을 정확히 맞춘다.
+    return NextResponse.json(
+      { error: "validation", fields: ["email 또는 phone 최소 하나 필요"], received_keys: Object.keys(f) },
+      { status: 400 });
   }
 
   // 멱등키: 리드ID > 이메일 > 전화 (같은 리드 재전송 시 중복 방지).
