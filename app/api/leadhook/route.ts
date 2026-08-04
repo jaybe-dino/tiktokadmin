@@ -52,6 +52,12 @@ export async function POST(req: NextRequest) {
   if (!secretOk(key)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const f = await readBody(req);
+  // URL 쿼리스트링도 필드로 병합(본문 우선) — 커넥터 Data 가 한 개만 허용될 때
+  //   URL 에 email/phone/name/lead_id 를 실어 보낼 수 있게. 'key'(시크릿)는 제외.
+  for (const [k, v] of req.nextUrl.searchParams.entries()) {
+    const nk = norm(k);
+    if (nk !== "key" && v && !f[nk]) f[nk] = v;
+  }
   // 정규화 키로 조회 — 인자도 norm 적용해 형식 무관 매칭.
   const pick = (...names: string[]) => names.map((n) => f[norm(n)]).find((v) => v && v.trim()) ?? "";
 
