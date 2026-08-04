@@ -30,13 +30,15 @@ export default function MailboxManager({ mailboxes, canEdit }: { mailboxes: Shar
                 <td>
                   <span className={`tgl ${m.enabled ? "on" : ""}`} onClick={() => canEdit && start(async () => {
                     const r = await toggleMailboxAction(m.email, "enabled", !m.enabled);
-                    if (r.ok) refreshLocal(m.email, { enabled: !m.enabled });
+                    if (r.ok) { setMsg(""); refreshLocal(m.email, { enabled: !m.enabled }); }
+                    else setMsg(`수집 토글 실패: ${r.error ?? "오류"}`);
                   })} title="수집 on/off" />
                 </td>
                 <td>
                   <span className={`tgl ${m.forward_to_owner ? "on" : ""}`} onClick={() => canEdit && start(async () => {
                     const r = await toggleMailboxAction(m.email, "forward", !m.forward_to_owner);
-                    if (r.ok) refreshLocal(m.email, { forward_to_owner: !m.forward_to_owner });
+                    if (r.ok) { setMsg(""); refreshLocal(m.email, { forward_to_owner: !m.forward_to_owner }); }
+                    else setMsg(`전달 토글 실패: ${r.error ?? "오류"}`);
                   })} title="수신 시 현재 단계 담당자 자동 전달" />
                 </td>
                 <td>
@@ -45,7 +47,8 @@ export default function MailboxManager({ mailboxes, canEdit }: { mailboxes: Shar
                     : canEdit && <button className="btn btn-sm" disabled={pending} title="아웃바운드(팔로업·자동안내) 기본 발신 메일함으로 지정"
                         onClick={() => start(async () => {
                           const r = await toggleMailboxAction(m.email, "default", true);
-                          if (r.ok) setRows((rs) => rs.map((x) => ({ ...x, is_default: x.email === m.email })));
+                          if (r.ok) { setMsg(""); setRows((rs) => rs.map((x) => ({ ...x, is_default: x.email === m.email }))); }
+                          else setMsg(`기본 지정 실패: ${r.error ?? "오류"}`);
                         })}>기본 지정</button>}
                 </td>
                 <td>

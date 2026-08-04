@@ -601,11 +601,15 @@ export async function addContractAction(input: {
 }): Promise<ActionResult> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };
-  await repoAddContract({
-    brand_id: input.brand_id, kind: input.kind,
-    terms: { fee_pct: input.fee_pct ?? null, term_months: input.term_months ?? null, countries: input.countries ?? [] },
-    start_date: input.start_date || null, end_date: input.end_date || null, note: input.note,
-  });
+  try {
+    await repoAddContract({
+      brand_id: input.brand_id, kind: input.kind,
+      terms: { fee_pct: input.fee_pct ?? null, term_months: input.term_months ?? null, countries: input.countries ?? [] },
+      start_date: input.start_date || null, end_date: input.end_date || null, note: input.note,
+    });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "계약 등록 실패" };
+  }
   revalidatePath(`/brand/${input.brand_id}`);
   return { ok: true };
 }

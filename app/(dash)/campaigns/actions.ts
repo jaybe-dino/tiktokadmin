@@ -131,11 +131,15 @@ export async function saveWinbackMemoAction(
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
 
-  await query("UPDATE brands SET next_action=$2, due_date=$3 WHERE id=$1", [
-    brandId,
-    nextAction.trim() || null,
-    dueDate?.trim() || null,
-  ]).catch(() => {});
+  try {
+    await query("UPDATE brands SET next_action=$2, due_date=$3 WHERE id=$1", [
+      brandId,
+      nextAction.trim() || null,
+      dueDate?.trim() || null,
+    ]);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "저장 실패" };
+  }
 
   revalidatePath("/campaigns");
   revalidatePath("/queue");

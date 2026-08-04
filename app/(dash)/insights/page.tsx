@@ -15,6 +15,13 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// 인사이트 지표 키(machine) → 사람이 읽는 라벨. weeklyInsight 는 metric='funnel' 저장.
+const METRIC_LABEL: Record<string, string> = {
+  funnel: "퍼널 분석",
+  sla: "SLA 점검",
+  conversion: "전환 분석",
+};
+
 const ACTIVE: State[] = STATES.filter(
   (s) => s !== "dropped" && s !== "churned",
 ) as State[];
@@ -192,9 +199,10 @@ export default async function InsightsPage() {
               ) : (
                 insights.slice(0, 6).map((ins) => (
                   <div key={ins.id} style={{ marginBottom: 12 }}>
-                    <b>{ins.metric || ins.finding}</b>
-                    <br />
-                    <span style={{ color: "var(--ink3)" }}>{ins.finding}</span>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: "#2563eb" }}>
+                      {METRIC_LABEL[ins.metric] ?? ins.metric}
+                    </div>
+                    <b style={{ display: "block", marginTop: 2, whiteSpace: "pre-wrap" }}>{ins.finding}</b>
                     {ins.proposed_action && (
                       <>
                         <br />

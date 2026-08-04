@@ -14,16 +14,24 @@ export default function MergeGroup({ group }: { group: DuplicateGroup }) {
   const [keepId, setKeepId] = useState(group.brands[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [err, setErr] = useState("");
 
   if (done) return null;
 
   async function merge() {
     if (!keepId) return;
     setBusy(true);
-    // 선택한 keep 외 나머지를 순차 병합
+    setErr("");
+    // 선택한 keep 외 나머지를 순차 병합 — 실패하면 중단하고 그룹 유지
     for (const b of group.brands) {
       if (b.id === keepId) continue;
-      await mergeBrandsAction(keepId, b.id);
+      const r = await mergeBrandsAction(keepId, b.id);
+      if (!r?.ok) {
+        setBusy(false);
+        setErr(`${b.brand_name} 병합 실패: ${r?.error ?? "알 수 없는 오류"}`);
+        router.refresh();
+        return;
+      }
     }
     setBusy(false);
     setDone(true);
@@ -41,6 +49,7 @@ export default function MergeGroup({ group }: { group: DuplicateGroup }) {
           {busy ? "병합 중…" : "선택 카드로 병합"}
         </button>
       </div>
+      {err && <div className="text-xs text-bad mb-2">{err}</div>}
       <div className="space-y-1">
         {group.brands.map((b) => (
           <label key={b.id} className="flex items-center gap-2 text-sm">

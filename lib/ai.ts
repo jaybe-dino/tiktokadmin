@@ -12,16 +12,27 @@ export function aiClient(): Anthropic {
   return new Anthropic({ apiKey: env.anthropicKey });
 }
 
-/** 단발 텍스트 생성 헬퍼(도구 없음). 키 없으면 null. */
+/**
+ * 단발 텍스트 생성 헬퍼(도구 없음). 키 미설정이면 null(비활성).
+ * API 오류는 삼키지 않고 로그 후 재던짐 → 호출부/에이전트 런이 실패를 인지·기록.
+ * (기본 max_tokens 를 넉넉히 잡아, 사고(thinking) 모델에서도 텍스트가 비거나 잘리지 않도록.)
+ */
 export async function aiText(input: {
   system: string; user: string; maxTokens?: number;
 }): Promise<string | null> {
   if (!aiEnabled()) return null;
-  const resp = await aiClient().messages.create({
-    model: AI_MODEL,
-    max_tokens: input.maxTokens ?? 1200,
-    system: input.system,
-    messages: [{ role: "user", content: input.user }],
-  });
-  return resp.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n").trim();
+  try {
+    const resp = await aiClient().messages.create({
+      model: AI_MODEL,
+      max_tokens: input.maxTokens ?? 1500,
+      system: input.system,
+      messages: [{ role: "user", content: input.user }],
+    });
+    const text = resp.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n").trim();
+    if (!text) throw new Error("AI 응답이 비어 있음(토큰 소진/차단 가능)");
+    return text;
+  } catch (e) {
+    console.error("[ai] aiText 실패:", (e as Error).message);
+    throw e;
+  }
 }

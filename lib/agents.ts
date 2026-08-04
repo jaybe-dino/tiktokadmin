@@ -114,40 +114,42 @@ async function weeklyInsight(): Promise<AgentResult> {
        FROM brands WHERE state NOT IN ('dropped','churned') GROUP BY state`).catch(() => []);
   const week = new Date().toISOString().slice(0, 10);
   const metricText = funnel.map((f) => `${f.state}:${f.count}(${f.avg_days ?? "-"}d)`).join(" · ");
-  let finding = "퍼널 스냅샷 저장", action = "";
+  let finding = "퍼널 스냅샷 저장", action = "", aiOk = false;
   if (aiEnabled()) {
     const ai = await aiText({
       system: "너는 GloveK 운영 분석가다. 퍼널 지표에서 병목·개선점을 2~3줄로 간결히 제시한다. 판정·정책변경은 하지 말고 제안만.",
       user: `단계별 브랜드수·평균체류일:\n${metricText}\n\n병목과 개선 제안을 알려줘.`,
-      maxTokens: 400,
-    }).catch(() => null);
-    if (ai) { finding = ai; action = "AI 제언 — 사람 검토 필요"; }
+      maxTokens: 800,
+    }).catch((e) => { console.error("[agent] weeklyInsight AI 실패:", (e as Error).message); return null; });
+    if (ai) { finding = ai; action = "AI 제언 — 사람 검토 필요"; aiOk = true; }
   }
   await query(
     `INSERT INTO insights (week, metric, value, finding, proposed_action) VALUES ($1,'funnel',$2,$3,$4)`,
     [week, JSON.stringify({ funnel }), finding, action]).catch(() => {});
-  return { summary: `주간 인사이트 저장 · ${metricText}`, actions: 1, detail: { funnel } };
+  return { summary: `주간 인사이트 저장${aiOk ? "(AI 제언)" : "(규칙기반)"} · ${metricText}`, actions: 1, detail: { funnel } };
 }
 
 // 9) 사전분석 — 브리프 없는 브랜드 진단(+AI 브리프)
 async function preAnalysis(): Promise<AgentResult> {
   const brands = await query<{ id: string; brand_name: string; category: string; grade: string | null }>(
     "SELECT id, brand_name, category, grade FROM brands WHERE (brief_md IS NULL OR brief_md='') AND state NOT IN ('dropped','churned') LIMIT 10").catch(() => []);
-  let made = 0;
+  let made = 0, aiMade = 0;
   for (const b of brands) {
     let brief = `## ${b.brand_name} 사전분석(자동)\n- 카테고리: ${b.category || "미상"}\n- 등급: ${b.grade ?? "미정"}\n- 정보 부족 — 미팅 검증 필요`;
     if (aiEnabled()) {
       const ai = await aiText({
         system: "너는 GloveK 사전분석가다. 주어진 최소 정보로 브랜드 진단 브리프(강점가설·추천트랙·확인질문 3개)를 6줄 이내로. 과장 금지.",
         user: `브랜드: ${b.brand_name} / 카테고리: ${b.category} / 등급: ${b.grade ?? "미정"}`,
-        maxTokens: 400,
-      }).catch(() => null);
-      if (ai) brief = ai;
+        maxTokens: 800,
+      }).catch((e) => { console.error("[agent] preAnalysis AI 실패:", (e as Error).message); return null; });
+      if (ai) { brief = ai; aiMade++; }
     }
     await query("UPDATE brands SET brief_md=$2 WHERE id=$1", [b.id, brief]).catch(() => {});
     made++;
   }
-  return { summary: `사전분석 브리프 ${made}건 생성${aiEnabled() ? "(AI)" : "(규칙기반)"}`, actions: made };
+  // 실제 AI 생성분(aiMade)만 (AI) 로 표기 — 키만 있고 전부 폴백되면 (규칙기반).
+  const label = aiMade > 0 ? `(AI ${aiMade}/${made})` : "(규칙기반)";
+  return { summary: `사전분석 브리프 ${made}건 생성${label}`, actions: made };
 }
 
 // 10) 인바운드 자동 회신 초안 — 미답 고객 메일 → 요약 + 근거기반 회신 초안(초안함)
