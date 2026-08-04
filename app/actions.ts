@@ -610,6 +610,23 @@ export async function createProposalAction(input: {
   return { ok: true, quote: q.total, breakdown: q.breakdown };
 }
 
+/** 브랜드 계약형태(트랙) 직접 지정 — 카드에서 멀티몰/온보딩/마케팅 선택(제안서 없이도 게이트 해소). */
+export async function setContractTypeAction(brandId: string, contractType: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const VALID = new Set(["mall", "onboarding", "marketing", ""]);
+  if (!VALID.has(contractType)) return { ok: false, error: "계약형태 값이 올바르지 않습니다" };
+  try {
+    const { query } = await import("@/lib/db");
+    await query("UPDATE brands SET contract_type=$2, updated_at=now() WHERE id=$1", [brandId, contractType || null]);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "저장 실패" };
+  }
+  revalidatePath(`/brand/${brandId}`);
+  revalidatePath("/customers");
+  return { ok: true };
+}
+
 export async function addContractAction(input: {
   brand_id: string; kind: string; fee_pct?: number; term_months?: number;
   countries?: string[]; start_date?: string; end_date?: string; note?: string;

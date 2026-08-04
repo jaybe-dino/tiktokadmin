@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   assignAction, composeEmailAction, deleteBrandAction, dropAction,
   logContactAction, remindAction, sendSmsAction, sendWelcomeAction, transitionAction,
+  setContractTypeAction,
 } from "@/app/actions";
 import { FORWARD_TRANSITIONS } from "@/lib/states";
 import { STATE_LABELS, type Brand, type OwnerField, type State } from "@/lib/types";
@@ -197,7 +198,7 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
                 onClick={() =>
                   start(async () => {
                     const r = await transitionAction(brand.id, s);
-                    flash(r.ok ? `${STATE_LABELS[s]}(으)로 이동` : r.failed?.map((f) => f.label).join(" · ") || r.error || "게이트 미충족", !r.ok);
+                    flash(r.ok ? `${STATE_LABELS[s]}(으)로 이동` : (r.failed?.length ? `이동 조건 미충족: ${r.failed.map((f) => f.label).join(" · ")}` : (r.error || "게이트 미충족")), !r.ok);
                     if (r.ok) setOpen(null);
                   })
                 }
@@ -210,6 +211,26 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
             <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink3)" }}>유입·광고 담당</span>
             {ownerSelect("owner_intake", "유입")}
             {ownerSelect("owner_ads", "광고")}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink3)" }}>계약형태 (트랙)</span>
+            <select
+              className="f"
+              style={{ width: "auto", padding: "2px 6px", fontSize: 12 }}
+              defaultValue={(brand as unknown as { contract_type?: string }).contract_type ?? ""}
+              onChange={(e) =>
+                start(async () => {
+                  const r = await setContractTypeAction(brand.id, e.target.value);
+                  flash(r.ok ? "계약형태 설정됨" : r.error || "실패", !r.ok);
+                })
+              }
+            >
+              <option value="">미정</option>
+              <option value="mall">멀티몰</option>
+              <option value="onboarding">온보딩</option>
+              <option value="marketing">마케팅</option>
+            </select>
+            <span style={{ fontSize: 10.5, color: "var(--ink3)" }}>제안서 발송 시 자동 설정 · 여기서 직접 지정도 가능</span>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: "var(--danger)" }}>제외·삭제</span>
