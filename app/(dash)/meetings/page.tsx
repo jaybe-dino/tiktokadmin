@@ -15,16 +15,28 @@ function mtgClass(status: string): "a" | "b" | "c" {
   return "a";
 }
 
+// UTC 자정 Date(달력날짜 표현)를 YYYY-MM-DD 로. (요일·주간 계산은 KST 달력날짜를 UTC 로 다룬다.)
 function fmt(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 // 저장 문자열에서 날짜/시(時)/분 직접 파싱 (타임존 변환 없이 원문 기준)
+// 타임존 안전 — timestamptz 문자열을 KST 기준 달력날짜·시각으로 변환한다.
+//   (서버/DB 세션 TZ 가 UTC 여도 항상 한국시간 기준으로 배치·표시. sales#8)
+const _kstFmt = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hour12: false,
+});
 function parseSlot(s: unknown): { ymd: string; hour: number; min: string } | null {
   if (typeof s !== "string") return null;
-  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/.exec(s);
-  if (!m) return null;
-  return { ymd: m[1], hour: parseInt(m[2], 10), min: m[3] };
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  const p: Record<string, string> = {};
+  for (const part of _kstFmt.formatToParts(d)) p[part.type] = part.value;
+  if (!p.year) return null;
+  let hour = parseInt(p.hour, 10);
+  if (hour === 24) hour = 0; // en-CA 는 자정을 24 로 줄 수 있음
+  return { ymd: `${p.year}-${p.month}-${p.day}`, hour, min: p.minute };
 }
 
 // "MM-DD HH:MM" 형태의 짧은 표기(원문 기준)
@@ -36,20 +48,22 @@ function shortWhen(s: unknown): string {
 
 // 이번 주 월~금 (서버에서 계산)
 function weekDays(): { ymd: string; label: string; isToday: boolean }[] {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dow = today.getDay(); // 0=일 .. 6=토
+  // KST 기준 '오늘' 달력날짜를 UTC 자정 Date 로 표현(요일·날짜 산술은 UTC 로).
+  const [ty, tm, td] = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date()).split("-").map(Number);
+  const today = new Date(Date.UTC(ty, tm - 1, td));
+  const dow = today.getUTCDay(); // 0=일 .. 6=토
   const diffToMon = dow === 0 ? -6 : 1 - dow;
   const mon = new Date(today);
-  mon.setDate(today.getDate() + diffToMon);
+  mon.setUTCDate(today.getUTCDate() + diffToMon);
   const todayYmd = fmt(today);
   const names = ["월", "화", "수", "목", "금"];
   const out: { ymd: string; label: string; isToday: boolean }[] = [];
   for (let i = 0; i < 5; i++) {
     const d = new Date(mon);
-    d.setDate(mon.getDate() + i);
+    d.setUTCDate(mon.getUTCDate() + i);
     const ymd = fmt(d);
-    out.push({ ymd, label: `${names[i]} ${d.getDate()}${ymd === todayYmd ? " (오늘)" : ""}`, isToday: ymd === todayYmd });
+    out.push({ ymd, label: `${names[i]} ${d.getUTCDate()}${ymd === todayYmd ? " (오늘)" : ""}`, isToday: ymd === todayYmd });
   }
   return out;
 }
@@ -86,18 +100,27 @@ export default async function MeetingsPage() {
 
   // 셀 버킷: key = `${dayIdx}-${hour}`
   const cells = new Map<string, Record<string, unknown>[]>();
+  // 그리드(월~금·09~19시) 밖이라 셀에 안 들어가는 예약 미팅 — 사라지지 않게 별도 목록으로. (sales#9)
+  const offGrid: { m: Record<string, unknown>; slot: { ymd: string; hour: number; min: string } }[] = [];
   for (const m of rows) {
     const slot = parseSlot(m.scheduled_at);
     if (!slot) continue;
     const dayIdx = weekYmds.indexOf(slot.ymd);
-    if (dayIdx < 0) continue;
-    if (slot.hour < HOURS[0] || slot.hour > HOURS[HOURS.length - 1]) continue;
+    const inHours = slot.hour >= HOURS[0] && slot.hour <= HOURS[HOURS.length - 1];
+    if (dayIdx < 0 || !inHours) {
+      // 예약/수신 등 유효 상태이면서 이번 주 그리드 밖(주말·시간외·다음 주 등)만 별도 노출.
+      if (m.status === "scheduled" || m.status === "received" || m.status === "ready") {
+        offGrid.push({ m, slot });
+      }
+      continue;
+    }
     const key = `${dayIdx}-${slot.hour}`;
     const arr = cells.get(key) ?? [];
     arr.push(m);
     cells.set(key, arr);
   }
   const weekCount = [...cells.values()].reduce((n, a) => n + a.length, 0);
+  offGrid.sort((a, b) => String(a.m.scheduled_at).localeCompare(String(b.m.scheduled_at)));
 
   // 하단 3분할 카드용 파생 목록 (실데이터 기반)
   const pipeline = rows
@@ -160,6 +183,26 @@ export default async function MeetingsPage() {
           </div>
         ))}
       </div>
+
+      {/* 그리드 밖(주말·시간외·다음 주 등) 예약 미팅 — 캘린더에서 누락되지 않도록 별도 노출 */}
+      {offGrid.length > 0 && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="hd">
+            <b>그리드 밖 미팅 {offGrid.length}건</b>
+            <span style={{ color: "var(--ink3)", fontSize: 11, marginLeft: 6 }}>주말·09~19시 외·다른 주 예약</span>
+          </div>
+          <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {offGrid.map(({ m, slot }) => (
+              <div key={m.id as string} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                <span className="pill" style={{ fontVariantNumeric: "tabular-nums" }}>{slot.ymd} {String(slot.hour).padStart(2, "0")}:{slot.min}</span>
+                <b>{(m.brand_name as string) || (m.topic as string) || "(미지정)"}</b>
+                <span style={{ color: "var(--ink3)" }}>{ST[m.status as string] ?? (m.status as string)}</span>
+                {m.brand_id ? <Link href={`/brand/${m.brand_id}`} style={{ color: "var(--acc)", marginLeft: "auto" }}>열기 →</Link> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 하단 3분할: 처리 파이프라인 · 매칭 필요 · 노쇼·취소 */}
       <div className="grid g3" style={{ marginTop: 14 }}>

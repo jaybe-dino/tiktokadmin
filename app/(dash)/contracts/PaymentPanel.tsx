@@ -29,6 +29,11 @@ export default function PaymentPanel({
       setMsg({ ok: false, text: "브랜드를 선택하세요." });
       return;
     }
+    // '추가 결제(금액 입력)'는 금액이 필요 → 카드안내(①)로는 문구만 나가므로 수기(②)로 유도. (sales#11)
+    if (method === 1 && item.includes("추가 결제")) {
+      setMsg({ ok: false, text: "‘추가 결제’는 ② 수기 확인에서 금액·입금일을 입력해 기록하세요." });
+      return;
+    }
     start(async () => {
       if (method === 1) {
         const r = await sendPaymentGuideAction({ brandId, item });
@@ -118,7 +123,7 @@ export default function PaymentPanel({
         </div>
       )}
 
-      <div className="note" style={{ marginTop: 8 }}>발송 후 "결제 대기" 상태로 추적 — 미결제 3일 시 리마인더 자동 · 링크 열람 횟수 기록</div>
+      <div className="note" style={{ marginTop: 8 }}>발송 후 "결제 대기" 상태로 추적 — 연체 시 SLA 모니터에 결제 지연 알림이 뜹니다(리마인더는 연체행에서 수동 발송).</div>
     </div>
   );
 }

@@ -85,7 +85,7 @@ export default async function PayPage() {
           </tbody>
         </table>
         <div className="note" style={{ margin: "0 16px 14px" }}>
-          카드는 glovek 수납 · 계좌이체·수기는 여기서 확인 — 미결제 3일 시 리마인더 자동
+          카드는 glovek 수납 · 계좌이체·수기는 여기서 확인 — 연체 시 SLA 모니터에 결제 지연 알림(리마인더는 연체행에서 수동 발송)
         </div>
       </div>
     </div>

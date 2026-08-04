@@ -67,7 +67,7 @@ export default function MeetingEditor({ meeting, cls }: { meeting: CalendarMeeti
         !resend
           ? "저장됨 (재초대 미발송)"
           : inv?.skipped
-            ? "저장됨 · RESEND 미설정 — 재초대 스킵"
+            ? "저장됨 · 메일 발송 미설정(Gmail/Resend) — 재초대 스킵"
             : `저장됨 · 재초대 ${inv?.sent ?? 0}건 발송${inv && inv.failed > 0 ? ` (실패 ${inv.failed})` : ""}${inv?.errors?.length ? ` — ${inv.errors[0]}` : ""}`,
       );
       router.refresh();
