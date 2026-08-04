@@ -34,7 +34,7 @@ const GROUPS: Group[] = [
   ]},
   { title: "온보딩·제품", items: [
     { href: "/docs", label: "서류·물류", ic: "📂" },
-    { href: "/products", label: "제품·인증·재고", ic: "📦" },
+    { href: "/products", label: "제품·인증", ic: "📦" },
     { href: "/assets", label: "자산 저장소", ic: "🗄️" },
   ]},
   { title: "운영·정산", items: [

@@ -106,8 +106,8 @@ export default function ProductsView({ products, risks }: { products: Row[]; ris
     <div>
       <div className="ph">
         <div>
-          <h1>제품·인증·재고</h1>
-          <p>제품 마스터는 apply와 자동 동기 · 인증 만료 30일 전 알림 · 초기 재고 발송 14일 미도착 경보</p>
+          <h1>제품·인증</h1>
+          <p>제품 마스터는 apply와 자동 동기 · 인증 만료 30일 전 알림</p>
         </div>
         <div className="bar" style={{ margin: 0 }}>
           <input

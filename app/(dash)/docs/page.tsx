@@ -186,8 +186,8 @@ export default async function DocsPage({
           <option value="">등급 전체</option>
           {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
-        <select name="country" defaultValue={country} style={{ width: 120 }}>
-          <option value="">국가 전체</option>
+        <select name="country" defaultValue={country} style={{ width: 140 }} title="국가 필터는 물류 계약 현황에만 적용됩니다">
+          <option value="">국가(물류) 전체</option>
           {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
         </select>
         <button className="btn btn-primary btn-sm" type="submit">검색</button>

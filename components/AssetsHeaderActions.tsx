@@ -19,10 +19,10 @@ export default function AssetsHeaderActions({ kindLabel }: { kindLabel: Record<s
     startTransition(async () => {
       const res = await syncAssetsAction();
       if (res.ok) {
-        setToast({ t: `동기화 완료 · 색인 ${res.count ?? 0}건`, bad: false });
+        setToast({ t: `색인 새로고침 · ${res.count ?? 0}건`, bad: false });
         router.refresh();
       } else {
-        setToast({ t: res.error || "동기화 실패", bad: true });
+        setToast({ t: res.error || "새로고침 실패", bad: true });
       }
     });
   }
@@ -56,11 +56,11 @@ export default function AssetsHeaderActions({ kindLabel }: { kindLabel: Record<s
           {toast.t}
         </span>
       )}
-      <button className="btn" type="button" disabled={pending} onClick={sync}>
-        {pending ? "동기화 중…" : "🔄 동기화"}
+      <button className="btn" type="button" disabled={pending} onClick={sync} title="색인 건수를 다시 집계합니다(외부 스토리지 동기화 아님)">
+        {pending ? "새로고침 중…" : "🔄 색인 새로고침"}
       </button>
-      <button className="btn pri" type="button" disabled={pending} onClick={() => { setToast(null); setOpen(true); }}>
-        + 업로드
+      <button className="btn pri" type="button" disabled={pending} onClick={() => { setToast(null); setOpen(true); }} title="파일 링크(드라이브 URL 등)를 색인 등록합니다">
+        + 링크 색인
       </button>
 
       {open && (
@@ -70,7 +70,7 @@ export default function AssetsHeaderActions({ kindLabel }: { kindLabel: Record<s
         >
           <div className="modal" style={{ width: 460, maxWidth: "92vw" }} onClick={(e) => e.stopPropagation()}>
             <div className="mh">
-              <b>+ 업로드 — 색인 등록</b>
+              <b>+ 링크 색인 등록</b>
               <span className="x" onClick={() => setOpen(false)}>✕</span>
             </div>
             <form onSubmit={submitUpload}>
