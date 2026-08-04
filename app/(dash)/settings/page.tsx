@@ -6,8 +6,6 @@ import { listAllRequirements } from "@/lib/requirements";
 import { DOC_TEMPLATES } from "@/lib/docs";
 import { listMailboxes } from "@/lib/shared-mailboxes";
 import MailboxManager from "@/components/MailboxManager";
-import { listChannels } from "@/lib/intake-channels";
-import ChannelManager from "@/components/ChannelManager";
 import { getWelcomeConfig } from "@/lib/welcome";
 import WelcomeConfigCard from "@/components/WelcomeConfig";
 import TestNotify from "@/components/TestNotify";
@@ -35,7 +33,6 @@ export default async function SettingsPage() {
     getWelcomeConfig(),
   ]);
   const templates = await listTemplates();
-  const channels = await listChannels();
 
   const activeUsers = users.filter((u) => u.active).length;
   const activeReqs = requirements.filter((r) => r.active).length;
@@ -140,7 +137,6 @@ export default async function SettingsPage() {
           </div>
 
           {/* 회사 공용 메일함 */}
-          <ChannelManager channels={channels} canEdit={canEdit} />
           <MailboxManager mailboxes={mailboxes} canEdit={canEdit} />
 
           {/* 연동 상태 · 테스트 발송 */}
