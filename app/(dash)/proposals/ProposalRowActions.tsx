@@ -18,13 +18,17 @@ export default function ProposalRowActions({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
 
   function step(next: string) {
     setErr("");
+    setOk("");
     start(async () => {
       const r = await setProposalStatusV2Action(id, next, brandId);
-      if (r.ok) router.refresh();
-      else setErr(r.error ?? "처리 실패");
+      if (r.ok) {
+        if (next === "sent") setOk(r.note ?? "발송 초안 생성됨");
+        router.refresh();
+      } else setErr(r.error ?? "처리 실패");
     });
   }
 
@@ -33,6 +37,11 @@ export default function ProposalRowActions({
       {err && (
         <span style={{ fontSize: 11, fontWeight: 700, color: "var(--warn)" }}>
           {err}
+        </span>
+      )}
+      {ok && (
+        <span style={{ fontSize: 11, color: "var(--ok)" }}>
+          {ok}
         </span>
       )}
 
@@ -71,7 +80,7 @@ export default function ProposalRowActions({
       )}
 
       {status === "accepted" && (
-        <Link href="/contracts" className="btn sm">
+        <Link href={`/contracts?brand=${brandId}`} className="btn sm">
           계약으로 →
         </Link>
       )}

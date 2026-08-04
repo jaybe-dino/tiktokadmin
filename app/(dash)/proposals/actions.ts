@@ -92,6 +92,10 @@ export async function createAndSendProposalAction(input: {
     return { ok: false, error: "견적 계산 실패 — 트랙(플랜)을 확인하세요." };
   }
 
+  // 추가 할인 적용가 — 저장·발송·결재 금액은 모두 이 값(할인 반영)을 사용한다.
+  //   (기존 버그: 빌더는 할인가를 보여주지만 저장·이메일은 원가로 나갔음 — sales#1.)
+  const finalAmount = Math.round(q.total * (1 - discountPct / 100));
+
   // 할인 결재선: 20% 초과는 생성·발송하지 않고 파트장 결재 요청만 남긴다.
   // 승인 후 발송은 담당이 다시 진행(자동실행 없음 — /api/ops/approve 는 기록만).
   if (discountPct > DISCOUNT_APPROVAL_THRESHOLD) {
@@ -107,7 +111,8 @@ export async function createAndSendProposalAction(input: {
             countries: input.countries,
             term: input.term,
             discountPct,
-            quote_amount: q.total,
+            list_amount: q.total,
+            quote_amount: finalAmount,
             contract_file_url: contractFileUrl || null,
             contract_term: contractTerm || null,
             billing_day: billingDay,
@@ -120,7 +125,7 @@ export async function createAndSendProposalAction(input: {
       return { ok: false, error: "결재 요청 저장 실패" };
     }
     revalidatePath("/proposals");
-    return { ok: true, pendingApproval: true, quote: q.total, breakdown: q.breakdown };
+    return { ok: true, pendingApproval: true, quote: finalAmount, breakdown: q.breakdown };
   }
 
   let id: string;
@@ -130,9 +135,9 @@ export async function createAndSendProposalAction(input: {
       plan: input.plan,
       countries: input.countries,
       term: input.term,
-      quote_amount: q.total,
+      quote_amount: finalAmount,
       discount_note:
-        discountPct > 0 ? `${q.breakdown} | 추가할인 ${discountPct}%` : q.breakdown,
+        discountPct > 0 ? `${q.breakdown} | 추가할인 ${discountPct}% → ${finalAmount.toLocaleString("ko-KR")}원` : q.breakdown,
       by: `admin:${u.id}`,
     });
   } catch {
@@ -184,7 +189,7 @@ export async function createAndSendProposalAction(input: {
     plan: input.plan,
     countries: input.countries,
     term: input.term,
-    quote: q.total,
+    quote: finalAmount,
     contractFileUrl,
     contractTerm,
     billingDay,
@@ -195,7 +200,7 @@ export async function createAndSendProposalAction(input: {
   revalidatePath(`/brand/${input.brand_id}`);
   return {
     ok: true,
-    quote: q.total,
+    quote: finalAmount,
     breakdown: q.breakdown,
     draftReady: draft.ok,
     note: draft.ok
@@ -300,17 +305,41 @@ export async function setProposalStatusV2Action(
 
   await setProposalV2Status(id, status);
 
+  let draftReady = false;
+  let note: string | undefined;
   if (status === "sent") {
     // 발송 후 2~3일 미계약 팔로업 기한 = sent_at + 3일.
     await query(
       "UPDATE proposals SET followup_due = (sent_at + interval '3 days')::date WHERE id=$1 AND sent_at IS NOT NULL",
       [id],
     ).catch(() => {});
+
+    // "발송" 은 상태 스탬프만이 아니라 실제 발송 초안(초안함)을 생성한다 — 빌더 경로와 동일. (sales#2·#3)
+    const p = await queryOne<{ plan: string; countries: string[] | null; term: string | null; quote_amount: number | null; contract_file_url: string | null; contract_term: string | null; billing_day: number | null }>(
+      "SELECT plan, countries, term, quote_amount, contract_file_url, contract_term, billing_day FROM proposals WHERE id=$1",
+      [id],
+    ).catch(() => null);
+    if (p) {
+      const draft = await draftProposalEmail(id, cur.brand_id, {
+        plan: p.plan,
+        countries: p.countries ?? [],
+        term: p.term ?? "3month",
+        quote: Number(p.quote_amount ?? 0),
+        contractFileUrl: p.contract_file_url ?? "",
+        contractTerm: p.contract_term ?? "",
+        billingDay: p.billing_day,
+      });
+      draftReady = draft.ok;
+      note = draft.ok
+        ? "발송 초안이 초안함에 생성되었습니다 — 초안함에서 승인 후 실제 발송됩니다."
+        : draft.note;
+    }
   }
 
   revalidatePath("/proposals");
+  revalidatePath("/drafts");
   revalidatePath(`/brand/${brandId ?? cur.brand_id}`);
-  return { ok: true };
+  return { ok: true, draftReady, note };
 }
 
 // ─────────────────────────────────────────────────────────────

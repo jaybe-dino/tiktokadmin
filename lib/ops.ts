@@ -143,24 +143,19 @@ export async function opsRemind(
   if (!brand) return { ok: false, sent: false, draft, error: "브랜드 없음" };
 
   let sent = false;
-  if (input.channel === "email" && env.resend.apiKey && brand.email) {
+  if (input.channel === "email" && brand.email) {
+    // 공용 mailer 경유 — Gmail 위임(기본 발신 메일함) 우선, 실패 시 Resend 폴백. (sales#5)
     try {
-      const r = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.resend.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: env.resend.from,
-          to: brand.email,
-          subject: draft.subject ?? "[Glovek] 안내",
-          text: body,
-        }),
+      const { sendEmail } = await import("./mailer");
+      const r = await sendEmail({
+        to: brand.email,
+        subject: draft.subject ?? "[Glovek] 안내",
+        text: body,
       });
       sent = r.ok;
+      if (!r.ok) console.warn("[remind] 메일 발송 실패:", r.error ?? (r.skipped ? "발송 미설정" : "unknown"));
     } catch (err) {
-      console.warn("[remind] resend 실패:", (err as Error).message);
+      console.warn("[remind] 메일 발송 예외:", (err as Error).message);
     }
   }
 

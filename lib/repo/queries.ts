@@ -232,7 +232,8 @@ export async function payData(): Promise<PayData> {
 
   const activeSubs = subs.filter((s) => s.status === "subscribed" || s.status === "active").length;
   const pastDue = subs.filter((s) => s.status === "past_due").length;
-  const mrr = subs.reduce((sum, s) => sum + (s.amount ?? 490_000) * (s.status === "past_due" ? 0 : 1), 0);
+  // MRR — 실제 구독 금액(amount)만 합산. 금액 미연동(null)은 0 으로 집계(가짜 폴백 금지, sales#4).
+  const mrr = subs.reduce((sum, s) => sum + (s.status === "past_due" ? 0 : Number(s.amount ?? 0)), 0);
 
   const now = new Date();
   const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;

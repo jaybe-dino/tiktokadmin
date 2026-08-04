@@ -27,17 +27,21 @@ function ym(d: unknown): string {
   return s.length >= 7 ? s.slice(0, 7) : "";
 }
 
-export default async function ContractsPage() {
-  const rows = (await allContracts().catch(() => [])) as Record<string, unknown>[];
+export default async function ContractsPage({ searchParams }: { searchParams: Promise<{ brand?: string }> }) {
+  const { brand: filterBrand } = await searchParams;
+  const allRows = (await allContracts().catch(() => [])) as Record<string, unknown>[];
+  // 브랜드 필터(제안서 "계약으로 →" 딥링크) — 목록만 필터, KPI 는 전체 기준.
+  const rows = filterBrand ? allRows.filter((c) => c.brand_id === filterBrand) : allRows;
   const now = new Date();
   const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const signedThisMonth = rows.filter((c) => ym(c.signed_at) === curYm).length;
-  const signedTotal = rows.filter((c) => c.status === "signed").length;
+  const signedThisMonth = allRows.filter((c) => ym(c.signed_at) === curYm).length;
+  const signedTotal = allRows.filter((c) => c.status === "signed").length;
 
   // 결제 안내 대상: 계약이 있는 브랜드(중복 제거, id 기준)
   const contractBrands = Array.from(
-    new Map(rows.filter((c) => c.brand_id).map((c) => [c.brand_id as string, { id: c.brand_id as string, name: (c.brand_name as string) ?? "" }])).values(),
+    new Map(allRows.filter((c) => c.brand_id).map((c) => [c.brand_id as string, { id: c.brand_id as string, name: (c.brand_name as string) ?? "" }])).values(),
   );
+  const filterBrandName = filterBrand ? String(allRows.find((c) => c.brand_id === filterBrand)?.brand_name ?? "선택 브랜드") : "";
   // 계약 등록 대상: 전체 브랜드
   const allBrands = (await query("SELECT id, brand_name FROM brands ORDER BY brand_name LIMIT 1000").catch(() => [])) as { id: string; brand_name: string }[];
   const registerBrands = allBrands.map((b) => ({ id: b.id, name: b.brand_name }));
@@ -52,6 +56,12 @@ export default async function ContractsPage() {
       <div className="grid g31">
         {/* 좌측: 계약 목록 */}
         <div className="card overflow-x-auto">
+          {filterBrand && (
+            <div style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+              <span className="pill">브랜드 필터: {filterBrandName}</span>
+              <Link href="/contracts" style={{ color: "var(--accent)" }}>전체 보기 ✕</Link>
+            </div>
+          )}
           <table className="t">
             <thead>
               <tr><th>브랜드</th><th>계약 종류</th><th>기간</th><th>수수료·결제</th><th>상태</th><th></th></tr>

@@ -45,8 +45,19 @@ export default function ContractRowActions({
         </button>
       )}
       {status === "sent" && (
-        <button className="btn sm pri" disabled={pending} onClick={() => step("signed")}>
-          {pending ? "…" : "서명 완료"}
+        <>
+          <button className="btn sm pri" disabled={pending} onClick={() => step("signed")}>
+            {pending ? "…" : "서명 완료"}
+          </button>
+          <button className="btn sm" disabled={pending} onClick={() => { if (confirm("이 계약을 만료 처리할까요?")) step("expired"); }}>
+            만료
+          </button>
+        </>
+      )}
+      {(status === "sent" || status === "signed") && (
+        <button className="btn sm" disabled={pending} style={{ color: "var(--danger)" }}
+          onClick={() => { if (confirm("이 계약을 해지 처리할까요?")) step("terminated"); }}>
+          해지
         </button>
       )}
 
