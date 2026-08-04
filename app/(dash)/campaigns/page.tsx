@@ -38,7 +38,7 @@ const SEND_CH: Record<string, string> = { email: "✉️ 메일", sms: "📱 문
 const SEND_TK: Record<string, string> = { lead_group: "리드 그룹", filter: "필터 조합", manual: "직접 선택" };
 
 export default async function CampaignsPage() {
-  const [dropped, seminarStale, countryExpand, pastDue, consentRow, winbackRows, sends, pendingRows] =
+  const [dropped, seminarStale, countryExpand, pastDue, consentRow, winbackRows, sends, pendingRows, segStatRows] =
     await Promise.all([
       // 세그먼트 카운트
       countBrands("state = 'dropped'"),
@@ -79,7 +79,23 @@ export default async function CampaignsPage() {
        ORDER BY created_at DESC
           LIMIT 10`,
       ).catch(() => [] as Record<string, unknown>[]),
+      // 세그먼트별 실제 발송 실적(mock 대체) — 발송 건수·최근 발송일.
+      query(
+        `SELECT target_def->>'segment' AS seg,
+                coalesce(sum(sent),0)::int AS sent, max(created_at) AS last_at
+           FROM bulk_sends
+          WHERE target_kind='filter' AND target_def->>'segment' IS NOT NULL
+          GROUP BY target_def->>'segment'`,
+      ).catch(() => [] as Record<string, unknown>[]),
     ]);
+
+  // 세그먼트 → 실제 발송 실적 맵.
+  const segStats: Record<string, { sent: number; last: string }> = {};
+  for (const r of segStatRows as Record<string, unknown>[]) {
+    segStats[String(r.seg)] = { sent: Number(r.sent ?? 0), last: shortDate(r.last_at) };
+  }
+  const perfOf = (key: string) => (segStats[key]?.sent ? `누적 발송 ${segStats[key].sent}건` : "발송 이력 없음");
+  const nextOf = (key: string) => segStats[key]?.last ?? "—";
 
   const consent = (consentRow as Record<string, unknown>[])[0] ?? {};
   const agree = Number(consent.agree ?? 0);
@@ -95,8 +111,8 @@ export default async function CampaignsPage() {
       sub: "드랍 사유 기반 자동 편성",
       count: dropped,
       cycle: "분기",
-      perf: "오픈 42% · 재미팅 2건",
-      next: "9/1",
+      perf: perfOf("winback"),
+      next: nextOf("winback"),
       action: "초안 보기",
       primary: false,
     },
@@ -106,8 +122,8 @@ export default async function CampaignsPage() {
       sub: "세미나 신청 후 90일+ 무진행",
       count: seminarStale,
       cycle: "매월 첫 주",
-      perf: "오픈 38% · 상담 5건",
-      next: "8/4",
+      perf: perfOf("seminar"),
+      next: nextOf("seminar"),
       action: "발송",
       primary: true,
     },
@@ -117,8 +133,8 @@ export default async function CampaignsPage() {
       sub: "운영 중 · 1~2개국 운영",
       count: countryExpand,
       cycle: "분기",
-      perf: "제안 3 · 수주 1",
-      next: "8/15",
+      perf: perfOf("expand"),
+      next: nextOf("expand"),
       action: "초안 보기",
       primary: false,
     },
@@ -128,8 +144,8 @@ export default async function CampaignsPage() {
       sub: "결제 연체 · 재결제 유도",
       count: pastDue,
       cycle: "케이스별",
-      perf: "—",
-      next: "담당 판단",
+      perf: perfOf("pastdue"),
+      next: nextOf("pastdue"),
       action: "발송",
       primary: true,
     },
@@ -173,8 +189,8 @@ export default async function CampaignsPage() {
                   <th>세그먼트</th>
                   <th>대상</th>
                   <th>주기</th>
-                  <th>최근 발송 성과</th>
-                  <th>다음 발송</th>
+                  <th>발송 실적</th>
+                  <th>최근 발송</th>
                   <th></th>
                 </tr>
               </thead>
