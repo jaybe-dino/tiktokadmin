@@ -56,7 +56,7 @@ export default async function QnaPage() {
                       #{String(p.id).slice(0, 8)} {p.question}
                     </div>
                     <div className="ss">
-                      담당 답변 작성 → 파트장 승인 시 지식화 · 미답변이면 관련 메일 발송이 막힙니다
+                      담당 답변 작성 → 파트장 승인 시 지식화 · 미답변 질문은 답장 초안에 삽입되지 않습니다
                     </div>
                   </div>
                 </div>
@@ -70,8 +70,8 @@ export default async function QnaPage() {
             </div>
             <div className="bd" style={{ fontSize: 12, lineHeight: 1.7 }}>
               메일(자동 수집)과 미팅 회의록(우려·질문 추출), 두 갈래에서 질문이 들어옵니다. 답장
-              초안에 승인된 QnA가 자동 삽입되고, 새 질문은 [답변 필요]로 표시돼 채우기 전엔
-              발송되지 않아요. 반복될수록 시스템이 똑똑해집니다.
+              초안에 승인된 QnA가 자동 삽입되고(삽입될수록 사용 카운트↑·상단 노출), 새 질문은
+              [답변 필요]로 표시돼 답변·승인 전엔 초안에 삽입되지 않아요. 반복될수록 시스템이 똑똑해집니다.
             </div>
           </div>
         </div>

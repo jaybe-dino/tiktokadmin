@@ -1,10 +1,18 @@
 import ScreenHeader from "@/components/ScreenHeader";
 import SendCenter from "@/components/SendCenter";
 import { query } from "@/lib/db";
+import { currentUser } from "@/lib/auth";
+import { aligoConfigured } from "@/lib/sms";
+import { gmailComposeEnabled } from "@/lib/gmail-client";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
 export default async function SendPage() {
+  const user = await currentUser();
+  const mailOk = gmailComposeEnabled() || Boolean(env.resend.apiKey);
+  const smsOk = aligoConfigured();
+  const canRunNow = user?.role === "lead" || user?.role === "exec";
   const [sends, leadGroups, brandRows] = await Promise.all([
     query(
       `SELECT id, title, target_kind, channel, status, total, sent, body_md, created_at
@@ -49,7 +57,7 @@ export default async function SendPage() {
         desc="모든 발송은 회사 이메일·지정 번호로만 나가고, 결과는 각 고객카드 히스토리에 자동 연동됩니다"
         right={<span className="chip">발신: @dinostudio.kr · 1533-06xx</span>}
       />
-      <SendCenter sends={sends} leadGroups={groups} brands={brands} />
+      <SendCenter sends={sends} leadGroups={groups} brands={brands} mailOk={mailOk} smsOk={smsOk} canRunNow={canRunNow} />
     </div>
   );
 }

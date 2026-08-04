@@ -29,7 +29,7 @@ export interface SmsResult {
   message: string;
 }
 
-function aligoConfigured(): boolean {
+export function aligoConfigured(): boolean {
   return Boolean(env.aligo.apiKey && env.aligo.userId && env.aligo.sender);
 }
 

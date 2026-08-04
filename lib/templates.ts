@@ -29,7 +29,11 @@ export async function getTemplate(key: string): Promise<MsgTemplate | null> {
   return queryOne<MsgTemplate>("SELECT * FROM msg_templates WHERE key=$1", [key]).catch(() => null);
 }
 
-/** {브랜드명}/{담당자명} 치환 + \n 처리. */
+/**
+ * 개인화 변수 치환 + \n 처리. vars 에 있는 모든 {키}를 치환한다
+ * (브랜드명·담당자명·담당자예약링크·설문링크 등). vars 에 없는 {키}는
+ * 그대로 남겨 "미치환"이 눈에 보이게 한다(빈 값으로 지우지 않음).
+ */
 export function renderTemplate(tpl: string, vars: Record<string, string>): string {
-  return tpl.replace(/\{(브랜드명|담당자명)\}/g, (_, k) => vars[k] ?? "").replace(/\\n/g, "\n");
+  return tpl.replace(/\{([^{}]+)\}/g, (m, k) => (k in vars ? vars[k] : m)).replace(/\\n/g, "\n");
 }

@@ -35,7 +35,7 @@ export async function draftBulkCopyAction(input: {
     ? `너는 GloveK(틱톡샵 해외진출 대행사)의 담당자다. 고객에게 보낼 짧은 한국어 알림톡/SMS 문안을 쓴다.
 규칙: 90바이트 내외로 간결하게, 개인화 변수 {브랜드명}{담당자명} 활용, 과장·개인정보 금지. 본문만 출력.`
     : `너는 GloveK(틱톡샵 해외진출 대행사)의 담당자다. 고객에게 보낼 정중한 비즈니스 한국어 메일을 쓴다.
-규칙: 개인화 변수 {브랜드명}{담당자명}{담당자예약링크} 활용, 다음 스텝을 명확히, 과장·개인정보 금지.
+규칙: 개인화 변수 {브랜드명}{담당자명}{설문링크} 활용, 다음 스텝을 명확히, 과장·개인정보 금지.
 반드시 첫 줄에 "제목: ..." 한 줄, 그 다음 빈 줄, 이후 본문만 출력한다.`;
 
   const text = await aiText({
@@ -163,4 +163,20 @@ export async function createBulkSendAction(input: {
     excludedOptout: agg.optout ?? 0,
     excludedNoContact: agg.no_contact ?? 0,
   };
+}
+
+/* ── 대기 중 대량 발송 즉시 실행(워커 1배치) — 크론(10분) 대기 없이 지금 발송 ── */
+export async function runBulkNowAction(): Promise<SendResult & { picked?: number; sent?: number; failed?: number; done?: number }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (u.role !== "lead" && u.role !== "exec") return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  try {
+    const { processBulkSends } = await import("@/lib/bulk-send");
+    const r = await processBulkSends();
+    revalidatePath("/send");
+    revalidatePath("/campaigns");
+    return { ok: true, ...r };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "발송 실행 실패" };
+  }
 }

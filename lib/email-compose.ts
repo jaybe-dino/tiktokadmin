@@ -26,9 +26,13 @@ export async function draftContextualEmail(brandId: string, intent?: string): Pr
   const meeting = await queryOne<{ summary_md: string }>(
     "SELECT summary_md FROM meetings WHERE brand_id=$1 AND summary_md IS NOT NULL ORDER BY created_at DESC LIMIT 1",
     [brandId]).catch(() => null);
-  const qna = await query<{ question: string; answer: string }>(
-    "SELECT question, answer FROM qna_entries WHERE approved=true ORDER BY usage_count DESC LIMIT 5",
+  const qna = await query<{ id: string; question: string; answer: string }>(
+    "SELECT id, question, answer FROM qna_entries WHERE approved=true ORDER BY usage_count DESC LIMIT 5",
     []).catch(() => []);
+  // 실제 초안 맥락으로 삽입되는 QnA 는 사용 카운트 +1 (재사용될수록 상단 노출 → 자산화).
+  if (qna.length) {
+    await query("UPDATE qna_entries SET usage_count = usage_count + 1 WHERE id = ANY($1)", [qna.map((q) => q.id)]).catch(() => {});
+  }
 
   const contextLines = [
     `브랜드: ${brand.brand_name} (${brand.category})`,

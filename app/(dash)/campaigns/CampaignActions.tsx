@@ -4,8 +4,8 @@ import { useState } from "react";
 
 type Kind = "draft" | "send";
 
-// 세그먼트별 [AI 초안]/[발송] 액션 — 자체 API POST /api/ops/bulk-send 호출
-// body {segment, channel} → {ok, queued}. API 미구현 시 "준비 중" 처리(클릭 가능).
+// 세그먼트별 [AI 초안]/[발송 요청] 액션 — POST /api/ops/bulk-send 호출.
+// 둘 다 status='draft'(승인 대기)로 등록 → 승인 시에만 발송 워커가 실제 발송(승인 우회 없음).
 export default function CampaignActions({
   segment,
   channel = "email",
@@ -33,11 +33,6 @@ export default function CampaignActions({
         body: JSON.stringify({ segment, channel, kind }),
       });
 
-      if (res.status === 404 || res.status === 405 || res.status === 501) {
-        flash("발송 기능 준비 중입니다.", false);
-        return;
-      }
-
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         queued?: number;
@@ -46,12 +41,17 @@ export default function CampaignActions({
 
       if (res.ok && data.ok) {
         const n = Number(data.queued ?? 0);
-        flash(kind === "draft" ? `AI 초안 요청 완료 (${n}건 대상)` : `발송 예약 완료 · ${n}건`, true);
+        flash(
+          kind === "draft"
+            ? `AI 초안 대기 등록 · ${n}건 대상`
+            : `승인 대기 등록 · ${n}건 (승인 후 자동 발송)`,
+          true,
+        );
       } else {
-        flash(data.error ? `실패: ${data.error}` : "발송 기능 준비 중입니다.", false);
+        flash(data.error ? `실패: ${data.error}` : "요청 실패 (잠시 후 재시도)", false);
       }
     } catch {
-      flash("발송 기능 준비 중입니다.", false);
+      flash("네트워크 오류 (잠시 후 재시도)", false);
     } finally {
       setBusy(null);
     }
@@ -67,7 +67,7 @@ export default function CampaignActions({
         disabled={busy !== null}
         onClick={() => run("send")}
       >
-        {busy === "send" ? "발송 중…" : "발송"}
+        {busy === "send" ? "등록 중…" : "발송 요청"}
       </button>
       {toast && (
         <span

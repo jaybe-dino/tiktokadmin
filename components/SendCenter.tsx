@@ -9,6 +9,7 @@ import {
   draftBulkCopyAction,
   sendTestToSelfAction,
   createBulkSendAction,
+  runBulkNowAction,
 } from "@/app/(dash)/send/actions";
 
 type Row = Record<string, unknown>;
@@ -42,10 +43,16 @@ export default function SendCenter({
   sends,
   leadGroups,
   brands,
+  mailOk = false,
+  smsOk = false,
+  canRunNow = false,
 }: {
   sends: Row[];
   leadGroups: LeadGroup[];
   brands: BrandOpt[];
+  mailOk?: boolean;
+  smsOk?: boolean;
+  canRunNow?: boolean;
 }) {
   const [tab, setTab] = useState<"mail" | "sms" | "log">("mail");
 
@@ -65,7 +72,7 @@ export default function SendCenter({
 
       {tab === "mail" && <MailTab leadGroups={leadGroups} brands={brands} />}
       {tab === "sms" && <SmsTab leadGroups={leadGroups} />}
-      {tab === "log" && <LogTab sends={sends} />}
+      {tab === "log" && <LogTab sends={sends} canRunNow={canRunNow} mailOk={mailOk} smsOk={smsOk} />}
     </div>
   );
 }
@@ -213,7 +220,7 @@ function MailTab({ leadGroups, brands }: { leadGroups: LeadGroup[]; brands: Bran
             onChange={(e) => setBody(e.target.value)}
           />
           <div style={{ fontSize: 11, color: "var(--ink3)", marginTop: 4 }}>
-            개인화 변수: {"{브랜드명} {담당자명} {담당자예약링크} {설문링크}"} · 회신은 발신 계정으로
+            개인화 변수: {"{브랜드명} {담당자명} {설문링크}"} · 회신은 발신 계정으로
             수신 → 시스템이 전량 수집해 카드에 연결
           </div>
 
@@ -409,17 +416,18 @@ function SmsTab({ leadGroups }: { leadGroups: LeadGroup[] }) {
               </select>
             </div>
           </div>
-          <div className="radio">
+          <div className="radio" style={{ opacity: 0.5 }}>
             <span className="rb" />
             <div style={{ flex: 1 }}>
               <b>필터 조합</b>{" "}
-              <span style={{ color: "var(--ink3)", fontSize: 11 }}>— 메일 탭과 동일 필터</span>
+              <span className="pill" style={{ fontSize: 10, marginLeft: 4 }}>준비 중</span>
             </div>
           </div>
-          <div className="radio">
+          <div className="radio" style={{ opacity: 0.5 }}>
             <span className="rb" />
             <div>
-              <b>직접 선택</b>
+              <b>직접 선택</b>{" "}
+              <span className="pill" style={{ fontSize: 10, marginLeft: 4 }}>준비 중</span>
             </div>
           </div>
           <div className="note" style={{ margin: "8px 0 14px" }}>
@@ -428,11 +436,8 @@ function SmsTab({ leadGroups }: { leadGroups: LeadGroup[] }) {
           </div>
 
           <b style={{ fontSize: 12, color: "var(--acc)" }}>STEP 2 · 문자 작성</b>
-          <label className="f">발신 번호 (회사 지정 번호 — 변경은 관리자만)</label>
-          <select className="f">
-            <option>1533-06xx (대표)</option>
-            <option>02-6xxx-xxxx (영업)</option>
-          </select>
+          <label className="f">발신 번호 (서버 설정 ALIGO_SENDER 고정 — 변경은 관리자 환경변수)</label>
+          <input className="f" value="회사 지정 발신번호 (ALIGO_SENDER)" disabled readOnly style={{ opacity: 0.7 }} />
           <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
             <select className="f" value={template} onChange={(e) => setTemplate(e.target.value)}>
               <option>세미나 D-1 리마인드</option>
@@ -488,9 +493,10 @@ function SmsTab({ leadGroups }: { leadGroups: LeadGroup[] }) {
         <div className="card">
           <div className="card-hd">
             <b>문자 회신 인박스</b>
+            <span className="pill" style={{ fontSize: 10, marginLeft: 6 }}>준비 중</span>
           </div>
           <div className="card-bd" style={{ paddingTop: 6, fontSize: 12 }}>
-            <div className="note">수신된 문자 회신이 없습니다.</div>
+            <div className="note">인바운드 문자 수집 연동 예정 — 현재는 회신이 표시되지 않습니다.</div>
           </div>
         </div>
       </div>
@@ -499,13 +505,40 @@ function SmsTab({ leadGroups }: { leadGroups: LeadGroup[] }) {
 }
 
 /* ───────────── 탭3 · 발송 관리·채널 정책 (좌 2.1 / 우 1) ───────────── */
-function LogTab({ sends }: { sends: Row[] }) {
+function LogTab({ sends, canRunNow, mailOk, smsOk }: { sends: Row[]; canRunNow?: boolean; mailOk?: boolean; smsOk?: boolean }) {
+  const [running, startRun] = useTransition();
+  const [runMsg, setRunMsg] = useState("");
+  const queuedCount = sends.filter((s) => s.status === "queued" || s.status === "sending").length;
   return (
     <div className="grid g31" style={{ gap: 14 }}>
       <div className="card">
         <div className="card-hd">
           <b>통합 발송 관리 — 메일·문자 전체</b>
+          {canRunNow && (
+            <button
+              className="btn btn-sm btn-primary"
+              style={{ marginLeft: "auto" }}
+              disabled={running || queuedCount === 0}
+              title="대기(queued)·발송중 배치를 지금 즉시 발송 — 크론(10분) 대기 없이"
+              onClick={() =>
+                startRun(async () => {
+                  setRunMsg("");
+                  const r = await runBulkNowAction();
+                  setRunMsg(
+                    r.ok
+                      ? `발송 실행: 성공 ${r.sent ?? 0} · 실패 ${r.failed ?? 0} · 완료건 ${r.done ?? 0}`
+                      : r.error ?? "실행 실패",
+                  );
+                })
+              }
+            >
+              {running ? "발송 중…" : `지금 발송${queuedCount ? ` (${queuedCount})` : ""}`}
+            </button>
+          )}
         </div>
+        {runMsg && (
+          <div className="note" style={{ margin: "8px 16px 0", color: "var(--ok)" }}>{runMsg}</div>
+        )}
         <div className="overflow-x-auto">
           <table className="t">
             <thead>
@@ -575,22 +608,25 @@ function LogTab({ sends }: { sends: Row[] }) {
             <div className="row">
               <span className="ico i-grn">✉️</span>
               <div>
-                <div className="tt">회사 이메일 수집 (도메인 위임)</div>
-                <div className="ss">@dinostudio.kr 전 계정</div>
+                <div className="tt">메일 발송 (Gmail 위임 / Resend)</div>
+                <div className="ss">아웃바운드 발신 구성</div>
               </div>
               <div className="rt">
-                <span className="chip grn">정상</span>
+                <span className={`chip ${mailOk ? "grn" : ""}`}>{mailOk ? "구성됨" : "미설정"}</span>
               </div>
             </div>
             <div className="row">
               <span className="ico i-grn">📱</span>
               <div>
-                <div className="tt">지정 번호 수신 (게이트웨이)</div>
-                <div className="ss">1533-06xx 회신 웹훅</div>
+                <div className="tt">문자 발송 (ALIGO)</div>
+                <div className="ss">아웃바운드 발신 구성</div>
               </div>
               <div className="rt">
-                <span className="chip grn">정상</span>
+                <span className={`chip ${smsOk ? "grn" : ""}`}>{smsOk ? "구성됨" : "미설정"}</span>
               </div>
+            </div>
+            <div className="note" style={{ margin: "6px 0 0", fontSize: 11 }}>
+              ※ 발신(아웃바운드) 구성 여부만 표시 — 인바운드 수신 웹훅 실시간 헬스체크는 준비 중.
             </div>
           </div>
         </div>

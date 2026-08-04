@@ -4,6 +4,8 @@ import { randomBytes } from "node:crypto";
 import { query, queryOne } from "./db";
 import { sendSms } from "./sms";
 import { sendEmail } from "./mailer";
+// 공용 렌더러 — vars 에 있는 모든 {키} 치환(브랜드명·담당자명·설문링크 등).
+import { renderTemplate as render } from "./templates";
 
 export interface IntakeChannel {
   id: string; key: string; name: string; source: string;
@@ -115,9 +117,6 @@ export async function channelSendCounts(channelIds: string[]): Promise<Record<st
   return map;
 }
 
-function render(tpl: string, vars: Record<string, string>): string {
-  return tpl.replace(/\{(브랜드명|담당자명)\}/g, (_, k) => vars[k] ?? "").replace(/\\n/g, "\n");
-}
 
 /**
  * 채널별 자동 안내 발송 — 유입 즉시 1회(멱등: welcome_sent_at 공유).
