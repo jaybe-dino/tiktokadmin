@@ -212,39 +212,42 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
             {ownerSelect("owner_ads", "광고")}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--danger)" }}>제외·삭제</span>
             <input
               className="f"
-              style={{ flex: 1, minWidth: 160 }}
-              placeholder="드랍 사유"
+              style={{ flex: 1, minWidth: 140 }}
+              placeholder="드랍(제외) 사유 — 권장"
               value={dropReason}
               onChange={(e) => setDropReason(e.target.value)}
             />
             <button
               className="btn sm dgr"
               disabled={pending}
+              title="목록에서 제외(dropped) — 데이터 보존, 동기화로 복원 안 됨"
               onClick={() =>
                 start(async () => {
                   const r = await dropAction(brand.id, dropReason);
-                  flash(r.ok ? "드랍 처리됨" : r.error || "사유 필요", !r.ok);
-                  if (r.ok) setOpen(null);
+                  flash(r.ok ? "제외(드랍) 처리됨" : r.error || "사유 필요", !r.ok);
+                  if (r.ok) router.push("/customers");
                 })
               }
             >
-              드랍
+              📥 제외(드랍)
             </button>
             <button
               className="btn sm dgr"
               disabled={pending}
+              title="완전 삭제 — 연관 데이터까지 삭제(복구 불가). glovek 원본은 동기화로 되살아날 수 있음"
               onClick={() =>
                 start(async () => {
-                  if (!confirm(`'${brand.brand_name}' 을(를) 완전히 삭제할까요? 되돌릴 수 없습니다.`)) return;
+                  if (!confirm(`'${brand.brand_name}' 을(를) 완전히 삭제할까요?\n연관 데이터까지 삭제되며 되돌릴 수 없습니다.\n(glovek 원본 고객이면 동기화로 복원될 수 있으니 '제외'를 권장)`)) return;
                   const r = await deleteBrandAction(brand.id);
-                  if (r.ok) router.push("/");
+                  if (r.ok) router.push("/customers");
                   else flash(r.error || "삭제 실패", true);
                 })
               }
             >
-              삭제
+              🗑 완전삭제
             </button>
           </div>
         </div>
