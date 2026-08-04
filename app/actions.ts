@@ -275,6 +275,19 @@ export async function deleteBrandAction(brandId: string): Promise<ActionResult> 
   return { ok: true };
 }
 
+/** 브랜드 원장 일괄 삭제(체크 선택). 파트장/대표만. 연관 데이터 CASCADE. */
+export async function deleteBrandsAction(ids: string[]): Promise<ActionResult & { deleted?: number }> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (삭제는 파트장/대표만)" };
+  const clean = (ids ?? []).filter((s) => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s));
+  if (clean.length === 0) return { ok: false, error: "선택된 항목 없음" };
+  const { query } = await import("@/lib/db");
+  const r = await query<{ id: string }>("DELETE FROM brands WHERE id = ANY($1) RETURNING id", [clean]);
+  revalidatePath("/customers");
+  revalidatePath("/");
+  return { ok: true, deleted: r.length };
+}
+
 export async function attachEmailAction(input: {
   brandId: string; from?: string; subject?: string; text?: string; direction?: "in" | "out";
 }): Promise<ActionResult> {

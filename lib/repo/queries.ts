@@ -290,9 +290,17 @@ export interface CustomerRow extends Brand {
   sites: string | null;
 }
 
+const CUSTOMER_SORTS: Record<string, string> = {
+  updated: "b.updated_at DESC NULLS LAST",
+  created: "b.created_at DESC NULLS LAST",
+  created_asc: "b.created_at ASC NULLS LAST",
+  contact: "b.last_contact_at DESC NULLS LAST",
+  name: "b.brand_name ASC",
+};
+
 export async function customersList(f: {
   q?: string; state?: string; source?: string; grade?: string;
-  plan?: string; owner?: string; breach?: boolean; page?: number;
+  plan?: string; owner?: string; breach?: boolean; sort?: string; page?: number;
 }): Promise<{ rows: CustomerRow[]; total: number; page: number; pages: number }> {
   const where: string[] = ["1=1"];
   const p: unknown[] = [];
@@ -328,7 +336,7 @@ export async function customersList(f: {
             (SELECT string_agg(DISTINCT site, ',') FROM brand_sources s WHERE s.brand_id=b.id) AS sites
        FROM brands b
       WHERE ${whereSql}
-      ORDER BY b.updated_at DESC
+      ORDER BY ${CUSTOMER_SORTS[f.sort ?? "updated"] ?? CUSTOMER_SORTS.updated}
       LIMIT ${perPage} OFFSET ${offset}`,
     p,
   );
