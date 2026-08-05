@@ -55,6 +55,10 @@ export const env = {
   get adminUrl() {
     return opt("ADMIN_URL", "http://localhost:3000");
   },
+  // 고객 온보딩 포털(브랜드사 입력) 도메인 — 어드민과 분리. 고객에게 주는 /apply 링크의 베이스.
+  get portalUrl() {
+    return opt("NEXT_PUBLIC_PORTAL_URL") || opt("PORTAL_URL", "https://tiktok.glovek.space");
+  },
   slack: {
     get botToken() {
       return opt("SLACK_BOT_TOKEN");

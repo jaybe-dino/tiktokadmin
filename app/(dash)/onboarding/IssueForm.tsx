@@ -46,7 +46,7 @@ export default function IssueForm({ brands }: { brands: { id: string; brand_name
           <div style={{ marginTop: 8, display: "flex", gap: 18, alignItems: "center" }}>
             <div><span style={{ fontSize: 12, color: "#666" }}>이메일</span><div style={{ fontWeight: 600 }}>{result.email}</div></div>
             <div><span style={{ fontSize: 12, color: "#666" }}>발급코드</span><div style={{ fontFamily: "monospace", fontSize: 20, fontWeight: 800, letterSpacing: ".12em" }}>{result.code}</div></div>
-            <button className="btn sm" onClick={() => navigator.clipboard?.writeText(`이메일: ${result.email}\n코드: ${result.code}\n로그인: ${location.origin}/apply`)} style={{ marginLeft: "auto" }}>안내문 복사</button>
+            <button className="btn sm" onClick={() => navigator.clipboard?.writeText(`이메일: ${result.email}\n코드: ${result.code}\n로그인: ${(process.env.NEXT_PUBLIC_PORTAL_URL || "https://tiktok.glovek.space")}/apply`)} style={{ marginLeft: "auto" }}>안내문 복사</button>
             <button className="btn sm" onClick={() => setResult(null)}>닫기</button>
           </div>
         </div>

@@ -32,7 +32,9 @@ export default function Brand360Onboarding({ brand, company }: { brand: Brand; c
   }
 
   function copyLink() {
-    const link = `${location.origin}/apply`;
+    // 고객용 포털 도메인(어드민과 분리) — tiktok.glovek.space
+    const base = process.env.NEXT_PUBLIC_PORTAL_URL || "https://tiktok.glovek.space";
+    const link = `${base}/apply`;
     navigator.clipboard?.writeText(`온보딩 신청서 작성 링크: ${link}\n(담당자가 발급한 이메일 + 코드로 로그인)`);
     setMsg("작성 링크가 복사되었습니다");
     setTimeout(() => setMsg(""), 2500);
