@@ -1,12 +1,12 @@
 "use server";
-// 고객 온보딩 신청서 서버액션 — 세션에서 신청서를 재도출(클라이언트 입력 불신).
+// 고객 온보딩 신청서 서버액션(tpartners 5스텝) — 세션에서 신청서를 재도출(클라이언트 입력 불신).
 import { revalidatePath } from "next/cache";
 import {
   currentOnbCustomer, getOrCreateApplication,
   saveStepFields, submitStep,
-  addDirector, deleteDirector, addWarehouse, deleteWarehouse,
+  setCountries, setCountryLogistics,
   addProduct, updateProduct, deleteProduct, upsertProductCountry, deleteProductCountry,
-  type OnbDirector, type OnbWarehouse, type OnbProduct, type OnbProductCountry,
+  type OnbProduct, type OnbProductCountry, type OnbCountry,
 } from "@/lib/onboarding";
 
 async function currentApp(): Promise<{ id: string; brandId: string | null } | null> {
@@ -27,28 +27,23 @@ export async function saveStepAction(stepNo: number, values: Record<string, stri
 export async function submitStepAction(stepNo: number) {
   const app = await currentApp();
   if (!app) return { ok: false, error: "세션이 만료되었습니다." };
-  // 제출 전 마지막 저장은 클라이언트가 saveStepAction 으로 처리.
   const r = await submitStep(app.id, stepNo);
   if (r.ok) revalidatePath("/apply");
   return r;
 }
 
-export async function addDirectorAction(d: Partial<OnbDirector>) {
+// Step1 — 입점 희망 국가 매트릭스
+export async function saveCountriesAction(rows: Partial<OnbCountry>[]) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
-  const r = await addDirector(app.id, d); revalidatePath("/apply"); return r;
+  const r = await setCountries(app.id, rows); revalidatePath("/apply"); return r;
 }
-export async function deleteDirectorAction(id: string) {
+// Step5 — 국가별 물류계약서 URL
+export async function setCountryLogisticsAction(code: string, url: string) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
-  const r = await deleteDirector(app.id, id); revalidatePath("/apply"); return r;
+  const r = await setCountryLogistics(app.id, code, url); revalidatePath("/apply"); return r;
 }
-export async function addWarehouseAction(w: Partial<OnbWarehouse>) {
-  const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
-  const r = await addWarehouse(app.id, w); revalidatePath("/apply"); return r;
-}
-export async function deleteWarehouseAction(id: string) {
-  const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
-  const r = await deleteWarehouse(app.id, id); revalidatePath("/apply"); return r;
-}
+
+// Step4 — 제품
 export async function addProductAction(p: Partial<OnbProduct>) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
   const r = await addProduct(app.id, p); revalidatePath("/apply"); return r;

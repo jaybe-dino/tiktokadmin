@@ -77,19 +77,35 @@ export const ONB_COOKIE = COOKIE;
 // ── 신청서 ──
 export interface OnbStep { step_no: number; status: string; admin_feedback: string }
 
-/** 고객의 신청서 확보(없으면 생성 + 4스텝 초기화). Step1 은 열림, 2~4 잠금. */
+// tpartners 5스텝 정의 + 초기 잠금(1·2·5 열림, 3·4 잠금).
+export const STEP_DEFS: [number, string, string][] = [
+  [1, "기본신청", "회사/담당자/브랜드/서류/희망국가"],
+  [2, "수권서 서명", "LOA 자동 생성 및 서명"],
+  [3, "회사 추가정보", "지분구조/대표자 여권·신분증·거주지증명/Payoneer"],
+  [4, "제품 등록", "국가별 단가·인증·상세페이지 번역"],
+  [5, "물류 계약서", "국가별 물류 계약서 (미국은 FBA 캡처 가능)"],
+];
+const INITIAL_STATUS: Record<number, string> = { 1: "unlocked", 2: "unlocked", 3: "locked", 4: "locked", 5: "unlocked" };
+
+/** 고객의 신청서 확보(없으면 생성 + 5스텝 초기화). 1·2·5 열림, 3·4 잠금. */
 export async function getOrCreateApplication(customerId: string, brandId: string | null): Promise<{ id: string }> {
   const found = await queryOne<{ id: string }>("SELECT id FROM onb_applications WHERE customer_id=$1", [customerId]).catch(() => null);
-  if (found) return found;
+  if (found) {
+    // 기존(4스텝) 신청서에 5스텝 누락분 보정.
+    for (const [n] of STEP_DEFS) {
+      await query("INSERT INTO onb_steps (application_id, step_no, status, unlocked_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+        [found.id, n, INITIAL_STATUS[n], INITIAL_STATUS[n] === "unlocked" ? new Date().toISOString() : null]).catch(() => {});
+    }
+    return found;
+  }
   const row = await queryOne<{ id: string }>(
     `INSERT INTO onb_applications (customer_id, brand_id, status) VALUES ($1,$2,'draft') RETURNING id`,
     [customerId, brandId]);
   const id = row!.id;
-  // 4스텝 KYC 를 한번에 작성 — 모든 스텝을 처음부터 열어둔다(승인 대기 없이 전부 입력).
   const nowIso = new Date().toISOString();
-  for (const n of [1, 2, 3, 4]) {
-    await query("INSERT INTO onb_steps (application_id, step_no, status, unlocked_at) VALUES ($1,$2,'unlocked',$3) ON CONFLICT DO NOTHING",
-      [id, n, nowIso]).catch(() => {});
+  for (const [n] of STEP_DEFS) {
+    await query("INSERT INTO onb_steps (application_id, step_no, status, unlocked_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+      [id, n, INITIAL_STATUS[n], INITIAL_STATUS[n] === "unlocked" ? nowIso : null]).catch(() => {});
   }
   return { id };
 }
@@ -104,18 +120,24 @@ export async function getSteps(applicationId: string): Promise<OnbStep[]> {
   return query<OnbStep>("SELECT step_no, status, admin_feedback FROM onb_steps WHERE application_id=$1 ORDER BY step_no", [applicationId]).catch(() => []);
 }
 
-// 스텝별 저장 가능한 컬럼 화이트리스트(고객 입력 대상만).
+// 스텝별 저장 가능한 컬럼 화이트리스트(tpartners 5스텝 정합, 고객 입력 대상만).
 const STEP_FIELDS: Record<number, string[]> = {
+  // 1 기본신청 — 회사·담당자·주소·브랜드&대표자(성명/직책)·서류 URL (국가매트릭스는 별도)
   1: ["company_name_kr", "company_name_en", "company_type", "company_country", "company_reg_date", "company_reg_number",
       "contact_name", "contact_email", "contact_phone", "address_kr", "address_en", "op_address_en",
-      "shop_name_kr", "shop_name_en", "brand_logo_url", "product_category", "sales_channel_url",
-      "doc_biz_reg_en_url", "doc_biz_reg_kr_url", "doc_corp_reg_kr_url", "doc_ownership_url", "doc_logistics_url"],
-  2: ["ubo_full_name", "ubo_title", "ubo_birth", "ubo_country", "ubo_id_type", "ubo_id_number",
-      "ubo_id_front_url", "ubo_id_back_url", "ubo_address_proof_url", "ownership_structure"],
-  3: ["auth_type", "auth_name", "auth_birth", "auth_country", "auth_id_type", "auth_id_number", "auth_email",
-      "auth_id_front_url", "auth_id_back_url", "auth_address_proof_url", "auth_loa_url",
-      "pep_q1", "pep_q2", "ubo_signature_data", "payoneer_status", "payoneer_email", "payoneer_note"],
-  4: [],  // 제품은 onb_products 로 별도 관리
+      "shop_name_kr", "shop_name_en", "product_category", "sales_channel_url", "brand_logo_url",
+      "ubo_full_name", "ubo_title",
+      "doc_biz_reg_en_url", "doc_biz_reg_kr_url", "doc_corp_reg_kr_url"],
+  // 2 수권서 서명 — LOA 서명 데이터
+  2: ["ubo_signature_data"],
+  // 3 회사 추가정보 — 지분구조·대표자 서류·Payoneer
+  3: ["ownership_structure",
+      "rep_passport_front_url", "rep_passport_back_url", "rep_id_front_url", "rep_id_back_url", "rep_address_proof_url",
+      "payoneer_status", "payoneer_email", "payoneer_note"],
+  // 4 제품 등록 — onb_products / onb_product_countries 로 별도 관리
+  4: [],
+  // 5 물류 계약서 — onb_countries.logistics_contract_url 로 별도 관리
+  5: [],
 };
 
 /** 스텝 필드 저장(화이트리스트 컬럼만). 잠금·검토중 스텝은 저장 거부. */
@@ -129,7 +151,7 @@ export async function saveStepFields(applicationId: string, stepNo: number, valu
   for (const c of cols) {
     if (c in values) { set.push(`${c}=$${i++}`); params.push(values[c] ?? null); }
   }
-  if (stepNo === 3 && "ubo_signature_data" in values && values.ubo_signature_data) {
+  if (stepNo === 2 && "ubo_signature_data" in values && values.ubo_signature_data) {
     set.push(`ubo_signed_at=now()`);
   }
   if (set.length === 0) return { ok: true };
@@ -235,6 +257,68 @@ export async function deleteProductCountry(id: string): Promise<{ ok: boolean }>
   return { ok: true };
 }
 
+// ── 입점 희망 국가(Step1 매트릭스) + 물류계약서(Step5) — onb_countries ──
+export const TIKTOK_COUNTRIES: [string, string][] = [
+  ["US", "미국"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"],
+];
+export const READINESS: [string, string][] = [["none", "없음"], ["preparing", "준비중"], ["ready", "완료"]];
+export const CURRENCIES = ["USD", "KRW", "SGD", "THB", "VND", "MYR", "PHP"];
+export const COMPANY_COUNTRIES: [string, string][] = [
+  ["KR", "대한민국"], ["US", "미국"], ["SG", "싱가포르"], ["JP", "일본"], ["CN", "중국"], ["HK", "홍콩"],
+];
+
+export interface OnbCountry {
+  id: string; country_code: string; country_name: string;
+  has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string;
+  product_cert_status: string; product_cert_note: string;
+  logistics_status: string; logistics_note: string; logistics_contract_url: string;
+}
+export async function getCountries(applicationId: string): Promise<OnbCountry[]> {
+  return query<OnbCountry>("SELECT * FROM onb_countries WHERE application_id=$1 ORDER BY country_code", [applicationId]).catch(() => []);
+}
+/** Step1 국가 매트릭스 저장 — 선택 코드 집합으로 동기화(미선택은 삭제). */
+export async function setCountries(applicationId: string, rows: Partial<OnbCountry>[]): Promise<{ ok: boolean }> {
+  const keep = rows.map((r) => (r.country_code || "").toUpperCase()).filter(Boolean);
+  try {
+    if (keep.length) await query(`DELETE FROM onb_countries WHERE application_id=$1 AND country_code<>ALL($2)`, [applicationId, keep]);
+    else await query("DELETE FROM onb_countries WHERE application_id=$1", [applicationId]);
+    for (const r of rows) {
+      const code = (r.country_code || "").toUpperCase(); if (!code) continue;
+      const name = TIKTOK_COUNTRIES.find(([c]) => c === code)?.[1] ?? "";
+      await query(
+        `INSERT INTO onb_countries (application_id, country_code, country_name, has_existing_shop, shop_type, shop_url, monthly_revenue, product_cert_status, product_cert_note, logistics_status, logistics_note)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (application_id, country_code) DO UPDATE SET
+           has_existing_shop=EXCLUDED.has_existing_shop, shop_type=EXCLUDED.shop_type, shop_url=EXCLUDED.shop_url,
+           monthly_revenue=EXCLUDED.monthly_revenue, product_cert_status=EXCLUDED.product_cert_status, product_cert_note=EXCLUDED.product_cert_note,
+           logistics_status=EXCLUDED.logistics_status, logistics_note=EXCLUDED.logistics_note`,
+        [applicationId, code, name, r.has_existing_shop ?? (r.shop_type && r.shop_type !== "none" ? 1 : 0),
+         r.shop_type ?? "none", r.shop_url ?? "", r.monthly_revenue ?? "",
+         r.product_cert_status ?? "none", r.product_cert_note ?? "", r.logistics_status ?? "none", r.logistics_note ?? ""]);
+    }
+    return { ok: true };
+  } catch { return { ok: false }; }
+}
+/** Step5 국가별 물류계약서 URL 저장. */
+export async function setCountryLogistics(applicationId: string, code: string, url: string): Promise<{ ok: boolean }> {
+  await query("UPDATE onb_countries SET logistics_contract_url=$3 WHERE application_id=$1 AND country_code=$2", [applicationId, code.toUpperCase(), url]).catch(() => {});
+  return { ok: true };
+}
+
+// ── 파일 저장(Neon DB bytea) ──
+export async function saveOnbFile(applicationId: string, field: string, filename: string, mime: string, bytes: Buffer, by: string): Promise<{ ok: boolean; id?: string; url?: string; error?: string }> {
+  try {
+    const r = await queryOne<{ id: string }>(
+      `INSERT INTO onb_files (application_id, field, filename, mime, size, bytes, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [applicationId, field, filename, mime, bytes.length, bytes, by]);
+    return { ok: true, id: r!.id, url: `/api/apply/file/${r!.id}` };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "업로드 실패" }; }
+}
+export async function getOnbFile(id: string): Promise<{ filename: string; mime: string; bytes: Buffer; application_id: string } | null> {
+  return queryOne<{ filename: string; mime: string; bytes: Buffer; application_id: string }>("SELECT filename, mime, bytes, application_id FROM onb_files WHERE id=$1", [id]).catch(() => null);
+}
+
 // ── 관리자 뷰 ──
 export interface OnbCustomerRow extends OnbCustomer { last_login_at: string | null; created_at: string; app_id: string | null; app_status: string | null; submitted_steps: number }
 export async function listCustomers(): Promise<OnbCustomerRow[]> {
@@ -280,15 +364,15 @@ function certStatus(s: string | undefined): string {
 }
 
 /** 관리자: 신청서 전체 승인 → 모든 KYC 필드를 브랜드 원장에 하나도 빠짐없이 매핑. */
-export async function approveApplication(applicationId: string, by: string): Promise<{ ok: boolean; error?: string; mappedProducts?: number; mappedWarehouses?: number; mappedContacts?: number }> {
+export async function approveApplication(applicationId: string, by: string): Promise<{ ok: boolean; error?: string; mappedProducts?: number; mappedCountries?: number; mappedContacts?: number }> {
   const app = await getApplicationById(applicationId);
   if (!app) return { ok: false, error: "신청서를 찾을 수 없습니다." };
   const brandId = app.brand_id as string | null;
   if (!brandId) return { ok: false, error: "연결된 브랜드가 없습니다. 먼저 브랜드를 연결하세요." };
   const s = (k: string): string => (app[k] == null ? "" : String(app[k]));
   try {
-    // ── 1) 회사·UBO·대리인·PEP·Payoneer·서명 → brand_company (전 필드 매핑) ──
-    const directors = await getDirectors(applicationId);
+    // ── 1) 회사·대표자·Payoneer·서명·서류 → brand_company (전 필드 매핑) ──
+    const directors = await getDirectors(applicationId);  // v1 잔존분(있으면 보존), v2 고객플로우엔 없음
     const channelUrls = JSON.stringify({
       sales_channel: s("sales_channel_url"),
       shop_kr: s("shop_name_kr"), shop_en: s("shop_name_en"),
@@ -318,6 +402,10 @@ export async function approveApplication(applicationId: string, by: string): Pro
       ["auth_loa_url", s("auth_loa_url")], ["pep_q1", s("pep_q1")], ["pep_q2", s("pep_q2")],
       ["ubo_signature_data", s("ubo_signature_data")],
       ["payoneer_status", s("payoneer_status")], ["payoneer_email", s("payoneer_email")], ["payoneer_note", s("payoneer_note")],
+      // 대표자 서류(Step3) + 서명자 IP (0039)
+      ["rep_passport_front_url", s("rep_passport_front_url")], ["rep_passport_back_url", s("rep_passport_back_url")],
+      ["rep_id_front_url", s("rep_id_front_url")], ["rep_id_back_url", s("rep_id_back_url")],
+      ["rep_address_proof_url", s("rep_address_proof_url")], ["ubo_signer_ip", s("ubo_signer_ip")],
     ];
     const insCols = ["brand_id", "source", "channel_urls", "directors_json", "onb_application_id", "onb_synced_at", "ubo_signed_at", ...cols.map((c) => c[0])];
     const insVals: unknown[] = [brandId, "apply", channelUrls, JSON.stringify(directors), applicationId, new Date().toISOString(),
@@ -350,23 +438,26 @@ export async function approveApplication(applicationId: string, by: string): Pro
       mappedContacts = 1;
     }
 
-    // ── 3) 창고 → logistics_contracts (onb ref 로 dedup) ──
-    const warehouses = await getWarehouses(applicationId);
-    let mappedWarehouses = 0;
-    for (const w of warehouses) {
-      const ref = `[onb:${w.id}]`;
-      const ex = await queryOne<{ id: string }>(
-        "SELECT id FROM logistics_contracts WHERE brand_id=$1 AND note LIKE $2", [brandId, `%${ref}%`]).catch(() => null);
+    // ── 3) 입점 희망 국가 → brand.countries + 국가별 물류 → logistics_contracts ──
+    const countries = await getCountries(applicationId);
+    let mappedCountries = 0;
+    const codes = countries.map((c) => c.country_code.toUpperCase()).filter(Boolean);
+    if (codes.length) {
+      await query("UPDATE brands SET countries=(SELECT array_agg(DISTINCT c) FROM unnest(countries || $2::text[]) c) WHERE id=$1", [brandId, codes]).catch(() => {});
+    }
+    for (const c of countries) {
+      const code = c.country_code.toUpperCase(); if (!code) continue;
+      const ref = `[onb:${c.id}]`;
+      const status = c.logistics_status === "ready" ? "active" : c.logistics_status === "preparing" ? "negotiating" : "none";
+      const note = [c.logistics_note, c.logistics_contract_url && `계약서: ${c.logistics_contract_url}`, c.monthly_revenue && `월매출: ${c.monthly_revenue}`].filter(Boolean).join(" · ");
+      const ex = await queryOne<{ id: string }>("SELECT id FROM logistics_contracts WHERE brand_id=$1 AND note LIKE $2", [brandId, `%${ref}%`]).catch(() => null);
       if (ex) {
-        await query("UPDATE logistics_contracts SET country=$2, warehouse_region=$3, contact=$4, phone=$5, address=$6 WHERE id=$1",
-          [ex.id, w.country || "US", w.region ?? "", w.contact ?? "", w.phone ?? "", w.address ?? ""]).catch(() => {});
+        await query("UPDATE logistics_contracts SET country=$2, status=$3, note=$4 WHERE id=$1", [ex.id, code, status, `${note} ${ref}`]).catch(() => {});
       } else {
-        await query(
-          `INSERT INTO logistics_contracts (brand_id, country, warehouse_region, contact, phone, address, status, note)
-           VALUES ($1,$2,$3,$4,$5,$6,'negotiating',$7)`,
-          [brandId, w.country || "US", w.region ?? "", w.contact ?? "", w.phone ?? "", w.address ?? "", `온보딩 매핑 ${ref}`]).catch(() => {});
+        await query(`INSERT INTO logistics_contracts (brand_id, country, status, note) VALUES ($1,$2,$3,$4)`,
+          [brandId, code, status, `${note} ${ref}`]).catch(() => {});
       }
-      mappedWarehouses++;
+      mappedCountries++;
     }
 
     // ── 4) 제품 → products_master + 국가별 인증 → product_certs ──
@@ -407,7 +498,7 @@ export async function approveApplication(applicationId: string, by: string): Pro
     // ── 5) 신청서/스텝 승인 확정 ──
     await query("UPDATE onb_applications SET status='approved', admin_memo=CONCAT(admin_memo, E'\n[승인] ', $2::text), updated_at=now() WHERE id=$1", [applicationId, by]);
     await query("UPDATE onb_steps SET status='approved', reviewed_at=now() WHERE application_id=$1 AND status IN ('submitted','unlocked')", [applicationId]).catch(() => {});
-    return { ok: true, mappedProducts: mapped, mappedWarehouses, mappedContacts };
+    return { ok: true, mappedProducts: mapped, mappedCountries, mappedContacts };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "매핑 실패" };
   }

@@ -5,7 +5,7 @@ import { currentUser } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 import {
   getApplicationByCustomer, getApplicationById, getSteps,
-  getDirectors, getWarehouses, getProducts, getProductCountries,
+  getCountries, getProducts, getProductCountries,
 } from "@/lib/onboarding";
 import ReviewClient from "./ReviewClient";
 
@@ -27,8 +27,8 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
     );
   }
   const appId = String(appRow.id);
-  const [app, steps, directors, warehouses, products] = await Promise.all([
-    getApplicationById(appId), getSteps(appId), getDirectors(appId), getWarehouses(appId), getProducts(appId),
+  const [app, steps, countries, products] = await Promise.all([
+    getApplicationById(appId), getSteps(appId), getCountries(appId), getProducts(appId),
   ]);
   const brand = customer.brand_id
     ? await queryOne<{ brand_name: string }>("SELECT brand_name FROM brands WHERE id=$1", [customer.brand_id]).catch(() => null)
@@ -49,8 +49,7 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
         hasBrand={!!customer.brand_id}
         app={app ?? {}}
         steps={steps}
-        directors={directors}
-        warehouses={warehouses}
+        countries={countries}
         products={products}
         productCountries={productCountries}
       />
