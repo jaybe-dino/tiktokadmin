@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       campaign: pick("campaign", "campaign_name", "utm_campaign") || (channel?.name ?? ""),
       content: pick("ad", "ad_name", "utm_content"),
     },
-  });
+  }, { skipLeadNotify: true });  // 아래에서 채널 상세 포함 알림 직접 발송
 
   // 채널 매칭 시: 통계 갱신 + 채널별 문자·메일 자동발송(토글·템플릿). 신규 리드에만.
   //   + Slack #glovek-lead 알림(리드 상세 + 자동발송 여부). 유입 처리엔 영향 없음(best-effort).

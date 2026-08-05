@@ -178,6 +178,7 @@ export async function processIngest(
   event: string,
   idemKey: string,
   payload: unknown,
+  opts?: { skipLeadNotify?: boolean },
 ): Promise<IngestResult> {
   if (!INGEST_EVENTS.includes(event as IngestEventName)) {
     return { http: 400, body: { error: "unknown_event", event } };
@@ -218,7 +219,7 @@ export async function processIngest(
   }
 
   try {
-    const out = await handleEvent(event as IngestEventName, d, keys, payload);
+    const out = await handleEvent(event as IngestEventName, d, keys, payload, opts);
     // 처리 성공(2xx)만 'ok' 확정. 그 외 응답은 재처리 여지를 남기려 'error' 로 표기.
     if (out.http >= 200 && out.http < 300) {
       await query(
@@ -246,6 +247,7 @@ async function handleEvent(
   d: Common,
   keys: DedupKeys,
   raw: unknown,
+  opts?: { skipLeadNotify?: boolean },
 ): Promise<IngestResult> {
   const p = raw as Record<string, unknown>;
 
@@ -266,9 +268,22 @@ async function handleEvent(
       if (p.referral_code) await setFields(brand.id, { referral_code: p.referral_code });
       await recordSource(brand.id, d.site, "lead", d.source_ref ?? null, d.source_url ?? null, p, d.occurred_at);
       // 신규 리드 자동 안내(문자·메일) — 안내 대상 소스일 때만, 1회. (추후 메타/페북 광고 리드 확장)
+      //   + 신규 리드마다 Slack #glovek-lead 알림(자동안내 발송여부 포함).
+      //   leadhook/meta 는 자체 알림(채널 상세 포함)하므로 skipLeadNotify 로 중복 방지.
       if (created) {
         const { maybeAutoWelcome } = await import("./welcome");
-        await maybeAutoWelcome(brand.id, source).catch(() => {});
+        const wr = await maybeAutoWelcome(brand.id, source).catch(() => null);
+        if (!opts?.skipLeadNotify) {
+          const reason = !wr
+            ? "자동안내 확인 불가"
+            : !wr.eligible
+              ? wr.skipped ?? "자동안내 대상 아님"
+              : wr.sent.length
+                ? `자동안내 ${wr.sent.map((s) => (s === "sms" ? "문자" : "이메일")).join("·")} 발송됨`
+                : `자동안내 미발송(${wr.skipped ?? wr.error ?? "수단 없음"})`;
+          const { notifyNewLead } = await import("./lead-notify");
+          await notifyNewLead(brand.id, { channelName: source, created, autoSendReason: reason }).catch(() => {});
+        }
       }
       return { http: 200, body: { ok: true, brand_id: brand.id, created, need_brief: created } };
     }

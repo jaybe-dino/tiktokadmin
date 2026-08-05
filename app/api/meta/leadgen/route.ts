@@ -82,7 +82,7 @@ async function handleLead(leadgenId: string): Promise<Record<string, unknown>> {
     source: "meta_ads",
     source_ref: leadgenId,
     utm: { source: "meta", campaign: data.campaign_name ?? "", content: data.ad_name ?? "" },
-  });
+  }, { skipLeadNotify: true });  // 아래에서 메타 상세 포함 알림 직접 발송
   // Slack #glovek-lead 알림(메타 리드 인입 — 자동발송 없음). best-effort.
   if (result.http === 200) {
     const brandId = (result.body as { brand_id?: string }).brand_id;

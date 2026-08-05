@@ -76,10 +76,12 @@ export async function sendWelcome(brandId: string, force = false): Promise<Welco
   return { ok: true, sent, skipped: "발송 수단 없음(연락처·발송설정 확인) — 재시도 가능" };
 }
 
-/** 유입 즉시 자동 안내: enabled + source 대상 + 미발송일 때만. (ingest 에서 호출) */
-export async function maybeAutoWelcome(brandId: string, source: string): Promise<void> {
+/** 유입 즉시 자동 안내: enabled + source 대상 + 미발송일 때만. (ingest 에서 호출)
+ *  반환: 발송 시도했으면 결과, 대상 아님(비활성/소스 제외)이면 사유를 담은 객체. */
+export async function maybeAutoWelcome(brandId: string, source: string): Promise<WelcomeResult & { eligible: boolean }> {
   const cfg = await getWelcomeConfig();
-  if (!cfg.enabled) return;
-  if (!cfg.sources.includes(source)) return;
-  await sendWelcome(brandId, false).catch(() => {});
+  if (!cfg.enabled) return { ok: true, sent: [], skipped: "자동안내 비활성", eligible: false };
+  if (!cfg.sources.includes(source)) return { ok: true, sent: [], skipped: "자동안내 대상 소스 아님", eligible: false };
+  const r = await sendWelcome(brandId, false).catch(() => ({ ok: false, sent: [] as string[], error: "발송 오류" } as WelcomeResult));
+  return { ...r, eligible: true };
 }
