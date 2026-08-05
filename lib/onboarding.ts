@@ -85,9 +85,11 @@ export async function getOrCreateApplication(customerId: string, brandId: string
     `INSERT INTO onb_applications (customer_id, brand_id, status) VALUES ($1,$2,'draft') RETURNING id`,
     [customerId, brandId]);
   const id = row!.id;
+  // 4스텝 KYC 를 한번에 작성 — 모든 스텝을 처음부터 열어둔다(승인 대기 없이 전부 입력).
+  const nowIso = new Date().toISOString();
   for (const n of [1, 2, 3, 4]) {
-    await query("INSERT INTO onb_steps (application_id, step_no, status, unlocked_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
-      [id, n, n === 1 ? "unlocked" : "locked", n === 1 ? new Date().toISOString() : null]).catch(() => {});
+    await query("INSERT INTO onb_steps (application_id, step_no, status, unlocked_at) VALUES ($1,$2,'unlocked',$3) ON CONFLICT DO NOTHING",
+      [id, n, nowIso]).catch(() => {});
   }
   return { id };
 }
@@ -213,7 +215,7 @@ export async function deleteProduct(applicationId: string, id: string): Promise<
   await query("DELETE FROM onb_products WHERE id=$1 AND application_id=$2", [id, applicationId]).catch(() => {});
   return { ok: true };
 }
-export async function upsertProductCountry(productId: string, pc: Partial<OnbProductCountry>): Promise<{ ok: boolean }> {
+export async function upsertProductCountry(productId: string, pc: Partial<OnbProductCountry>): Promise<{ ok: boolean; error?: string }> {
   try {
     if (pc.id) {
       await query(
@@ -272,57 +274,140 @@ export async function reviewStep(applicationId: string, stepNo: number, decision
   return { ok: true };
 }
 
-/** 관리자: 신청서 전체 승인 → brand_company / products_master 로 자동 매핑. */
-export async function approveApplication(applicationId: string, by: string): Promise<{ ok: boolean; error?: string; mappedProducts?: number }> {
+// 인증 상태 매핑: onb(none|preparing|ready) → product_certs(none|preparing|ready)
+function certStatus(s: string | undefined): string {
+  return s === "ready" || s === "preparing" ? s : "none";
+}
+
+/** 관리자: 신청서 전체 승인 → 모든 KYC 필드를 브랜드 원장에 하나도 빠짐없이 매핑. */
+export async function approveApplication(applicationId: string, by: string): Promise<{ ok: boolean; error?: string; mappedProducts?: number; mappedWarehouses?: number; mappedContacts?: number }> {
   const app = await getApplicationById(applicationId);
   if (!app) return { ok: false, error: "신청서를 찾을 수 없습니다." };
   const brandId = app.brand_id as string | null;
   if (!brandId) return { ok: false, error: "연결된 브랜드가 없습니다. 먼저 브랜드를 연결하세요." };
+  const s = (k: string): string => (app[k] == null ? "" : String(app[k]));
   try {
-    // 1) 회사정보 → brand_company (upsert)
-    const channelUrls = JSON.stringify({ sales_channel: app.sales_channel_url ?? "" });
+    // ── 1) 회사·UBO·대리인·PEP·Payoneer·서명 → brand_company (전 필드 매핑) ──
+    const directors = await getDirectors(applicationId);
+    const channelUrls = JSON.stringify({
+      sales_channel: s("sales_channel_url"),
+      shop_kr: s("shop_name_kr"), shop_en: s("shop_name_en"),
+    });
+    // COALESCE(NULLIF(new,''), old) 패턴 — 빈 값은 기존 원장 값을 덮지 않음.
+    const cols: [string, unknown][] = [
+      ["company_name_kr", s("company_name_kr")], ["company_name_en", s("company_name_en")],
+      ["company_type", s("company_type")], ["company_country", s("company_country")],
+      ["reg_date", s("company_reg_date")], ["company_reg_number", s("company_reg_number")],
+      ["rep_name", s("ubo_full_name") || s("contact_name")],
+      ["contact_name", s("contact_name")], ["contact_email", s("contact_email")], ["contact_phone", s("contact_phone")],
+      ["address_kr", s("address_kr")], ["address_en", s("address_en")], ["op_address_en", s("op_address_en")],
+      ["shop_name_kr", s("shop_name_kr")], ["shop_name_en", s("shop_name_en")],
+      ["brand_name_en", s("shop_name_en")], ["brand_logo_url", s("brand_logo_url")],
+      ["product_category", s("product_category")], ["sales_channel_url", s("sales_channel_url")],
+      ["doc_biz_reg_en_url", s("doc_biz_reg_en_url")], ["doc_biz_reg_kr_url", s("doc_biz_reg_kr_url")],
+      ["doc_corp_reg_kr_url", s("doc_corp_reg_kr_url")], ["doc_ownership_url", s("doc_ownership_url")],
+      ["doc_logistics_url", s("doc_logistics_url")],
+      ["ubo_full_name", s("ubo_full_name")], ["ubo_title", s("ubo_title")], ["ubo_birth", s("ubo_birth")],
+      ["ubo_country", s("ubo_country")], ["ubo_id_type", s("ubo_id_type")], ["ubo_id_number", s("ubo_id_number")],
+      ["ubo_id_front_url", s("ubo_id_front_url")], ["ubo_id_back_url", s("ubo_id_back_url")],
+      ["ubo_address_proof_url", s("ubo_address_proof_url")], ["ownership_structure", s("ownership_structure")],
+      ["auth_type", s("auth_type")], ["auth_name", s("auth_name")], ["auth_birth", s("auth_birth")],
+      ["auth_country", s("auth_country")], ["auth_id_type", s("auth_id_type")], ["auth_id_number", s("auth_id_number")],
+      ["auth_email", s("auth_email")], ["auth_id_front_url", s("auth_id_front_url")],
+      ["auth_id_back_url", s("auth_id_back_url")], ["auth_address_proof_url", s("auth_address_proof_url")],
+      ["auth_loa_url", s("auth_loa_url")], ["pep_q1", s("pep_q1")], ["pep_q2", s("pep_q2")],
+      ["ubo_signature_data", s("ubo_signature_data")],
+      ["payoneer_status", s("payoneer_status")], ["payoneer_email", s("payoneer_email")], ["payoneer_note", s("payoneer_note")],
+    ];
+    const insCols = ["brand_id", "source", "channel_urls", "directors_json", "onb_application_id", "onb_synced_at", "ubo_signed_at", ...cols.map((c) => c[0])];
+    const insVals: unknown[] = [brandId, "apply", channelUrls, JSON.stringify(directors), applicationId, new Date().toISOString(),
+      app.ubo_signed_at ?? null, ...cols.map((c) => c[1])];
+    const place = insCols.map((_, i) => `$${i + 1}`);
+    // 텍스트 컬럼만 COALESCE(NULLIF) 로 빈값 보존; 나머지(source/json/id/시각)는 항상 갱신.
+    const preserve = new Set(cols.map((c) => c[0]));
+    const upd = insCols.slice(1).map((c) =>
+      preserve.has(c) ? `${c}=COALESCE(NULLIF(EXCLUDED.${c},''), brand_company.${c})` : `${c}=EXCLUDED.${c}`
+    ).join(", ");
     await query(
-      `INSERT INTO brand_company (brand_id, company_name_kr, company_name_en, company_type, rep_name, reg_date,
-         address_kr, address_en, brand_name_en, channel_urls, source, source_url, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'apply',$11,now())
-       ON CONFLICT (brand_id) DO UPDATE SET
-         company_name_kr=COALESCE(NULLIF(EXCLUDED.company_name_kr,''), brand_company.company_name_kr),
-         company_name_en=COALESCE(NULLIF(EXCLUDED.company_name_en,''), brand_company.company_name_en),
-         company_type=COALESCE(NULLIF(EXCLUDED.company_type,''), brand_company.company_type),
-         rep_name=COALESCE(NULLIF(EXCLUDED.rep_name,''), brand_company.rep_name),
-         reg_date=COALESCE(NULLIF(EXCLUDED.reg_date,''), brand_company.reg_date),
-         address_kr=COALESCE(NULLIF(EXCLUDED.address_kr,''), brand_company.address_kr),
-         address_en=COALESCE(NULLIF(EXCLUDED.address_en,''), brand_company.address_en),
-         brand_name_en=COALESCE(NULLIF(EXCLUDED.brand_name_en,''), brand_company.brand_name_en),
-         channel_urls=EXCLUDED.channel_urls, source='apply', source_url=EXCLUDED.source_url, updated_at=now()`,
-      [brandId, app.company_name_kr ?? "", app.company_name_en ?? "", app.company_type ?? "company",
-       app.ubo_full_name ?? "", app.company_reg_date ?? "", app.address_kr ?? "", app.address_en ?? "",
-       app.shop_name_en ?? "", channelUrls, app.sales_channel_url ?? ""]);
+      `INSERT INTO brand_company (${insCols.join(",")}) VALUES (${place.join(",")})
+       ON CONFLICT (brand_id) DO UPDATE SET ${upd}, updated_at=now()`, insVals);
 
-    // 2) 제품 → products_master (source=apply_step4, source_ref=onb product id 로 중복 방지)
+    // ── 2) 담당자 → brand_contacts (main upsert) ──
+    let mappedContacts = 0;
+    const contactName = s("contact_name");
+    if (contactName) {
+      const ex = await queryOne<{ id: string }>(
+        "SELECT id FROM brand_contacts WHERE brand_id=$1 AND role='main' ORDER BY is_primary DESC, created_at LIMIT 1", [brandId]).catch(() => null);
+      if (ex) {
+        await query("UPDATE brand_contacts SET name=$2, email=$3, phone=$4 WHERE id=$1",
+          [ex.id, contactName, s("contact_email") || null, s("contact_phone") || null]).catch(() => {});
+      } else {
+        await query(
+          `INSERT INTO brand_contacts (brand_id, name, title, email, phone, role, is_primary, note)
+           VALUES ($1,$2,'담당자',$3,$4,'main',true,'온보딩 신청서에서 매핑')`,
+          [brandId, contactName, s("contact_email") || null, s("contact_phone") || null]).catch(() => {});
+      }
+      mappedContacts = 1;
+    }
+
+    // ── 3) 창고 → logistics_contracts (onb ref 로 dedup) ──
+    const warehouses = await getWarehouses(applicationId);
+    let mappedWarehouses = 0;
+    for (const w of warehouses) {
+      const ref = `[onb:${w.id}]`;
+      const ex = await queryOne<{ id: string }>(
+        "SELECT id FROM logistics_contracts WHERE brand_id=$1 AND note LIKE $2", [brandId, `%${ref}%`]).catch(() => null);
+      if (ex) {
+        await query("UPDATE logistics_contracts SET country=$2, warehouse_region=$3, contact=$4, phone=$5, address=$6 WHERE id=$1",
+          [ex.id, w.country || "US", w.region ?? "", w.contact ?? "", w.phone ?? "", w.address ?? ""]).catch(() => {});
+      } else {
+        await query(
+          `INSERT INTO logistics_contracts (brand_id, country, warehouse_region, contact, phone, address, status, note)
+           VALUES ($1,$2,$3,$4,$5,$6,'negotiating',$7)`,
+          [brandId, w.country || "US", w.region ?? "", w.contact ?? "", w.phone ?? "", w.address ?? "", `온보딩 매핑 ${ref}`]).catch(() => {});
+      }
+      mappedWarehouses++;
+    }
+
+    // ── 4) 제품 → products_master + 국가별 인증 → product_certs ──
     const prods = await getProducts(applicationId);
     let mapped = 0;
     for (const p of prods) {
       const ref = `onb:${p.id}`;
+      let pmId: string | undefined;
       const exists = await queryOne<{ id: string }>(
         "SELECT id FROM products_master WHERE brand_id=$1 AND source_ref=$2", [brandId, ref]).catch(() => null);
       if (exists) {
-        await query(
-          "UPDATE products_master SET name_kr=$2, category=$3, sku=$4, main_image_url=$5 WHERE id=$1",
+        pmId = exists.id;
+        await query("UPDATE products_master SET name_kr=$2, category=$3, sku=$4, main_image_url=$5 WHERE id=$1",
           [exists.id, p.name || "(무제)", p.category ?? "", p.sku ?? "", p.main_image_url ?? ""]).catch(() => {});
       } else {
-        await query(
+        const ins = await queryOne<{ id: string }>(
           `INSERT INTO products_master (brand_id, name_kr, name_en, category, sku, main_image_url, status, source, source_ref)
-           VALUES ($1,$2,'',$3,$4,$5,'active','apply_step4',$6)`,
-          [brandId, p.name || "(무제)", p.category ?? "", p.sku ?? "", p.main_image_url ?? "", ref]).catch(() => {});
+           VALUES ($1,$2,'',$3,$4,$5,'active','apply_step4',$6) RETURNING id`,
+          [brandId, p.name || "(무제)", p.category ?? "", p.sku ?? "", p.main_image_url ?? "", ref]).catch(() => null);
+        pmId = ins?.id;
+      }
+      // 제품×국가 → product_certs (UNIQUE product_id,country,cert_type='수입인증')
+      if (pmId) {
+        const pcs = await getProductCountries(p.id);
+        for (const pc of pcs) {
+          const country = (pc.country_code || "").toUpperCase();
+          if (!country) continue;
+          await query(
+            `INSERT INTO product_certs (product_id, country, cert_type, status, note, updated_at)
+             VALUES ($1,$2,'수입인증',$3,$4,now())
+             ON CONFLICT (product_id, country, cert_type) DO UPDATE SET status=EXCLUDED.status, note=EXCLUDED.note, updated_at=now()`,
+            [pmId, country, certStatus(pc.cert_status), [pc.cert_note, pc.cert_file_url && `증빙: ${pc.cert_file_url}`, pc.unit_price && `단가: ${pc.currency} ${pc.unit_price}`].filter(Boolean).join(" · ")]).catch(() => {});
+        }
       }
       mapped++;
     }
 
-    // 3) 신청서/스텝 승인 확정
+    // ── 5) 신청서/스텝 승인 확정 ──
     await query("UPDATE onb_applications SET status='approved', admin_memo=CONCAT(admin_memo, E'\n[승인] ', $2::text), updated_at=now() WHERE id=$1", [applicationId, by]);
     await query("UPDATE onb_steps SET status='approved', reviewed_at=now() WHERE application_id=$1 AND status IN ('submitted','unlocked')", [applicationId]).catch(() => {});
-    return { ok: true, mappedProducts: mapped };
+    return { ok: true, mappedProducts: mapped, mappedWarehouses, mappedContacts };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "매핑 실패" };
   }

@@ -6,6 +6,7 @@ import {
   addDirectorAction, deleteDirectorAction,
   addWarehouseAction, deleteWarehouseAction,
   addProductAction, updateProductAction, deleteProductAction,
+  upsertProductCountryAction, deleteProductCountryAction,
 } from "./actions";
 
 // ── 타입(서버 lib 와 동일 형태, 클라 전용 복제) ──
@@ -311,13 +312,7 @@ function Step4({ products, productCountries, warehouses, disabled, onChange, fla
             <span style={{ color: "#8b93a1", fontSize: 12 }}>{p.category} {p.sku && `· ${p.sku}`}</span>
             {!disabled && <XBtn onClick={() => delP(p.id)} />}
           </Row>
-          {(productCountries[p.id]?.length ?? 0) > 0 && (
-            <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {productCountries[p.id].map((c) => (
-                <Tag key={c.id}>{c.country_code} {c.unit_price && `· ${c.currency} ${c.unit_price}`} · 인증 {c.cert_status}</Tag>
-              ))}
-            </div>
-          )}
+          <ProductCountries productId={p.id} rows={productCountries[p.id] ?? []} disabled={disabled} onChange={onChange} flash={flash} />
         </div>
       ))}
       {!disabled && (
@@ -351,6 +346,44 @@ function Step4({ products, productCountries, warehouses, disabled, onChange, fla
         )}
       </Section>
     </Section>
+  );
+}
+
+// ── 제품별 국가(단가·인증) ──
+function ProductCountries({ productId, rows, disabled, onChange, flash }:
+  { productId: string; rows: ProductCountry[]; disabled: boolean; onChange: () => void; flash: (m: string) => void }) {
+  const [draft, setDraft] = useState<Partial<ProductCountry>>({ currency: "USD", cert_status: "none" });
+  async function add() {
+    if (!draft.country_code) { flash("국가코드를 입력하세요 (예: US)"); return; }
+    const r = await upsertProductCountryAction(productId, draft);
+    if (r.ok) { setDraft({ currency: "USD", cert_status: "none" }); onChange(); flash("국가가 추가되었습니다."); } else flash(r.error ?? "추가 실패");
+  }
+  async function del(id: string) { const r = await deleteProductCountryAction(id); if (r.ok) { onChange(); flash("삭제되었습니다."); } }
+  return (
+    <div style={{ marginTop: 10, paddingLeft: 4 }}>
+      <div style={{ fontSize: 11, color: "#8b93a1", marginBottom: 4 }}>국가별 단가 · 인증</div>
+      {rows.length === 0 && <div style={{ fontSize: 12, color: "#6b7280" }}>등록된 국가가 없습니다.</div>}
+      {rows.map((c) => (
+        <Row key={c.id}>
+          <span style={{ flex: 1 }}>{c.country_code} {c.unit_price && `· ${c.currency} ${c.unit_price}`} · 인증 {c.cert_status}{c.cert_note && ` (${c.cert_note})`}</span>
+          {!disabled && <XBtn onClick={() => del(c.id)} />}
+        </Row>
+      ))}
+      {!disabled && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "flex-end" }}>
+          <MiniF label="국가코드" v={draft.country_code ?? ""} on={(v) => setDraft({ ...draft, country_code: v.toUpperCase() })} w={70} />
+          <MiniF label="단가" v={draft.unit_price ?? ""} on={(v) => setDraft({ ...draft, unit_price: v })} w={70} />
+          <MiniF label="통화" v={draft.currency ?? "USD"} on={(v) => setDraft({ ...draft, currency: v })} w={60} />
+          <label style={{ fontSize: 11, color: "#8b93a1", display: "flex", flexDirection: "column", gap: 3 }}>인증상태
+            <select value={draft.cert_status ?? "none"} onChange={(e) => setDraft({ ...draft, cert_status: e.target.value })} style={{ background: "#0f1115", border: "1px solid #2a2f3a", borderRadius: 8, padding: "8px 10px", color: "#e6e9ef", fontSize: 13 }}>
+              <option value="none">준비전</option><option value="preparing">준비중</option><option value="ready">완료</option>
+            </select>
+          </label>
+          <MiniF label="인증메모/증빙URL" v={draft.cert_note ?? ""} on={(v) => setDraft({ ...draft, cert_note: v })} w={150} />
+          <button onClick={add} style={addBtn}>+ 국가</button>
+        </div>
+      )}
+    </div>
   );
 }
 

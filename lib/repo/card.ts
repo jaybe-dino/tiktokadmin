@@ -42,6 +42,25 @@ export interface BrandCompany {
   brand_name_en: string | null; logo_asset_id: string | null;
   channel_urls: Record<string, string>; source: string | null;
   source_url: string | null; updated_at: string;
+  // ── 온보딩(0037) 매핑 필드 ──
+  company_country: string | null; company_reg_number: string | null;
+  contact_name: string | null; contact_email: string | null; contact_phone: string | null;
+  op_address_en: string | null; shop_name_kr: string | null; shop_name_en: string | null;
+  product_category: string | null; sales_channel_url: string | null; brand_logo_url: string | null;
+  doc_biz_reg_en_url: string | null; doc_biz_reg_kr_url: string | null; doc_corp_reg_kr_url: string | null;
+  doc_ownership_url: string | null; doc_logistics_url: string | null;
+  ubo_full_name: string | null; ubo_title: string | null; ubo_birth: string | null; ubo_country: string | null;
+  ubo_id_type: string | null; ubo_id_number: string | null;
+  ubo_id_front_url: string | null; ubo_id_back_url: string | null; ubo_address_proof_url: string | null;
+  ownership_structure: string | null;
+  auth_type: string | null; auth_name: string | null; auth_birth: string | null; auth_country: string | null;
+  auth_id_type: string | null; auth_id_number: string | null; auth_email: string | null;
+  auth_id_front_url: string | null; auth_id_back_url: string | null; auth_address_proof_url: string | null; auth_loa_url: string | null;
+  pep_q1: string | null; pep_q2: string | null;
+  ubo_signature_data: string | null; ubo_signed_at: string | null;
+  payoneer_status: string | null; payoneer_email: string | null; payoneer_note: string | null;
+  directors_json: { name?: string; is_ubo?: boolean; country?: string; birth?: string; id_type?: string; id_number?: string }[] | null;
+  onb_application_id: string | null; onb_synced_at: string | null;
 }
 export function getCompany(brandId: string): Promise<BrandCompany | null> {
   return queryOne<BrandCompany>("SELECT * FROM brand_company WHERE brand_id=$1", [brandId]);
@@ -53,6 +72,15 @@ export async function upsertCompany(brandId: string, patch: Partial<BrandCompany
     "address_kr","address_en","biz_verified","tax_email","tax_contact_name","tax_contact_phone",
     "tax_cycle","tax_note","bank_name","bank_holder","bank_account","bank_verified",
     "brand_name_en","channel_urls","source","source_url",
+    // 온보딩(0037) 관리 필드 — 원장에서 직접 편집 허용.
+    "company_country","company_reg_number","contact_name","contact_email","contact_phone",
+    "op_address_en","shop_name_kr","shop_name_en","product_category","sales_channel_url","brand_logo_url",
+    "doc_biz_reg_en_url","doc_biz_reg_kr_url","doc_corp_reg_kr_url","doc_ownership_url","doc_logistics_url",
+    "ubo_full_name","ubo_title","ubo_birth","ubo_country","ubo_id_type","ubo_id_number",
+    "ubo_id_front_url","ubo_id_back_url","ubo_address_proof_url","ownership_structure",
+    "auth_type","auth_name","auth_birth","auth_country","auth_id_type","auth_id_number","auth_email",
+    "auth_id_front_url","auth_id_back_url","auth_address_proof_url","auth_loa_url",
+    "pep_q1","pep_q2","payoneer_status","payoneer_email","payoneer_note",
   ] as const;
   const set = cols.filter((c) => c in patch);
   if (set.length === 0) {

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Brand360AiButton from "@/components/Brand360AiButton";
 import Brand360Comments, { type CommentRow, type HistoryRow } from "@/components/Brand360Comments";
 import Brand360Company from "@/components/Brand360Company";
+import Brand360Onboarding from "@/components/Brand360Onboarding";
 import Brand360Contacts from "@/components/Brand360Contacts";
 import Brand360Contract from "@/components/Brand360Contract";
 import Brand360Docs from "@/components/Brand360Docs";
@@ -197,9 +198,12 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     </div>
   );
 
-  // 회사정보 — v3.1 심층 분석 + 사업자/세금계산서/정산 계좌/브랜드 정보
+  // 회사정보 — v3.1 심층 분석 + 사업자/세금계산서/정산 계좌/브랜드 정보 + 온보딩 KYC
   const panelCompany = (
-    <Brand360Company brand={brand} company={deep?.company ?? null} assets={deep?.assets ?? []} />
+    <>
+      <Brand360Company brand={brand} company={deep?.company ?? null} assets={deep?.assets ?? []} />
+      <Brand360Onboarding brand={brand} company={deep?.company ?? null} />
+    </>
   );
 
   // 타임라인
