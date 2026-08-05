@@ -20,6 +20,7 @@ const GROUPS: Group[] = [
   { title: "영업", items: [
     { href: "/meetings", label: "미팅 캘린더", ic: "📅" },
     { href: "/proposals", label: "제안서", ic: "📄" },
+    { href: "/proposal-docs", label: "제안서 생성기", ic: "🎨" },
     { href: "/contracts", label: "계약·결제", ic: "✍️" },
   ]},
   { title: "마케팅", items: [

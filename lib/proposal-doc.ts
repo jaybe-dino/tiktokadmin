@@ -126,3 +126,54 @@ export async function saveProposal(input: ProposalInput & { id?: string }, by: s
 export async function deleteProposal(id: string): Promise<void> {
   await query("DELETE FROM proposal_docs WHERE id=$1", [id]);
 }
+
+// ── 템플릿(전역 디자인 기본값) ──
+export async function listTemplates(): Promise<ProposalTemplate[]> {
+  return query<ProposalTemplate>(
+    "SELECT id, name, is_default, accent, agency_name, agency_logo_url, default_title, default_subtitle, sections FROM proposal_templates ORDER BY is_default DESC, updated_at DESC").catch(() => []);
+}
+export interface TemplateInput {
+  id?: string; name?: string; accent?: string; agency_name?: string; agency_logo_url?: string | null;
+  default_title?: string; default_subtitle?: string; sections?: string[]; is_default?: boolean;
+}
+export async function saveTemplate(input: TemplateInput, by: string): Promise<{ id: string }> {
+  if (input.id) {
+    const row = await queryOne<{ id: string }>(
+      `UPDATE proposal_templates SET
+         name=COALESCE($2,name), accent=COALESCE($3,accent), agency_name=COALESCE($4,agency_name),
+         agency_logo_url=$5, default_title=COALESCE($6,default_title), default_subtitle=COALESCE($7,default_subtitle),
+         sections=COALESCE($8::jsonb,sections), updated_by=$9, updated_at=now()
+       WHERE id=$1 RETURNING id`,
+      [input.id, input.name, input.accent, input.agency_name, input.agency_logo_url ?? null,
+       input.default_title, input.default_subtitle, input.sections ? JSON.stringify(input.sections) : null, by]);
+    if (!row) throw new Error("템플릿을 찾을 수 없습니다.");
+    return row;
+  }
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO proposal_templates (name, accent, agency_name, agency_logo_url, default_title, default_subtitle, sections, is_default, updated_by)
+     VALUES (COALESCE($1,'새 템플릿'),COALESCE($2,'#1f7a4d'),COALESCE($3,'DINO STUDIO'),$4,
+       COALESCE($5,'틱톡샵 온보딩 및 마케팅 협업 제안서'),COALESCE($6,'크리에이터 커머스를 통한 브랜드 성장'),
+       COALESCE($7::jsonb,'["cover","product","pricing","operations","kpi","creators","closing"]'),false,$8) RETURNING id`,
+    [input.name, input.accent, input.agency_name, input.agency_logo_url ?? null, input.default_title, input.default_subtitle,
+     input.sections ? JSON.stringify(input.sections) : null, by]);
+  if (!row) throw new Error("템플릿 생성 실패");
+  return row;
+}
+
+/** 브랜드로부터 제안서 초기값 프리필 — 이름·로고·트랙·제품 레퍼런스를 원장에서 끌어옴. */
+export async function prefillFromBrand(brandId: string): Promise<ProposalInput> {
+  const b = await queryOne<{ brand_name: string; contract_type: string | null; plan: string | null }>(
+    "SELECT brand_name, contract_type, plan FROM brands WHERE id=$1", [brandId]).catch(() => null);
+  const co = await queryOne<{ brand_logo_url: string | null }>(
+    "SELECT brand_logo_url FROM brand_company WHERE brand_id=$1", [brandId]).catch(() => null);
+  const prods = await query<{ name_kr: string; main_image_url: string | null; category: string | null }>(
+    "SELECT name_kr, main_image_url, category FROM products_master WHERE brand_id=$1 AND status='active' ORDER BY created_at LIMIT 6", [brandId]).catch(() => []);
+  const track = (b?.contract_type as string) || "onboarding";
+  return {
+    brand_id: brandId,
+    brand_name: b?.brand_name ?? "",
+    brand_logo_url: co?.brand_logo_url || null,
+    track,
+    products: prods.map((p) => ({ name: p.name_kr, image_url: p.main_image_url || undefined, desc: p.category || undefined })),
+  };
+}

@@ -1,0 +1,196 @@
+"use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { saveProposalDocAction, deleteProposalDocAction } from "../actions";
+import type { ProposalDoc, ProposalProduct, ProposalCreator } from "@/lib/proposal-doc";
+
+const TRACKS: [string, string][] = [["onboarding", "온보딩"], ["mall", "멀티몰"], ["marketing", "마케팅"]];
+
+// 숫자 파싱 — 빈값이면 null.
+const numOrNull = (v: string): number | null => (v.trim() === "" ? null : Number(v.replace(/[^0-9.]/g, "")) || 0);
+
+export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; publicBase: string }) {
+  const router = useRouter();
+  const [d, setD] = useState<ProposalDoc>(doc);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const set = <K extends keyof ProposalDoc>(k: K, v: ProposalDoc[K]) => setD((p) => ({ ...p, [k]: v }));
+  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
+  const publicUrl = `${publicBase}/proposal/${d.token}`;
+
+  async function save(publish?: boolean) {
+    setBusy(true);
+    const r = await saveProposalDocAction({
+      id: d.id, title: d.title, subtitle: d.subtitle, brand_name: d.brand_name, brand_logo_url: d.brand_logo_url,
+      track: d.track, list_amount: d.list_amount, monthly_amount: d.monthly_amount, fee_pct: d.fee_pct,
+      term_months: d.term_months, term_discount_pct: d.term_discount_pct, features: d.features,
+      seeding_qty: d.seeding_qty, live_qty: d.live_qty, op_tags: d.op_tags,
+      kpi_tier: d.kpi_tier, kpi_stage: d.kpi_stage, kpi_creator_content: d.kpi_creator_content, kpi_ad_spend: d.kpi_ad_spend,
+      products: d.products, creators: d.creators, accent: d.accent,
+      status: publish === undefined ? d.status : publish ? "published" : "draft",
+    });
+    setBusy(false);
+    if (r.ok) { if (publish !== undefined) set("status", publish ? "published" : "draft"); flash(publish ? "발행되었습니다." : "저장되었습니다."); router.refresh(); }
+    else flash(r.error ?? "저장 실패");
+  }
+  async function remove() {
+    if (!confirm("이 제안서를 삭제할까요?")) return;
+    await deleteProposalDocAction(d.id); router.push("/proposal-docs");
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {/* 상단 액션 */}
+      <div className="card" style={{ padding: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: d.status === "published" ? "#12b886" : "#f0a02c", fontWeight: 700 }}>
+          {d.status === "published" ? "● 발행됨" : "○ 초안"}
+        </span>
+        <a className="btn sm" href={publicUrl} target="_blank">미리보기 ↗</a>
+        <button className="btn sm" onClick={() => { navigator.clipboard?.writeText(publicUrl); flash("공개 링크 복사됨"); }}>공개링크 복사</button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn sm" disabled={busy} onClick={() => save()}>저장</button>
+          {d.status === "published"
+            ? <button className="btn sm" disabled={busy} onClick={() => save(false)}>발행 취소</button>
+            : <button className="btn sm primary" disabled={busy} onClick={() => save(true)}>저장 &amp; 발행</button>}
+          <button className="btn sm" onClick={remove} style={{ color: "#e03131" }}>삭제</button>
+        </div>
+      </div>
+
+      {/* 표지 · 브랜드 */}
+      <Card title="표지 · 브랜드">
+        <Grid>
+          <F label="제목" v={d.title} on={(v) => set("title", v)} full />
+          <F label="부제" v={d.subtitle} on={(v) => set("subtitle", v)} full />
+          <F label="브랜드명" v={d.brand_name} on={(v) => set("brand_name", v)} />
+          <Sel label="트랙" v={d.track} opts={TRACKS} on={(v) => set("track", v)} />
+          <F label="브랜드 로고 URL" v={d.brand_logo_url ?? ""} on={(v) => set("brand_logo_url", v || null)} />
+          <F label="강조색(브랜드 오버라이드, 예: #1f7a4d)" v={d.accent ?? ""} on={(v) => set("accent", v || null)} placeholder="비우면 템플릿 기본색" />
+        </Grid>
+      </Card>
+
+      {/* 가격 조건 */}
+      <Card title="가격 조건">
+        <Grid>
+          <F label="정가(list, 원)" v={d.list_amount?.toString() ?? ""} on={(v) => set("list_amount", numOrNull(v))} />
+          <F label="월 금액(원)" v={d.monthly_amount?.toString() ?? ""} on={(v) => set("monthly_amount", numOrNull(v))} />
+          <F label="판매 수수료(%)" v={d.fee_pct?.toString() ?? ""} on={(v) => set("fee_pct", numOrNull(v))} />
+          <F label="약정 개월" v={d.term_months?.toString() ?? ""} on={(v) => set("term_months", numOrNull(v))} />
+          <F label="약정 추가할인(%)" v={d.term_discount_pct?.toString() ?? ""} on={(v) => set("term_discount_pct", numOrNull(v))} />
+        </Grid>
+        <ListEditor label="기능 체크리스트 (한 줄에 하나)" items={d.features} on={(v) => set("features", v)} placeholder="예: 크리에이터 시딩 20건 · 라이브 4건" />
+      </Card>
+
+      {/* 운영 · 콘텐츠 */}
+      <Card title="운영 · 콘텐츠">
+        <Grid>
+          <F label="무가 시딩 수량(건)" v={d.seeding_qty?.toString() ?? ""} on={(v) => set("seeding_qty", numOrNull(v))} />
+          <F label="라이브 수량(건)" v={d.live_qty?.toString() ?? ""} on={(v) => set("live_qty", numOrNull(v))} />
+        </Grid>
+        <ListEditor label="운영 태그 (한 줄에 하나, # 제외)" items={d.op_tags} on={(v) => set("op_tags", v)} placeholder="예: 콘텐츠기획" />
+      </Card>
+
+      {/* KPI */}
+      <Card title="6개월 KPI">
+        <Grid>
+          <F label="티어(예: TIER 3)" v={d.kpi_tier ?? ""} on={(v) => set("kpi_tier", v || null)} />
+          <F label="단계 설명" v={d.kpi_stage ?? ""} on={(v) => set("kpi_stage", v || null)} />
+          <F label="크리에이터 콘텐츠 수" v={d.kpi_creator_content?.toString() ?? ""} on={(v) => set("kpi_creator_content", numOrNull(v))} />
+          <F label="샵 광고비(참고, 예: ₩3,000,000)" v={d.kpi_ad_spend ?? ""} on={(v) => set("kpi_ad_spend", v || null)} />
+        </Grid>
+      </Card>
+
+      {/* 제품 레퍼런스 */}
+      <Card title={`제품 레퍼런스 (${d.products.length})`}>
+        <ProductsEditor items={d.products} on={(v) => set("products", v)} />
+      </Card>
+
+      {/* 크리에이터 레퍼런스 */}
+      <Card title={`크리에이터 레퍼런스 (${d.creators.length})`}>
+        <CreatorsEditor items={d.creators} on={(v) => set("creators", v)} />
+      </Card>
+
+      {msg && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#111", color: "#fff", padding: "11px 18px", borderRadius: 10, fontSize: 13, zIndex: 50 }}>{msg}</div>}
+    </div>
+  );
+}
+
+// ── 제품 편집 ──
+function ProductsEditor({ items, on }: { items: ProposalProduct[]; on: (v: ProposalProduct[]) => void }) {
+  const upd = (i: number, patch: Partial<ProposalProduct>) => on(items.map((it, j) => (j === i ? { ...it, ...patch } : it)));
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {items.map((p, i) => (
+        <div key={i} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.5fr 1.5fr auto", gap: 6, alignItems: "center" }}>
+          <input className="f" value={p.name} onChange={(e) => upd(i, { name: e.target.value })} placeholder="제품명" />
+          <input className="f" value={p.image_url ?? ""} onChange={(e) => upd(i, { image_url: e.target.value })} placeholder="이미지 URL" />
+          <input className="f" value={p.desc ?? ""} onChange={(e) => upd(i, { desc: e.target.value })} placeholder="설명" />
+          <button className="btn sm" onClick={() => on(items.filter((_, j) => j !== i))} style={{ color: "#e03131" }}>✕</button>
+        </div>
+      ))}
+      <button className="btn sm" onClick={() => on([...items, { name: "" }])} style={{ justifySelf: "start" }}>+ 제품 추가</button>
+    </div>
+  );
+}
+
+// ── 크리에이터 편집 ──
+function CreatorsEditor({ items, on }: { items: ProposalCreator[]; on: (v: ProposalCreator[]) => void }) {
+  const upd = (i: number, patch: Partial<ProposalCreator>) => on(items.map((it, j) => (j === i ? { ...it, ...patch } : it)));
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {items.map((c, i) => (
+        <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 10, display: "grid", gap: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <b style={{ fontSize: 12 }}>크리에이터 {i + 1}</b>
+            <button className="btn sm" onClick={() => on(items.filter((_, j) => j !== i))} style={{ color: "#e03131" }}>✕ 삭제</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            <input className="f" value={c.handle} onChange={(e) => upd(i, { handle: e.target.value })} placeholder="@핸들" />
+            <input className="f" value={c.product ?? ""} onChange={(e) => upd(i, { product: e.target.value })} placeholder="협업 제품" />
+            <input className="f" value={c.thumb_url ?? ""} onChange={(e) => upd(i, { thumb_url: e.target.value })} placeholder="썸네일 URL" />
+            <input className="f" value={c.revenue ?? ""} onChange={(e) => upd(i, { revenue: e.target.value })} placeholder="매출(예: ₩12,000,000)" />
+            <input className="f" value={c.roas ?? ""} onChange={(e) => upd(i, { roas: e.target.value })} placeholder="ROAS(예: 4.2x)" />
+            <input className="f" value={c.fee_rate ?? ""} onChange={(e) => upd(i, { fee_rate: e.target.value })} placeholder="수수료율(예: 15%)" />
+            <input className="f" value={c.engagement ?? ""} onChange={(e) => upd(i, { engagement: e.target.value })} placeholder="인게이지먼트(예: 8.5%)" />
+            <input className="f" value={c.caption ?? ""} onChange={(e) => upd(i, { caption: e.target.value })} placeholder="캡션/메모" style={{ gridColumn: "span 2" }} />
+          </div>
+        </div>
+      ))}
+      <button className="btn sm" onClick={() => on([...items, { handle: "" }])} style={{ justifySelf: "start" }}>+ 크리에이터 추가</button>
+    </div>
+  );
+}
+
+// ── 공통 UI ──
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return <div className="card" style={{ padding: 16 }}><b style={{ display: "block", marginBottom: 12 }}>{title}</b>{children}</div>;
+}
+function Grid({ children }: { children: React.ReactNode }) {
+  return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>{children}</div>;
+}
+function F({ label, v, on, full, placeholder }: { label: string; v: string; on: (v: string) => void; full?: boolean; placeholder?: string }) {
+  return (
+    <label style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600, display: "block", gridColumn: full ? "1 / -1" : undefined }}>
+      {label}
+      <input className="f" value={v} onChange={(e) => on(e.target.value)} placeholder={placeholder} style={{ marginTop: 4, width: "100%", boxSizing: "border-box" }} />
+    </label>
+  );
+}
+function Sel({ label, v, opts, on }: { label: string; v: string; opts: [string, string][]; on: (v: string) => void }) {
+  return (
+    <label style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600, display: "block" }}>
+      {label}
+      <select className="f" value={v} onChange={(e) => on(e.target.value)} style={{ marginTop: 4, width: "100%" }}>
+        {opts.map(([val, l]) => <option key={val} value={val}>{l}</option>)}
+      </select>
+    </label>
+  );
+}
+function ListEditor({ label, items, on, placeholder }: { label: string; items: string[]; on: (v: string[]) => void; placeholder?: string }) {
+  return (
+    <label style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600, display: "block", marginTop: 12 }}>
+      {label}
+      <textarea className="f" value={items.join("\n")} onChange={(e) => on(e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
+        rows={4} placeholder={placeholder} style={{ marginTop: 4, width: "100%", boxSizing: "border-box", resize: "vertical" }} />
+    </label>
+  );
+}

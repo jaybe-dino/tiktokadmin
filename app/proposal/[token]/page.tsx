@@ -19,15 +19,12 @@ export default async function ProposalPage({ params }: { params: Promise<{ token
   const tpl = await defaultTemplate();
   const accent = d.accent || tpl?.accent || "#1f7a4d";
   const agency = tpl?.agency_name || "DINO STUDIO";
+  // 템플릿의 섹션 순서/노출을 반영(없으면 기본 순서). 데이터 없는 섹션은 자동 생략.
+  const order = tpl?.sections?.length ? tpl.sections : ["cover", "product", "pricing", "operations", "kpi", "creators", "closing"];
 
-  return (
-    <div className="pp-root">
-      <style dangerouslySetInnerHTML={{ __html: css(accent) }} />
-      <PrintBar accent={accent} />
-      <main className="pp-doc">
-
-        {/* ① 표지 */}
-        <section className="pp-page pp-cover">
+  const sectionEls: Record<string, React.ReactNode> = {
+    cover: (
+      <section key="cover" className="pp-page pp-cover">
           <div className="pp-cover-card">
             <h1>{d.title}</h1>
             <p className="pp-sub">{d.subtitle}</p>
@@ -42,10 +39,10 @@ export default async function ProposalPage({ params }: { params: Promise<{ token
             </div>
           </div>
         </section>
+    ),
 
-        {/* ② 제품 쇼케이스 */}
-        {d.products.length > 0 && (
-          <section className="pp-page">
+    product: d.products.length > 0 ? (
+          <section key="product" className="pp-page">
             <div className="pp-eyebrow">제품 <span>PRODUCTS</span></div>
             <div className="pp-products">
               {d.products.map((p, i) => (
@@ -56,10 +53,10 @@ export default async function ProposalPage({ params }: { params: Promise<{ token
               ))}
             </div>
           </section>
-        )}
+    ) : null,
 
-        {/* ③ 가격 카드 */}
-        <section className="pp-page">
+    pricing: (
+          <section key="pricing" className="pp-page">
           <div className="pp-price-card">
             <span className="pp-track">{trackLabel(d.track)}</span>
             <div className="pp-price-row">
@@ -78,10 +75,10 @@ export default async function ProposalPage({ params }: { params: Promise<{ token
             </ul>
           </div>
         </section>
+    ),
 
-        {/* ④ 운영 & 콘텐츠 */}
-        {(d.seeding_qty != null || d.live_qty != null || d.op_tags.length > 0) && (
-          <section className="pp-page">
+    operations: (d.seeding_qty != null || d.live_qty != null || d.op_tags.length > 0) ? (
+          <section key="operations" className="pp-page">
             <div className="pp-eyebrow">운영 &amp; 콘텐츠 <span>OPERATIONS</span></div>
             <div className="pp-ops">
               {d.seeding_qty != null && <div className="pp-op-row"><b>{d.seeding_qty}</b><i>건</i><span>크리에이터 시딩</span></div>}
@@ -94,11 +91,10 @@ export default async function ProposalPage({ params }: { params: Promise<{ token
               </div>
             )}
           </section>
-        )}
+    ) : null,
 
-        {/* ⑤ 6개월 KPI */}
-        {(d.kpi_creator_content != null || d.kpi_ad_spend || d.kpi_tier) && (
-          <section className="pp-page">
+    kpi: (d.kpi_creator_content != null || d.kpi_ad_spend || d.kpi_tier) ? (
+          <section key="kpi" className="pp-page">
             <div className="pp-kpi-card">
               <div className="pp-kpi-head">
                 <span className="pp-kpi-badge">6개월 KPI</span>
@@ -111,11 +107,10 @@ export default async function ProposalPage({ params }: { params: Promise<{ token
               </div>
             </div>
           </section>
-        )}
+    ) : null,
 
-        {/* ⑦ 크리에이터 레퍼런스 */}
-        {d.creators.length > 0 && (
-          <section className="pp-page">
+    creators: d.creators.length > 0 ? (
+          <section key="creators" className="pp-page">
             <div className="pp-eyebrow">크리에이터 레퍼런스 <span>CREATOR REFERENCES</span></div>
             <div className="pp-creators">
               {d.creators.map((c, i) => (
@@ -137,17 +132,25 @@ export default async function ProposalPage({ params }: { params: Promise<{ token
               ))}
             </div>
           </section>
-        )}
+    ) : null,
 
-        {/* ⑧ 클로징 */}
-        <section className="pp-page pp-closing">
+    closing: (
+          <section key="closing" className="pp-page pp-closing">
           <div className="pp-close-card">
             <h2>함께 성장할 준비가 되었습니다</h2>
             <p>{d.brand_name ? `${d.brand_name}의 ` : ""}틱톡샵 진출과 크리에이터 커머스, {agency}가 처음부터 끝까지 함께합니다.</p>
             <div className="pp-logos small"><b className="pp-agency">{agency}</b><span className="pp-x">×</span><b className="pp-brand">{d.brand_name || "BRAND"}</b></div>
           </div>
         </section>
+    ),
+  };
 
+  return (
+    <div className="pp-root">
+      <style dangerouslySetInnerHTML={{ __html: css(accent) }} />
+      <PrintBar accent={accent} />
+      <main className="pp-doc">
+        {order.map((k) => sectionEls[k]).filter(Boolean)}
         <footer className="pp-foot">{agency} · TikTok Shop Onboarding &amp; Marketing Proposal · 본 제안서는 수신자 전용입니다.</footer>
       </main>
     </div>
