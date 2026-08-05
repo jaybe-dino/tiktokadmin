@@ -122,15 +122,20 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord): Pro
   if (countries.length) fields.countries = countries;
 
   // state 변경(신규가 아니고 다른 단계면 이력 기록 + stage_entered_at 갱신)
-  if (state && (created || state !== brand.state)) {
-    fields.state = state;
+  //   ⚠️ 종료 상태(dropped/churned)는 import·glovek 동기화로 되살리지 않는다 —
+  //   담당이 숨긴(드롭한) 브랜드가 재유입/재동기화로 원장에 부활하던 근본 버그 차단.
+  //   되살리려면 담당이 원장에서 명시적으로 상태를 되돌려야 함.
+  const terminal = brand.state === "dropped" || brand.state === "churned";
+  const stateChanges = !!state && (created || (state !== brand.state && !terminal));
+  if (stateChanges) {
+    fields.state = state!;
     fields.stage_entered_at = new Date().toISOString();
   }
 
   if (Object.keys(fields).length) await setFields(brand.id, fields);
 
-  if (state && !created && state !== brand.state) {
-    await recordStageHistory(brand.id, brand.state, state, `admin:${actorId}(import)`, true, "import");
+  if (stateChanges && !created) {
+    await recordStageHistory(brand.id, brand.state, state!, `admin:${actorId}(import)`, true, "import");
   }
 
   // 서류 체크리스트 보장 — import 로 contract_done 이상 단계로 올린 브랜드는 transitionBrand

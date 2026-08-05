@@ -32,6 +32,10 @@ export async function advanceStateIfAhead(
   actorSite: string,
 ): Promise<boolean> {
   if (candidate === "dropped" || candidate === "churned") return false;
+  // 종료 상태(dropped/churned)는 자동 전진 대상에서 제외 — 재유입·동기화가 숨긴 브랜드를
+  //   되살리지 않도록(ORDINAL 이 -1 이라 모든 활성상태가 '앞'으로 판정되던 버그의 근본 차단).
+  //   되살리려면 담당이 원장에서 명시적으로 상태를 되돌려야 한다.
+  if (brand.state === "dropped" || brand.state === "churned") return false;
   if (!isAhead(candidate, brand.state)) return false;
   await query(
     "UPDATE brands SET state=$2, stage_entered_at=now() WHERE id=$1",
