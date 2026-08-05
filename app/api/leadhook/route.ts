@@ -117,13 +117,24 @@ export async function POST(req: NextRequest) {
   });
 
   // 채널 매칭 시: 통계 갱신 + 채널별 문자·메일 자동발송(토글·템플릿). 신규 리드에만.
-  if (channel && result.http === 200) {
+  //   + Slack #glovek-lead 알림(리드 상세 + 자동발송 여부). 유입 처리엔 영향 없음(best-effort).
+  if (result.http === 200) {
     const brandId = (result.body as { brand_id?: string }).brand_id;
     const created = (result.body as { created?: boolean }).created;
     if (brandId) {
-      const { recordChannelLead, sendChannelWelcome } = await import("@/lib/intake-channels");
-      await recordChannelLead(channel.id).catch(() => {});
-      if (created) await sendChannelWelcome(brandId, channel).catch(() => {});
+      const { notifyNewLead } = await import("@/lib/lead-notify");
+      let welcome: import("@/lib/intake-channels").WelcomeResult | null = null;
+      if (channel) {
+        const { recordChannelLead, sendChannelWelcome } = await import("@/lib/intake-channels");
+        await recordChannelLead(channel.id).catch(() => {});
+        if (created) welcome = await sendChannelWelcome(brandId, channel).catch(() => null);
+      }
+      await notifyNewLead(brandId, {
+        channelName: channel?.name ?? null,
+        created,
+        welcome,
+        autoSendReason: channel ? undefined : "자동발송 대상 아님(소스 미매칭 유입)",
+      }).catch(() => {});
     }
   }
 

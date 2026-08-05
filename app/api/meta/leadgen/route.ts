@@ -83,5 +83,18 @@ async function handleLead(leadgenId: string): Promise<Record<string, unknown>> {
     source_ref: leadgenId,
     utm: { source: "meta", campaign: data.campaign_name ?? "", content: data.ad_name ?? "" },
   });
+  // Slack #glovek-lead 알림(메타 리드 인입 — 자동발송 없음). best-effort.
+  if (result.http === 200) {
+    const brandId = (result.body as { brand_id?: string }).brand_id;
+    const created = (result.body as { created?: boolean }).created;
+    if (brandId) {
+      const { notifyNewLead } = await import("@/lib/lead-notify");
+      await notifyNewLead(brandId, {
+        channelName: `Meta 광고${data.campaign_name ? ` · ${data.campaign_name}` : ""}`,
+        created,
+        autoSendReason: "메타 리드 — 자동안내는 소스 매칭 유입에서만 발송",
+      }).catch(() => {});
+    }
+  }
   return { http: result.http, ...result.body };
 }
