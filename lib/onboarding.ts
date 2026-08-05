@@ -33,7 +33,10 @@ export interface OnbCustomer { id: string; email: string; brand_id: string | nul
 export async function issueCustomer(email: string, brandId: string | null, note: string, by: string): Promise<{ ok: boolean; code?: string; error?: string }> {
   const e = (email || "").trim().toLowerCase();
   if (!e.includes("@")) return { ok: false, error: "이메일 형식이 아닙니다." };
-  const code = randomBytes(6).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 8).toUpperCase();
+  // 8자리 영숫자 코드(혼동 문자 0/O/1/I/L 제외).
+  const ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+  const buf = randomBytes(8);
+  const code = Array.from(buf, (b) => ALPHABET[b % ALPHABET.length]).join("");
   try {
     await query(
       `INSERT INTO onb_customers (email, access_code_hash, brand_id, note, created_by)
@@ -245,6 +248,12 @@ export async function setCustomerActive(id: string, active: boolean): Promise<{ 
   await query("UPDATE onb_customers SET active=$2 WHERE id=$1", [id, active]).catch(() => {});
   return { ok: true };
 }
+/** 고객↔브랜드 연결(발급 후 지정). 신청서에도 전파해 승인 시 매핑 대상이 되도록 함. */
+export async function setCustomerBrand(customerId: string, brandId: string | null): Promise<{ ok: boolean }> {
+  await query("UPDATE onb_customers SET brand_id=$2 WHERE id=$1", [customerId, brandId]).catch(() => {});
+  await query("UPDATE onb_applications SET brand_id=$2, updated_at=now() WHERE customer_id=$1", [customerId, brandId]).catch(() => {});
+  return { ok: true };
+}
 
 /** 관리자: 스텝 검토 결과 반영. approve 시 다음 스텝 잠금해제, reject 시 피드백과 함께 반려. */
 export async function reviewStep(applicationId: string, stepNo: number, decision: "approve" | "reject", feedback: string): Promise<{ ok: boolean; error?: string }> {
@@ -311,7 +320,7 @@ export async function approveApplication(applicationId: string, by: string): Pro
     }
 
     // 3) 신청서/스텝 승인 확정
-    await query("UPDATE onb_applications SET status='approved', admin_memo=CONCAT(admin_memo,'\n[승인] ',$2), updated_at=now() WHERE id=$1", [applicationId, by]);
+    await query("UPDATE onb_applications SET status='approved', admin_memo=CONCAT(admin_memo, E'\n[승인] ', $2::text), updated_at=now() WHERE id=$1", [applicationId, by]);
     await query("UPDATE onb_steps SET status='approved', reviewed_at=now() WHERE application_id=$1 AND status IN ('submitted','unlocked')", [applicationId]).catch(() => {});
     return { ok: true, mappedProducts: mapped };
   } catch (e) {
