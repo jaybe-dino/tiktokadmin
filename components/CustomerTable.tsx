@@ -138,7 +138,7 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {} }: { rows
                 </td>
                 <td style={{ whiteSpace: "nowrap", color: "var(--ink3)", fontSize: 12 }}>{ymd(b.created_at)}</td>
                 <td style={{ whiteSpace: "nowrap", fontSize: 12, color: contact.danger ? "var(--danger)" : undefined }}>
-                  {ymd(b.updated_at)}<span className="sub">{contact.text} 접촉</span>
+                  {ymd(b.updated_at)}<span className="sub" suppressHydrationWarning>{contact.text} 접촉</span>
                 </td>
                 <td style={{ minWidth: 80 }}>
                   <div className="pr"><i className={pct >= 90 ? "g" : pct >= 50 ? "" : "w"} style={{ width: `${pct}%` }} /></div>

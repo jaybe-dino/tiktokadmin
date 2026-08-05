@@ -2,8 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 
 // 내부 전용 가드(UX 리다이렉트). 쿠키 "존재"만 확인 — 서명 검증은
 // 서버(레이아웃 requireUser)에서 수행(edge 런타임엔 node:crypto 미지원).
+// 고객 포털 도메인(tiktok.glovek.space) — 이 호스트에선 /apply(온보딩)만 노출.
+//   env NEXT_PUBLIC_PORTAL_URL 의 호스트와 일치할 때만 발동(미설정/미연결이면 무동작).
+function portalHost(): string {
+  try { return new URL(process.env.NEXT_PUBLIC_PORTAL_URL || "").hostname; } catch { return ""; }
+}
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // ── 고객 포털 호스트 가드 ──
+  const ph = portalHost();
+  const host = (req.headers.get("host") || "").split(":")[0];
+  if (ph && host === ph) {
+    const allowed = pathname.startsWith("/apply") || pathname.startsWith("/api/apply") ||
+      pathname.startsWith("/_next") || pathname.startsWith("/proposal/") || pathname === "/favicon.ico";
+    if (!allowed) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/apply";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+    return NextResponse.next();  // /apply·/api/apply 는 자체 onb_session 으로 처리
+  }
 
   if (
     pathname.startsWith("/login") ||
