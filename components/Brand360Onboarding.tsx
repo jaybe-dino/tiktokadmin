@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { saveCompanyAction } from "@/app/actions";
 import type { Brand } from "@/lib/types";
 import type { BrandCompany } from "@/lib/repo/card";
+import { kstDateTime, kstDate } from "@/lib/time";
 
 const D = (v: string | null | undefined): string => (v && String(v).trim() ? String(v) : "—");
 const isUrl = (v: string | null | undefined) => !!v && /^https?:\/\//.test(v);
@@ -40,7 +41,7 @@ export default function Brand360Onboarding({ brand, company }: { brand: Brand; c
     setTimeout(() => setMsg(""), 2500);
   }
 
-  const synced = c?.onb_synced_at ? new Date(c.onb_synced_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : null;
+  const synced = c?.onb_synced_at ? kstDateTime(c.onb_synced_at) : null;
   const directors = c?.directors_json ?? [];
 
   return (
@@ -166,7 +167,7 @@ export default function Brand360Onboarding({ brand, company }: { brand: Brand; c
               )}
               {c?.ubo_signature_data && (
                 <div>
-                  <b style={{ fontSize: 11.5, color: "var(--ink3)" }}>전자서명{c.ubo_signed_at && ` · ${new Date(c.ubo_signed_at).toLocaleDateString("ko-KR")}`}</b>
+                  <b style={{ fontSize: 11.5, color: "var(--ink3)" }}>전자서명{c.ubo_signed_at && ` · ${kstDate(c.ubo_signed_at)}`}</b>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={c.ubo_signature_data} alt="서명" style={{ display: "block", width: 220, border: "1px solid var(--line)", borderRadius: 8, marginTop: 6, background: "#fff" }} />
                 </div>

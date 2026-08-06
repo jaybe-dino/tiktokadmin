@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { setOnbCustomerActiveAction, setOnbCustomerBrandAction } from "./actions";
+import { kstDate } from "@/lib/time";
 
 interface Row { id: string; email: string; brand_id: string | null; note: string; active: boolean; last_login_at: string | null; app_id: string | null; app_status: string | null; submitted_steps: number }
 
@@ -40,7 +41,7 @@ export default function CustomerRow({ c, brands }: { c: Row; brands: { id: strin
       </td>
       <td style={td}><span style={{ color: st[1], fontWeight: 600 }}>{st[0]}</span></td>
       <td style={td}>{c.submitted_steps}/4</td>
-      <td style={{ ...td, fontSize: 12, color: "var(--ink2)" }}>{c.last_login_at ? new Date(c.last_login_at).toLocaleDateString("ko-KR") : "—"}</td>
+      <td style={{ ...td, fontSize: 12, color: "var(--ink2)" }}>{c.last_login_at ? kstDate(c.last_login_at) : "—"}</td>
       <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
         {c.app_id && <Link className="btn sm" href={`/onboarding/${c.id}`}>검토 →</Link>}
         <button className="btn sm" disabled={busy} onClick={toggle} style={{ marginLeft: 6 }}>{active ? "비활성" : "활성"}</button>

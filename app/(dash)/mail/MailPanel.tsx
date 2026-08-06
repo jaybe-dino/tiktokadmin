@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { kstDateTime, kstTime } from "@/lib/time";
 import Link from "next/link";
 import { GradeBadge, StateBadge, PlanBadge, PayBadge } from "@/components/badges";
 import type { Grade, State, Plan } from "@/lib/types";
@@ -58,7 +59,7 @@ function whenLabel(iso: string): string {
   const now = new Date();
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
-  if (days <= 0) return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (days <= 0) return kstTime(d.toISOString());
   if (days === 1) return "어제";
   return `${days}일 전`;
 }
@@ -214,7 +215,7 @@ export default function MailPanel({
                             <b style={{ color: out ? "var(--acc)" : "var(--ink)" }}>{out ? "발신" : "수신"}</b> · {m.from_addr ?? "발신자 미상"}
                             {m.to_addrs && m.to_addrs.length > 0 ? ` → ${m.to_addrs.join(", ")}` : ""}
                           </span>
-                          <span suppressHydrationWarning>{new Date(m.sent_at).toLocaleString("ko-KR")}</span>
+                          <span>{kstDateTime(m.sent_at)}</span>
                         </div>
                         <div style={{ whiteSpace: "pre-wrap" }}>{m.body_text || m.snippet || "본문이 수집되지 않았습니다."}</div>
                       </div>

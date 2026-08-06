@@ -29,7 +29,11 @@ function ymd(iso: unknown): string {
   const d = new Date(String(iso));
   if (Number.isNaN(d.getTime())) return "—";
   // 날짜 + 시간(KST) — 예: 2026. 8. 4. 14:32
-  return d.toLocaleString("ko-KR", { timeZone: "Asia/Seoul", dateStyle: "short", timeStyle: "short" });
+  // toLocaleString 은 Node(서버)와 브라우저의 ICU 로케일 출력이 미묘하게 달라(시각 앞 NBSP 등)
+  // SSR 하이드레이션 불일치(React #418)를 유발한다. UTC+9 로 직접 계산해 결정론적으로 포맷한다.
+  const k = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${k.getUTCFullYear()}. ${k.getUTCMonth() + 1}. ${k.getUTCDate()}. ${p(k.getUTCHours())}:${p(k.getUTCMinutes())}`;
 }
 function completeness(b: Row): number {
   const keys = ["brand_name", "category", "state", "grade", "plan", "source", "owner_sales", "email", "next_action"];

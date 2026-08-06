@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createChannelAction, updateChannelAction, deleteChannelAction } from "@/app/actions";
 import type { IntakeChannel, ChannelSend } from "@/lib/intake-channels";
+import { kstDateTime } from "@/lib/time";
 
 const SOURCE_OPTS: [string, string][] = [
   ["meta_ads", "메타/페북 광고"], ["expo", "전시/팝업"], ["referrer", "영업 직접"],
@@ -74,7 +75,7 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
               <span className="pill" style={{ fontSize: 10 }}>{SOURCE_OPTS.find(([v]) => v === c.source)?.[1] ?? c.source}</span>
               <span style={{ color: "var(--ink3)", fontSize: 11 }}>
                 유입 {c.lead_count}건 · 발송 문자 {sendCounts[c.id]?.sms ?? 0}·메일 {sendCounts[c.id]?.email ?? 0}
-                {c.last_lead_at ? ` · 최근 ${new Date(c.last_lead_at).toLocaleString("ko-KR")}` : ""}
+                {c.last_lead_at ? ` · 최근 ${kstDateTime(c.last_lead_at)}` : ""}
               </span>
               <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => copyUrl(c.key)} title="이 채널 전용 POST URL 복사">📋 POST URL</button>
               <button className="btn btn-sm" onClick={() => setHistId(histId === c.id ? null : c.id)}>{histId === c.id ? "접기" : "📊 발송내역"}</button>
@@ -116,7 +117,7 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
                             {s.email_sent && <span className="pill grn" style={{ fontSize: 10 }}>메일 ✓</span>}
                             {s.dry_run && <span className="pill" style={{ fontSize: 10, background: "#fef3c7", color: "#b45309" }}>🧪 테스트(미발송)</span>}
                             {!s.sms_sent && !s.email_sent && !s.dry_run && <span className="pill" style={{ fontSize: 10, background: "#fee2e2", color: "#b91c1c" }}>발송 실패</span>}
-                            <span style={{ marginLeft: "auto", color: "var(--ink3)" }}>{new Date(s.sent_at).toLocaleString("ko-KR")}</span>
+                            <span style={{ marginLeft: "auto", color: "var(--ink3)" }}>{kstDateTime(s.sent_at)}</span>
                           </div>
                           {s.error && <div style={{ marginTop: 3, color: "#b91c1c", fontSize: 11 }}>⚠ {s.error}</div>}
                           {s.sms_body && <div style={{ marginTop: 3, color: "var(--ink2)" }}>📱 {s.sms_body}</div>}

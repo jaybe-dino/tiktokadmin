@@ -1,6 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import type { SharedMailbox } from "@/lib/shared-mailboxes";
+import { kstDateTime } from "@/lib/time";
 import { addMailboxAction, toggleMailboxAction, removeMailboxAction } from "@/app/actions";
 
 export default function MailboxManager({ mailboxes, canEdit }: { mailboxes: SharedMailbox[]; canEdit: boolean }) {
@@ -25,7 +26,7 @@ export default function MailboxManager({ mailboxes, canEdit }: { mailboxes: Shar
           <tbody>
             {rows.map((m) => (
               <tr key={m.email}>
-                <td><b>{m.email}</b>{m.last_sync_at && <span className="sub">최근 수집 {new Date(m.last_sync_at).toLocaleString("ko-KR")}</span>}</td>
+                <td><b>{m.email}</b>{m.last_sync_at && <span className="sub">최근 수집 {kstDateTime(m.last_sync_at)}</span>}</td>
                 <td style={{ color: "var(--ink3)" }}>{m.label || "—"}</td>
                 <td>
                   <span className={`tgl ${m.enabled ? "on" : ""}`} onClick={() => canEdit && start(async () => {

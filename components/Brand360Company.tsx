@@ -9,6 +9,7 @@ import { saveCompanyAction, setCountriesAction, updateBrandAction } from "@/app/
 import { deepAnalysisAction } from "@/app/(dash)/brand360/actions";
 import type { Brand } from "@/lib/types";
 import type { Asset, BrandCompany } from "@/lib/repo/card";
+import { kstDateTime } from "@/lib/time";
 
 const D = (v: string | null | undefined): string => (v && v.trim() ? v : "—");
 
@@ -77,7 +78,7 @@ export default function Brand360Company({ brand, company, assets }: {
               {(fetched.length > 0 || savedAt) && (
                 <div className="note" style={{ marginTop: 8, fontSize: 11 }}>
                   {fetched.length > 0 && <>📄 근거 페이지: {fetched.join(" · ")} · </>}
-                  {savedAt && <>생성 {new Date(savedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</>}
+                  {savedAt && <>생성 {kstDateTime(savedAt)}</>}
                 </div>
               )}
             </>

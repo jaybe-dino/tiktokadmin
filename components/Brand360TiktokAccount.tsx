@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveTiktokAccountAction } from "@/app/(dash)/brand360/actions";
 import type { Brand } from "@/lib/types";
+import { kstDateTime } from "@/lib/time";
 
 type TBrand = Brand & {
   tiktok_shop_url?: string | null; tiktok_seller_id?: string | null; tiktok_seller_pw?: string | null;
@@ -18,7 +19,7 @@ export default function Brand360TiktokAccount({ brand }: { brand: TBrand }) {
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const sentAt = brand.tiktok_sent_at ? new Date(brand.tiktok_sent_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : null;
+  const sentAt = brand.tiktok_sent_at ? kstDateTime(brand.tiktok_sent_at) : null;
 
   async function save(sendNotify: boolean) {
     if (sendNotify && !confirm("브랜드 담당자에게 셀러센터 링크·ID·PW를 문자/이메일로 발송합니다. 진행할까요?")) return;

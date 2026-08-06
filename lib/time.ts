@@ -41,6 +41,37 @@ export function businessDaysBetween(from: Date, to: Date): number {
   return count;
 }
 
+/**
+ * KST 벽시계 "YYYY. M. D. HH:mm" — 결정론적 포맷.
+ * toLocaleString 은 Node(서버)와 브라우저 ICU 출력이 달라(무TZ 시각차·시각 앞 NBSP 등)
+ * 클라이언트 컴포넌트에서 SSR 하이드레이션 불일치(React #418)를 유발하므로 직접 계산한다.
+ */
+export function kstDateTime(iso: unknown): string {
+  if (!iso) return "—";
+  const d = new Date(String(iso));
+  if (Number.isNaN(d.getTime())) return "—";
+  const k = toKst(d);
+  return `${k.getUTCFullYear()}. ${k.getUTCMonth() + 1}. ${k.getUTCDate()}. ${pad(k.getUTCHours())}:${pad(k.getUTCMinutes())}`;
+}
+
+/** KST 벽시계 "YYYY. M. D." — 결정론적(날짜만). */
+export function kstDate(iso: unknown): string {
+  if (!iso) return "—";
+  const d = new Date(String(iso));
+  if (Number.isNaN(d.getTime())) return "—";
+  const k = toKst(d);
+  return `${k.getUTCFullYear()}. ${k.getUTCMonth() + 1}. ${k.getUTCDate()}.`;
+}
+
+/** KST 벽시계 "HH:mm" — 결정론적(시각만). */
+export function kstTime(iso: unknown): string {
+  if (!iso) return "";
+  const d = new Date(String(iso));
+  if (Number.isNaN(d.getTime())) return "";
+  const k = toKst(d);
+  return `${pad(k.getUTCHours())}:${pad(k.getUTCMinutes())}`;
+}
+
 /** ms → "N일 M시간" 등 사람이 읽는 경과 (KST 무관, 절대시간) */
 export function humanElapsed(fromIso: string, now: Date = new Date()): string {
   const from = new Date(fromIso);
