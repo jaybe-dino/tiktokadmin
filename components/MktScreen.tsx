@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   createMktProposalAction,
   draftMktProposalEmailAction,
+  registerMktBrandAction,
   setMktProposalStatusAction,
   setMktStatusAction,
 } from "@/app/(dash)/mkt/actions";
@@ -28,6 +29,7 @@ export interface MktProposalRow {
   amount: number | null;
   status: string; // draft|sent|accepted|rejected
   note: string | null;
+  url: string | null;  // 개별 제안서 파일 링크
   period_start: string | null;
   period_end: string | null;
   sent_at: string | null;
@@ -341,6 +343,12 @@ function Proposals({
   const [ps, setPs] = useState("");
   const [pe, setPe] = useState("");
   const [note, setNote] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
+  const [regOpen, setRegOpen] = useState(false);
+  const [regName, setRegName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regCat, setRegCat] = useState("");
+  const [localBrands, setLocalBrands] = useState<MktBrandOpt[]>(brands);
 
   // 브랜드별 mkt_projects 연결 수 (연결 표시용)
   const projCount = new Map<string, number>();
@@ -357,6 +365,7 @@ function Proposals({
         period_start: ps,
         period_end: pe,
         note,
+        file_url: fileUrl,
       });
       if (r.ok) {
         setTitle("");
@@ -364,9 +373,23 @@ function Proposals({
         setPs("");
         setPe("");
         setNote("");
+        setFileUrl("");
         setOk("제안서가 저장되었습니다 — 발송 준비 후 초안함에서 승인·발송하세요.");
         router.refresh();
       } else setErr(r.error ?? "저장 실패");
+    });
+  }
+
+  function registerBrand() {
+    setErr(""); setOk("");
+    start(async () => {
+      const r = await registerMktBrandAction({ brand_name: regName, email: regEmail || undefined, category: regCat || undefined });
+      if (r.ok && r.brand_id) {
+        setLocalBrands((prev) => [{ id: r.brand_id!, name: regName.trim(), contract_type: "marketing" }, ...prev]);
+        setBrandId(r.brand_id);
+        setRegOpen(false); setRegName(""); setRegEmail(""); setRegCat("");
+        setOk("브랜드가 등록되었습니다 — 아래에서 제안서를 작성하세요.");
+      } else setErr(r.error ?? "브랜드 등록 실패");
     });
   }
 
@@ -394,16 +417,25 @@ function Proposals({
         </div>
         <div className="bd" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
           <div>
-            <label className="f">브랜드</label>
-            <select className="f" value={brandId} onChange={(e) => setBrandId(e.target.value)} style={{ minWidth: 160 }}>
-              {brands.length === 0 && <option value="">브랜드가 없습니다</option>}
-              {brands.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.contract_type === "marketing" ? " · 마케팅 트랙" : ""}
-                </option>
-              ))}
-            </select>
+            <label className="f">브랜드 <button type="button" onClick={() => setRegOpen((o) => !o)} style={{ marginLeft: 6, fontSize: 10.5, color: "var(--acc)", background: "none", border: 0, cursor: "pointer" }}>{regOpen ? "취소" : "+ 리드 없는 브랜드 등록"}</button></label>
+            {regOpen ? (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <input className="f" value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="브랜드명 *" style={{ width: 140 }} />
+                <input className="f" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="이메일(선택)" style={{ width: 150 }} />
+                <input className="f" value={regCat} onChange={(e) => setRegCat(e.target.value)} placeholder="카테고리(선택)" style={{ width: 120 }} />
+                <button className="btn sm pri" disabled={pending || !regName.trim()} onClick={registerBrand}>등록</button>
+              </div>
+            ) : (
+              <select className="f" value={brandId} onChange={(e) => setBrandId(e.target.value)} style={{ minWidth: 160 }}>
+                {localBrands.length === 0 && <option value="">브랜드가 없습니다 — 우측 '+ 등록'</option>}
+                {localBrands.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                    {b.contract_type === "marketing" ? " · 마케팅 트랙" : ""}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div style={{ flex: 1, minWidth: 180 }}>
             <label className="f">제목</label>
@@ -424,6 +456,10 @@ function Proposals({
           <div style={{ flex: 1, minWidth: 200 }}>
             <label className="f">범위 메모</label>
             <input className="f" value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 시딩 30건 + 라이브 2회 + 소재 4종" />
+          </div>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <label className="f">제안서 파일 링크 (드라이브 PPT/PDF)</label>
+            <input className="f" value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} placeholder="https://drive.google.com/…" />
           </div>
           <button className="btn pri" disabled={pending || !brandId} onClick={submit}>
             {pending ? "저장 중…" : "저장"}
@@ -468,7 +504,7 @@ function Proposals({
                   <td>{p.title || "—"}</td>
                   <td>{p.amount != null ? `${p.amount.toLocaleString("ko-KR")}원` : "—"}</td>
                   <td>{p.period_start || p.period_end ? `${p.period_start ?? "미정"} ~ ${p.period_end ?? "미정"}` : "—"}</td>
-                  <td>{p.note || "—"}</td>
+                  <td>{p.note || "—"}{p.url && <div className="sub"><a href={p.url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>📎 제안서 파일 ↗</a></div>}</td>
                   <td>
                     <span className={`cellchip ${st.cc}`}>{st.ko}</span>
                     {p.sent_at && <div className="sub">발송 {fmtTs(p.sent_at)}</div>}

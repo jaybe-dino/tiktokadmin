@@ -20,7 +20,7 @@ export default async function MktPage() {
   // 마케팅 제안서 (proposals kind='marketing') + 초안함 발송 연결(email_drafts.proposal_id).
   // 0018 마이그레이션 전 DB 방어: 실패 시 빈 목록.
   const proposalsRaw = (await query(
-    `SELECT p.id, p.title, p.amount, p.status, p.note,
+    `SELECT p.id, p.title, p.amount, p.status, p.note, p.url,
             p.period_start::text AS period_start, p.period_end::text AS period_end,
             p.sent_at::text AS sent_at, p.created_at::text AS created_at,
             b.brand_name, b.id AS brand_id,
@@ -41,6 +41,7 @@ export default async function MktPage() {
     amount: p.amount == null ? null : Number(p.amount),
     status: String(p.status ?? "draft"),
     note: p.note == null ? null : String(p.note),
+    url: p.url == null ? null : String(p.url),
     period_start: p.period_start == null ? null : String(p.period_start),
     period_end: p.period_end == null ? null : String(p.period_end),
     sent_at: p.sent_at == null ? null : String(p.sent_at),

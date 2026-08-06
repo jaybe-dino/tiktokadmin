@@ -57,6 +57,23 @@ function isYmd(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
+/** 리드 없는 브랜드를 마케팅용으로 직접 등록(예: 클리오 — 운영대행 없이 캠페인만).
+ *   파이프라인엔 안 올라오도록 source='mkt_direct'. 이메일/전화 없이도 생성 허용. */
+export async function registerMktBrandAction(input: { brand_name: string; email?: string; category?: string; memo?: string }): Promise<MktResult & { brand_id?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const name = (input.brand_name ?? "").trim();
+  if (!name) return { ok: false, error: "브랜드명을 입력하세요." };
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO brands (brand_name, email, category, source, state, memo)
+     VALUES ($1,$2,$3,'mkt_direct','lead_new',$4) RETURNING id`,
+    [name, (input.email ?? "").trim() || null, (input.category ?? "").trim(), (input.memo ?? "").trim()],
+  ).catch(() => null);
+  if (!row) return { ok: false, error: "등록 실패(중복 이메일/전화 확인)" };
+  revalidatePath("/mkt");
+  return { ok: true, brand_id: row.id };
+}
+
 /** 마케팅 제안서 작성 — 브랜드·제목·금액·기간·범위 메모 → proposals(kind='marketing'). */
 export async function createMktProposalAction(input: {
   brand_id: string;
@@ -65,6 +82,7 @@ export async function createMktProposalAction(input: {
   period_start?: string;
   period_end?: string;
   note?: string;
+  file_url?: string;  // 개별 제안서 파일 링크(드라이브 PPT/PDF)
 }): Promise<MktResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
@@ -88,9 +106,9 @@ export async function createMktProposalAction(input: {
   if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
 
   await query(
-    `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, status, created_by)
-     VALUES ($1,'marketing',$2,$3,$4,$5,$6,'draft',$7)`,
-    [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), `admin:${u.id}`],
+    `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url, status, created_by)
+     VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,'draft',$8)`,
+    [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(), `admin:${u.id}`],
   );
   revalidatePath("/mkt");
   revalidatePath(`/brand/${input.brand_id}`);
@@ -108,10 +126,10 @@ export async function draftMktProposalEmailAction(proposalId: string): Promise<M
 
   const p = await queryOne<{
     id: string; brand_id: string; title: string | null; amount: number | null;
-    period_start: string | null; period_end: string | null; note: string | null;
+    period_start: string | null; period_end: string | null; note: string | null; url: string | null;
     brand_name: string; email: string | null;
   }>(
-    `SELECT p.id, p.brand_id, p.title, p.amount, p.period_start, p.period_end, p.note,
+    `SELECT p.id, p.brand_id, p.title, p.amount, p.period_start, p.period_end, p.note, p.url,
             b.brand_name, b.email
        FROM proposals p JOIN brands b ON b.id=p.brand_id
       WHERE p.id=$1 AND p.kind='marketing'`,
@@ -140,6 +158,7 @@ export async function draftMktProposalEmailAction(proposalId: string): Promise<M
     p.amount != null ? `· 제안 금액: ${p.amount.toLocaleString("ko-KR")}원` : null,
     period ? `· 제안 기간: ${period}` : null,
     p.note ? `· 범위: ${p.note}` : null,
+    p.url ? `· 제안서 파일: ${p.url}` : null,
     "",
     "검토 후 회신 주시면 상세 자료와 함께 미팅을 잡아드리겠습니다.",
     "",
