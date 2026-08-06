@@ -16,7 +16,9 @@ export function middleware(req: NextRequest) {
   const host = (req.headers.get("host") || "").split(":")[0];
   if (ph && host === ph) {
     const allowed = pathname.startsWith("/apply") || pathname.startsWith("/api/apply") ||
-      pathname.startsWith("/_next") || pathname.startsWith("/proposal/") || pathname === "/favicon.ico";
+      pathname.startsWith("/_next") || pathname.startsWith("/proposal/") || pathname === "/favicon.ico" ||
+      // 토큰(CRON_SECRET) 보호 마이그레이션 엔드포인트 — 포털 호스트에서도 접근 허용(스키마 반영용).
+      pathname.startsWith("/api/admin/migrate");
     if (!allowed) {
       const url = req.nextUrl.clone();
       url.pathname = "/apply";
