@@ -13,6 +13,11 @@ const stripPrice = (q: string | null | undefined) => (q || "").replace(/\s*[×xX
 const safeHexColor = (v: string | null | undefined): string | null => (v && /^#[0-9a-fA-F]{3,8}$/.test(v.trim()) ? v.trim() : null);
 
 const TRACK_SUMMARY: Record<string, string> = { onboarding: "온보딩 트랙 제안 요약", mall: "멀티몰 트랙 제안 요약", marketing: "마케팅 트랙 제안 요약" };
+// value_items 가 비어 있어도 구성 항목(금액 없이)은 항상 노출 — 온보딩 표준 구성.
+const DEFAULT_VALUE_ITEMS: { label: string; qty?: string }[] = [
+  { label: "시딩", qty: "20건" }, { label: "라이브 커머스", qty: "4건" }, { label: "인증 · 물류 관리" },
+  { label: "마케팅 전략 컨설팅" }, { label: "전담 CS 매니저" }, { label: "전담 발주 관리" }, { label: "제품 등록 번역 초안" },
+];
 const TRACK_BADGE: Record<string, string> = { onboarding: "ONBOARDING TRACK", mall: "MULTI-MALL TRACK", marketing: "MARKETING TRACK" };
 
 // 틱톡샵 시딩 벤치마크(베트남 · Beauty · 30일) — 업계 고정 상수(담당자 편집 대상 아님).
@@ -146,11 +151,15 @@ function PricingSection({ d }: { d: ProposalDoc }) {
             {d.features.map((f, i) => <li key={i}><span className="pp-ck">✓</span>{f}</li>)}
           </ul>
         </div>
-        {(d.value_items.length > 0 || d.value_total != null) && (
+        {(() => {
+          // value_items 가 있으면 그대로, 없으면(온보딩) 표준 구성 항목(금액 없이)으로 폴백 — 항목은 항상 노출.
+          const items = d.value_items.length > 0 ? d.value_items : (d.track === "onboarding" ? DEFAULT_VALUE_ITEMS : []);
+          if (items.length === 0 && d.value_total == null) return null;
+          return (
           <div className="pp-card pp-value">
             <div className="pp-value-head"><b>상당 구성 가치</b>{d.value_total != null && <span className="pp-value-strike"><s>{won(d.value_total)}</s> 상당</span>}</div>
             <div className="pp-value-list">
-              {d.value_items.map((v, i) => {
+              {items.map((v, i) => {
                 const qty = stripPrice(v.qty);
                 return (
                   <div key={i} className="pp-value-row">
@@ -164,7 +173,8 @@ function PricingSection({ d }: { d: ProposalDoc }) {
               <div className="pp-value-total"><span>합계 (상당)</span><b>{man(d.value_total)}원</b></div>
             )}
           </div>
-        )}
+          );
+        })()}
       </div>
     </section>
   );

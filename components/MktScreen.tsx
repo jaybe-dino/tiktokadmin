@@ -9,6 +9,7 @@ import {
   registerMktBrandAction,
   setMktProposalStatusAction,
   setMktStatusAction,
+  updateMktProjectAction,
 } from "@/app/(dash)/mkt/actions";
 
 // 마케팅 프로젝트 화면 — 프로토타입 s-mkt 3탭 구성(파이프라인 / 루틴 운영대행 / 브랜드사별 매핑).
@@ -21,6 +22,12 @@ export interface MktRow {
   note: string | null;
   brand_name: string;
   brand_id: string;
+  // 연결된 마케팅 제안서(proposal_id) — 없으면 null
+  proposal_id: string | null;
+  prop_title: string | null;
+  prop_amount: number | null;
+  prop_status: string | null;
+  prop_url: string | null;
 }
 
 // 마케팅 제안서 행 (proposals kind='marketing' + 초안함 연결)
@@ -215,48 +222,100 @@ function Pipeline({ projects, brands }: { projects: MktRow[]; brands: MktBrandOp
   );
 }
 
-// 파이프라인 카드 — 상태 select 로 카드 이동(게이트 경유 setMktStatusAction).
+// 파이프라인 카드 — 클릭하면 상세 편집·제안서 연결 관리 모달. (요약은 카드에)
 function KCard({ m }: { m: MktRow }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="kcard" style={{ cursor: "pointer" }} onClick={() => setOpen(true)} title="클릭하여 상세 편집">
+        <div className="nm">{m.title}</div>
+        <div className="mt">{m.brand_name}{m.note ? ` · ${m.note}` : ""}</div>
+        <div className="ft" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span className={`cellchip ${ST[m.proposal_status]?.cc ?? "cc-no"}`}>{ST[m.proposal_status]?.ko ?? m.proposal_status}</span>
+          {m.proposal_id
+            ? <span className="cellchip cc-ing" title="마케팅 제안서 연결됨">📄 제안서</span>
+            : <span className="cellchip cc-no" title="연결된 제안서 없음">제안서 미연결</span>}
+        </div>
+      </div>
+      {open && <MktProjectDetail m={m} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+// 프로젝트 상세 모달 — 제목·메모 편집, 상태 이동(게이트), 연결된 마케팅 제안서 관리.
+function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [err, setErr] = useState("");
+  const [title, setTitle] = useState(m.title);
+  const [note, setNote] = useState(m.note ?? "");
+  const [status, setStatus] = useState(m.proposal_status);
+  const [msg, setMsg] = useState("");
+  const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(""), 2600); };
+
+  function saveInfo() {
+    start(async () => {
+      const r = await updateMktProjectAction({ id: m.id, title, note });
+      if (r.ok) { flash("저장됨"); router.refresh(); } else flash(r.error ?? "저장 실패");
+    });
+  }
+  function changeStatus(to: string) {
+    if (to === status) return;
+    start(async () => {
+      const r = await setMktStatusAction(m.id, to);
+      if (r.ok) { setStatus(to); flash("상태 변경됨"); router.refresh(); } else flash(r.error ?? "변경 실패");
+    });
+  }
+  function linkProposal() {
+    start(async () => {
+      const r = await createMktProjectAction({ brand_id: m.brand_id, title: m.title, proposal_id: undefined });
+      // 제안서가 없으면 마케팅 제안서 탭으로 유도 — 여기서는 안내만.
+      flash(r.ok ? "제안서는 '마케팅 제안서' 탭에서 작성 시 자동 연결됩니다." : (r.error ?? ""));
+    });
+  }
+
   return (
-    <div className="kcard">
-      <div className="nm">{m.title}</div>
-      <div className="mt">
-        <Link href={`/brand/${m.brand_id}`} className="hover:underline">
-          {m.brand_name}
-        </Link>
-        {m.note ? ` · ${m.note}` : ""}
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.4)", zIndex: 100, display: "grid", placeItems: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "min(560px, 96vw)", maxHeight: "90vh", overflow: "auto", padding: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <b style={{ fontSize: 15 }}>프로젝트 상세</b>
+          <Link href={`/brand/${m.brand_id}`} className="chip" style={{ fontSize: 11 }}>{m.brand_name} ↗</Link>
+          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={onClose}>닫기 ✕</button>
+        </div>
+
+        <label className="f">프로젝트명</label>
+        <input className="f" value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+        <label className="f" style={{ marginTop: 10 }}>메모</label>
+        <textarea className="f" value={note} onChange={(e) => setNote(e.target.value)} rows={2} style={{ width: "100%", boxSizing: "border-box", resize: "vertical" }} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+          <label className="f" style={{ margin: 0 }}>단계</label>
+          <select className="f" value={status} onChange={(e) => changeStatus(e.target.value)} disabled={pending}>
+            {Object.entries(ST).map(([k, v]) => <option key={k} value={k}>{v.ko}</option>)}
+          </select>
+          <button className="btn sm pri" disabled={pending} onClick={saveInfo} style={{ marginLeft: "auto" }}>제목·메모 저장</button>
+        </div>
+
+        {/* 연결된 마케팅 제안서 */}
+        <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>연결된 마케팅 제안서</div>
+          {m.proposal_id ? (
+            <div className="card" style={{ padding: 12, background: "var(--tint, #fafafa)" }}>
+              <div style={{ fontWeight: 600 }}>{m.prop_title || "(제목 없음)"}</div>
+              <div className="sub" style={{ marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <span className={`cellchip ${PROP_ST[m.prop_status ?? "draft"]?.cc ?? "cc-ing"}`}>{PROP_ST[m.prop_status ?? "draft"]?.ko ?? m.prop_status}</span>
+                {m.prop_amount != null && <span>{m.prop_amount.toLocaleString("ko-KR")}원</span>}
+                {m.prop_url && <a href={m.prop_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>📎 제안서 파일 ↗</a>}
+              </div>
+              <div className="note" style={{ marginTop: 8, fontSize: 11 }}>제안서 발송·수락/거절은 「마케팅 제안서」 탭에서 관리 — 상태는 프로젝트에 자동 반영됩니다.</div>
+            </div>
+          ) : (
+            <div className="note" style={{ fontSize: 12 }}>
+              연결된 제안서가 없습니다. <b>「마케팅 제안서」 탭</b>에서 이 브랜드로 제안서를 작성하면(‘파이프라인 프로젝트로 등록’ 체크) 자동으로 연결됩니다.
+              <div style={{ marginTop: 6 }}><button className="btn sm" disabled={pending} onClick={linkProposal}>안내</button></div>
+            </div>
+          )}
+        </div>
+        {msg && <div className="note" style={{ marginTop: 10 }}>{msg}</div>}
       </div>
-      <div className="ft" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-        <span className={`cellchip ${ST[m.proposal_status]?.cc ?? "cc-no"}`}>
-          {ST[m.proposal_status]?.ko ?? m.proposal_status}
-        </span>
-        <select
-          value={m.proposal_status}
-          disabled={pending}
-          onChange={(e) => {
-            const to = e.target.value;
-            if (to === m.proposal_status) return;
-            setErr("");
-            start(async () => {
-              const r = await setMktStatusAction(m.id, to);
-              if (r.ok) router.refresh();
-              else setErr(r.error ?? "변경 실패");
-            });
-          }}
-          style={{ fontSize: 11, padding: "2px 6px", border: "1px solid var(--line)", borderRadius: 6, background: "#fff", color: "var(--ink2)", fontFamily: "inherit" }}
-          title="카드 이동(상태 변경)"
-        >
-          {Object.entries(ST).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v.ko}
-            </option>
-          ))}
-        </select>
-      </div>
-      {err && <div className="mt" style={{ color: "var(--danger)" }}>{err}</div>}
     </div>
   );
 }

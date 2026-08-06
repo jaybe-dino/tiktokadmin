@@ -15,6 +15,11 @@ export default async function MktPage() {
     note: r.note == null ? null : String(r.note),
     brand_name: String(r.brand_name ?? ""),
     brand_id: String(r.brand_id ?? ""),
+    proposal_id: r.proposal_id == null ? null : String(r.proposal_id),
+    prop_title: r.prop_title == null ? null : String(r.prop_title),
+    prop_amount: r.prop_amount == null ? null : Number(r.prop_amount),
+    prop_status: r.prop_status == null ? null : String(r.prop_status),
+    prop_url: r.prop_url == null ? null : String(r.prop_url),
   }));
 
   // 마케팅 제안서 (proposals kind='marketing') + 초안함 발송 연결(email_drafts.proposal_id).

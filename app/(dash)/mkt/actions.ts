@@ -102,6 +102,24 @@ export async function createMktProjectAction(input: {
   return { ok: true, id: row.id };
 }
 
+/** 개별 프로젝트 상세 수정 — 제목·메모. */
+export async function updateMktProjectAction(input: { id: string; title?: string; note?: string }): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!input.id) return { ok: false, error: "프로젝트 ID 누락" };
+  const title = (input.title ?? "").trim();
+  if (input.title !== undefined && !title) return { ok: false, error: "프로젝트명을 비울 수 없습니다." };
+  const cur = await queryOne<{ brand_id: string }>("SELECT brand_id FROM mkt_projects WHERE id=$1", [input.id]).catch(() => null);
+  if (!cur) return { ok: false, error: "프로젝트를 찾을 수 없습니다." };
+  await query(
+    `UPDATE mkt_projects SET title=COALESCE($2,title), note=$3, updated_at=now() WHERE id=$1`,
+    [input.id, input.title !== undefined ? title : null, (input.note ?? "").trim()],
+  );
+  revalidatePath("/mkt");
+  revalidatePath(`/brand/${cur.brand_id}`);
+  return { ok: true };
+}
+
 /** 마케팅 제안서 작성 — 브랜드·제목·금액·기간·범위 메모 → proposals(kind='marketing').
  *   link_project(기본 true)면 파이프라인 개별 프로젝트를 자동 생성·연결한다. */
 export async function createMktProposalAction(input: {

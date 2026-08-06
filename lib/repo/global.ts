@@ -30,9 +30,12 @@ export function allMeetings() {
 
 // 마케팅 프로젝트
 export function allMktProjects() {
-  return query(`SELECT mp.id, mp.title, mp.kind, mp.proposal_status, mp.note,
-      b.brand_name, b.id AS brand_id
+  // 연결된 마케팅 제안서(proposal_id)의 제목·금액·상태·파일까지 함께 — 카드 상세에서 관리.
+  return query(`SELECT mp.id, mp.title, mp.kind, mp.proposal_status, mp.note, mp.proposal_id,
+      b.brand_name, b.id AS brand_id,
+      p.title AS prop_title, p.amount AS prop_amount, p.status AS prop_status, p.url AS prop_url
      FROM mkt_projects mp JOIN brands b ON b.id=mp.brand_id
+     LEFT JOIN proposals p ON p.id = mp.proposal_id
     ORDER BY mp.updated_at DESC LIMIT 200`);
 }
 
