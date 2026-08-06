@@ -148,7 +148,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
 
-        <Brand360SurveyCard brandId={brand.id} survey={latestSurvey} />
+        <Brand360SurveyCard brandId={brand.id} survey={latestSurvey} state={brand.state} />
 
         <Brand360Contacts brandId={brand.id} contacts={deep?.contacts ?? []} />
       </div>

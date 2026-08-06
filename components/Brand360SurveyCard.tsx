@@ -21,13 +21,17 @@ interface SurveyLite {
 const A = (v: unknown): string => (typeof v === "string" && v.trim() ? v : "—");
 const M = (v: unknown): string => (Array.isArray(v) && v.length > 0 ? (v as string[]).join(", ") : "—");
 
-export default function Brand360SurveyCard({ brandId, survey }: { brandId: string; survey: SurveyLite | null }) {
+export default function Brand360SurveyCard({ brandId, survey, state }: { brandId: string; survey: SurveyLite | null; state?: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [url, setUrl] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
   const answered = Boolean(survey?.responded_at);
+  // 회의 확정: 설문은 1:1 미팅 단계에서(제안서 발송 전) 반드시 나가야 함.
+  //   미팅~계약검토 단계에서 미응답이면 강조 배너로 발송을 유도.
+  const preProposalStages = ["meeting", "contact", "contract_review"];
+  const needSurvey = !!state && preProposalStages.includes(state) && !answered;
   const isPre = survey?.kind === "pre_meeting";
   const kindLabel = surveyKindLabel(survey?.kind);
   const ans = (survey?.answers ?? {}) as Record<string, unknown>;
@@ -85,6 +89,11 @@ export default function Brand360SurveyCard({ brandId, survey }: { brandId: strin
         </div>
       </div>
       <div className="bd">
+        {needSurvey && (
+          <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", color: "#c2410c", borderRadius: 8, padding: "8px 11px", fontSize: 12.5, marginBottom: 10, fontWeight: 600 }}>
+            ⚠️ 1:1 미팅·제안서 발송 전 <b>사전 설문</b>을 먼저 보내주세요. (미응답 상태)
+          </div>
+        )}
         {answered && isPre ? (
           <>
             <div className="kv">
