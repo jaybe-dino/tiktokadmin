@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction } from "../actions";
+import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction, generateProductUspAction, fillReferencesByCategoryAction } from "../actions";
 import type { ProposalDoc, ProposalProduct, ProposalCreator, ProposalFeature, ProposalValueItem, ProposalStep, ProposalImpact, ProposalAddon } from "@/lib/proposal-doc";
 
 const TRACKS: [string, string][] = [["onboarding", "온보딩"], ["mall", "멀티몰"], ["marketing", "마케팅"]];
@@ -14,6 +14,8 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
   const [d, setD] = useState<ProposalDoc>(doc);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [uspInfo, setUspInfo] = useState("");   // 핵심 SKU USP 생성용 상품정보
+  const [refCat, setRefCat] = useState("");      // 카테고리 레퍼런스용
   const set = <K extends keyof ProposalDoc>(k: K, v: ProposalDoc[K]) => setD((p) => ({ ...p, [k]: v }));
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
   const publicUrl = `${publicBase}/proposal/${d.token}`;
@@ -66,6 +68,32 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
       return next;
     });
     flash(`AI 초안 반영됨 — ${r.note ?? ""} · 확인 후 저장하세요.`);
+  }
+  // 상품정보 → USP(특징 카드)·태그·영문명·용량 생성.
+  async function genUsp() {
+    setBusy(true);
+    let r; try { r = await generateProductUspAction(d.id, uspInfo || undefined); }
+    catch (e) { flash((e as Error).message || "USP 생성 실패"); setBusy(false); return; }
+    setBusy(false);
+    if (!r.ok) { flash(r.error ?? "USP 생성 실패"); return; }
+    setD((p) => ({
+      ...p,
+      product_en: r.product_en ?? p.product_en,
+      product_volume: r.product_volume ?? p.product_volume,
+      product_features: r.product_features?.length ? r.product_features : p.product_features,
+      product_tags: r.product_tags?.length ? r.product_tags : p.product_tags,
+    }));
+    flash("USP 특징 카드가 생성됐습니다 — 확인 후 저장하세요.");
+  }
+  // 카테고리 → glovek 유사 콘텐츠(썸네일)로 콘텐츠 레퍼런스 추가.
+  async function fillRefs() {
+    setBusy(true);
+    let r; try { r = await fillReferencesByCategoryAction(d.id, refCat || undefined); }
+    catch (e) { flash((e as Error).message || "불러오기 실패"); setBusy(false); return; }
+    setBusy(false);
+    if (!r.ok) { flash(r.error ?? "불러오기 실패"); return; }
+    if (r.creators?.length) setD((p) => ({ ...p, creators: [...p.creators, ...r.creators!] }));
+    flash(r.note ?? "완료");
   }
 
   return (
@@ -149,7 +177,14 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
           <F label="영문명(예: Bollabo Finish Wrapping Gel)" v={d.product_en ?? ""} on={(v) => set("product_en", v || null)} />
           <F label="용량/규격(예: 50ml)" v={d.product_volume ?? ""} on={(v) => set("product_volume", v || null)} />
         </Grid>
-        <TitleDescEditor label="특징 카드 (제목 + 설명)" items={d.product_features} on={(v) => set("product_features", v)} ph="제목(예: 밤 사이 유효성분 잠금)" ph2="설명" />
+        <div style={{ marginTop: 12, padding: 10, border: "1px dashed var(--line)", borderRadius: 8, background: "var(--bg)" }}>
+          <div style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600, marginBottom: 6 }}>🤖 상품정보 → USP 자동 생성</div>
+          <textarea value={uspInfo} onChange={(e) => setUspInfo(e.target.value)} rows={2}
+            placeholder="상품 정보를 붙여넣으면 USP(특징 카드)·태그를 뽑아줍니다. (제품명·설명만 있어도 동작)"
+            style={{ width: "100%", boxSizing: "border-box", border: "1px solid var(--line)", borderRadius: 8, padding: 8, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />
+          <button className="btn sm primary" disabled={busy} onClick={genUsp} style={{ marginTop: 6 }}>USP 생성 → 특징 카드 채우기</button>
+        </div>
+        <TitleDescEditor label="특징 카드 (USP · 제목 + 설명)" items={d.product_features} on={(v) => set("product_features", v)} ph="제목(예: 밤 사이 유효성분 잠금)" ph2="설명" />
         <ListEditor label="해시태그 (한 줄에 하나, # 제외)" items={d.product_tags} on={(v) => set("product_tags", v)} placeholder="예: 나이트랩핑" />
       </Card>
 
@@ -187,6 +222,12 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
 
       {/* 크리에이터 레퍼런스 */}
       <Card title={`크리에이터 콘텐츠 레퍼런스 (${d.creators.length})`}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 10, padding: 10, border: "1px dashed var(--line)", borderRadius: 8, background: "var(--bg)" }}>
+          <span style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>🖼️ 카테고리 → glovek 레퍼런스</span>
+          <input className="f" value={refCat} onChange={(e) => setRefCat(e.target.value)} placeholder="카테고리(비우면 브랜드 카테고리)" style={{ width: 220 }} />
+          <button className="btn sm primary" disabled={busy} onClick={fillRefs}>썸네일 레퍼런스 불러오기</button>
+          <span style={{ fontSize: 11, color: "var(--ink3)" }}>glovek 유사 제품 콘텐츠를 썸네일과 함께 추가(매출·ROAS는 수동)</span>
+        </div>
         <CreatorsEditor items={d.creators} on={(v) => set("creators", v)} />
       </Card>
 

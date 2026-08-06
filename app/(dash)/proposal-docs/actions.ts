@@ -182,3 +182,92 @@ export async function generateProposalContentAction(proposalId: string): Promise
     note,
   };
 }
+
+// ─────────────────────────────────────────────────────────────
+// 상품 정보 → USP 자동 추출. 핵심 SKU 제품명·설명(+추가 입력)만으로 특징 카드(USP)·태그·영문명·용량 생성.
+//   URL 크롤 없이도 동작 — 담당자가 상품 정보를 넣으면 적절한 USP 를 뽑는다. 허위 수치 금지.
+// ─────────────────────────────────────────────────────────────
+export interface UspResult {
+  ok: boolean; error?: string;
+  product_en?: string; product_volume?: string;
+  product_features?: ProposalFeature[]; product_tags?: string[];
+}
+export async function generateProductUspAction(proposalId: string, productInfo?: string): Promise<UspResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!aiEnabled()) return { ok: false, error: "ANTHROPIC_API_KEY 미설정" };
+  const doc = await getProposalById(proposalId);
+  if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+  const p0 = doc.products[0];
+  const ctx = [
+    p0?.name ? `제품명: ${p0.name}` : "",
+    doc.product_en ? `영문명: ${doc.product_en}` : "",
+    doc.product_volume ? `용량/규격: ${doc.product_volume}` : "",
+    p0?.desc ? `분류/설명: ${p0.desc}` : "",
+    (productInfo ?? "").trim() ? `추가 상품 정보:\n${(productInfo ?? "").trim()}` : "",
+  ].filter(Boolean).join("\n");
+  if (!ctx) return { ok: false, error: "제품 정보를 입력하세요(핵심 SKU 제품명·설명 또는 아래 상품정보 칸)." };
+
+  const system =
+    "너는 글로벌 커머스 대행사 GloveK 의 B2B 세일즈 카피라이터다. 주어진 상품 정보에서 소비자에게 통하는 " +
+    "USP(핵심 차별점)를 뽑아 제안서 특징 카드를 만든다. 반드시 유효한 JSON 하나만 출력(코드펜스·설명 금지). " +
+    "상품 정보에 근거해 담백하게 쓰고, 임상 수치·효능 보장 등 근거 없는 과장은 금지. 개인정보는 담지 마라.";
+  const user =
+    `아래 상품 정보로 USP 특징 카드 3개·해시태그 3~4개(+가능하면 영문명·용량)를 만들어줘.\n\n${ctx.slice(0, 4000)}\n\n` +
+    `JSON 스키마: {"name_en":"영문명(모르면 \\"\\")","volume":"용량(모르면 \\"\\")",` +
+    `"features":[{"title":"USP 제목(짧게)","desc":"1문장 설명"}],"tags":["해시태그(# 제외)"]}`;
+
+  let parsed: { name_en?: string; volume?: string; features?: ProposalFeature[]; tags?: string[] } | null = null;
+  try {
+    const text = await aiText({ system, user, maxTokens: 800 });
+    parsed = text ? looseJson(text) : null;
+  } catch (e) {
+    return { ok: false, error: `USP 생성 실패: ${(e as Error).message}` };
+  }
+  if (!parsed) return { ok: false, error: "AI 응답 파싱 실패." };
+  const feats = Array.isArray(parsed.features) ? parsed.features.filter((f) => f && f.title).slice(0, 3) : [];
+  const tags = Array.isArray(parsed.tags) ? parsed.tags.map((t) => String(t).replace(/^#/, "")).filter(Boolean).slice(0, 4) : [];
+  if (feats.length === 0 && tags.length === 0) return { ok: false, error: "추출된 USP 가 없습니다 — 상품 정보를 더 구체적으로 입력하세요." };
+  return {
+    ok: true,
+    product_en: parsed.name_en || undefined,
+    product_volume: parsed.volume || undefined,
+    product_features: feats.length ? feats : undefined,
+    product_tags: tags.length ? tags : undefined,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// 제품 카테고리 → glovek 유사 제품 콘텐츠(썸네일)로 콘텐츠 레퍼런스 자동 채움.
+//   카테고리 입력(없으면 브랜드 카테고리) → glovek 매칭 → 크리에이터 카드(썸네일 포함) 반환.
+// ─────────────────────────────────────────────────────────────
+export async function fillReferencesByCategoryAction(proposalId: string, category?: string): Promise<{ ok: boolean; error?: string; creators?: ProposalCreator[]; note?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const doc = await getProposalById(proposalId);
+  if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+  let cat = (category ?? "").trim();
+  if (!cat && doc.brand_id) {
+    const b = await queryOne<{ category: string | null; product_category: string | null }>(
+      `SELECT b.category, c.product_category FROM brands b LEFT JOIN brand_company c ON c.brand_id=b.id WHERE b.id=$1`,
+      [doc.brand_id],
+    ).catch(() => null);
+    cat = (b?.category || b?.product_category || "").trim();
+  }
+  if (!cat) return { ok: false, error: "카테고리를 입력하세요(또는 브랜드에 카테고리를 먼저 설정)." };
+
+  const glovek = await similarProductContent([cat], 8).catch(() => []);
+  const creators: ProposalCreator[] = glovek
+    .filter((g) => g.handle || g.name || g.image_url)
+    .map((g) => ({
+      handle: g.handle || "",
+      brand: g.brand,
+      product: g.name,
+      thumb_url: g.image_url, // glovek 썸네일
+      caption: g.name || g.category,
+      // 매출·ROAS 등 지표는 자동 채우지 않음(허위 방지).
+    }));
+  const note = `카테고리 '${cat}' · glovek 유사 콘텐츠 ${glovek.length}건` +
+    (glovek.length === 0 ? " — 매칭 없음(수동 입력 필요)" : " 불러옴");
+  return { ok: true, creators: creators.length ? creators : undefined, note };
+}
