@@ -32,12 +32,13 @@ export default function ReviewClient(props: Props) {
   const [toast, setToast] = useState("");
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(""), 2600); };
 
-  async function review(stepNo: number, decision: "approve" | "reject") {
+  async function review(stepNo: number, decision: "approve" | "reject" | "unapprove") {
     if (decision === "reject" && !(fb[stepNo] ?? "").trim()) { flash("반려 사유를 입력하세요."); return; }
+    if (decision === "unapprove" && !confirm("이 단계의 승인을 취소하고 검토중으로 되돌립니다. 진행할까요?")) return;
     setBusy(true);
     const r = await reviewStepAction(props.applicationId, stepNo, decision, fb[stepNo] ?? "");
     setBusy(false);
-    if (r.ok) { flash(decision === "approve" ? "승인했습니다." : "반려했습니다."); router.refresh(); } else flash(r.error ?? "처리 실패");
+    if (r.ok) { flash(decision === "approve" ? "승인했습니다." : decision === "unapprove" ? "승인을 취소했습니다." : "반려했습니다."); router.refresh(); } else flash(r.error ?? "처리 실패");
   }
   async function approveAll() {
     if (!props.hasBrand) { flash("먼저 목록에서 브랜드를 연결하세요."); return; }
@@ -62,6 +63,11 @@ export default function ReviewClient(props: Props) {
                 <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                   <button className="btn sm" disabled={busy} onClick={() => review(s.step_no, "reject")} style={{ color: "#e03131" }}>반려</button>
                   <button className="btn sm primary" disabled={busy} onClick={() => review(s.step_no, "approve")}>승인</button>
+                </div>
+              )}
+              {s.status === "approved" && (
+                <div style={{ marginLeft: "auto" }}>
+                  <button className="btn sm" disabled={busy} onClick={() => review(s.step_no, "unapprove")} style={{ color: "#c25400" }}>승인취소</button>
                 </div>
               )}
             </div>

@@ -351,11 +351,21 @@ export async function setCustomerBrand(customerId: string, brandId: string | nul
 }
 
 /** 관리자: 스텝 검토 결과 반영. approve 시 다음 스텝 잠금해제, reject 시 피드백과 함께 반려. */
-export async function reviewStep(applicationId: string, stepNo: number, decision: "approve" | "reject", feedback: string): Promise<{ ok: boolean; error?: string }> {
+export async function reviewStep(applicationId: string, stepNo: number, decision: "approve" | "reject" | "unapprove", feedback: string): Promise<{ ok: boolean; error?: string }> {
   const step = await queryOne<{ status: string }>("SELECT status FROM onb_steps WHERE application_id=$1 AND step_no=$2", [applicationId, stepNo]).catch(() => null);
   if (!step) return { ok: false, error: "스텝을 찾을 수 없습니다." };
   if (decision === "reject") {
     await query("UPDATE onb_steps SET status='rejected', admin_feedback=$3, reviewed_at=now() WHERE application_id=$1 AND step_no=$2", [applicationId, stepNo, feedback || ""]);
+    return { ok: true };
+  }
+  if (decision === "unapprove") {
+    // 승인취소 — 승인된 단계만. 재검토 가능하도록 'submitted' 로 되돌림.
+    if (step.status !== "approved") return { ok: false, error: "승인된 단계만 취소할 수 있습니다." };
+    await query("UPDATE onb_steps SET status='submitted', admin_feedback='', reviewed_at=NULL WHERE application_id=$1 AND step_no=$2", [applicationId, stepNo]);
+    // 다음 단계가 이 승인으로만 열려 있고(고객 미제출·미승인) 아직 'unlocked' 라면 다시 잠근다.
+    if (stepNo < 5) {
+      await query("UPDATE onb_steps SET status='locked', unlocked_at=NULL WHERE application_id=$1 AND step_no=$2 AND status='unlocked'", [applicationId, stepNo + 1]).catch(() => {});
+    }
     return { ok: true };
   }
   // approve

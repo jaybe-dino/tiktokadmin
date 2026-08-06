@@ -43,7 +43,7 @@ export async function setOnbCustomerBrandAction(customerId: string, brandId: str
   return r;
 }
 
-export async function reviewStepAction(applicationId: string, stepNo: number, decision: "approve" | "reject", feedback: string) {
+export async function reviewStepAction(applicationId: string, stepNo: number, decision: "approve" | "reject" | "unapprove", feedback: string) {
   const u = await currentUser();
   if (!u) return { ok: false, error: "권한이 없습니다." };
   const r = await reviewStep(applicationId, stepNo, decision, feedback);
