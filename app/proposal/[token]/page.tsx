@@ -351,7 +351,10 @@ function css(accent: string): string {
   return `
   .pp-root{--acc:${accent};--hot:#f6339a;--ink:#17121a;--ink2:#5b4b55;--ink3:#9b8791;--tint:#fdeef5;--tint2:#fbdcea;--line:#f3dbe7;
     background:linear-gradient(180deg,#fdf1f7,#fbe8f1);min-height:100vh;
-    font-family:-apple-system,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif;color:var(--ink);}
+    font-family:-apple-system,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif;color:var(--ink);
+    /* 인쇄/PDF 시 배경색·그라디언트·다크 섹션이 유지되도록 강제. */
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  .pp-root *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   .pp-doc{max-width:1040px;margin:0 auto;padding:0 18px 60px;}
   .pp-page{background:var(--tint);border-radius:22px;box-shadow:0 10px 40px rgba(160,30,90,.08);padding:40px 40px;margin:22px 0;}
   .pp-card{background:#fff;border-radius:18px;padding:26px;box-shadow:0 6px 22px rgba(160,30,90,.06);}
@@ -506,11 +509,19 @@ function css(accent: string): string {
   .pp-printbar{position:sticky;top:0;z-index:20;display:flex;justify-content:flex-end;max-width:1040px;margin:0 auto;padding:14px 18px 0;}
   .pp-printbar button{color:#fff;font-weight:800;font-size:14px;border:none;border-radius:12px;padding:11px 18px;cursor:pointer;box-shadow:0 6px 18px rgba(160,30,90,.2);}
   @media print{
+    @page{size:A4;margin:10mm;}
     .no-print{display:none!important;}
     .pp-root{background:#fff;}
     .pp-doc{max-width:none;padding:0;}
-    .pp-page{box-shadow:none;break-inside:avoid;page-break-inside:avoid;margin:0 0 14px;}
-    .pp-card{box-shadow:none;border:1px solid var(--line);}
+    /* 각 섹션을 페이지 단위로 — 잘림/디자인 깨짐 방지(데크처럼 한 장씩). */
+    .pp-page{box-shadow:none;break-inside:avoid;page-break-inside:avoid;break-after:page;page-break-after:always;margin:0;border-radius:14px;}
+    .pp-page:last-of-type{break-after:auto;page-break-after:auto;}
+    .pp-card{box-shadow:none;border:1px solid var(--line);break-inside:avoid;}
+    .pp-creator,.pp-featcard,.pp-step,.pp-impact,.pp-addon{break-inside:avoid;}
+    /* 다크 섹션(표지·마무리) 배경·글자색 인쇄 유지. */
+    .pp-dark{-webkit-print-color-adjust:exact;print-color-adjust:exact;color:#fff;}
+    .pp-bench-wrap{overflow:visible;}
+    .pp-bench{min-width:0;font-size:12px;}
   }
   @media(max-width:820px){
     .pp-2col,.pp-hero{grid-template-columns:1fr;}
