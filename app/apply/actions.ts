@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import {
   currentOnbCustomer, getOrCreateApplication,
   saveStepFields, submitStep,
-  setCountries, setCountryLogistics, setCountryLogisticsOption,
+  setCountries, setCountryLogistics, setCountryLogisticsOption, setCountryLogisticsDetail,
   addProduct, updateProduct, deleteProduct, upsertProductCountry, deleteProductCountry,
   type OnbProduct, type OnbProductCountry, type OnbCountry,
 } from "@/lib/onboarding";
@@ -46,6 +46,11 @@ export async function setCountryLogisticsAction(code: string, url: string) {
 export async function setCountryLogisticsOptionAction(code: string, option: string) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
   const r = await setCountryLogisticsOption(app.id, code, option); revalidatePath("/apply"); return r;
+}
+// Step5 — 국가별 물류 상세(현지 주소·계약 정보)
+export async function setCountryLogisticsDetailAction(code: string, d: { local_address?: string; contract_info?: string }) {
+  const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
+  const r = await setCountryLogisticsDetail(app.id, code, d); revalidatePath("/apply"); return r;
 }
 
 // Step4 — 제품

@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  saveStepAction, submitStepAction, saveCountriesAction, setCountryLogisticsAction, setCountryLogisticsOptionAction,
+  saveStepAction, submitStepAction, saveCountriesAction, setCountryLogisticsAction, setCountryLogisticsOptionAction, setCountryLogisticsDetailAction,
   addProductAction, updateProductAction, deleteProductAction, upsertProductCountryAction,
 } from "./actions";
 
@@ -11,12 +11,12 @@ const COUNTRIES: [string, string][] = [["US", "미국"], ["TH", "태국"], ["VN"
 const COUNTRY_NAME = Object.fromEntries(COUNTRIES);
 const READINESS: [string, string][] = [["none", "없음"], ["preparing", "준비중"], ["ready", "완료"]];
 const CURRENCIES = ["USD", "KRW", "SGD", "THB", "VND", "MYR", "PHP"];
-const LOGISTICS_OPTIONS: [string, string][] = [["", "선택 안 함"], ["self_delivery", "직배송(직접 배송)"], ["local_warehouse", "현지 물류창고"], ["flash_intro", "플래시 소개(제휴)"]];
+const LOGISTICS_OPTIONS: [string, string][] = [["", "선택 안 함"], ["fba", "FBA (아마존 물류)"], ["local_warehouse", "현지 물류창고 계약"], ["cross_border", "한국에서 크로스보더 배송"]];
 const COMPANY_COUNTRIES: [string, string][] = [["KR", "대한민국"], ["US", "미국"], ["SG", "싱가포르"], ["JP", "일본"], ["CN", "중국"], ["HK", "홍콩"]];
 const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", "제품 등록", "물류 계약서"];
 
 interface Step { step_no: number; status: string; admin_feedback: string }
-interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string }
+interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string }
 interface ProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; translation_status: string }
 interface Product { id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string }
 interface Props { email: string; app: Record<string, unknown>; steps: Step[]; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]> }
@@ -414,28 +414,54 @@ function ProductCard({ idx, p, disabled, countries, rows, onChange, flash, onDel
 
 // ══════════ Step 5 — 물류 계약서 ══════════
 function Step5({ disabled, countries, onChange, flash }: { disabled: boolean; countries: Country[]; onChange: () => void; flash: (m: string) => void }) {
-  if (countries.length === 0) return <Banner tone="warn">Step 1에서 입점 희망 국가를 먼저 선택해주세요. 국가별로 물류 계약서를 업로드합니다.</Banner>;
+  if (countries.length === 0) return <Banner tone="warn">Step 1에서 입점 희망 국가를 먼저 선택해주세요. 국가별로 물류 방식을 선택합니다.</Banner>;
   return (
-    <Card title="국가별 물류 계약서" desc="입점 희망 국가별로 현지 물류(3PL) 계약서를 업로드해주세요. 미국은 Amazon FBA 이용 시 FBA 재고/계정 화면 캡처로 대체 가능합니다.">
+    <Card title="국가별 물류 진행" desc="입점 희망 국가별로 물류 방식(FBA / 현지 물류창고 계약 / 한국 크로스보더 배송)을 선택하고, 현지 주소·계약 정보·계약서를 입력해주세요.">
       <div style={{ display: "grid", gap: 10 }}>
-        {countries.map((c) => (
+        {countries.map((c) => {
+          const opt = c.logistics_option ?? "";
+          const needWarehouse = opt === "fba" || opt === "local_warehouse"; // 현지 주소·계약 정보 필요
+          return (
           <div key={c.country_code} style={{ border: "1px solid #e2e6eb", borderRadius: 10, padding: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <b style={{ fontSize: 13, color: "#111" }}>{c.country_code}</b>
               <span style={{ fontSize: 12, color: "#8b93a1" }}>{COUNTRY_NAME[c.country_code] ?? c.country_name}</span>
             </div>
-            {c.country_code === "US" && <div style={{ fontSize: 12, color: "#1d4ed8", background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>🇺🇸 미국: 물류 계약서 또는 <b>Amazon FBA 캡처 이미지</b>를 업로드해주세요.</div>}
             <label style={{ fontSize: 12, color: "#4b5563", fontWeight: 600, display: "block", marginBottom: 8 }}>물류 방식
-              <select value={c.logistics_option ?? ""} disabled={disabled} onChange={async (e) => { await setCountryLogisticsOptionAction(c.country_code, e.target.value); onChange(); }} style={{ ...inputStyle, maxWidth: 260 }}>
+              <select value={opt} disabled={disabled} onChange={async (e) => { await setCountryLogisticsOptionAction(c.country_code, e.target.value); onChange(); }} style={{ ...inputStyle, maxWidth: 300 }}>
                 {LOGISTICS_OPTIONS.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
               </select>
             </label>
+            {opt === "cross_border" && <div style={{ fontSize: 12, color: "#1d4ed8", background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>📦 한국에서 크로스보더 배송: 주문 시 한국에서 직접 발송합니다. 현지 창고 계약이 없어도 됩니다.</div>}
+            {needWarehouse && (
+              <div style={{ display: "grid", gap: 8, marginBottom: 8 }}>
+                <LDetailInput label={opt === "fba" ? "FBA 입고 주소 (현지 주소)" : "현지 물류창고 주소"} code={c.country_code} field="local_address"
+                  init={c.logistics_local_address ?? ""} disabled={disabled} onSaved={() => { onChange(); flash("저장되었습니다."); }} />
+                <LDetailInput label={opt === "fba" ? "FBA 계정·계약 정보 (업체·조건)" : "현지창고 계약 정보 (업체·조건)"} code={c.country_code} field="contract_info"
+                  init={c.logistics_contract_info ?? ""} disabled={disabled} onSaved={() => { onChange(); flash("저장되었습니다."); }} textarea />
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: "#4b5563", fontWeight: 600, marginBottom: 4 }}>계약서·증빙 첨부 {opt === "fba" && "(FBA 재고/계정 화면 캡처로 대체 가능)"}</div>
             <InlineFile field={`logistics_${c.country_code}`} url={c.logistics_contract_url} disabled={disabled}
               onDone={async (u) => { await setCountryLogisticsAction(c.country_code, u); onChange(); flash("업로드되었습니다."); }} />
           </div>
-        ))}
+          );
+        })}
       </div>
     </Card>
+  );
+}
+
+// 물류 상세(현지 주소·계약 정보) — blur 시 저장.
+function LDetailInput({ label, code, field, init, disabled, onSaved, textarea }: { label: string; code: string; field: "local_address" | "contract_info"; init: string; disabled: boolean; onSaved: () => void; textarea?: boolean }) {
+  const [v, setV] = useState(init);
+  async function save() { if (v === init) return; await setCountryLogisticsDetailAction(code, { [field]: v }); onSaved(); }
+  return (
+    <label style={{ fontSize: 12, color: "#4b5563", fontWeight: 600, display: "block" }}>{label}
+      {textarea
+        ? <textarea value={v} disabled={disabled} onChange={(e) => setV(e.target.value)} onBlur={save} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+        : <input value={v} disabled={disabled} onChange={(e) => setV(e.target.value)} onBlur={save} style={inputStyle} />}
+    </label>
   );
 }
 

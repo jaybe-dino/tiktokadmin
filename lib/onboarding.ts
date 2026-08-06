@@ -272,11 +272,18 @@ export interface OnbCountry {
   has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string;
   product_cert_status: string; product_cert_note: string;
   logistics_status: string; logistics_note: string; logistics_contract_url: string;
-  logistics_option: string;  // self_delivery|local_warehouse|flash_intro
+  logistics_option: string;  // fba|local_warehouse|cross_border (legacy: self_delivery|flash_intro)
+  logistics_local_address: string; logistics_contract_info: string;
 }
+// 물류 방식 — 회의 확정: FBA / 현지 물류창고 계약 / 한국 크로스보더 배송.
 export const LOGISTICS_OPTIONS: [string, string][] = [
-  ["self_delivery", "직배송(직접 배송)"], ["local_warehouse", "현지 물류창고"], ["flash_intro", "플래시 소개(제휴)"],
+  ["fba", "FBA (아마존 물류)"], ["local_warehouse", "현지 물류창고 계약"], ["cross_border", "한국에서 크로스보더 배송"],
 ];
+// 라벨 조회(레거시 값 포함).
+export const LOGISTICS_LABELS: Record<string, string> = {
+  fba: "FBA (아마존 물류)", local_warehouse: "현지 물류창고 계약", cross_border: "한국에서 크로스보더 배송",
+  self_delivery: "직배송", flash_intro: "플래시 소개(제휴)",
+};
 export async function getCountries(applicationId: string): Promise<OnbCountry[]> {
   return query<OnbCountry>("SELECT * FROM onb_countries WHERE application_id=$1 ORDER BY country_code", [applicationId]).catch(() => []);
 }
@@ -308,9 +315,17 @@ export async function setCountryLogistics(applicationId: string, code: string, u
   await query("UPDATE onb_countries SET logistics_contract_url=$3 WHERE application_id=$1 AND country_code=$2", [applicationId, code.toUpperCase(), url]).catch(() => {});
   return { ok: true };
 }
-/** Step5 국가별 물류 방식(직배송/현지창고/플래시 소개) 저장. */
+/** Step5 국가별 물류 방식(FBA/현지창고/크로스보더) 저장. */
 export async function setCountryLogisticsOption(applicationId: string, code: string, option: string): Promise<{ ok: boolean }> {
   await query("UPDATE onb_countries SET logistics_option=$3 WHERE application_id=$1 AND country_code=$2", [applicationId, code.toUpperCase(), option]).catch(() => {});
+  return { ok: true };
+}
+/** Step5 국가별 물류 상세 — 현지 주소·계약 정보(현지창고/FBA). */
+export async function setCountryLogisticsDetail(applicationId: string, code: string, d: { local_address?: string; contract_info?: string }): Promise<{ ok: boolean }> {
+  await query(
+    "UPDATE onb_countries SET logistics_local_address=COALESCE($3,logistics_local_address), logistics_contract_info=COALESCE($4,logistics_contract_info) WHERE application_id=$1 AND country_code=$2",
+    [applicationId, code.toUpperCase(), d.local_address ?? null, d.contract_info ?? null],
+  ).catch(() => {});
   return { ok: true };
 }
 
