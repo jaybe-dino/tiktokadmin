@@ -115,9 +115,9 @@ export default function Brand360Onboarding({ brand, company }: { brand: Brand; c
         )}
 
         <hr className="hr" />
-        {/* ── UBO · 대리인 · PEP · Payoneer ── */}
+        {/* ── UBO · 대리인 · PEP · 핑퐁페이먼트 ── */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <b style={{ fontSize: 12.5 }}>UBO · 권한대리인 · PEP · Payoneer</b>
+          <b style={{ fontSize: 12.5 }}>UBO · 권한대리인 · PEP · 핑퐁페이먼트</b>
           <button className="btn sm" onClick={() => setEdit(edit === "kyc" ? null : "kyc")}>{edit === "kyc" ? "닫기" : "수정"}</button>
         </div>
         {edit === "kyc" ? (
@@ -137,8 +137,8 @@ export default function Brand360Onboarding({ brand, company }: { brand: Brand; c
             <input name="ae" className="f" defaultValue={c?.auth_email ?? ""} placeholder="권한대리인 이메일" />
             <select name="p1" className="f" defaultValue={c?.pep_q1 ?? "no"}><option value="no">PEP 아니오</option><option value="yes">PEP 예</option></select>
             <select name="p2" className="f" defaultValue={c?.pep_q2 ?? "no"}><option value="no">제재대상 아니오</option><option value="yes">제재대상 예</option></select>
-            <select name="ps" className="f" defaultValue={c?.payoneer_status ?? "none"}><option value="none">Payoneer 미개설</option><option value="applied">신청중</option><option value="active">개설완료</option></select>
-            <input name="pe" className="f" defaultValue={c?.payoneer_email ?? ""} placeholder="Payoneer 이메일" />
+            <select name="ps" className="f" defaultValue={c?.payoneer_status ?? "none"}><option value="none">핑퐁 미개설</option><option value="applied">신청중</option><option value="active">개설완료</option></select>
+            <input name="pe" className="f" defaultValue={c?.payoneer_email ?? ""} placeholder="핑퐁페이먼트 이메일" />
             <button className="btn sm pri" disabled={pending} type="submit" style={{ gridColumn: "1 / -1" }}>저장</button>
           </form>
         ) : (
@@ -147,7 +147,7 @@ export default function Brand360Onboarding({ brand, company }: { brand: Brand; c
             <dt>지분구조</dt><dd>{D(c?.ownership_structure)}</dd>
             <dt>권한대리인</dt><dd>{D(c?.auth_name)} {c?.auth_email && `· ${c.auth_email}`}</dd>
             <dt>PEP</dt><dd>본인/가족 {c?.pep_q1 === "yes" ? "⚠️ 예" : "아니오"} · 제재 {c?.pep_q2 === "yes" ? "⚠️ 예" : "아니오"}</dd>
-            <dt>Payoneer</dt><dd>{{ active: "개설완료", applied: "신청중", none: "미개설" }[c?.payoneer_status ?? "none"] ?? D(c?.payoneer_status)}{c?.payoneer_email && ` · ${c.payoneer_email}`}</dd>
+            <dt>핑퐁페이먼트</dt><dd>{{ active: "개설완료", applied: "신청중", none: "미개설" }[c?.payoneer_status ?? "none"] ?? D(c?.payoneer_status)}{c?.payoneer_email && ` · ${c.payoneer_email}`}</dd>
           </div>
         )}
 

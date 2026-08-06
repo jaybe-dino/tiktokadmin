@@ -19,7 +19,7 @@ const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", 
 const STEP_VIEW: Record<number, [string, string][]> = {
   1: [["회사명(한글)", "company_name_kr"], ["회사명(영문)", "company_name_en"], ["사업자형태", "company_type"], ["등록국가", "company_country"], ["법인등록일", "company_reg_date"], ["사업자번호", "company_reg_number"], ["담당자", "contact_name"], ["담당이메일", "contact_email"], ["담당연락처", "contact_phone"], ["주소(한글)", "address_kr"], ["주소(영문)", "address_en"], ["운영주소", "op_address_en"], ["브랜드명(한글)", "shop_name_kr"], ["브랜드명(영문)", "shop_name_en"], ["카테고리", "product_category"], ["판매채널", "sales_channel_url"], ["로고", "brand_logo_url"], ["대표자(영문)", "ubo_full_name"], ["직책", "ubo_title"], ["사업자등록증(영)", "doc_biz_reg_en_url"], ["사업자등록증(한)", "doc_biz_reg_kr_url"], ["법인등기부", "doc_corp_reg_kr_url"]],
   2: [],
-  3: [["지분구조", "ownership_structure"], ["대표자여권", "rep_passport_front_url"], ["신분증앞", "rep_id_front_url"], ["신분증뒤", "rep_id_back_url"], ["거주지증명", "rep_address_proof_url"], ["Payoneer상태", "payoneer_status"], ["Payoneer이메일", "payoneer_email"], ["Payoneer메모", "payoneer_note"]],
+  3: [["지분구조", "ownership_structure"], ["대표자여권", "rep_passport_front_url"], ["신분증앞", "rep_id_front_url"], ["신분증뒤", "rep_id_back_url"], ["거주지증명", "rep_address_proof_url"], ["핑퐁상태", "payoneer_status"], ["핑퐁이메일", "payoneer_email"], ["핑퐁메모", "payoneer_note"]],
 };
 const READY: Record<string, string> = { none: "없음", preparing: "준비중", ready: "완료" };
 const LOGI_OPT: Record<string, string> = { self_delivery: "직배송", local_warehouse: "현지 물류창고", flash_intro: "플래시 소개" };

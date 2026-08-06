@@ -299,7 +299,7 @@ function Step3({ v, set, disabled }: { v: Record<string, string>; set: (k: strin
       <Card title="④ 대표자 거주지 증명서류" desc="최근 12개월 이내 발행, 대표자 성명·주소가 함께 표시된 서류 1부 (은행 거래내역서·신용카드 명세서·공과금 고지서·보험 증권 등).">
         <FileField label="거주지 증명서류" req field="rep_address_proof" k="rep_address_proof_url" {...{ v, set, disabled }} />
       </Card>
-      <Card title="⑤ Payoneer 가입 여부" desc="해외 정산을 위해 Payoneer 계정이 필요합니다.">
+      <Card title="⑤ 핑퐁페이먼트(PingPong) 가입 여부" desc="해외 정산을 위해 PingPong Payments 계정이 필요합니다.">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
           {[["registered", "가입 완료", "이미 계정이 있고 이메일 입력 가능"], ["pending", "신청 중", "가입 절차 진행 중"], ["none", "아직 없음", "가이드가 필요합니다"]].map(([val, label, desc]) => {
             const on = (v.payoneer_status || "none") === val;
@@ -315,7 +315,7 @@ function Step3({ v, set, disabled }: { v: Record<string, string>; set: (k: strin
           })}
         </div>
         <Grid>
-          <F label="Payoneer 이메일 (가입된 경우)" type="email" k="payoneer_email" placeholder="payoneer@example.com" {...{ v, set, disabled }} />
+          <F label="핑퐁페이먼트 이메일 (가입된 경우)" type="email" k="payoneer_email" placeholder="pingpong@example.com" {...{ v, set, disabled }} />
           <F label="메모 (선택)" k="payoneer_note" {...{ v, set, disabled }} />
         </Grid>
       </Card>
