@@ -235,9 +235,10 @@ export const ONBOARDING_DEFAULTS = {
   live_qty: 4,
   features: ["시딩 20건 · 라이브 4건", "인증 · 물류 관리", "마케팅 전략 컨설팅", "전담 CS · 발주 관리", "제품 등록 번역 초안"],
   op_tags: ["인증물류", "마케팅컨설팅", "전담CS", "전담발주", "번역초안"],
+  // 개별 단가는 공개 제안서에 표기하지 않음(합계 상당만 노출) — qty 는 수량만.
   value_items: [
-    { label: "시딩", qty: "20건 × 3만", amount: 600_000 },
-    { label: "라이브 커머스", qty: "4건 × 10만", amount: 400_000 },
+    { label: "시딩", qty: "20건", amount: 600_000 },
+    { label: "라이브 커머스", qty: "4건", amount: 400_000 },
     { label: "인증 · 물류 관리", amount: 500_000 },
     { label: "마케팅 전략 컨설팅", amount: 1_000_000 },
     { label: "전담 CS 매니저", amount: 1_000_000 },

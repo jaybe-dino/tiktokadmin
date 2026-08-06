@@ -156,9 +156,10 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
 
       {/* 상당 구성 가치 */}
       <Card title={`상당 구성 가치 명세 (${d.value_items.length})`}>
+        <div style={{ fontSize: 11, color: "var(--ink3)", marginBottom: 8 }}>공개 제안서에는 <b>합계(상당)</b>만 표시되고 항목별 개별 단가는 표기되지 않습니다.</div>
         <ValueItemsEditor items={d.value_items} on={(v) => set("value_items", v)} />
         <div style={{ marginTop: 10, maxWidth: 260 }}>
-          <F label="합계(상당, 원)" v={d.value_total?.toString() ?? ""} on={(v) => set("value_total", numOrNull(v))} />
+          <F label="합계(상당, 원 · 공개 표시)" v={d.value_total?.toString() ?? ""} on={(v) => set("value_total", numOrNull(v))} />
         </div>
       </Card>
 
@@ -255,20 +256,18 @@ function TitleDescEditor<T extends { title: string; desc?: string }>({ label, it
   );
 }
 
-// ── 상당 구성 가치(라벨 · 수량 · 금액) ──
+// ── 상당 구성 가치(라벨 · 수량) — 개별 단가는 공개 제안서에 표기하지 않음(합계 상당만 노출) ──
 function ValueItemsEditor({ items, on }: { items: ProposalValueItem[]; on: (v: ProposalValueItem[]) => void }) {
   const upd = (i: number, patch: Partial<ProposalValueItem>) => on(items.map((it, j) => (j === i ? { ...it, ...patch } : it)));
-  const num = (v: string) => Number(v.replace(/[^0-9]/g, "")) || 0;
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr 1fr auto", gap: 6, fontSize: 11, color: "var(--ink3)" }}>
-        <span>항목</span><span>수량/비고</span><span>금액(원)</span><span />
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr auto", gap: 6, fontSize: 11, color: "var(--ink3)" }}>
+        <span>항목</span><span>수량(선택)</span><span />
       </div>
       {items.map((it, i) => (
-        <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr 1fr auto", gap: 6, alignItems: "center" }}>
+        <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr auto", gap: 6, alignItems: "center" }}>
           <input className="f" value={it.label} onChange={(e) => upd(i, { label: e.target.value })} placeholder="예: 시딩" />
-          <input className="f" value={it.qty ?? ""} onChange={(e) => upd(i, { qty: e.target.value })} placeholder="예: 20건 × 3만" />
-          <input className="f" value={it.amount ? String(it.amount) : ""} onChange={(e) => upd(i, { amount: num(e.target.value) })} placeholder="600000" />
+          <input className="f" value={it.qty ?? ""} onChange={(e) => upd(i, { qty: e.target.value })} placeholder="예: 20건" />
           <button className="btn sm" onClick={() => on(items.filter((_, j) => j !== i))} style={{ color: "#e03131" }}>✕</button>
         </div>
       ))}

@@ -5,8 +5,10 @@ import PrintBar from "./PrintBar";
 export const dynamic = "force-dynamic";
 
 const won = (n: number | null | undefined) => (n == null ? "" : "₩" + Number(n).toLocaleString("ko-KR"));
-// 원 → "N만" (상당 구성 가치 표기).
+// 원 → "N만" (상당 구성 가치 합계 표기).
 const man = (n: number | null | undefined) => (n == null ? "" : Math.round(Number(n) / 10000).toLocaleString("ko-KR") + "만");
+// 수량 문구에서 개별 단가(× N만/원) 제거 — "20건 × 3만" → "20건".
+const stripPrice = (q: string | null | undefined) => (q || "").replace(/\s*[×xX*]\s*[\d,]+\s*만원?/g, "").trim();
 
 const TRACK_SUMMARY: Record<string, string> = { onboarding: "온보딩 트랙 제안 요약", mall: "멀티몰 트랙 제안 요약", marketing: "마케팅 트랙 제안 요약" };
 const TRACK_BADGE: Record<string, string> = { onboarding: "ONBOARDING TRACK", mall: "MULTI-MALL TRACK", marketing: "MARKETING TRACK" };
@@ -139,13 +141,15 @@ function PricingSection({ d }: { d: ProposalDoc }) {
           <div className="pp-card pp-value">
             <div className="pp-value-head"><b>상당 구성 가치</b>{d.value_total != null && <span className="pp-value-strike"><s>{won(d.value_total)}</s> 상당</span>}</div>
             <div className="pp-value-list">
-              {d.value_items.map((v, i) => (
-                <div key={i} className="pp-value-row">
-                  <span className="pp-value-label">{v.label}</span>
-                  {v.qty ? <span className="pp-value-qty">{v.qty}</span> : <span />}
-                  <b className="pp-value-amt">{man(v.amount)}</b>
-                </div>
-              ))}
+              {d.value_items.map((v, i) => {
+                const qty = stripPrice(v.qty);
+                return (
+                  <div key={i} className="pp-value-row">
+                    <span className="pp-value-label">{v.label}</span>
+                    {qty ? <span className="pp-value-qty">{qty}</span> : null}
+                  </div>
+                );
+              })}
             </div>
             {d.value_total != null && (
               <div className="pp-value-total"><span>합계 (상당)</span><b>{man(d.value_total)}원</b></div>
@@ -401,10 +405,9 @@ function css(accent: string): string {
   .pp-value-strike{color:#c9a7b8;font-weight:800;font-size:14px;}
   .pp-value-strike s{text-decoration:line-through;}
   .pp-value-list{margin:6px 0;}
-  .pp-value-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid #f7e6ef;}
+  .pp-value-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid #f7e6ef;}
   .pp-value-label{font-weight:700;font-size:14px;}
   .pp-value-qty{color:var(--ink3);font-size:12px;}
-  .pp-value-amt{font-weight:900;font-size:15px;}
   .pp-value-total{display:flex;justify-content:space-between;align-items:center;background:var(--acc);color:#fff;border-radius:12px;padding:14px 18px;margin-top:12px;font-weight:900;}
   .pp-value-total b{font-size:20px;}
   /* 로드맵 스텝 */
