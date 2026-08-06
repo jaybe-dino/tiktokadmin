@@ -19,6 +19,47 @@ export const FIELD_RE = {
   id: [/^id$/i],
 };
 
+// CSV 매핑 UI 대상 필드(라벨) — target field → 한글 라벨.
+export const IMPORT_TARGETS: { key: string; label: string; group: RegExp[] | null }[] = [
+  { key: "brand_name", label: "브랜드명", group: FIELD_RE.brand },
+  { key: "email", label: "이메일", group: FIELD_RE.email },
+  { key: "phone", label: "전화번호", group: FIELD_RE.phone },
+  { key: "contact_name", label: "담당자명", group: FIELD_RE.contact },
+  { key: "biz_no", label: "사업자번호", group: FIELD_RE.biz_no },
+  { key: "category", label: "카테고리", group: FIELD_RE.category },
+  { key: "brand_url", label: "판매채널 URL", group: FIELD_RE.url },
+  { key: "memo", label: "메모", group: FIELD_RE.message },
+];
+
+/** 헤더 목록 → 자동 감지된 매핑(target → header). UI 프리필용. */
+export function detectHeaderMap(headers: string[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const t of IMPORT_TARGETS) {
+    if (!t.group) continue;
+    for (const re of t.group) {
+      const h = headers.find((x) => re.test(x));
+      if (h) { map[t.key] = h; break; }
+    }
+  }
+  return map;
+}
+
+/** 명시 컬럼맵(target→header)으로 한 행을 ImportRecord 로. 비매핑 필드는 자동감지 폴백. */
+export function recordFromMap(row: Record<string, string>, columnMap: Record<string, string>): ImportRecord {
+  const auto = detectImportRecord(row);
+  const g = (k: keyof ImportRecord): string | undefined => {
+    const h = columnMap[k as string];
+    if (h && row[h]?.trim()) return row[h].trim();
+    return auto[k] as string | undefined;
+  };
+  return {
+    ...auto,
+    email: g("email"), phone: g("phone"), biz_no: g("biz_no"),
+    brand_name: g("brand_name"), contact_name: g("contact_name"),
+    category: g("category"), brand_url: g("brand_url"), memo: g("memo"),
+  };
+}
+
 /** 우선순위 패턴군에서 첫 non-empty 값. */
 export function pick(row: Record<string, unknown>, groups: RegExp[]): string | undefined {
   for (const re of groups) {

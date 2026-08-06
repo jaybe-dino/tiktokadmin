@@ -2,11 +2,12 @@
 
 // 리드 가져오기 v3.1 — ② CSV 업로드 · ③ 수동 등록 카드 (버튼 전부 실동작 배선)
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GRADES, PLANS, PLAN_LABELS, STATE_LABELS, STATES } from "@/lib/types";
 import { importCsvAction, registerLeadAction, type CsvImportSummary } from "./actions";
+import { IMPORT_TARGETS, detectHeaderMap } from "@/lib/field-detect";
 
 const NEW_GROUP = "__new__";
 
@@ -23,9 +24,17 @@ export function CsvUploadCard({ today, groups }: { today: string; groups: GroupO
   const [groupTouched, setGroupTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CsvImportSummary | null>(null);
+  const [colMap, setColMap] = useState<Record<string, string>>({});
+  const [mapTouched, setMapTouched] = useState(false);
 
   const srcLabel = (s: string) => (s === "expo" ? "박람회" : s === "meta_ads" ? "메타 광고" : "제휴 소개");
   const rowCount = csv.trim() ? Math.max(csv.trim().split(/\r?\n/).length - 1, 0) : 0;
+  // CSV 첫 줄 → 헤더 목록(따옴표/공백 정리). 자동 매핑 프리필.
+  const headers = csv.trim() ? csv.trim().split(/\r?\n/)[0].split(",").map((h) => h.trim().replace(/^"|"$/g, "")) : [];
+  useEffect(() => {
+    if (headers.length && !mapTouched) setColMap(detectHeaderMap(headers));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [csv]);
 
   const loadFile = async (f: File | undefined | null) => {
     if (!f) return;
@@ -87,12 +96,33 @@ export function CsvUploadCard({ today, groups }: { today: string; groups: GroupO
         이 그룹은 <b>발송 센터</b>의 대량 메일·문자 대상으로 바로 선택할 수 있어요
       </div>
 
+      {/* 컬럼 매핑 — 어떤 CSV 양식이든 대상 필드에 맞춰 지정. 자동감지 프리필 + 수정 가능. */}
+      {headers.length > 0 && (
+        <details style={{ marginTop: 10 }} open>
+          <summary style={{ fontSize: 11.5, color: "var(--ink3)", cursor: "pointer", fontWeight: 600 }}>
+            컬럼 매핑 확인 · 수정 (자동감지됨 — 다른 양식이면 여기서 지정)
+          </summary>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 8px", marginTop: 8, alignItems: "center" }}>
+            {IMPORT_TARGETS.map((t) => (
+              <span key={t.key} style={{ display: "contents" }}>
+                <label style={{ fontSize: 11.5, color: "var(--ink2)" }}>{t.label}{["brand_name"].includes(t.key) && " *"}</label>
+                <select className="f" value={colMap[t.key] ?? ""} onChange={(e) => { setMapTouched(true); setColMap((m) => ({ ...m, [t.key]: e.target.value })); }} style={{ fontSize: 12 }}>
+                  <option value="">— 없음 —</option>
+                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </span>
+            ))}
+          </div>
+          <div className="note" style={{ marginTop: 6, fontSize: 11 }}>브랜드명·이메일·전화 중 하나 이상이 매핑돼야 등록됩니다.</div>
+        </details>
+      )}
+
       <button
         className="btn pri" style={{ width: "100%", marginTop: 10 }}
         disabled={busy || !csv.trim()}
         onClick={async () => {
           setBusy(true);
-          const r = await importCsvAction(csv, source, group);
+          const r = await importCsvAction(csv, source, group, colMap);
           setBusy(false);
           setResult(r);
           if (r.ok) router.refresh();

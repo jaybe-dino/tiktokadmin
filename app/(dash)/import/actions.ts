@@ -95,22 +95,24 @@ export async function importCsvAction(
   csvText: string,
   defaultSource?: string,
   leadGroup?: string,
+  columnMap?: Record<string, string>,  // target 필드 → CSV 헤더(명시 매핑, 선택)
 ): Promise<CsvImportSummary> {
   const u = await currentUser();
   if (!u) return { ok: false, created: 0, updated: 0, skipped: 0, errors: ["세션 만료"] };
 
   const { parseCsv } = await import("@/lib/csv");
-  const { detectImportRecord } = await import("@/lib/field-detect");
+  const { detectImportRecord, recordFromMap } = await import("@/lib/field-detect");
   const { importBrandRecord } = await import("@/lib/import");
 
   const rows = parseCsv(csvText);
+  const hasMap = columnMap && Object.keys(columnMap).length > 0;
   let created = 0, updated = 0, skipped = 0;
   const errors: string[] = [];
   const ids: string[] = [];
   const createdIds: string[] = [];
 
   for (let i = 0; i < rows.length; i++) {
-    const rec = detectImportRecord(rows[i]);
+    const rec = hasMap ? recordFromMap(rows[i], columnMap!) : detectImportRecord(rows[i]);
     if (!rec.source && defaultSource) rec.source = defaultSource;
     const res = await importBrandRecord(`admin:${u.id}`, rec);
     if (res.ok) {

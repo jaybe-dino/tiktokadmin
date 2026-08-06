@@ -360,10 +360,12 @@ export async function reviewStep(applicationId: string, stepNo: number, decision
   }
   // approve
   await query("UPDATE onb_steps SET status='approved', admin_feedback=$3, reviewed_at=now() WHERE application_id=$1 AND step_no=$2", [applicationId, stepNo, feedback || ""]);
-  // 다음 스텝 잠금해제(잠긴 경우만)
-  if (stepNo < 4) {
+  // 다음 스텝 잠금해제(잠긴 경우만) — 5스텝
+  if (stepNo < 5) {
     await query("UPDATE onb_steps SET status='unlocked', unlocked_at=now() WHERE application_id=$1 AND step_no=$2 AND status='locked'", [applicationId, stepNo + 1]).catch(() => {});
   }
+  // 단계별 개별 승인 즉시 원장 부분 매핑(브랜드 연결 시) — finalize 안 함(전체 승인은 별도).
+  await approveApplication(applicationId, "step-approve", { finalize: false }).catch(() => {});
   return { ok: true };
 }
 
@@ -372,8 +374,11 @@ function certStatus(s: string | undefined): string {
   return s === "ready" || s === "preparing" ? s : "none";
 }
 
-/** 관리자: 신청서 전체 승인 → 모든 KYC 필드를 브랜드 원장에 하나도 빠짐없이 매핑. */
-export async function approveApplication(applicationId: string, by: string): Promise<{ ok: boolean; error?: string; mappedProducts?: number; mappedCountries?: number; mappedContacts?: number }> {
+/** 관리자: 신청서 매핑 → 모든 KYC 필드를 브랜드 원장에 하나도 빠짐없이 반영.
+ *   finalize=true(기본): 신청서/스텝 상태를 approved 로 확정.
+ *   finalize=false: 매핑만(단계별 개별 승인 시 그 시점 데이터를 원장에 즉시 반영). */
+export async function approveApplication(applicationId: string, by: string, opts?: { finalize?: boolean }): Promise<{ ok: boolean; error?: string; mappedProducts?: number; mappedCountries?: number; mappedContacts?: number }> {
+  const finalize = opts?.finalize !== false;
   const app = await getApplicationById(applicationId);
   if (!app) return { ok: false, error: "신청서를 찾을 수 없습니다." };
   const brandId = app.brand_id as string | null;
@@ -505,9 +510,11 @@ export async function approveApplication(applicationId: string, by: string): Pro
       mapped++;
     }
 
-    // ── 5) 신청서/스텝 승인 확정 ──
-    await query("UPDATE onb_applications SET status='approved', admin_memo=CONCAT(admin_memo, E'\n[승인] ', $2::text), updated_at=now() WHERE id=$1", [applicationId, by]);
-    await query("UPDATE onb_steps SET status='approved', reviewed_at=now() WHERE application_id=$1 AND status IN ('submitted','unlocked')", [applicationId]).catch(() => {});
+    // ── 5) 신청서/스텝 승인 확정 (finalize=true 일 때만) ──
+    if (finalize) {
+      await query("UPDATE onb_applications SET status='approved', admin_memo=CONCAT(admin_memo, E'\n[승인] ', $2::text), updated_at=now() WHERE id=$1", [applicationId, by]);
+      await query("UPDATE onb_steps SET status='approved', reviewed_at=now() WHERE application_id=$1 AND status IN ('submitted','unlocked')", [applicationId]).catch(() => {});
+    }
     return { ok: true, mappedProducts: mapped, mappedCountries, mappedContacts };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "매핑 실패" };
