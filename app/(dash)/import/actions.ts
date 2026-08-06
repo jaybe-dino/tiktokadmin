@@ -158,7 +158,9 @@ export interface RegisterLeadResult {
 /** 수동 등록 — 등록 → 사전분석 실행. 중복 판정 키(이메일/전화) 하나만 받아 병합 게이트 경유. */
 export async function registerLeadAction(input: {
   brand_name: string;
-  contact: string; // 이메일 또는 전화 (중복 판정 키)
+  contact?: string; // (구) 이메일 또는 전화 통합 — 하위호환
+  email?: string;   // 신규: 이메일 별도
+  phone?: string;   // 신규: 전화번호 별도
   contact_name?: string;
   source: string;
   lead_group?: string;
@@ -171,10 +173,15 @@ export async function registerLeadAction(input: {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
 
+  // 이메일·전화 분리 입력 우선, 없으면 통합 contact 파싱(하위호환).
   const contact = (input.contact ?? "").trim();
-  const email = contact.includes("@") ? contact : undefined;
-  const phone = !email && /\d{7,}/.test(contact.replace(/\D/g, "")) ? contact : undefined;
-  if (!email && !phone) return { ok: false, error: "이메일 또는 전화 형식을 확인하세요 (중복 판정 키)" };
+  const emailIn = (input.email ?? "").trim();
+  const phoneIn = (input.phone ?? "").trim();
+  const email = emailIn.includes("@") ? emailIn
+    : (contact.includes("@") ? contact : undefined);
+  const phone = /\d{7,}/.test(phoneIn.replace(/\D/g, "")) ? phoneIn
+    : (!email && /\d{7,}/.test(contact.replace(/\D/g, "")) ? contact : undefined);
+  if (!email && !phone) return { ok: false, error: "이메일 또는 전화번호 중 하나 이상 입력하세요 (중복 판정 키)" };
 
   // 기존 서버액션 재사용 — 중복 판정 → 원장 1행 병합 → (신규 시) 웰컴 자동 안내
   const res = await createBrandAction({

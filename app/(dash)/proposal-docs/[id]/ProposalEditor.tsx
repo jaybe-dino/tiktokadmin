@@ -23,7 +23,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
     const r = await saveProposalDocAction({
       id: d.id, title: d.title, subtitle: d.subtitle, brand_name: d.brand_name, brand_logo_url: d.brand_logo_url,
       track: d.track, list_amount: d.list_amount, monthly_amount: d.monthly_amount, fee_pct: d.fee_pct,
-      term_months: d.term_months, term_discount_pct: d.term_discount_pct, features: d.features,
+      term_months: d.term_months, term_discount_pct: d.track === "onboarding" ? null : d.term_discount_pct, features: d.features,
       seeding_qty: d.seeding_qty, live_qty: d.live_qty, op_tags: d.op_tags,
       kpi_tier: d.kpi_tier, kpi_stage: d.kpi_stage, kpi_creator_content: d.kpi_creator_content, kpi_ad_spend: d.kpi_ad_spend,
       products: d.products, creators: d.creators, accent: d.accent,
@@ -75,7 +75,10 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
           <F label="월 금액(원)" v={d.monthly_amount?.toString() ?? ""} on={(v) => set("monthly_amount", numOrNull(v))} />
           <F label="판매 수수료(%)" v={d.fee_pct?.toString() ?? ""} on={(v) => set("fee_pct", numOrNull(v))} />
           <F label="약정 개월" v={d.term_months?.toString() ?? ""} on={(v) => set("term_months", numOrNull(v))} />
-          <F label="약정 추가할인(%)" v={d.term_discount_pct?.toString() ?? ""} on={(v) => set("term_discount_pct", numOrNull(v))} />
+          {/* 온보딩 트랙은 국가당 픽스가 → 6개월 약정 할인 없음(회의 확정). 마케팅/멀티몰만 노출. */}
+          {d.track !== "onboarding"
+            ? <F label="약정 추가할인(%)" v={d.term_discount_pct?.toString() ?? ""} on={(v) => set("term_discount_pct", numOrNull(v))} />
+            : <div style={{ fontSize: 11, color: "var(--ink3)", alignSelf: "end", paddingBottom: 6 }}>온보딩 트랙은 약정 할인 없음(픽스가)</div>}
         </Grid>
         <ListEditor label="기능 체크리스트 (한 줄에 하나)" items={d.features} on={(v) => set("features", v)} placeholder="예: 크리에이터 시딩 20건 · 라이브 4건" />
       </Card>

@@ -145,7 +145,8 @@ export function ManualRegisterCard({ today, groups }: { today: string; groups: G
         setBusy(true);
         const res = await registerLeadAction({
           brand_name: String(f.get("brand_name") ?? ""),
-          contact: String(f.get("contact") ?? ""),
+          email: String(f.get("email") ?? "") || undefined,
+          phone: String(f.get("phone") ?? "") || undefined,
           contact_name: String(f.get("contact_name") ?? "") || undefined,
           source: String(f.get("source") ?? "etc"),
           lead_group: group === NEW_GROUP ? newGroup : group,
@@ -175,8 +176,11 @@ export function ManualRegisterCard({ today, groups }: { today: string; groups: G
       <label className="label">브랜드명 *</label>
       <input name="brand_name" className="f" placeholder="예: 오가닉힐" required />
 
-      <label className="label" style={{ marginTop: 8 }}>이메일 또는 전화 * (중복 판정 키)</label>
-      <input name="contact" className="f" placeholder="contact@brand.com / 010-…" required />
+      <label className="label" style={{ marginTop: 8 }}>이메일 · 전화번호 * (하나 이상 · 중복 판정 키)</label>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+        <input name="email" className="f" type="email" placeholder="contact@brand.com" />
+        <input name="phone" className="f" placeholder="010-1234-5678" />
+      </div>
 
       <label className="label" style={{ marginTop: 8 }}>담당자명</label>
       <input name="contact_name" className="f" placeholder="홍길동 매니저" />

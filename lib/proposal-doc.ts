@@ -108,7 +108,7 @@ export async function saveProposal(input: ProposalInput & { id?: string }, by: s
         list_amount, monthly_amount, fee_pct, term_months, term_discount_pct,
         features, seeding_qty, live_qty, op_tags, kpi_tier, kpi_stage, kpi_creator_content, kpi_ad_spend,
         products, creators, accent, status, created_by)
-     VALUES ($1,$2,COALESCE($3,'틱톡샵 온보딩 및 마케팅 협업 제안서'),COALESCE($4,'크리에이터 커머스를 통한 브랜드 성장'),
+     VALUES ($1,$2,COALESCE($3,'틱톡샵 운영대행 제안서'),COALESCE($4,'크리에이터 커머스 운영대행을 통한 브랜드 성장'),
         COALESCE($5,''),$6,COALESCE($7,'onboarding'),
         $8,$9,$10,$11,$12,COALESCE($13::jsonb,'[]'),$14,$15,COALESCE($16::jsonb,'[]'),$17,$18,$19,$20,
         COALESCE($21::jsonb,'[]'),COALESCE($22::jsonb,'[]'),$23,COALESCE($24,'draft'),$25)
