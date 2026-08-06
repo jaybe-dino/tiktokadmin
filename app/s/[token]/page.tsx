@@ -1,5 +1,5 @@
 import { getSurveyByToken } from "@/lib/repo/card";
-import { questionsForKind } from "@/lib/survey";
+import { getQuestions } from "@/lib/survey-db";
 import SurveyForm from "./SurveyForm";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +48,7 @@ export default async function SurveyPage({ params }: { params: Promise<{ token: 
             : "미팅에서 논의한 내용을 바탕으로 맞춤 제안을 준비하기 위한 설문입니다. 1분이면 됩니다."}
         </p>
       </div>
-      <SurveyForm token={token} questions={questionsForKind(survey.kind)} />
+      <SurveyForm token={token} questions={await getQuestions(survey.kind)} />
     </Shell>
   );
 }

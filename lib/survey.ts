@@ -6,6 +6,7 @@ export interface SurveyQuestion {
   type: "select" | "multi" | "text" | "short" | "consent"; // short: 한 줄 입력(회사정보)
   options?: string[];
   placeholder?: string;
+  section?: string; // 주제 구획(DB 문항 뱅크에서 채워짐)
 }
 
 export const POST_MEETING_QUESTIONS: SurveyQuestion[] = [

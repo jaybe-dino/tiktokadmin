@@ -47,9 +47,16 @@ export default function SurveyForm({ token, questions }: { token: string; questi
     );
   }
 
+  // 섹션(주제) 순서를 등장 순으로 보존해 그룹 렌더.
+  const sections: string[] = [];
+  for (const q of questions) { const s = q.section ?? ""; if (!sections.includes(s)) sections.push(s); }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {questions.map((q) => (
+      {sections.map((sec) => (
+        <div key={sec || "_"} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {sec && <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".04em", color: "#c0326a", borderBottom: "1px solid #f2dbe6", paddingBottom: 6 }}>{sec}</div>}
+          {questions.filter((q) => (q.section ?? "") === sec).map((q) => (
         <div key={q.key}>
           <label style={{ display: "block", fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{q.label}</label>
 
@@ -95,6 +102,8 @@ export default function SurveyForm({ token, questions }: { token: string; questi
               동의합니다
             </label>
           )}
+        </div>
+          ))}
         </div>
       ))}
 

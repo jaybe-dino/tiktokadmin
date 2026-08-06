@@ -53,6 +53,7 @@ const GROUPS: Group[] = [
     { href: "/channels", label: "유입 소스·자동발송", ic: "🔑" },
     { href: "/accounts", label: "계정·권한", ic: "👤" },
     { href: "/settings", label: "설정·조직", ic: "⚙️" },
+    { href: "/settings/survey", label: "설문 문항 관리", ic: "📝" },
     { href: "/guide", label: "사용 가이드", ic: "📖" },
   ]},
 ];

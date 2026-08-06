@@ -8,6 +8,8 @@ import { query, queryOne } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
 import { createSurvey } from "@/lib/repo/card";
 import { env } from "@/lib/env";
+import { aiEnabled, aiText } from "@/lib/ai";
+import { getQuestions } from "@/lib/survey-db";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -80,4 +82,118 @@ GloveK 드림`;
 
   revalidatePath(`/brand/${brandId}`);
   return { ok: true, url, draftId: row.id };
+}
+
+// ─────────────────────────────────────────────────────────────
+// AI 설문 인사이트 — 응답을 구조화 추출해 survey_insights 저장 + 브랜드 원장에 반영(빈 값만).
+//   허위 생성 금지: 응답에 없는 값은 비운다. 성과·판정이 아닌 "브랜드 이해" 데이터만.
+// ─────────────────────────────────────────────────────────────
+export interface SurveyInsight {
+  summary_md?: string;
+  category?: string;
+  target_countries?: string[];
+  budget_band?: string;
+  seeding_capacity?: string;
+  certifications?: string;
+  competitors?: string;
+  target_customer?: string;
+  goal?: string;
+  content_guideline?: string;
+  decision_maker?: string;
+}
+const COUNTRY_LABELS = ["미국", "베트남", "태국", "싱가포르", "필리핀", "말레이시아", "인도네시아", "일본"];
+
+function looseJson<T>(s: string): T | null {
+  try { return JSON.parse(s) as T; } catch { /* try slice */ }
+  const m = s.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]) as T; } catch { /* noop */ } }
+  return null;
+}
+
+/** 설문(surveyId) 응답을 AI 로 추출·요약하고 survey_insights 저장 + 브랜드 빈 필드 반영. by=행위자. */
+export async function extractAndApplyInsight(surveyId: string, by: string): Promise<{ ok: boolean; error?: string; insight?: SurveyInsight }> {
+  if (!aiEnabled()) return { ok: false, error: "ANTHROPIC_API_KEY 미설정" };
+  const s = await queryOne<{ id: string; brand_id: string; kind: string; answers: Record<string, unknown> | null }>(
+    "SELECT id, brand_id, kind, answers FROM surveys WHERE id=$1", [surveyId]).catch(() => null);
+  if (!s || !s.brand_id) return { ok: false, error: "설문을 찾을 수 없습니다." };
+  const answers = s.answers ?? {};
+  if (Object.keys(answers).length === 0) return { ok: false, error: "응답 내용이 없습니다." };
+
+  // 문항 라벨 + 응답을 사람이 읽는 형태로.
+  const questions = await getQuestions(s.kind);
+  const lines = questions
+    .map((q) => {
+      const v = answers[q.key];
+      if (v == null || v === "" || (Array.isArray(v) && v.length === 0)) return null;
+      return `${q.label}\n→ ${Array.isArray(v) ? v.join(", ") : String(v)}`;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  if (!lines) return { ok: false, error: "요약할 응답이 없습니다." };
+
+  const system =
+    "너는 글로벌 커머스 대행사 GloveK 의 브랜드 애널리스트다. 브랜드 사전 설문 응답을 읽고 " +
+    "운영·마케팅에 쓸 핵심 정보를 구조화한다. 반드시 유효한 JSON 하나만 출력(코드펜스·설명 금지). " +
+    "응답에 없는 값은 지어내지 말고 비워라(빈 문자열 또는 생략). 개인정보(연락처·사업자번호)는 담지 마라.";
+  const user =
+    `아래 설문 응답을 다음 JSON 스키마로 요약·구조화해줘.\n` +
+    `국가는 [${COUNTRY_LABELS.join(", ")}] 중 언급된 것만 배열로.\n\n` +
+    `{"summary_md":"3~5문장 한국어 요약",` +
+    `"category":"제품 카테고리(예: 스킨케어)","target_countries":["국가"],` +
+    `"budget_band":"월/캠페인 예산대","seeding_capacity":"시딩 가능 규모",` +
+    `"certifications":"보유 인증·클레임","competitors":"경쟁/롤모델 브랜드",` +
+    `"target_customer":"주요 타겟 고객","goal":"브랜드가 원하는 상태·목표",` +
+    `"content_guideline":"콘텐츠 강조/금지","decision_maker":"의사결정·소통 창구"}\n\n` +
+    `[설문 응답]\n${lines.slice(0, 6000)}`;
+
+  let insight: SurveyInsight | null = null;
+  try {
+    const text = await aiText({ system, user, maxTokens: 1200 });
+    insight = text ? looseJson<SurveyInsight>(text) : null;
+  } catch (e) {
+    return { ok: false, error: `AI 분석 실패: ${(e as Error).message}` };
+  }
+  if (!insight) return { ok: false, error: "AI 응답 파싱 실패." };
+
+  // survey_insights 저장.
+  await query(
+    `INSERT INTO survey_insights (brand_id, survey_id, extracted, summary_md, applied, created_by)
+     VALUES ($1,$2,$3::jsonb,$4,true,$5)`,
+    [s.brand_id, s.id, JSON.stringify(insight), insight.summary_md ?? null, by],
+  ).catch((e) => console.error("[survey] 인사이트 저장 실패:", (e as Error).message));
+
+  // 브랜드 원장 반영(빈 값만 — 어드민 보정값 우선).
+  if (insight.category) {
+    await query("UPDATE brands SET category=$2 WHERE id=$1 AND (category IS NULL OR category='')",
+      [s.brand_id, insight.category]).catch(() => {});
+  }
+  const countries = (insight.target_countries ?? []).filter((c) => COUNTRY_LABELS.includes(c));
+  if (countries.length > 0) {
+    await query(
+      "UPDATE brands SET countries=$2 WHERE id=$1 AND (countries IS NULL OR cardinality(countries)=0)",
+      [s.brand_id, countries]).catch(() => {});
+  }
+  if (insight.category || insight.target_customer) {
+    await query(
+      `INSERT INTO brand_company (brand_id, product_category, source)
+       VALUES ($1, NULLIF($2,''), 'manual')
+       ON CONFLICT (brand_id) DO UPDATE SET
+         product_category = COALESCE(NULLIF(brand_company.product_category,''), EXCLUDED.product_category, brand_company.product_category),
+         updated_at = now()`,
+      [s.brand_id, insight.category ?? ""]).catch(() => {});
+  }
+
+  return { ok: true, insight };
+}
+
+/** 어드민 버튼 — 설문 AI 분석·반영. */
+export async function extractSurveyInsightAction(surveyId: string): Promise<{ ok: boolean; error?: string; insight?: SurveyInsight }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const r = await extractAndApplyInsight(surveyId, `admin:${u.id}`);
+  if (r.ok) {
+    const s = await queryOne<{ brand_id: string }>("SELECT brand_id FROM surveys WHERE id=$1", [surveyId]).catch(() => null);
+    if (s) revalidatePath(`/brand/${s.brand_id}`);
+  }
+  return r;
 }

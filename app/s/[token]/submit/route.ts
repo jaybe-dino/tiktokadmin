@@ -74,6 +74,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     await query("UPDATE brands SET last_contact_at=now() WHERE id=$1", [survey.brand_id])
       .catch(() => {});
 
+    // ── AI 인사이트: 응답을 구조화 추출해 브랜드 원장에 반영(빈 값만). 키 없으면 스킵, 실패해도 제출 성공 유지. ──
+    try {
+      const { extractAndApplyInsight } = await import("@/app/(dash)/brand360/survey-actions");
+      await extractAndApplyInsight(survey.id, "survey:auto");
+    } catch (e) {
+      console.error("[survey] AI 인사이트 추출 실패(제출은 정상):", (e as Error).message);
+    }
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
