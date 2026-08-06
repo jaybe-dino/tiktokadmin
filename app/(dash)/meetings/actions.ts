@@ -1,6 +1,7 @@
 "use server";
 
 // meetings 화면 전용 서버액션. @/app/actions.ts 는 수정하지 않는다(충돌 방지).
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
@@ -8,6 +9,63 @@ import { currentUser } from "@/lib/auth";
 export interface MeetingActionResult {
   ok: boolean;
   error?: string;
+}
+
+/** 미팅 일정 수동 추가 — 줌 자동수집과 별개로 캘린더에 예약 일정 등록(status='scheduled').
+ *   scheduled_at 은 datetime-local(KST) 문자열. 줌 연동 미팅과 구분 위해 zoom_uuid=manual:<uuid>. */
+export async function createMeetingAction(input: {
+  brand_id?: string;
+  topic: string;
+  scheduled_at: string;   // "YYYY-MM-DDTHH:mm" (KST 로 해석)
+  host_email?: string;
+  duration_min?: number;
+  zoom_join_url?: string;
+}): Promise<MeetingActionResult & { id?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const topic = (input.topic ?? "").trim();
+  if (!topic) return { ok: false, error: "미팅 제목을 입력하세요." };
+  const raw = (input.scheduled_at ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) return { ok: false, error: "일시를 선택하세요." };
+  const scheduledAt = `${raw}:00+09:00`; // KST 로 저장
+
+  let brandId: string | null = null;
+  if (input.brand_id) {
+    const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]).catch(() => null);
+    if (!b) return { ok: false, error: "존재하지 않는 브랜드입니다." };
+    brandId = b.id;
+  }
+  const join = (input.zoom_join_url ?? "").trim();
+  if (join && !/^https?:\/\//i.test(join)) return { ok: false, error: "줌 링크는 http(s):// 로 시작해야 합니다." };
+  const dur = input.duration_min && input.duration_min > 0 ? Math.round(input.duration_min) : null;
+
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO meetings (brand_id, zoom_meeting_id, zoom_uuid, topic, scheduled_at, host_email, host_admin_id, duration_min, zoom_join_url, status)
+     VALUES ($1,'manual',$2,$3,$4,$5,$6,$7,$8,'scheduled') RETURNING id`,
+    [brandId, `manual:${randomUUID()}`, topic, scheduledAt, (input.host_email ?? "").trim() || null, u.id, dur, join || null],
+  ).catch((e) => { console.error("[meetings] 생성 실패:", (e as Error).message); return null; });
+  if (!row) return { ok: false, error: "미팅 생성 실패" };
+
+  if (brandId) {
+    await query(
+      `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
+       VALUES ($1,'manual','contact_logged',$2,now())`,
+      [brandId, JSON.stringify({ channel: "meeting", meeting_id: row.id, kind: "scheduled", by: `admin:${u.id}` })],
+    ).catch(() => {});
+    revalidatePath(`/brand/${brandId}`);
+  }
+  revalidatePath("/meetings");
+  return { ok: true, id: row.id };
+}
+
+/** 미팅 취소 — 수동/예약 미팅을 취소 상태로. */
+export async function cancelMeetingAction(meetingId: string): Promise<MeetingActionResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!meetingId?.trim()) return { ok: false, error: "미팅을 선택하세요." };
+  await query("UPDATE meetings SET status='canceled' WHERE id=$1 AND status IN ('scheduled','received')", [meetingId]);
+  revalidatePath("/meetings");
+  return { ok: true };
 }
 
 /** 매칭 실패(unmatched·미매칭) 미팅을 브랜드에 수동 연결. brand_id 세팅 + 파이프라인 진입(received). */

@@ -3,6 +3,7 @@ import ScreenHeader from "@/components/ScreenHeader";
 import { query } from "@/lib/db";
 import ConnectBrand from "./ConnectBrand";
 import MeetingEditor, { type CalendarMeeting } from "./MeetingEditor";
+import AddMeetingButton from "./AddMeetingButton";
 
 export const dynamic = "force-dynamic";
 
@@ -141,6 +142,12 @@ export default async function MeetingsPage() {
           </div>
         }
       />
+
+      {/* 일정 추가 */}
+      <div className="bar" style={{ marginBottom: 6 }}>
+        <AddMeetingButton brands={brandList} />
+        <span style={{ color: "var(--ink3)", fontSize: 12, marginLeft: 8 }}>줌 자동수집과 별개로 수동 일정을 캘린더에 추가합니다.</span>
+      </div>
 
       {/* 주간 캘린더 그리드 */}
       <div className="cal">
