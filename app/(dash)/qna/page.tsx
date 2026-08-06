@@ -1,7 +1,9 @@
 import ScreenHeader from "@/components/ScreenHeader";
 import QnaKnowledgeTable, { type QnaRow } from "@/components/QnaKnowledgeTable";
 import QnaCreateButton from "@/components/QnaCreateButton";
+import QnaPublicBar from "@/components/QnaPublicBar";
 import { allQna } from "@/lib/repo/global";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,10 @@ export default async function QnaPage() {
         <div className="bar" style={{ margin: 0 }}>
           <QnaCreateButton categories={categories} />
         </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <QnaPublicBar publicBase={env.portalUrl} />
       </div>
 
       <div className="grid g31">

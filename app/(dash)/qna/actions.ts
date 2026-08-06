@@ -35,6 +35,57 @@ export async function createQnaAction(input: {
   return { ok: true };
 }
 
+/**
+ * 일괄 가져오기(붙여넣기) — 외부 FAQ 문서를 붙여넣어 다건 등록.
+ *   형식(유연): `[카테고리]` 줄로 카테고리 지정, `Q:`/`Q.` 로 질문, `A:`/`A.` 로 답변(다음 Q 전까지 다중행).
+ *   approve=true 면 바로 승인(외부 공개 노출). 중복(같은 질문)은 건너뜀.
+ */
+export async function importQnaAction(input: { text: string; approve?: boolean }): Promise<QnaActionResult & { added?: number; skipped?: number }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const approve = input.approve !== false;
+  if (approve && !isLead(u.role)) return { ok: false, error: "즉시 공개(승인) 등록은 파트장/대표만 — 승인 없이 등록하려면 체크 해제" };
+  const text = (input.text ?? "").trim();
+  if (!text) return { ok: false, error: "가져올 내용을 붙여넣으세요." };
+
+  // 파싱: [카테고리] / Q: / A: 블록.
+  const items: { category: string; question: string; answer: string }[] = [];
+  let cat = "";
+  let cur: { question: string; answer: string } | null = null;
+  let mode: "q" | "a" | null = null;
+  const push = () => { if (cur && cur.question.trim()) items.push({ category: cat, question: cur.question.trim(), answer: cur.answer.trim() }); cur = null; mode = null; };
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    const catM = line.match(/^\s*[\[【](.+?)[\]】]\s*$/);
+    if (catM) { push(); cat = catM[1].trim(); continue; }
+    const qM = line.match(/^\s*(?:Q|질문)\s*[:.．]\s*(.*)$/i);
+    if (qM) { push(); cur = { question: qM[1], answer: "" }; mode = "q"; continue; }
+    const aM = line.match(/^\s*(?:A|답변|답)\s*[:.．]\s*(.*)$/i);
+    if (aM) { if (!cur) cur = { question: "", answer: "" }; cur.answer = aM[1]; mode = "a"; continue; }
+    // 연속 행 — 현재 모드에 이어 붙임.
+    if (cur && mode === "q") cur.question += (cur.question ? " " : "") + line;
+    else if (cur && mode === "a") cur.answer += (cur.answer ? "\n" : "") + line;
+  }
+  push();
+
+  if (items.length === 0) return { ok: false, error: "질문을 찾지 못했습니다 — 각 항목을 'Q: 질문' / 'A: 답변' 형식으로 작성하세요." };
+
+  let added = 0, skipped = 0;
+  for (const it of items) {
+    const dup = await queryOne<{ id: string }>("SELECT id FROM qna_entries WHERE question=$1", [it.question]).catch(() => null);
+    if (dup) { skipped++; continue; }
+    const ok = await queryOne<{ id: string }>(
+      `INSERT INTO qna_entries (question, answer, category, approved, source_ref)
+       VALUES ($1,$2,$3,$4,'import') RETURNING id`,
+      [it.question, it.answer, it.category, approve && Boolean(it.answer.trim())],
+    ).catch(() => null);
+    if (ok) added++; else skipped++;
+  }
+  revalidatePath("/qna");
+  revalidatePath("/faq");
+  return { ok: true, added, skipped };
+}
+
 /** 답변 작성/수정 — 담당자. 승인 상태는 건드리지 않음(파트장 승인 게이트 유지). */
 export async function saveQnaAnswerAction(id: string, answer: string): Promise<QnaActionResult> {
   const u = await currentUser();
