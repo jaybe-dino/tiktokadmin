@@ -37,6 +37,7 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
   for (const p of products) productCountries[p.id] = await getProductCountries(p.id);
 
   return (
+    <div style={{ background: "#fff", margin: "-20px -22px -64px", padding: "20px 22px 64px", minHeight: "calc(100vh - 52px)" }}>
     <div className="max-w-4xl">
       <ScreenHeader
         title={customer.email}
@@ -53,6 +54,7 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
         products={products}
         productCountries={productCountries}
       />
+    </div>
     </div>
   );
 }

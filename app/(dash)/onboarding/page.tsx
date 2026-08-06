@@ -19,6 +19,7 @@ export default async function OnboardingPage() {
   const approved = customers.filter((c) => c.app_status === "approved").length;
 
   return (
+    <div style={{ background: "#fff", margin: "-20px -22px -64px", padding: "20px 22px 64px", minHeight: "calc(100vh - 52px)" }}>
     <div className="max-w-5xl">
       <ScreenHeader
         title="온보딩 신청서 (고객 작성)"
@@ -58,11 +59,12 @@ export default async function OnboardingPage() {
         <b>동작 방식</b>
         <ol style={{ margin: "8px 0 0 18px", fontSize: 13, lineHeight: 1.7, color: "var(--ink2)" }}>
           <li><b>고객 발급</b> → 이메일 + 8자리 코드가 생성됩니다. 코드는 <b>이 순간 한 번만</b> 표시되니 고객에게 안전하게 전달하세요.</li>
-          <li>고객은 <code>/apply</code> 에서 이메일+코드로 로그인 → <b>4단계 KYC</b>(회사·UBO·대리인/서명·제품)를 작성·제출.</li>
+          <li>고객은 <code>/apply</code> 에서 이메일+코드로 로그인 → <b>5단계 KYC</b>(기본신청·수권서서명·회사추가정보·제품등록·물류계약서)를 작성·제출.</li>
           <li>각 단계는 <b>제출 → 검토(승인/반려)</b>. 승인 시 다음 단계가 열립니다. 반려 시 피드백과 함께 재작성.</li>
-          <li><b>전체 승인 & 매핑</b> → 회사정보는 <code>brand_company</code>, 제품은 <code>products_master</code> 로 자동 반영됩니다(연결 브랜드 필요).</li>
+          <li><b>전체 승인 & 매핑</b> → 회사정보·대표자서류는 <code>brand_company</code>, 제품은 <code>products_master</code>, 입점국가·물류는 <code>logistics_contracts</code> 로 자동 반영됩니다(연결 브랜드 필요).</li>
         </ol>
       </div>
+    </div>
     </div>
   );
 }
