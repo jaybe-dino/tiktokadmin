@@ -5,8 +5,8 @@ import { saveTemplateAction } from "../actions";
 import type { ProposalTemplate } from "@/lib/proposal-doc";
 
 const ALL_SECTIONS: [string, string][] = [
-  ["cover", "표지"], ["product", "제품"], ["pricing", "가격"], ["operations", "운영"],
-  ["kpi", "KPI"], ["creators", "크리에이터"], ["closing", "마무리"],
+  ["cover", "표지"], ["product", "핵심 SKU"], ["pricing", "요약(가격)"], ["operations", "로드맵/기대효과"],
+  ["kpi", "KPI"], ["addon", "별도 제안"], ["creators", "레퍼런스"], ["closing", "마무리"],
 ];
 
 export default function TemplateEditor({ tpl }: { tpl: ProposalTemplate }) {
@@ -26,6 +26,7 @@ export default function TemplateEditor({ tpl }: { tpl: ProposalTemplate }) {
     const r = await saveTemplateAction({
       id: t.id, name: t.name, accent: t.accent, agency_name: t.agency_name, agency_logo_url: t.agency_logo_url,
       default_title: t.default_title, default_subtitle: t.default_subtitle, sections: t.sections,
+      contact_name: t.contact_name, contact_title: t.contact_title, contact_phone: t.contact_phone, contact_email: t.contact_email,
     });
     setBusy(false);
     setMsg(r.ok ? "저장되었습니다." : r.error ?? "저장 실패");
@@ -50,6 +51,13 @@ export default function TemplateEditor({ tpl }: { tpl: ProposalTemplate }) {
         <L label="대행사 로고 URL"><input className="f" value={t.agency_logo_url ?? ""} onChange={(e) => set("agency_logo_url", e.target.value || null)} /></L>
         <L label="기본 제목" full><input className="f" value={t.default_title} onChange={(e) => set("default_title", e.target.value)} /></L>
         <L label="기본 부제" full><input className="f" value={t.default_subtitle} onChange={(e) => set("default_subtitle", e.target.value)} /></L>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600, margin: "14px 0 6px" }}>마무리(E.O.D.) 담당자 연락처</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+        <L label="담당자명"><input className="f" value={t.contact_name ?? ""} onChange={(e) => set("contact_name", e.target.value || null)} placeholder="Sung Kyung Lee" /></L>
+        <L label="직책"><input className="f" value={t.contact_title ?? ""} onChange={(e) => set("contact_title", e.target.value || null)} placeholder="Marketing Team Lead" /></L>
+        <L label="연락처"><input className="f" value={t.contact_phone ?? ""} onChange={(e) => set("contact_phone", e.target.value || null)} placeholder="+82-10-0000-0000" /></L>
+        <L label="이메일"><input className="f" value={t.contact_email ?? ""} onChange={(e) => set("contact_email", e.target.value || null)} placeholder="name@dinostudio.kr" /></L>
       </div>
       <div style={{ marginTop: 12 }}>
         <div style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600, marginBottom: 6 }}>노출 섹션 (체크 = 표시)</div>
