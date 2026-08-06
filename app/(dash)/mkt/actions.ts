@@ -74,7 +74,36 @@ export async function registerMktBrandAction(input: { brand_name: string; email?
   return { ok: true, brand_id: row.id };
 }
 
-/** 마케팅 제안서 작성 — 브랜드·제목·금액·기간·범위 메모 → proposals(kind='marketing'). */
+/** 개별 프로젝트 신규 등록 — 파이프라인 보드(mkt_projects)에 직접 카드 생성.
+ *   proposal_id 를 넘기면 해당 마케팅 제안서와 연결된 프로젝트로 만든다. */
+export async function createMktProjectAction(input: {
+  brand_id: string;
+  title: string;
+  note?: string;
+  kind?: "project" | "routine";
+  proposal_id?: string;
+}): Promise<MktResult & { id?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!input.brand_id) return { ok: false, error: "브랜드를 선택하세요." };
+  const title = (input.title ?? "").trim();
+  if (!title) return { ok: false, error: "프로젝트명을 입력하세요." };
+  const kind = input.kind === "routine" ? "routine" : "project";
+  const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]);
+  if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO mkt_projects (brand_id, kind, title, note, proposal_status, proposal_id)
+     VALUES ($1,$2,$3,$4,'draft',$5) RETURNING id`,
+    [input.brand_id, kind, title, (input.note ?? "").trim(), input.proposal_id ?? null],
+  ).catch(() => null);
+  if (!row) return { ok: false, error: "프로젝트 등록 실패" };
+  revalidatePath("/mkt");
+  revalidatePath(`/brand/${input.brand_id}`);
+  return { ok: true, id: row.id };
+}
+
+/** 마케팅 제안서 작성 — 브랜드·제목·금액·기간·범위 메모 → proposals(kind='marketing').
+ *   link_project(기본 true)면 파이프라인 개별 프로젝트를 자동 생성·연결한다. */
 export async function createMktProposalAction(input: {
   brand_id: string;
   title: string;
@@ -83,6 +112,7 @@ export async function createMktProposalAction(input: {
   period_end?: string;
   note?: string;
   file_url?: string;  // 개별 제안서 파일 링크(드라이브 PPT/PDF)
+  link_project?: boolean; // 파이프라인 프로젝트 자동 생성·연결(기본 true)
 }): Promise<MktResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
@@ -105,11 +135,22 @@ export async function createMktProposalAction(input: {
   const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]);
   if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
 
-  await query(
+  const prow = await queryOne<{ id: string }>(
     `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url, status, created_by)
-     VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,'draft',$8)`,
+     VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,'draft',$8) RETURNING id`,
     [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(), `admin:${u.id}`],
   );
+  if (!prow) return { ok: false, error: "제안서 저장 실패" };
+
+  // 파이프라인 개별 프로젝트 자동 생성·연결(기본 동작). 실패해도 제안서 저장은 유지.
+  if (input.link_project !== false) {
+    await query(
+      `INSERT INTO mkt_projects (brand_id, kind, title, note, proposal_status, proposal_id)
+       VALUES ($1,'project',$2,$3,'draft',$4)`,
+      [input.brand_id, title, (input.note ?? "").trim(), prow.id],
+    ).catch((e) => console.error("[mkt] 프로젝트 자동연결 실패:", (e as Error).message));
+  }
+
   revalidatePath("/mkt");
   revalidatePath(`/brand/${input.brand_id}`);
   return { ok: true };
@@ -209,6 +250,16 @@ export async function setMktProposalStatusAction(id: string, to: string): Promis
   } else {
     await query("UPDATE proposals SET status=$2, decided_at=now() WHERE id=$1", [id, to]);
   }
+
+  // 연결된 파이프라인 프로젝트에 상태 반영(발송→발송, 수락→수주, 거절→드랍).
+  const projStatus = to === "accepted" ? "won" : to === "rejected" ? "dropped" : to === "sent" ? "sent" : null;
+  if (projStatus) {
+    await query(
+      "UPDATE mkt_projects SET proposal_status=$2, updated_at=now() WHERE proposal_id=$1",
+      [id, projStatus],
+    ).catch(() => {});
+  }
+
   revalidatePath("/mkt");
   revalidatePath(`/brand/${cur.brand_id}`);
   return { ok: true };

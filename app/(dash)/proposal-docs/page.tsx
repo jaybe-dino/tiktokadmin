@@ -22,8 +22,8 @@ export default async function ProposalDocsPage() {
   return (
     <div className="max-w-5xl">
       <ScreenHeader
-        title="제안서 생성기 (웹 제안서)"
-        desc={`총 ${docs.length}건 · 조건 세팅 + 제품·크리에이터 레퍼런스로 PDF 디자인 제안서를 공개 링크로 생성`}
+        title="운영 제안서 (웹 제안서)"
+        desc={`총 ${docs.length}건 · 온보딩·멀티몰 운영대행 제안서 — 조건·제품·크리에이터 레퍼런스로 디자인 제안서를 공개 링크로 생성`}
         right={<Link className="btn sm" href="/proposal-docs/templates">🎨 템플릿/디자인</Link>}
       />
 

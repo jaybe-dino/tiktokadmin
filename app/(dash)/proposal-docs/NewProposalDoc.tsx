@@ -20,7 +20,7 @@ export default function NewProposalDoc({ brands }: { brands: { id: string; brand
 
   return (
     <div className="card" style={{ padding: 16 }}>
-      <b>새 제안서 생성</b>
+      <b>새 운영 제안서</b>
       <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
         <label style={{ fontSize: 12, color: "var(--ink2)", display: "flex", flexDirection: "column", gap: 4, fontWeight: 600 }}>
           브랜드 (선택 시 이름·로고·제품 자동 반영)

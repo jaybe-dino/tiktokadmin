@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  createMktProjectAction,
   createMktProposalAction,
   draftMktProposalEmailAction,
   registerMktBrandAction,
@@ -39,6 +40,9 @@ export interface MktProposalRow {
   /** 연결된 최신 발송 초안(email_drafts) 상태: draft|approved|sent|discarded */
   draft_status: string | null;
   draft_sent_at: string | null;
+  /** 연결된 파이프라인 프로젝트(mkt_projects) — 없으면 null */
+  project_id: string | null;
+  project_status: string | null;
 }
 
 export interface MktBrandOpt {
@@ -97,7 +101,7 @@ export default function MktScreen({
         </button>
       </div>
 
-      {tab === "pipe" && <Pipeline projects={projects} />}
+      {tab === "pipe" && <Pipeline projects={projects} brands={brands} />}
       {tab === "routine" && <Routine routines={routines} />}
       {tab === "prop" && <Proposals proposals={proposals} brands={brands} projects={rows} />}
       {tab === "map" && <BrandMap rows={rows} />}
@@ -106,8 +110,15 @@ export default function MktScreen({
 }
 
 // ── 탭 1: 파이프라인 보드 ─────────────────────────────────────
-function Pipeline({ projects }: { projects: MktRow[] }) {
+function Pipeline({ projects, brands }: { projects: MktRow[]; brands: MktBrandOpt[] }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
   const [q, setQ] = useState("");
+  const [newOpen, setNewOpen] = useState(false);
+  const [nbBrand, setNbBrand] = useState(brands[0]?.id ?? "");
+  const [nbTitle, setNbTitle] = useState("");
+  const [nbNote, setNbNote] = useState("");
+  const [nbErr, setNbErr] = useState("");
   const kw = q.trim().toLowerCase();
   const filtered = kw
     ? projects.filter(
@@ -118,6 +129,14 @@ function Pipeline({ projects }: { projects: MktRow[] }) {
       )
     : projects;
   const count = (k: string) => filtered.filter((r) => r.proposal_status === k).length;
+  function addProject() {
+    setNbErr("");
+    start(async () => {
+      const r = await createMktProjectAction({ brand_id: nbBrand, title: nbTitle, note: nbNote });
+      if (r.ok) { setNewOpen(false); setNbTitle(""); setNbNote(""); router.refresh(); }
+      else setNbErr(r.error ?? "등록 실패");
+    });
+  }
   return (
     <div>
       <div className="bar">
@@ -126,16 +145,46 @@ function Pipeline({ projects }: { projects: MktRow[] }) {
             {c.label} {count(c.key)}
           </span>
         ))}
+        <button className="btn sm pri" onClick={() => setNewOpen((o) => !o)} style={{ marginLeft: "auto" }}>
+          {newOpen ? "취소" : "+ 신규 프로젝트"}
+        </button>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="프로젝트·브랜드 검색"
-          style={{ marginLeft: "auto" }}
         />
         <span style={{ color: "var(--ink3)", fontSize: "11.5px" }}>
           수주→진행은 계약 등록이 필요합니다 — 카드 이동도 게이트 검증
         </span>
       </div>
+      {newOpen && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="bd" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+            <div>
+              <label className="f">브랜드</label>
+              <select className="f" value={nbBrand} onChange={(e) => setNbBrand(e.target.value)} style={{ minWidth: 160 }}>
+                {brands.length === 0 && <option value="">브랜드 없음 — 마케팅 제안서 탭에서 등록</option>}
+                {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <label className="f">프로젝트명</label>
+              <input className="f" value={nbTitle} onChange={(e) => setNbTitle(e.target.value)} placeholder="예: 무신사 8월 브랜드 캠페인 RFP" />
+            </div>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <label className="f">메모(선택)</label>
+              <input className="f" value={nbNote} onChange={(e) => setNbNote(e.target.value)} placeholder="예: 인바운드 문의 · RFP 접수" />
+            </div>
+            <button className="btn pri" disabled={pending || !nbBrand || !nbTitle.trim()} onClick={addProject}>
+              {pending ? "등록 중…" : "등록"}
+            </button>
+            {nbErr && <span className="chip red" style={{ fontSize: 11 }}>{nbErr}</span>}
+          </div>
+          <div className="bd" style={{ paddingTop: 0, fontSize: 11, color: "var(--ink3)" }}>
+            제안서와 함께 만들려면 「마케팅 제안서」 탭에서 작성 시 자동으로 프로젝트가 연결됩니다.
+          </div>
+        </div>
+      )}
       {projects.length === 0 ? (
         <div className="note">진행 중인 개별 프로젝트가 없습니다. RFP 접수·인바운드 문의가 등록되면 여기에 카드로 표시됩니다.</div>
       ) : filtered.length === 0 ? (
@@ -344,6 +393,7 @@ function Proposals({
   const [pe, setPe] = useState("");
   const [note, setNote] = useState("");
   const [fileUrl, setFileUrl] = useState("");
+  const [linkProject, setLinkProject] = useState(true);
   const [regOpen, setRegOpen] = useState(false);
   const [regName, setRegName] = useState("");
   const [regEmail, setRegEmail] = useState("");
@@ -366,6 +416,7 @@ function Proposals({
         period_end: pe,
         note,
         file_url: fileUrl,
+        link_project: linkProject,
       });
       if (r.ok) {
         setTitle("");
@@ -461,6 +512,10 @@ function Proposals({
             <label className="f">제안서 파일 링크 (드라이브 PPT/PDF)</label>
             <input className="f" value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} placeholder="https://drive.google.com/…" />
           </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--ink2)", whiteSpace: "nowrap" }} title="파이프라인 개별 프로젝트 보드에 카드로도 등록·연결">
+            <input type="checkbox" checked={linkProject} onChange={(e) => setLinkProject(e.target.checked)} />
+            파이프라인 프로젝트로 등록
+          </label>
           <button className="btn pri" disabled={pending || !brandId} onClick={submit}>
             {pending ? "저장 중…" : "저장"}
           </button>
@@ -520,11 +575,21 @@ function Proposals({
                     )}
                   </td>
                   <td>
-                    {n > 0 ? (
-                      <span className="cellchip cc-ing" title="같은 브랜드의 mkt_projects 파이프라인">프로젝트 {n}건</span>
+                    {p.project_id ? (
+                      <span className={`cellchip ${ST[p.project_status ?? "draft"]?.cc ?? "cc-ing"}`} title="연결된 파이프라인 프로젝트">
+                        연결됨 · {ST[p.project_status ?? "draft"]?.ko ?? p.project_status}
+                      </span>
                     ) : (
-                      <span style={{ color: "var(--ink3)" }}>—</span>
+                      <button
+                        className="btn sm"
+                        disabled={pending}
+                        onClick={() => run(() => createMktProjectAction({ brand_id: p.brand_id, title: p.title || "마케팅 프로젝트", proposal_id: p.id }), "파이프라인 프로젝트로 등록·연결했습니다.")}
+                        title="이 제안서를 파이프라인 보드에 프로젝트로 등록·연결"
+                      >
+                        프로젝트로 등록
+                      </button>
                     )}
+                    {n > 1 && <div className="sub" style={{ color: "var(--ink3)" }}>브랜드 프로젝트 {n}건</div>}
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>
                     {p.status === "draft" && (!p.draft_status || p.draft_status === "discarded") && (

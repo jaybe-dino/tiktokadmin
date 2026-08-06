@@ -24,13 +24,18 @@ export default async function MktPage() {
             p.period_start::text AS period_start, p.period_end::text AS period_end,
             p.sent_at::text AS sent_at, p.created_at::text AS created_at,
             b.brand_name, b.id AS brand_id,
-            d.status AS draft_status, d.sent_at::text AS draft_sent_at
+            d.status AS draft_status, d.sent_at::text AS draft_sent_at,
+            mp.id AS project_id, mp.proposal_status AS project_status
        FROM proposals p
        JOIN brands b ON b.id = p.brand_id
        LEFT JOIN LATERAL (
          SELECT status, sent_at FROM email_drafts
           WHERE proposal_id = p.id ORDER BY created_at DESC LIMIT 1
        ) d ON true
+       LEFT JOIN LATERAL (
+         SELECT id, proposal_status FROM mkt_projects
+          WHERE proposal_id = p.id ORDER BY created_at LIMIT 1
+       ) mp ON true
       WHERE p.kind = 'marketing'
       ORDER BY p.created_at DESC LIMIT 200`,
   ).catch(() => [])) as Record<string, unknown>[];
@@ -50,6 +55,8 @@ export default async function MktPage() {
     brand_id: String(p.brand_id ?? ""),
     draft_status: p.draft_status == null ? null : String(p.draft_status),
     draft_sent_at: p.draft_sent_at == null ? null : String(p.draft_sent_at),
+    project_id: p.project_id == null ? null : String(p.project_id),
+    project_status: p.project_status == null ? null : String(p.project_status),
   }));
 
   // 작성 폼 브랜드 선택 — 원장 전체(트랙 표시용 contract_type 포함).
