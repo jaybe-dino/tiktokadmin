@@ -7,6 +7,48 @@ import { currentUser } from "@/lib/auth";
 import { aiText, aiEnabled } from "@/lib/ai";
 import { STATE_LABELS, type State } from "@/lib/types";
 
+// ── ④ 틱톡샵 계정 저장 + 개설 안내 발송(운영·정산) ──
+export async function saveTiktokAccountAction(brandId: string, input: {
+  tiktok_shop_url?: string; tiktok_seller_id?: string; tiktok_seller_pw?: string;
+  markOpened?: boolean; sendNotify?: boolean;
+}): Promise<{ ok: boolean; error?: string; sent?: string[] }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const sets: string[] = ["tiktok_shop_url=$2", "tiktok_seller_id=$3", "tiktok_seller_pw=$4", "updated_at=now()"];
+  const params: unknown[] = [brandId, (input.tiktok_shop_url ?? "").trim(), (input.tiktok_seller_id ?? "").trim(), (input.tiktok_seller_pw ?? "").trim()];
+  if (input.markOpened) sets.push("tiktok_opened_at=COALESCE(tiktok_opened_at, now())");
+  await query(`UPDATE brands SET ${sets.join(", ")} WHERE id=$1`, params).catch(() => {});
+
+  let sent: string[] | undefined;
+  if (input.sendNotify) {
+    const b = await queryOne<{ brand_name: string; contact_name: string | null; email: string | null; phone: string | null; tiktok_shop_url: string; tiktok_seller_id: string; tiktok_seller_pw: string }>(
+      "SELECT brand_name, contact_name, email, phone, tiktok_shop_url, tiktok_seller_id, tiktok_seller_pw FROM brands WHERE id=$1", [brandId]);
+    if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
+    if (!b.tiktok_shop_url || !b.tiktok_seller_id) return { ok: false, error: "셀러센터 링크·ID를 먼저 입력하세요." };
+    const name = b.contact_name || b.brand_name;
+    const lines = [
+      `[GloveK] ${b.brand_name} 틱톡샵 개설 안내`,
+      `${name}님, 틱톡샵 셀러 계정이 개설되었습니다.`,
+      `• 셀러센터: ${b.tiktok_shop_url}`,
+      `• 아이디: ${b.tiktok_seller_id}`,
+      `• 비밀번호: ${b.tiktok_seller_pw}`,
+      `로그인 후 초기 비밀번호를 변경해 주세요.`,
+    ];
+    sent = [];
+    const { sendSms } = await import("@/lib/sms");
+    const { sendEmail } = await import("@/lib/mailer");
+    if (b.phone) { const r = await sendSms({ receiver: b.phone, msg: lines.join("\n") }).catch(() => ({ ok: false })); if (r.ok) sent.push("sms"); }
+    if (b.email) { const r = await sendEmail({ to: b.email, subject: `[GloveK] ${b.brand_name} 틱톡샵 개설 안내`, text: lines.join("\n") }).catch(() => ({ ok: false })); if (r.ok) sent.push("email"); }
+    if (sent.length) {
+      await query("UPDATE brands SET tiktok_sent_at=now(), tiktok_opened_at=COALESCE(tiktok_opened_at, now()), last_contact_at=now() WHERE id=$1", [brandId]).catch(() => {});
+      await query(`INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at) VALUES ($1,'admin','contact_logged',$2,now())`,
+        [brandId, JSON.stringify({ channel: sent.join("+"), kind: "tiktok_account" })]).catch(() => {});
+    }
+  }
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true, sent };
+}
+
 export interface NextActionSuggestResult {
   ok: boolean;
   error?: string;

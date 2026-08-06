@@ -4,6 +4,7 @@ import Brand360AiButton from "@/components/Brand360AiButton";
 import Brand360Comments, { type CommentRow, type HistoryRow } from "@/components/Brand360Comments";
 import Brand360Company from "@/components/Brand360Company";
 import Brand360Onboarding from "@/components/Brand360Onboarding";
+import Brand360TiktokAccount from "@/components/Brand360TiktokAccount";
 import Brand360Contacts from "@/components/Brand360Contacts";
 import Brand360Contract from "@/components/Brand360Contract";
 import Brand360Docs from "@/components/Brand360Docs";
@@ -203,6 +204,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     <>
       <Brand360Company brand={brand} company={deep?.company ?? null} assets={deep?.assets ?? []} />
       <Brand360Onboarding brand={brand} company={deep?.company ?? null} />
+      <Brand360TiktokAccount brand={brand} />
     </>
   );
 
