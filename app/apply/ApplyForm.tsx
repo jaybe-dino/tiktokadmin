@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  saveStepAction, submitStepAction, saveCountriesAction, setCountryLogisticsAction,
+  saveStepAction, submitStepAction, saveCountriesAction, setCountryLogisticsAction, setCountryLogisticsOptionAction,
   addProductAction, updateProductAction, deleteProductAction, upsertProductCountryAction,
 } from "./actions";
 
@@ -11,11 +11,12 @@ const COUNTRIES: [string, string][] = [["US", "미국"], ["TH", "태국"], ["VN"
 const COUNTRY_NAME = Object.fromEntries(COUNTRIES);
 const READINESS: [string, string][] = [["none", "없음"], ["preparing", "준비중"], ["ready", "완료"]];
 const CURRENCIES = ["USD", "KRW", "SGD", "THB", "VND", "MYR", "PHP"];
+const LOGISTICS_OPTIONS: [string, string][] = [["", "선택 안 함"], ["self_delivery", "직배송(직접 배송)"], ["local_warehouse", "현지 물류창고"], ["flash_intro", "플래시 소개(제휴)"]];
 const COMPANY_COUNTRIES: [string, string][] = [["KR", "대한민국"], ["US", "미국"], ["SG", "싱가포르"], ["JP", "일본"], ["CN", "중국"], ["HK", "홍콩"]];
 const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", "제품 등록", "물류 계약서"];
 
 interface Step { step_no: number; status: string; admin_feedback: string }
-interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string }
+interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string }
 interface ProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; translation_status: string }
 interface Product { id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string }
 interface Props { email: string; app: Record<string, unknown>; steps: Step[]; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]> }
@@ -416,6 +417,11 @@ function Step5({ disabled, countries, onChange, flash }: { disabled: boolean; co
               <span style={{ fontSize: 12, color: "#8b93a1" }}>{COUNTRY_NAME[c.country_code] ?? c.country_name}</span>
             </div>
             {c.country_code === "US" && <div style={{ fontSize: 12, color: "#1d4ed8", background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>🇺🇸 미국: 물류 계약서 또는 <b>Amazon FBA 캡처 이미지</b>를 업로드해주세요.</div>}
+            <label style={{ fontSize: 12, color: "#4b5563", fontWeight: 600, display: "block", marginBottom: 8 }}>물류 방식
+              <select value={c.logistics_option ?? ""} disabled={disabled} onChange={async (e) => { await setCountryLogisticsOptionAction(c.country_code, e.target.value); onChange(); }} style={{ ...inputStyle, maxWidth: 260 }}>
+                {LOGISTICS_OPTIONS.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+              </select>
+            </label>
             <InlineFile field={`logistics_${c.country_code}`} url={c.logistics_contract_url} disabled={disabled}
               onDone={async (u) => { await setCountryLogisticsAction(c.country_code, u); onChange(); flash("업로드되었습니다."); }} />
           </div>

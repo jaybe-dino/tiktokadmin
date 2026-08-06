@@ -272,7 +272,11 @@ export interface OnbCountry {
   has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string;
   product_cert_status: string; product_cert_note: string;
   logistics_status: string; logistics_note: string; logistics_contract_url: string;
+  logistics_option: string;  // self_delivery|local_warehouse|flash_intro
 }
+export const LOGISTICS_OPTIONS: [string, string][] = [
+  ["self_delivery", "직배송(직접 배송)"], ["local_warehouse", "현지 물류창고"], ["flash_intro", "플래시 소개(제휴)"],
+];
 export async function getCountries(applicationId: string): Promise<OnbCountry[]> {
   return query<OnbCountry>("SELECT * FROM onb_countries WHERE application_id=$1 ORDER BY country_code", [applicationId]).catch(() => []);
 }
@@ -302,6 +306,11 @@ export async function setCountries(applicationId: string, rows: Partial<OnbCount
 /** Step5 국가별 물류계약서 URL 저장. */
 export async function setCountryLogistics(applicationId: string, code: string, url: string): Promise<{ ok: boolean }> {
   await query("UPDATE onb_countries SET logistics_contract_url=$3 WHERE application_id=$1 AND country_code=$2", [applicationId, code.toUpperCase(), url]).catch(() => {});
+  return { ok: true };
+}
+/** Step5 국가별 물류 방식(직배송/현지창고/플래시 소개) 저장. */
+export async function setCountryLogisticsOption(applicationId: string, code: string, option: string): Promise<{ ok: boolean }> {
+  await query("UPDATE onb_countries SET logistics_option=$3 WHERE application_id=$1 AND country_code=$2", [applicationId, code.toUpperCase(), option]).catch(() => {});
   return { ok: true };
 }
 
@@ -449,7 +458,8 @@ export async function approveApplication(applicationId: string, by: string): Pro
       const code = c.country_code.toUpperCase(); if (!code) continue;
       const ref = `[onb:${c.id}]`;
       const status = c.logistics_status === "ready" ? "active" : c.logistics_status === "preparing" ? "negotiating" : "none";
-      const note = [c.logistics_note, c.logistics_contract_url && `계약서: ${c.logistics_contract_url}`, c.monthly_revenue && `월매출: ${c.monthly_revenue}`].filter(Boolean).join(" · ");
+      const optLabel = LOGISTICS_OPTIONS.find(([o]) => o === c.logistics_option)?.[1];
+      const note = [c.logistics_note, optLabel && `방식: ${optLabel}`, c.logistics_contract_url && `계약서: ${c.logistics_contract_url}`, c.monthly_revenue && `월매출: ${c.monthly_revenue}`].filter(Boolean).join(" · ");
       const ex = await queryOne<{ id: string }>("SELECT id FROM logistics_contracts WHERE brand_id=$1 AND note LIKE $2", [brandId, `%${ref}%`]).catch(() => null);
       if (ex) {
         await query("UPDATE logistics_contracts SET country=$2, status=$3, note=$4 WHERE id=$1", [ex.id, code, status, `${note} ${ref}`]).catch(() => {});

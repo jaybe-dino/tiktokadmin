@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { reviewStepAction, approveApplicationAction } from "../actions";
 
 interface Step { step_no: number; status: string; admin_feedback: string }
-interface Country { id: string; country_code: string; country_name: string; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string }
+interface Country { id: string; country_code: string; country_name: string; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string }
 interface ProductCountry { id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string }
 interface Product { id: string; name: string; category: string; sku: string; description_kr: string }
 interface Props {
@@ -22,6 +22,7 @@ const STEP_VIEW: Record<number, [string, string][]> = {
   3: [["지분구조", "ownership_structure"], ["대표자여권", "rep_passport_front_url"], ["신분증앞", "rep_id_front_url"], ["신분증뒤", "rep_id_back_url"], ["거주지증명", "rep_address_proof_url"], ["Payoneer상태", "payoneer_status"], ["Payoneer이메일", "payoneer_email"], ["Payoneer메모", "payoneer_note"]],
 };
 const READY: Record<string, string> = { none: "없음", preparing: "준비중", ready: "완료" };
+const LOGI_OPT: Record<string, string> = { self_delivery: "직배송", local_warehouse: "현지 물류창고", flash_intro: "플래시 소개" };
 const isUrl = (v: string) => /^(https?:\/\/|\/api\/)/.test(v);
 
 export default function ReviewClient(props: Props) {
@@ -127,7 +128,7 @@ export default function ReviewClient(props: Props) {
                 {s.step_no === 5 && (
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.8 }}>
                     {props.countries.map((c) => (
-                      <li key={c.id}>{c.country_code} · {c.logistics_contract_url ? <a href={c.logistics_contract_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>계약서 ↗</a> : <span style={{ color: "var(--ink2)" }}>미업로드</span>}</li>
+                      <li key={c.id}>{c.country_code} · {LOGI_OPT[c.logistics_option] ?? "방식 미선택"} · {c.logistics_contract_url ? <a href={c.logistics_contract_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>계약서 ↗</a> : <span style={{ color: "var(--ink2)" }}>미업로드</span>}</li>
                     ))}
                   </ul>
                 )}

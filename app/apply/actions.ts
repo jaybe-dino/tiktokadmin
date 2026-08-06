@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import {
   currentOnbCustomer, getOrCreateApplication,
   saveStepFields, submitStep,
-  setCountries, setCountryLogistics,
+  setCountries, setCountryLogistics, setCountryLogisticsOption,
   addProduct, updateProduct, deleteProduct, upsertProductCountry, deleteProductCountry,
   type OnbProduct, type OnbProductCountry, type OnbCountry,
 } from "@/lib/onboarding";
@@ -41,6 +41,11 @@ export async function saveCountriesAction(rows: Partial<OnbCountry>[]) {
 export async function setCountryLogisticsAction(code: string, url: string) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
   const r = await setCountryLogistics(app.id, code, url); revalidatePath("/apply"); return r;
+}
+// Step5 — 국가별 물류 방식 선택
+export async function setCountryLogisticsOptionAction(code: string, option: string) {
+  const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
+  const r = await setCountryLogisticsOption(app.id, code, option); revalidatePath("/apply"); return r;
 }
 
 // Step4 — 제품
