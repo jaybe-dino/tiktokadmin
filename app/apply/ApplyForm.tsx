@@ -300,6 +300,14 @@ function Step3({ v, set, disabled }: { v: Record<string, string>; set: (k: strin
         <FileField label="거주지 증명서류" req field="rep_address_proof" k="rep_address_proof_url" {...{ v, set, disabled }} />
       </Card>
       <Card title="⑤ 핑퐁페이먼트(PingPong) 가입 여부" desc="해외 정산을 위해 PingPong Payments 계정이 필요합니다.">
+        <div style={{ background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: 12.5, color: "#1e3a8a" }}>
+          <b>📘 가입 가이드</b>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
+            <a href="https://business.pingpongx.com/entrance/signup?inviteCode=Daniel.Tark" target="_blank" rel="noreferrer" style={{ color: "#1d4ed8", fontWeight: 600 }}>· 핑퐁페이먼트 가입 링크 ↗</a>
+            <a href="https://pingpongkr.notion.site/guidekr" target="_blank" rel="noreferrer" style={{ color: "#1d4ed8", fontWeight: 600 }}>· 핑퐁 가이드북 ↗</a>
+            <a href="https://steadfast-pike-4c7.notion.site/2399c42de1e7806cae63c33df04c14d3" target="_blank" rel="noreferrer" style={{ color: "#1d4ed8", fontWeight: 600 }}>· 핑퐁 가상계좌 가입 가이드 ↗</a>
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
           {[["registered", "가입 완료", "이미 계정이 있고 이메일 입력 가능"], ["pending", "신청 중", "가입 절차 진행 중"], ["none", "아직 없음", "가이드가 필요합니다"]].map(([val, label, desc]) => {
             const on = (v.payoneer_status || "none") === val;
