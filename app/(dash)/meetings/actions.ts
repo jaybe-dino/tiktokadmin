@@ -39,8 +39,10 @@ export async function createMeetingAction(input: {
   if (join && !/^https?:\/\//i.test(join)) return { ok: false, error: "줌 링크는 http(s):// 로 시작해야 합니다." };
   const dur = input.duration_min && input.duration_min > 0 ? Math.round(input.duration_min) : null;
 
+  // admin_users.id 는 text(이메일). meetings.host_admin_id 는 uuid 이므로 이메일을 넣을 수 없다.
+  // 작성자 식별은 text 컬럼 created_by 에 저장한다(수동 미팅 생성 실패 버그 수정).
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO meetings (brand_id, zoom_meeting_id, zoom_uuid, topic, scheduled_at, host_email, host_admin_id, duration_min, zoom_join_url, status)
+    `INSERT INTO meetings (brand_id, zoom_meeting_id, zoom_uuid, topic, scheduled_at, host_email, created_by, duration_min, zoom_join_url, status)
      VALUES ($1,'manual',$2,$3,$4,$5,$6,$7,$8,'scheduled') RETURNING id`,
     [brandId, `manual:${randomUUID()}`, topic, scheduledAt, (input.host_email ?? "").trim() || null, u.id, dur, join || null],
   ).catch((e) => { console.error("[meetings] 생성 실패:", (e as Error).message); return null; });
