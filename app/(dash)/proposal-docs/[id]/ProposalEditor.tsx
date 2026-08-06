@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { saveProposalDocAction, deleteProposalDocAction } from "../actions";
+import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction } from "../actions";
 import type { ProposalDoc, ProposalProduct, ProposalCreator, ProposalFeature, ProposalValueItem, ProposalStep, ProposalImpact, ProposalAddon } from "@/lib/proposal-doc";
 
 const TRACKS: [string, string][] = [["onboarding", "온보딩"], ["mall", "멀티몰"], ["marketing", "마케팅"]];
@@ -42,6 +42,27 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
     if (!confirm("이 제안서를 삭제할까요?")) return;
     await deleteProposalDocAction(d.id); router.push("/proposal-docs");
   }
+  // AI 기본내용 생성 — 브랜드 URL 크롤 + glovek 유사 콘텐츠로 초안 채움(저장은 별도).
+  async function genAI() {
+    if (!confirm("브랜드 제출 URL을 참고해 핵심 SKU 소개·부제·콘텐츠 레퍼런스를 AI로 생성합니다.\n(기존 특징/태그는 대체되고, 콘텐츠 레퍼런스는 추가됩니다. 저장 전까지 되돌릴 수 있어요.)")) return;
+    setBusy(true);
+    const r = await generateProposalContentAction(d.id);
+    setBusy(false);
+    if (!r.ok) { flash(r.error ?? "AI 생성 실패"); return; }
+    setD((p) => {
+      const next = { ...p };
+      if (r.subtitle) next.subtitle = r.subtitle;
+      if (r.product_en) next.product_en = r.product_en;
+      if (r.product_volume) next.product_volume = r.product_volume;
+      if (r.product_features?.length) next.product_features = r.product_features;
+      if (r.product_tags?.length) next.product_tags = r.product_tags;
+      if (r.featured?.name && p.products.length === 0) next.products = [{ name: r.featured.name, image_url: r.featured.image_url }];
+      else if (r.featured?.image_url && p.products.length > 0 && !p.products[0].image_url) next.products = p.products.map((x, i) => (i === 0 ? { ...x, image_url: r.featured!.image_url } : x));
+      if (r.creators?.length) next.creators = [...p.creators, ...r.creators];
+      return next;
+    });
+    flash(`AI 초안 반영됨 — ${r.note ?? ""} · 확인 후 저장하세요.`);
+  }
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -52,6 +73,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         </span>
         <a className="btn sm" href={publicUrl} target="_blank">미리보기 ↗</a>
         <button className="btn sm" onClick={() => { navigator.clipboard?.writeText(publicUrl); flash("공개 링크 복사됨"); }}>공개링크 복사</button>
+        <button className="btn sm" disabled={busy} onClick={genAI} title="브랜드 URL 크롤 + glovek 유사 콘텐츠로 기본내용 생성">🤖 AI 기본내용 생성</button>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button className="btn sm" disabled={busy} onClick={() => save()}>저장</button>
           {d.status === "published"
