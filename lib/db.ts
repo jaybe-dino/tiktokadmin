@@ -30,6 +30,9 @@ function needsSsl(connectionString: string): boolean {
   return !isLocal && process.env.NODE_ENV === "production";
 }
 
+// 느린 쿼리 임계값(ms) — SLOW_QUERY_MS 로 조정 가능.
+const SLOW_MS = Number(process.env.SLOW_QUERY_MS ?? "500") || 500;
+
 function makePool(connectionString: string): Pool {
   const pool = new Pool({
     connectionString,
@@ -97,8 +100,12 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   params: unknown[] = [],
 ): Promise<T[]> {
   assertNotGlovekWrite(sql);
+  const t0 = performance.now();
   try {
     const res = await getPool().query<T>(sql, params as never[]);
+    // 성능 관측(Stage1): 느린 쿼리만 로깅(기본 500ms↑) → Vercel 로그로 병목 실측.
+    const ms = performance.now() - t0;
+    if (ms >= SLOW_MS) console.warn(`[pg] slow ${Math.round(ms)}ms · ${sql.slice(0, 120).replace(/\s+/g, " ")}`);
     return res.rows;
   } catch (e) {
     // 호출부의 .catch(()=>[]) 가 실패를 "빈 상태"로 위장하기 전에 서버 로그에 남긴다.

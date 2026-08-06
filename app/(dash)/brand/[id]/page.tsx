@@ -62,37 +62,39 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   if (!data) notFound();
   const { brand, signals, docs, paymentsManual, glovekSubs, timeline, adminUsers } = data;
 
-  // 현재 단계 필수항목. field형은 브랜드 값으로 done 판정. (0002 미적용 DB 방어)
-  const rawReqs = await stageChecklist(brand.id, brand.state).catch(() => []);
-  const deep = await cardDeep(brand.id).catch(() => null);
-  const emails = await listBrandEmails(brand.id).catch(() => []);
-
-  // v3.1 추가 조회 — 존재 테이블만, 각 조회 개별 방어.
+  // 성능(Stage0): 서로 독립적인 조회는 한 번에 병렬 실행 — 순차 왕복 제거.
+  //   (brand.id/brand.state 만 필요, 상호 의존 없음)
   const safe = <T,>(p: Promise<T[]>): Promise<T[]> => p.catch(() => [] as T[]);
-  const [aliases, comments, presence, drafts, meetings, moveHistory] = await Promise.all([
-    safe(query<{ alias: string }>(
-      "SELECT alias FROM brand_aliases WHERE brand_id=$1 AND kind='name' ORDER BY created_at", [brand.id])),
-    safe(query<CommentRow>(
-      "SELECT id, author, body, created_at FROM comments WHERE brand_id=$1 ORDER BY created_at ASC LIMIT 50", [brand.id])),
-    safe(query<{ name: string }>(
-      `SELECT COALESCE(u.name, p.admin_user_id) AS name FROM presence p
-         LEFT JOIN admin_users u ON u.id=p.admin_user_id
-        WHERE p.brand_id=$1 AND p.at > now() - interval '15 minutes'`, [brand.id])),
-    safe(query<DraftRow>(
-      "SELECT id, kind, to_email, subject, body_md, created_at FROM email_drafts WHERE brand_id=$1 AND status='draft' ORDER BY created_at DESC LIMIT 5",
-      [brand.id])),
-    safe(query<MeetingRow>(
-      `SELECT id, topic, status, started_at, scheduled_at, duration_min, recording_url,
-              left(transcript, 20000) AS transcript, summary_md
-         FROM meetings WHERE brand_id=$1
-        ORDER BY COALESCE(started_at, scheduled_at, created_at) DESC LIMIT 8`, [brand.id])),
-    safe(query<HistoryRow>(
-      "SELECT from_state, to_state, actor, at FROM stage_history WHERE brand_id=$1 AND gate_passed ORDER BY at DESC LIMIT 10",
-      [brand.id])),
+  const [rawReqs, deep, emails, extra, gateCtx] = await Promise.all([
+    stageChecklist(brand.id, brand.state).catch(() => []),
+    cardDeep(brand.id).catch(() => null),
+    listBrandEmails(brand.id).catch(() => []),
+    Promise.all([
+      safe(query<{ alias: string }>(
+        "SELECT alias FROM brand_aliases WHERE brand_id=$1 AND kind='name' ORDER BY created_at", [brand.id])),
+      safe(query<CommentRow>(
+        "SELECT id, author, body, created_at FROM comments WHERE brand_id=$1 ORDER BY created_at ASC LIMIT 50", [brand.id])),
+      safe(query<{ name: string }>(
+        `SELECT COALESCE(u.name, p.admin_user_id) AS name FROM presence p
+           LEFT JOIN admin_users u ON u.id=p.admin_user_id
+          WHERE p.brand_id=$1 AND p.at > now() - interval '15 minutes'`, [brand.id])),
+      safe(query<DraftRow>(
+        "SELECT id, kind, to_email, subject, body_md, created_at FROM email_drafts WHERE brand_id=$1 AND status='draft' ORDER BY created_at DESC LIMIT 5",
+        [brand.id])),
+      safe(query<MeetingRow>(
+        `SELECT id, topic, status, started_at, scheduled_at, duration_min, recording_url,
+                left(transcript, 20000) AS transcript, summary_md
+           FROM meetings WHERE brand_id=$1
+          ORDER BY COALESCE(started_at, scheduled_at, created_at) DESC LIMIT 8`, [brand.id])),
+      safe(query<HistoryRow>(
+        "SELECT from_state, to_state, actor, at FROM stage_history WHERE brand_id=$1 AND gate_passed ORDER BY at DESC LIMIT 10",
+        [brand.id])),
+    ]),
+    buildGateContext(brand).catch(() => null),
   ]);
+  const [aliases, comments, presence, drafts, meetings, moveHistory] = extra;
 
-  // 다음 스텝 게이트(현재) + 그다음 게이트(예고 — v3.1 gateNext)
-  const gateCtx = await buildGateContext(brand).catch(() => null);
+  // 다음 스텝 게이트(현재) + 그다음 게이트(예고 — v3.1 gateNext) — 순수 로직(저렴)
   const gateRaw = gateCtx ? await nextStepGuide(brand, gateCtx).catch(() => null) : null;
   const gate: GateView | null = gateRaw
     ? { from: STATE_LABELS[gateRaw.from], toState: gateRaw.to, to: STATE_LABELS[gateRaw.to], items: gateRaw.items }
