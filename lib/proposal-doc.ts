@@ -124,13 +124,13 @@ export async function saveProposal(input: ProposalInput & { id?: string }, by: s
          kpi_tier=$16, kpi_stage=$17, kpi_creator_content=$18, kpi_ad_spend=$19,
          products=COALESCE($20::jsonb,products), creators=COALESCE($21::jsonb,creators),
          accent=$22, status=COALESCE($23,status),
-         product_en=COALESCE($24,product_en), product_volume=COALESCE($25,product_volume),
+         product_en=$24, product_volume=$25,
          product_features=COALESCE($26::jsonb,product_features), product_tags=COALESCE($27::jsonb,product_tags),
          value_items=COALESCE($28::jsonb,value_items), value_total=$29,
          roadmap_steps=COALESCE($30::jsonb,roadmap_steps), impacts=COALESCE($31::jsonb,impacts),
-         impact_banner=COALESCE($32,impact_banner),
-         kpi_year_tier=COALESCE($33,kpi_year_tier), kpi_year_stage=COALESCE($34,kpi_year_stage),
-         kpi_year_creator_content=$35, kpi_year_ad_spend=COALESCE($36,kpi_year_ad_spend),
+         impact_banner=$32,
+         kpi_year_tier=$33, kpi_year_stage=$34,
+         kpi_year_creator_content=$35, kpi_year_ad_spend=$36,
          addons=COALESCE($37::jsonb,addons), updated_at=now()
        WHERE id=$1 RETURNING id, token`,
       [input.id, input.title, input.subtitle, input.brand_name, input.brand_logo_url ?? null, input.track,
@@ -218,7 +218,7 @@ export async function saveTemplate(input: TemplateInput, by: string): Promise<{ 
     `INSERT INTO proposal_templates (name, accent, agency_name, agency_logo_url, default_title, default_subtitle, sections, is_default, updated_by)
      VALUES (COALESCE($1,'새 템플릿'),COALESCE($2,'#1f7a4d'),COALESCE($3,'DINO STUDIO'),$4,
        COALESCE($5,'틱톡샵 온보딩 및 마케팅 협업 제안서'),COALESCE($6,'크리에이터 커머스를 통한 브랜드 성장'),
-       COALESCE($7::jsonb,'["cover","product","pricing","operations","kpi","creators","closing"]'),false,$8) RETURNING id`,
+       COALESCE($7::jsonb,'["cover","product","pricing","operations","kpi","addon","creators","closing"]'),false,$8) RETURNING id`,
     [input.name, input.accent, input.agency_name, input.agency_logo_url ?? null, input.default_title, input.default_subtitle,
      input.sections ? JSON.stringify(input.sections) : null, by]);
   if (!row) throw new Error("템플릿 생성 실패");
@@ -289,8 +289,6 @@ export async function prefillFromBrand(brandId: string): Promise<ProposalInput> 
     track,
     products: prods.map((p) => ({ name: p.name_kr, image_url: p.main_image_url || undefined, desc: p.category || undefined })),
     // 히어로 제품(첫 제품 기준) + 온보딩 트랙 표준 구성 — 담당자/AI 편집용 기본값.
-    product_volume: undefined,
-    product_features: p0 ? [] : [],
     product_tags: p0?.category ? [p0.category] : [],
     ...(track === "onboarding" ? ONBOARDING_DEFAULTS : {}),
   };

@@ -25,8 +25,10 @@ async function columnsOf(table: string): Promise<string[]> {
     "SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND table_schema = 'public'",
     [table],
   ).catch(() => []);
-  colCache[table] = rows.map((r) => r.column_name);
-  return colCache[table];
+  const cols = rows.map((r) => r.column_name);
+  // 빈 결과(일시적 조회 실패/테이블 부재)는 캐시하지 않는다 — 프로세스 수명 동안 영구 비활성 방지.
+  if (cols.length > 0) colCache[table] = cols;
+  return cols;
 }
 
 const firstCol = (cols: string[], cands: string[]) => cands.find((c) => cols.includes(c));
@@ -41,7 +43,7 @@ function mapFields(cols: string[]): FieldMap {
     image: firstCol(cols, ["image_url", "image", "thumbnail", "thumb_url", "thumbnail_url", "cover", "cover_url", "main_image_url"]),
     link: firstCol(cols, ["url", "link", "product_url", "posted_url", "video_url", "permalink", "share_url"]),
     handle: firstCol(cols, ["handle", "creator_handle", "username", "author", "author_handle"]),
-    gmv: firstCol(cols, ["gmv", "est_gmv", "revenue", "sales", "sales_amount", "sold_count"]),
+    gmv: firstCol(cols, ["gmv", "est_gmv", "revenue", "sales_amount"]), // 금액 컬럼만(판매수량 sold_count 등 제외)
     views: firstCol(cols, ["views", "view_count", "play_count", "plays", "likes", "like_count"]),
   };
 }
@@ -68,7 +70,9 @@ async function fromTable(table: string, keywords: string[], limit: number): Prom
     }
     where = `WHERE ${clauses.join(" OR ")}`;
   }
-  const orderBy = f.gmv ? `ORDER BY ${qid(f.gmv)} DESC NULLS LAST` : f.views ? `ORDER BY ${qid(f.views)} DESC NULLS LAST` : "";
+  // 정렬 컬럼이 text 여도 사전식 정렬이 되지 않도록 숫자만 추출해 numeric 캐스팅.
+  const numOrder = (c: string) => `ORDER BY NULLIF(regexp_replace(${qid(c)}::text, '[^0-9]', '', 'g'), '')::numeric DESC NULLS LAST`;
+  const orderBy = f.gmv ? numOrder(f.gmv) : f.views ? numOrder(f.views) : "";
   params.push(limit);
   const sql = `SELECT ${selectList} FROM ${qid(table)} ${where} ${orderBy} LIMIT $${params.length}`;
   const rows = await queryRo<Record<string, unknown>>(sql, params).catch((e) => {
@@ -90,6 +94,8 @@ const str = (v: unknown) => (v == null ? undefined : String(v).trim() || undefin
  */
 export async function similarProductContent(keywords: string[], limit = 8): Promise<GlovekContent[]> {
   const kw = keywords.map((k) => k.trim()).filter(Boolean);
+  // 키워드가 없으면 무관한 상위 N개를 "유사 콘텐츠"로 오인 노출하지 않도록 빈 결과 반환.
+  if (kw.length === 0) return [];
   const out: GlovekContent[] = [];
   for (const table of ["videos", "products"]) {
     if (out.length >= limit) break;

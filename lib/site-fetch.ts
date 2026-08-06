@@ -1,5 +1,6 @@
 // 회사 웹사이트 본문 수집 — 심층 분석 근거용. HTML → 가독 텍스트 추출.
-//   외부 사이트 fetch(프로덕션에서만 실동작). 타임아웃·크기 제한·오류 무해화.
+//   외부 사이트 fetch(SSRF 방어 safeFetchText 경유). 타임아웃·크기 제한·오류 무해화.
+import { safeFetchText } from "./safe-fetch";
 
 function normalizeUrl(raw: string): string | null {
   const s = (raw || "").trim();
@@ -28,20 +29,10 @@ function htmlToText(html: string): string {
 }
 
 async function fetchOne(url: string, ms = 8000): Promise<string> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
-  try {
-    const res = await fetch(url, {
-      signal: ctrl.signal, redirect: "follow",
-      headers: { "user-agent": "Mozilla/5.0 (compatible; GlovekBot/1.0; +https://glovek.space)" },
-    });
-    if (!res.ok) return "";
-    const ct = res.headers.get("content-type") ?? "";
-    if (!ct.includes("html") && !ct.includes("text")) return "";
-    const html = (await res.text()).slice(0, 400_000);
-    return htmlToText(html);
-  } catch { return ""; }
-  finally { clearTimeout(t); }
+  // SSRF 방어(사설 IP 차단·리다이렉트 재검증)는 safeFetchText 에 위임.
+  const res = await safeFetchText(url, { maxBytes: 400_000, timeoutMs: ms });
+  if (!res.ok || !res.text) return "";
+  return htmlToText(res.text);
 }
 
 /**

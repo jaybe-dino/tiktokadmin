@@ -7,8 +7,10 @@ export const dynamic = "force-dynamic";
 const won = (n: number | null | undefined) => (n == null ? "" : "₩" + Number(n).toLocaleString("ko-KR"));
 // 원 → "N만" (상당 구성 가치 합계 표기).
 const man = (n: number | null | undefined) => (n == null ? "" : Math.round(Number(n) / 10000).toLocaleString("ko-KR") + "만");
-// 수량 문구에서 개별 단가(× N만/원) 제거 — "20건 × 3만" → "20건".
-const stripPrice = (q: string | null | undefined) => (q || "").replace(/\s*[×xX*]\s*[\d,]+\s*만원?/g, "").trim();
+// 수량 문구에서 개별 단가(× N만/원/N,000원) 제거 — "20건 × 3만"·"20건 × 30,000원" → "20건".
+const stripPrice = (q: string | null | undefined) => (q || "").replace(/\s*[×xX*]\s*[\d,]+\s*(만원?|원)/g, "").trim();
+// hex 색상만 통과(그 외 null) — <style> 인라인 인젝션 방지.
+const safeHexColor = (v: string | null | undefined): string | null => (v && /^#[0-9a-fA-F]{3,8}$/.test(v.trim()) ? v.trim() : null);
 
 const TRACK_SUMMARY: Record<string, string> = { onboarding: "온보딩 트랙 제안 요약", mall: "멀티몰 트랙 제안 요약", marketing: "마케팅 트랙 제안 요약" };
 const TRACK_BADGE: Record<string, string> = { onboarding: "ONBOARDING TRACK", mall: "MULTI-MALL TRACK", marketing: "MARKETING TRACK" };
@@ -28,12 +30,16 @@ export async function generateMetadata({ params }: { params: Promise<{ token: st
   return { title: d ? `${d.brand_name || "브랜드"} · 제안서` : "제안서" };
 }
 
-export default async function ProposalPage({ params }: { params: Promise<{ token: string }> }) {
+export default async function ProposalPage({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ preview?: string }> }) {
   const { token } = await params;
+  const { preview } = await searchParams;
   const d = await getProposalByToken(token);
   if (!d) notFound();
+  // 발행된 제안서만 공개. 초안·발행취소 링크는 404(관리자 미리보기만 ?preview=1 로 열람).
+  if (d.status !== "published" && preview !== "1") notFound();
   const tpl = await defaultTemplate();
-  const accent = d.accent || tpl?.accent || "#ec4899";
+  // accent 는 <style> 안에 인라인되므로 반드시 hex 만 허용(CSS/스크립트 인젝션 차단).
+  const accent = safeHexColor(d.accent) || safeHexColor(tpl?.accent) || "#ec4899";
   const agency = tpl?.agency_name || "DINO STUDIO";
   const order = tpl?.sections?.length ? tpl.sections : ["cover", "product", "pricing", "operations", "kpi", "addon", "creators", "closing"];
 
@@ -114,6 +120,9 @@ function ProductSection({ d }: { d: ProposalDoc }) {
 
 // ── 트랙 제안 요약(가격 + 상당 구성 가치) ──
 function PricingSection({ d }: { d: ProposalDoc }) {
+  // 가격·기능·가치표가 모두 비면(예: 마케팅/멀티몰 프리필 없음) 섹션 자체를 생략(빈 카드 방지).
+  if (d.monthly_amount == null && d.list_amount == null && d.features.length === 0 &&
+      d.value_items.length === 0 && d.value_total == null) return null;
   return (
     <section className="pp-page">
       <Eyebrow small={`${TRACK_BADGE[d.track] ?? d.track.toUpperCase()} · SUMMARY`} title={TRACK_SUMMARY[d.track] ?? "제안 요약"}

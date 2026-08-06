@@ -141,7 +141,9 @@ export async function generateProposalContentAction(proposalId: string): Promise
   }
   if (!parsed) return { ok: false, error: "AI 응답 파싱 실패(JSON 형식 아님)." };
 
-  const keywords = (parsed.keywords ?? []).map((k) => String(k)).filter(Boolean);
+  // AI 가 keywords 를 배열이 아닌 형태로 반환해도 안전하게(문자열이면 단일 원소로).
+  const kwRaw = Array.isArray(parsed.keywords) ? parsed.keywords : parsed.keywords ? [parsed.keywords] : [];
+  const keywords = kwRaw.map((k) => String(k)).filter(Boolean);
   if (category) keywords.push(category);
 
   // 3) glovek 유사 제품 콘텐츠 → 콘텐츠 레퍼런스(크리에이터) 초안.
@@ -154,8 +156,7 @@ export async function generateProposalContentAction(proposalId: string): Promise
       product: g.name,
       thumb_url: g.image_url,
       caption: g.name || g.category,
-      revenue: g.gmv, // glovek 실데이터 있을 때만(없으면 undefined → 담당자 입력)
-      // roas·fee_rate·engagement 는 지어내지 않음(담당자 입력).
+      // 매출·ROAS·수수료율·참여율 등 성과 지표는 단위/통화를 확신할 수 없어 자동 채우지 않음(담당자 입력).
     }));
 
   const feats = Array.isArray(parsed.product?.features)

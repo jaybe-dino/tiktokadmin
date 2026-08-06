@@ -20,23 +20,25 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
 
   async function save(publish?: boolean) {
     setBusy(true);
-    const r = await saveProposalDocAction({
-      id: d.id, title: d.title, subtitle: d.subtitle, brand_name: d.brand_name, brand_logo_url: d.brand_logo_url,
-      track: d.track, list_amount: d.list_amount, monthly_amount: d.monthly_amount, fee_pct: d.fee_pct,
-      term_months: d.term_months, term_discount_pct: d.track === "onboarding" ? null : d.term_discount_pct, features: d.features,
-      seeding_qty: d.seeding_qty, live_qty: d.live_qty, op_tags: d.op_tags,
-      kpi_tier: d.kpi_tier, kpi_stage: d.kpi_stage, kpi_creator_content: d.kpi_creator_content, kpi_ad_spend: d.kpi_ad_spend,
-      products: d.products, creators: d.creators, accent: d.accent,
-      product_en: d.product_en, product_volume: d.product_volume, product_features: d.product_features, product_tags: d.product_tags,
-      value_items: d.value_items, value_total: d.value_total,
-      roadmap_steps: d.roadmap_steps, impacts: d.impacts, impact_banner: d.impact_banner,
-      kpi_year_tier: d.kpi_year_tier, kpi_year_stage: d.kpi_year_stage, kpi_year_creator_content: d.kpi_year_creator_content, kpi_year_ad_spend: d.kpi_year_ad_spend,
-      addons: d.addons,
-      status: publish === undefined ? d.status : publish ? "published" : "draft",
-    });
-    setBusy(false);
-    if (r.ok) { if (publish !== undefined) set("status", publish ? "published" : "draft"); flash(publish ? "발행되었습니다." : "저장되었습니다."); router.refresh(); }
-    else flash(r.error ?? "저장 실패");
+    try {
+      const r = await saveProposalDocAction({
+        id: d.id, title: d.title, subtitle: d.subtitle, brand_name: d.brand_name, brand_logo_url: d.brand_logo_url,
+        track: d.track, list_amount: d.list_amount, monthly_amount: d.monthly_amount, fee_pct: d.fee_pct,
+        term_months: d.term_months, term_discount_pct: d.track === "onboarding" ? null : d.term_discount_pct, features: d.features,
+        seeding_qty: d.seeding_qty, live_qty: d.live_qty, op_tags: d.op_tags,
+        kpi_tier: d.kpi_tier, kpi_stage: d.kpi_stage, kpi_creator_content: d.kpi_creator_content, kpi_ad_spend: d.kpi_ad_spend,
+        products: d.products, creators: d.creators, accent: d.accent,
+        product_en: d.product_en, product_volume: d.product_volume, product_features: d.product_features, product_tags: d.product_tags,
+        value_items: d.value_items, value_total: d.value_total,
+        roadmap_steps: d.roadmap_steps, impacts: d.impacts, impact_banner: d.impact_banner,
+        kpi_year_tier: d.kpi_year_tier, kpi_year_stage: d.kpi_year_stage, kpi_year_creator_content: d.kpi_year_creator_content, kpi_year_ad_spend: d.kpi_year_ad_spend,
+        addons: d.addons,
+        status: publish === undefined ? d.status : publish ? "published" : "draft",
+      });
+      if (r.ok) { if (publish !== undefined) set("status", publish ? "published" : "draft"); flash(publish ? "발행되었습니다." : "저장되었습니다."); router.refresh(); }
+      else flash(r.error ?? "저장 실패");
+    } catch (e) { flash((e as Error).message || "저장 실패"); }
+    finally { setBusy(false); }
   }
   async function remove() {
     if (!confirm("이 제안서를 삭제할까요?")) return;
@@ -46,7 +48,9 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
   async function genAI() {
     if (!confirm("브랜드 제출 URL을 참고해 핵심 SKU 소개·부제·콘텐츠 레퍼런스를 AI로 생성합니다.\n(기존 특징/태그는 대체되고, 콘텐츠 레퍼런스는 추가됩니다. 저장 전까지 되돌릴 수 있어요.)")) return;
     setBusy(true);
-    const r = await generateProposalContentAction(d.id);
+    let r;
+    try { r = await generateProposalContentAction(d.id); }
+    catch (e) { flash((e as Error).message || "AI 생성 실패"); setBusy(false); return; }
     setBusy(false);
     if (!r.ok) { flash(r.error ?? "AI 생성 실패"); return; }
     setD((p) => {
@@ -71,7 +75,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         <span style={{ fontSize: 12, color: d.status === "published" ? "#12b886" : "#f0a02c", fontWeight: 700 }}>
           {d.status === "published" ? "● 발행됨" : "○ 초안"}
         </span>
-        <a className="btn sm" href={publicUrl} target="_blank">미리보기 ↗</a>
+        <a className="btn sm" href={`${publicUrl}?preview=1`} target="_blank">미리보기 ↗</a>
         <button className="btn sm" onClick={() => { navigator.clipboard?.writeText(publicUrl); flash("공개 링크 복사됨"); }}>공개링크 복사</button>
         <button className="btn sm" disabled={busy} onClick={genAI} title="브랜드 URL 크롤 + glovek 유사 콘텐츠로 기본내용 생성">🤖 AI 기본내용 생성</button>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
