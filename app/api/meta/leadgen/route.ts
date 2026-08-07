@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "@/lib/env";
 import { processIngest } from "@/lib/ingest";
+import { toKoreanLocalPhone } from "@/lib/sms";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,7 +69,8 @@ async function handleLead(leadgenId: string): Promise<Record<string, unknown>> {
   }
   const pick = (...names: string[]) => names.map((n) => fields[n]).find((v) => v?.trim()) ?? "";
   const email = pick("email", "이메일", "work_email");
-  const phone = pick("phone_number", "phone", "전화번호", "연락처", "휴대폰번호").replace(/[^0-9+]/g, "");
+  // 메타는 국제표기(82…)로 전달 → 국내형식(010…)으로 교정해 저장(문자 발송·표시 일관).
+  const phone = toKoreanLocalPhone(pick("phone_number", "phone", "전화번호", "연락처", "휴대폰번호"));
   const brandName = pick("company_name", "회사명", "브랜드명", "brand", "company");
   const contactName = pick("full_name", "이름", "성함", "name", "담당자명");
 

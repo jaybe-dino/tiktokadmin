@@ -6,6 +6,26 @@ const SEND_URL = "https://apis.aligo.in/send/";       // 단건/동일메시지 
 const MASS_URL = "https://apis.aligo.in/send_mass/";  // 개인화 대량(수신자별 다른 메시지)
 const REMAIN_URL = "https://apis.aligo.in/remain/";   // 잔여건수
 
+/**
+ * ALIGO 는 국내번호(010…)만 수신한다. 메타 리드광고 등은 국제표기(+82·82·0082,
+ * 앞자리 0 제거)로 전달하므로 국내 0 접두 형식으로 교정한다.
+ *   "821046871461" → "01046871461",  "+82 10-4687-1461" → "01046871461"
+ * 이미 국내형식(0…)이면 숫자만 남겨 그대로 반환.
+ */
+export function toKoreanLocalPhone(raw: string): string {
+  let d = (raw || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.startsWith("0082")) d = d.slice(4);
+  else if (d.startsWith("82") && !d.startsWith("820")) d = d.slice(2);
+  else return d; // 이미 국내(0…) 또는 국가코드 없음
+  return d.startsWith("0") ? d : "0" + d;
+}
+
+/** 콤마 구분 수신자 목록 각각을 국내형식으로 교정. */
+function normalizeReceivers(csv: string): string {
+  return csv.split(",").map((s) => toKoreanLocalPhone(s)).filter(Boolean).join(",");
+}
+
 /** EUC-KR 기준 바이트 수(한글 2, ASCII 1) — SMS/LMS 판정용. */
 export function byteLen(s: string): number {
   let n = 0;
@@ -77,7 +97,7 @@ export async function sendSms(input: {
     key: env.aligo.apiKey,
     user_id: env.aligo.userId,
     sender: input.senderOverride || env.aligo.sender,
-    receiver: input.receiver.replace(/[^0-9,]/g, ""),
+    receiver: normalizeReceivers(input.receiver),
     msg: input.msg,
     msg_type: type,
     testmode_yn: test ? "Y" : "N",
@@ -114,7 +134,7 @@ export async function sendMass(input: {
   if (type !== "SMS" && input.title) body.set("title", input.title.slice(0, 40));
   input.targets.forEach((t, i) => {
     const n = i + 1;
-    body.set(`rec_${n}`, t.receiver.replace(/[^0-9]/g, ""));
+    body.set(`rec_${n}`, toKoreanLocalPhone(t.receiver));
     body.set(`msg_${n}`, t.msg);
   });
   return postAligo(MASS_URL, body, type);
