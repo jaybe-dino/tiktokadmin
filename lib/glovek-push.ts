@@ -89,6 +89,14 @@ export async function flushBrandSyncOutbox(limit = 100): Promise<FlushResult> {
   for (const b of rows) {
     const rec = b as unknown as Record<string, unknown>;
     const gid = (rec.glovek_user_id as string) || "";
+    const src = (rec.source as string) || "";
+    // ⚠️ glovek 출처 브랜드만 push(중요). admin 자체 리드/CSV/마케팅직접등록은 제외.
+    //    (트리거가 이미 걸러 적재하지만, 과거 잔여 큐 대비 방어적 재확인)
+    const isGlovekOrigin = !!gid || src.startsWith("glovek");
+    if (!isGlovekOrigin) {
+      await query("DELETE FROM brand_sync_outbox WHERE brand_id=$1", [b.id]);
+      continue;
+    }
     // 매칭 키가 하나도 없으면 glovek 에서 찾을 수 없음 → 큐에서 제거(무한 재시도 방지).
     if (!b.email && !b.biz_no && !b.phone && !gid) {
       await query("DELETE FROM brand_sync_outbox WHERE brand_id=$1", [b.id]);

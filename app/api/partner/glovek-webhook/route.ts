@@ -86,7 +86,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  await setFields(brand.id, changes);
+  // glovek 이 보낸 레코드이므로 glovek 출처로 연결(안정 PK 저장). 이후 admin 이 이 브랜드의
+  //   공유 필드를 수정하면 origin 체크를 통과해 정상적으로 glovek 에 되돌려 push 된다.
+  const linkFields: Record<string, unknown> = { ...changes };
+  if (gid && !(brand as unknown as Record<string, unknown>).glovek_user_id) linkFields.glovek_user_id = gid;
+
+  await setFields(brand.id, linkFields);
   await query(
     `INSERT INTO brand_sources (brand_id, site, event, source_ref, payload, occurred_at)
      VALUES ($1,'glovek','sync_in',$2,$3, now())
