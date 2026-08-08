@@ -56,7 +56,14 @@ export interface ImportResult {
   error?: string;
 }
 
-export async function importBrandRecord(actorId: string, rec: ImportRecord): Promise<ImportResult> {
+export interface ImportOpts {
+  /** true 면 "사람이 관리하는 필드"(브랜드명·카테고리·담당·메모 등)는 이미 값이 있으면 덮지 않는다.
+   *  glovek 동기화 전용 — 사람이 원장에서 수정한 값을 15분 주기 동기화가 되돌리는 것을 막는다.
+   *  CSV 임포트·수동 등록은 관리자가 의도적으로 덮어쓰는 경로이므로 false(기본). */
+  protectManual?: boolean;
+}
+
+export async function importBrandRecord(actorId: string, rec: ImportRecord, opts: ImportOpts = {}): Promise<ImportResult> {
   const keys = extractKeys(rec);
   if (!hasDedupKey(keys)) return { ok: false, error: "email/phone/biz_no 중 최소 하나 필요" };
 
@@ -95,31 +102,42 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord): Pro
     return r.rows[0];
   });
 
-  // 제공된 필드 반영(덮어쓰기 — 권위 있는 데이터 로드)
+  // 제공된 필드 반영. 두 부류로 구분:
+  //   · setIf   : glovek 권위 필드(결제·플랜·등급·추천트랙·연동ID·소스) — 항상 최신값 반영
+  //   · setHuman: 사람이 원장에서 관리하는 필드 — protectManual(동기화) 시 이미 값이 있으면 보존
   const fields: Record<string, unknown> = {};
+  const cur = (k: string) => (brand as unknown as Record<string, unknown>)[k];
+  const isEmpty = (v: unknown) => v === undefined || v === null || String(v).trim() === "";
   const setIf = (k: string, v: unknown) => {
     if (v !== undefined && v !== null && v !== "") fields[k] = v;
   };
-  setIf("brand_name", rec.brand_name?.trim());
-  setIf("contact_name", rec.contact_name);
-  setIf("category", rec.category);
-  setIf("brand_url", rec.brand_url);
+  const setHuman = (k: string, v: unknown) => {
+    if (v === undefined || v === null || v === "") return;
+    if (opts.protectManual && !isEmpty(cur(k))) return; // 사람 수정값 보호(동기화가 덮지 않음)
+    fields[k] = v;
+  };
+  // 사람 소유(수정 보호 대상)
+  setHuman("brand_name", rec.brand_name?.trim());
+  setHuman("contact_name", rec.contact_name);
+  setHuman("category", rec.category);
+  setHuman("brand_url", rec.brand_url);
+  setHuman("owner_intake", rec.owner_intake);
+  setHuman("owner_sales", rec.owner_sales);
+  setHuman("owner_onboard", rec.owner_onboard);
+  setHuman("owner_ads", rec.owner_ads);
+  setHuman("next_action", rec.next_action);
+  setHuman("due_date", rec.due_date);
+  setHuman("memo", rec.memo);
+  if (countries.length && !(opts.protectManual && (cur("countries") as unknown[] | null)?.length)) fields.countries = countries;
+  // glovek 권위(항상 반영)
   setIf("source", rec.source);
   setIf("grade", grade);
   setIf("plan", plan);
   setIf("pay_status", payStatus);
   setIf("contract_type", contractType);
   setIf("rec_track", recTrack);
-  setIf("owner_intake", rec.owner_intake);
-  setIf("owner_sales", rec.owner_sales);
-  setIf("owner_onboard", rec.owner_onboard);
-  setIf("owner_ads", rec.owner_ads);
-  setIf("next_action", rec.next_action);
-  setIf("due_date", rec.due_date);
-  setIf("memo", rec.memo);
   setIf("glovek_user_id", rec.glovek_user_id);
   setIf("glovek_onb_id", rec.glovek_onb_id);
-  if (countries.length) fields.countries = countries;
 
   // state 변경(신규가 아니고 다른 단계면 이력 기록 + stage_entered_at 갱신)
   //   ⚠️ 종료 상태(dropped/churned)는 import·glovek 동기화로 되살리지 않는다 —

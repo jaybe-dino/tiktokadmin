@@ -213,7 +213,8 @@ async function runTable(
       const rec = toRec(row);
       // dedup 키가 없으면 건너뜀
       if (!rec.email && !rec.phone && !rec.biz_no) { skipped++; continue; }
-      const res = await importBrandRecord(actorId, rec);
+      // 동기화는 사람이 원장에서 수정한 필드를 덮지 않는다(protectManual).
+      const res = await importBrandRecord(actorId, rec, { protectManual: true });
       if (!res.ok) skipped++;
       else if (res.created) created++;
       else merged++;
