@@ -1,5 +1,6 @@
 import { query, tx } from "./db";
 import { extractKeys, findBrand, hasDedupKey } from "./dedup";
+import { isAhead } from "./states";
 import { recordStageHistory, setFields } from "./repo/brands";
 import {
   GRADES, PAY_STATUSES, PLANS, STATES,
@@ -109,7 +110,9 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord, opts
   const cur = (k: string) => (brand as unknown as Record<string, unknown>)[k];
   const isEmpty = (v: unknown) => v === undefined || v === null || String(v).trim() === "";
   const setIf = (k: string, v: unknown) => {
-    if (v !== undefined && v !== null && v !== "") fields[k] = v;
+    if (v === undefined || v === null || v === "") return;
+    if (String(cur(k) ?? "") === String(v)) return; // 값이 같으면 재기록하지 않음(불필요 UPDATE·updated_at 갱신 방지)
+    fields[k] = v;
   };
   const setHuman = (k: string, v: unknown) => {
     if (v === undefined || v === null || v === "") return;
@@ -129,8 +132,11 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord, opts
   setHuman("due_date", rec.due_date);
   setHuman("memo", rec.memo);
   if (countries.length && !(opts.protectManual && (cur("countries") as unknown[] | null)?.length)) fields.countries = countries;
+  // source(유입 출처)는 최초 1회만 확정 — 같은 사용자가 여러 glovek 테이블(consult·users·mall
+  //   등)에 걸쳐 있으면 매 동기화마다 source 가 왕복 덮어쓰기되어 updated_at 이 끝없이 갱신되던
+  //   버그(원장 "최근 업데이트순" 평탄화)의 근본 원인. 사람/동기화 공통으로 채움-전용 취급.
+  setHuman("source", rec.source);
   // glovek 권위(항상 반영)
-  setIf("source", rec.source);
   setIf("grade", grade);
   setIf("plan", plan);
   setIf("pay_status", payStatus);
@@ -143,8 +149,12 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord, opts
   //   ⚠️ 종료 상태(dropped/churned)는 import·glovek 동기화로 되살리지 않는다 —
   //   담당이 숨긴(드롭한) 브랜드가 재유입/재동기화로 원장에 부활하던 근본 버그 차단.
   //   되살리려면 담당이 원장에서 명시적으로 상태를 되돌려야 함.
+  //   ⚠️ 또한 기존 브랜드는 "앞선 단계로만" 전진(isAhead). 같은 사용자가 여러 glovek 테이블에
+  //   걸쳐 서로 다른 state(consult=contact, users=lead_new …)를 보고하면, 전진검사 없이는 매
+  //   동기화마다 state 가 뒤로 갔다가 돌아오며 stage_entered_at 이 재기록되어 updated_at 이
+  //   끝없이 갱신됐다(원장 "최근 업데이트순" 평탄화). ingest 의 advanceStateIfAhead 와 동일 규칙.
   const terminal = brand.state === "dropped" || brand.state === "churned";
-  const stateChanges = !!state && (created || (state !== brand.state && !terminal));
+  const stateChanges = !!state && (created || (state !== brand.state && !terminal && isAhead(state, brand.state)));
   if (stateChanges) {
     fields.state = state!;
     fields.stage_entered_at = new Date().toISOString();
