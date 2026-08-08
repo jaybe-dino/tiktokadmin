@@ -85,9 +85,15 @@ glovek 이 아래 **쓰기 엔드포인트**를 만들어 주세요.
 
 ---
 
-## 9. 우리(admin) 쪽 준비 사항
-- 계약 확정 후 구현: `/api/partner/glovek-webhook` 수신부 + admin 편집 시 `brand-upsert` 호출부(변경분만·updated_at 포함).
-- 그 전까지는 **동기화가 사람 수정값을 덮지 않는 임시 보호**를 유지(데이터 유실 방지). glovek 쓰기 API 준비되면 last-write-wins 로 전환.
+## 9. 우리(admin) 쪽 준비 사항 — **구현 완료(대기 상태)**
+admin 측은 아래를 모두 구현해 두었습니다. glovek 이 **URL·토큰·시크릿만 제공**하면 환경변수 설정으로 즉시 작동합니다(미설정 시 dormant).
+- **glovek → admin 수신**: `POST /api/partner/glovek-webhook` (HMAC 검증 · last-write-wins · 동일값 no_change 스킵).
+- **admin → glovek 전송**: 공유 필드가 바뀐 브랜드를 아웃박스에 적재 → 크론(`/api/cron/glovek-push`, glovek-sync 크론에도 포함)이 `brand-upsert` 로 변경분만 push.
+- **환경변수**(glovek 이 값 제공 시 설정):
+  - `GLOVEK_PUSH_URL` — glovek 의 `brand-upsert` 엔드포인트
+  - `GLOVEK_PUSH_TOKEN` — 위 호출 Bearer 토큰
+  - `GLOVEK_WEBHOOK_SECRET` — 웹훅 HMAC 공유 시크릿
+- 값이 들어오기 전까지는 **동기화가 사람 수정값을 덮지 않는 임시 보호**가 유지됩니다(데이터 유실 방지).
 
 ## 10. glovek 에 요청하는 것 — 체크리스트
 - [ ] 공유 테이블에 레코드별 **`updated_at`(timestamptz)** 노출

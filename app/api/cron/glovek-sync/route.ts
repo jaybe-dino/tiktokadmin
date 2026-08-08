@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cronAuthorized } from "@/lib/cron-auth";
 import { backfillGlovek } from "@/lib/backfill";
+import { flushBrandSyncOutbox } from "@/lib/glovek-push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,9 @@ export async function POST(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
     const result = await backfillGlovek("glovek-sync");
-    return NextResponse.json(result);
+    // 같은 주기로 admin→glovek 변경분(아웃박스)도 push. glovek push 미설정 시 dormant(대기 건수만).
+    const push = await flushBrandSyncOutbox().catch((e) => ({ ok: false, error: (e as Error).message }));
+    return NextResponse.json({ ...result, push });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }

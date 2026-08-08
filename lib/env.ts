@@ -121,6 +121,13 @@ export const env = {
     get accessToken() { return opt("META_PAGE_ACCESS_TOKEN"); },      // 페이지 액세스 토큰(leads_retrieval 권한)
     get appSecret() { return opt("META_APP_SECRET"); },               // 서명 검증(선택·권장)
   },
+  // glovek.space 양방향 동기화 — admin↔glovek 공유 브랜드 프로필 동기화.
+  //   미설정이면 push/webhook 모두 비활성(dormant). glovek 이 API·토큰 제공 시 자동 작동.
+  glovekSync: {
+    get pushUrl() { return opt("GLOVEK_PUSH_URL"); },          // glovek brand-upsert 엔드포인트(admin→glovek)
+    get pushToken() { return opt("GLOVEK_PUSH_TOKEN"); },      // 위 호출 Bearer 토큰
+    get webhookSecret() { return opt("GLOVEK_WEBHOOK_SECRET"); }, // glovek→admin 웹훅 HMAC 검증 시크릿
+  },
   aligo: {
     get apiKey() { return opt("ALIGO_API_KEY"); },
     get userId() { return opt("ALIGO_USER_ID"); },
