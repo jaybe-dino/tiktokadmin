@@ -95,6 +95,15 @@ admin 측은 아래를 모두 구현해 두었습니다. glovek 이 **URL·토�
   - `GLOVEK_WEBHOOK_SECRET` — 웹훅 HMAC 공유 시크릿
 - 값이 들어오기 전까지는 **동기화가 사람 수정값을 덮지 않는 임시 보호**가 유지됩니다(데이터 유실 방지).
 
+## 9-1. glovek 회신 반영(2026-08-08) — 스펙 정합 완료
+glovek 이 엔드포인트 구현을 완료·회신하여, admin 측을 실제 스펙에 맞춰 정렬했습니다.
+- **push(admin→glovek)**: `POST /api/partner/brand-upsert` — `match{ id, email, biz_no, phone }`(우선순위 id→email→biz_no→phone), `fields`는 쓰기 대상만(brand_name·contact_name·phone·category·brand_url; email·biz_no 는 매칭키라 제외), `create:false`.
+- **LWW 기준시각**: glovek `profile_updated_at` 과 대칭으로 admin 에도 `brands.profile_updated_at`(공유 필드 변경 시에만 갱신, migration 0051) 도입 → 메모·단계 등 무관한 편집이 프로필 LWW 를 밀어내지 않음.
+- **webhook(glovek→admin)**: `X-GloveK-Signature` HMAC 검증, `{ id, email, updated_at, fields(변경분만) }` 그대로 수신.
+- **에코 방지**: glovek 은 brand-upsert 반영 시 웹훅을 발신하지 않음 → 왕복 루프 없음.
+
+**미결(→ glovek 에 회신 필요, §8):** 공유필드에 grade·recommended_track 추가 여부 · create 허용 여부(현재 false) · 웹훅 URL(기본값 사용) · 토큰/시크릿 공유 채널.
+
 ## 10. glovek 에 요청하는 것 — 체크리스트
 - [ ] 공유 테이블에 레코드별 **`updated_at`(timestamptz)** 노출
 - [ ] (권장) 공유 레코드 변경 시 **웹훅 POST** → `admin.glovek.space/api/partner/glovek-webhook`

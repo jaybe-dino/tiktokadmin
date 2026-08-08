@@ -75,10 +75,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, result: "no_change" });
   }
 
-  // last-write-wins: 원장이 더 최신이면 무시
+  // last-write-wins: 원장 프로필이 더 최신이면 무시. 기준시각은 프로필 전용 profile_updated_at
+  //   (메모·단계 등 무관한 편집이 프로필 LWW 를 밀어내지 않도록 — glovek 과 대칭).
   if (p.updated_at) {
+    const cur = (brand as unknown as Record<string, unknown>).profile_updated_at ?? brand.updated_at;
     const incomingTs = Date.parse(p.updated_at);
-    const currentTs = Date.parse(brand.updated_at as unknown as string);
+    const currentTs = Date.parse(cur as string);
     if (!Number.isNaN(incomingTs) && !Number.isNaN(currentTs) && currentTs > incomingTs) {
       return NextResponse.json({ ok: true, result: "skipped_older" });
     }

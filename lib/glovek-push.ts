@@ -6,26 +6,33 @@ import { query } from "./db";
 import { env } from "./env";
 import type { Brand } from "./types";
 
-/** glovek 과 항상 동일하게 유지하는 공유(양방향) 필드. */
+/** glovek 과 항상 동일하게 유지하는 공유(양방향) 필드(웹훅 수신 diff 판정용 — 전체). */
 export const SHARED_FIELDS = [
   "brand_name", "contact_name", "email", "phone", "biz_no", "category", "brand_url",
 ] as const;
 export type SharedField = (typeof SHARED_FIELDS)[number];
 
+/** admin→glovek 로 실제 갱신 전송하는 쓰기 대상 필드. email·biz_no 는 매칭키라 제외(glovek 스펙 §3·§6). */
+export const WRITABLE_FIELDS = [
+  "brand_name", "contact_name", "phone", "category", "brand_url",
+] as const;
+
 export function glovekPushConfigured(): boolean {
   return !!(env.glovekSync.pushUrl && env.glovekSync.pushToken);
 }
 
-function sharedFieldsOf(b: Brand): Record<SharedField, string> {
-  const out = {} as Record<SharedField, string>;
-  for (const k of SHARED_FIELDS) out[k] = ((b as unknown as Record<string, unknown>)[k] ?? "") as string;
+function writableFieldsOf(b: Brand): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of WRITABLE_FIELDS) out[k] = ((b as unknown as Record<string, unknown>)[k] ?? "") as string;
   return out;
 }
 
+// glovek brand-upsert 스펙: match 우선순위 id → email → biz_no → phone, create 기본 false.
 interface UpsertPayload {
-  match: { email?: string; biz_no?: string; glovek_user_id?: string };
+  match: { id?: string; email?: string; biz_no?: string; phone?: string };
   updated_at: string;
   fields: Record<string, string>;
+  create: boolean;
 }
 
 async function postUpsert(payload: UpsertPayload, timeoutMs = 10000): Promise<{ ok: boolean; status?: number; error?: string }> {
@@ -80,19 +87,25 @@ export async function flushBrandSyncOutbox(limit = 100): Promise<FlushResult> {
 
   let pushed = 0, failed = 0;
   for (const b of rows) {
+    const rec = b as unknown as Record<string, unknown>;
+    const gid = (rec.glovek_user_id as string) || "";
     // 매칭 키가 하나도 없으면 glovek 에서 찾을 수 없음 → 큐에서 제거(무한 재시도 방지).
-    if (!b.email && !b.biz_no && !b.glovek_user_id) {
+    if (!b.email && !b.biz_no && !b.phone && !gid) {
       await query("DELETE FROM brand_sync_outbox WHERE brand_id=$1", [b.id]);
       continue;
     }
+    // LWW 기준시각은 프로필 전용 profile_updated_at (없으면 updated_at 폴백).
+    const ts = (rec.profile_updated_at as string) || (rec.updated_at as string);
     const payload: UpsertPayload = {
       match: {
+        ...(gid ? { id: gid } : {}),
         ...(b.email ? { email: b.email } : {}),
         ...(b.biz_no ? { biz_no: b.biz_no } : {}),
-        ...(b.glovek_user_id ? { glovek_user_id: b.glovek_user_id } : {}),
+        ...(b.phone ? { phone: b.phone } : {}),
       },
-      updated_at: new Date(b.updated_at as unknown as string).toISOString(),
-      fields: sharedFieldsOf(b),
+      updated_at: new Date(ts).toISOString(),
+      fields: writableFieldsOf(b),
+      create: false, // 매칭될 때만 갱신(기본). 신규 생성 정책 확정 시 변경.
     };
     const r = await postUpsert(payload);
     if (r.ok) {
