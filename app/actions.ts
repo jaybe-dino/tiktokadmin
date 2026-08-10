@@ -198,6 +198,16 @@ export async function updateBrandAction(
     }
     return { ok: false, error: msg };
   }
+  // 연락정보(email/phone/contact_name)를 직접 수정하면 primary 연락처도 맞춰 갱신 →
+  //   syncPrimaryContact(연락처→브랜드 미러)가 수동 수정값을 되덮는 문제 방지.
+  const touchC: string[] = [];
+  const cVals: unknown[] = [brandId];
+  if (fields.email !== undefined) { cVals.push(fields.email === "" ? null : fields.email); touchC.push(`email = $${cVals.length}`); }
+  if (fields.phone !== undefined) { cVals.push(fields.phone === "" ? null : fields.phone); touchC.push(`phone = $${cVals.length}`); }
+  if (fields.contact_name !== undefined && fields.contact_name !== "") { cVals.push(fields.contact_name); touchC.push(`name = $${cVals.length}`); }
+  if (touchC.length > 0) {
+    await query(`UPDATE brand_contacts SET ${touchC.join(", ")} WHERE brand_id=$1 AND is_primary`, cVals).catch(() => {});
+  }
   revalidatePath(`/brand/${brandId}`);
   revalidatePath("/");
   return { ok: true };

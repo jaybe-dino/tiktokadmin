@@ -20,6 +20,12 @@ export default function Brand360Company({ brand, company, assets }: {
   const [pending, start] = useTransition();
   const [edit, setEdit] = useState<"biz" | "tax" | "bank" | "brand" | null>(null);
   const [msg, setMsg] = useState("");
+  // 저장 직후 즉시 반영(낙관적) — 저장에 성공한 값만 얹으므로 항상 실제 저장값과 일치.
+  //   router.refresh() 로 새 prop 이 와도 같은 값이라 무해(자기치유).
+  const [ov, setOv] = useState<Partial<Brand>>({});
+  const [cov, setCov] = useState<Record<string, unknown>>({});
+  const bv = { ...brand, ...ov } as Brand;
+  const cv = { ...(company ?? {}), ...cov } as BrandCompany;
   // 저장된 심층분석을 초기값으로 — 재실행 없이 열람.
   const savedMd = (brand as Brand & { deep_analysis_md?: string | null }).deep_analysis_md ?? null;
   const savedAt = (brand as Brand & { deep_analysis_at?: string | null }).deep_analysis_at ?? null;
@@ -30,9 +36,9 @@ export default function Brand360Company({ brand, company, assets }: {
 
   function saveCompany(patch: Record<string, unknown>) {
     start(async () => {
-      const r = await saveCompanyAction(brand.id, patch);
+      const r = await saveCompanyAction(bv.id, patch);
       setMsg(r.ok ? "저장됨" : r.error ?? "실패");
-      if (r.ok) setEdit(null);
+      if (r.ok) { setCov((p) => ({ ...p, ...patch })); setEdit(null); }
       router.refresh();
     });
   }
@@ -40,7 +46,7 @@ export default function Brand360Company({ brand, company, assets }: {
   const bizAsset = assets.find((a) => a.kind === "biz_cert");
   const bankAsset = assets.find((a) => a.kind === "bank_cert");
   const brandAssets = assets.filter((a) => a.kind === "logo" || a.kind === "brand_guide");
-  const canAnalyze = Boolean(brand.biz_no) || Boolean(brand.brand_url);
+  const canAnalyze = Boolean(bv.biz_no) || Boolean(bv.brand_url);
 
   return (
     <div>
@@ -50,7 +56,7 @@ export default function Brand360Company({ brand, company, assets }: {
           <b>🤖 AI 기업·브랜드 심층 분석</b>
           <span className={`chip ${canAnalyze ? "grn" : "amb"}`}>
             {canAnalyze
-              ? `실행 가능 — 사업자번호 ${brand.biz_no ? "✓" : "✗"} · 자사몰 ${brand.brand_url ? "✓" : "✗"}`
+              ? `실행 가능 — 사업자번호 ${bv.biz_no ? "✓" : "✗"} · 자사몰 ${bv.brand_url ? "✓" : "✗"}`
               : "사업자번호·자사몰 URL 입력 후 실행 가능"}
           </span>
           <span style={{ color: "var(--ink3)", fontSize: 11 }}>공개 데이터 기반 추정 · 판단 참고용, 확정은 미팅에서 검증</span>
@@ -61,7 +67,7 @@ export default function Brand360Company({ brand, company, assets }: {
               onClick={() =>
                 start(async () => {
                   setAiErr("");
-                  const r = await deepAnalysisAction(brand.id);
+                  const r = await deepAnalysisAction(bv.id);
                   if (r.ok) { setAiMd(r.md ?? ""); setFetched(r.fetched ?? []); }
                   else setAiErr(r.error ?? "실패");
                 })
@@ -98,7 +104,7 @@ export default function Brand360Company({ brand, company, assets }: {
         <div className="card">
           <div className="hd">
             <b>사업자 정보</b>
-            {company?.source && <span className="chip" style={{ fontSize: 10 }}>{company.source} 동기 · 수기 보정 가능</span>}
+            {cv.source && <span className="chip" style={{ fontSize: 10 }}>{cv.source} 동기 · 수기 보정 가능</span>}
             <div className="rt"><button className="btn sm" onClick={() => setEdit(edit === "biz" ? null : "biz")}>{edit === "biz" ? "닫기" : "정보 수정"}</button></div>
           </div>
           <div className="bd">
@@ -120,39 +126,39 @@ export default function Brand360Company({ brand, company, assets }: {
                   });
                 }}
               >
-                <input name="company_name_kr" className="f" defaultValue={company?.company_name_kr ?? ""} placeholder="상호 (국문)" />
-                <input name="company_name_en" className="f" defaultValue={company?.company_name_en ?? ""} placeholder="상호 (영문)" />
-                <select name="company_type" className="f" defaultValue={company?.company_type ?? ""}>
+                <input name="company_name_kr" className="f" defaultValue={cv.company_name_kr ?? ""} placeholder="상호 (국문)" />
+                <input name="company_name_en" className="f" defaultValue={cv.company_name_en ?? ""} placeholder="상호 (영문)" />
+                <select name="company_type" className="f" defaultValue={cv.company_type ?? ""}>
                   <option value="">구분</option>
                   <option value="법인 사업자">법인 사업자</option>
                   <option value="개인 사업자">개인 사업자</option>
                 </select>
-                <input name="rep_name" className="f" defaultValue={company?.rep_name ?? ""} placeholder="대표자" />
-                <input name="reg_date" className="f" type="date" defaultValue={company?.reg_date?.slice(0, 10) ?? ""} />
-                <input name="biz_category" className="f" defaultValue={company?.biz_category ?? ""} placeholder="업태·종목" />
-                <input name="address_kr" className="f" defaultValue={company?.address_kr ?? ""} placeholder="주소 (국문)" />
-                <input name="address_en" className="f" defaultValue={company?.address_en ?? ""} placeholder="주소 (영문)" />
+                <input name="rep_name" className="f" defaultValue={cv.rep_name ?? ""} placeholder="대표자" />
+                <input name="reg_date" className="f" type="date" defaultValue={cv.reg_date?.slice(0, 10) ?? ""} />
+                <input name="biz_category" className="f" defaultValue={cv.biz_category ?? ""} placeholder="업태·종목" />
+                <input name="address_kr" className="f" defaultValue={cv.address_kr ?? ""} placeholder="주소 (국문)" />
+                <input name="address_en" className="f" defaultValue={cv.address_en ?? ""} placeholder="주소 (영문)" />
                 <button className="btn sm pri" disabled={pending} type="submit">저장</button>
               </form>
             ) : (
               <div className="kv">
-                <dt>상호 (국문)</dt><dd>{D(company?.company_name_kr)}</dd>
-                <dt>상호 (영문)</dt><dd>{D(company?.company_name_en)}</dd>
-                <dt>구분</dt><dd>{D(company?.company_type)}</dd>
-                <dt>대표자</dt><dd>{D(company?.rep_name)}</dd>
+                <dt>상호 (국문)</dt><dd>{D(cv.company_name_kr)}</dd>
+                <dt>상호 (영문)</dt><dd>{D(cv.company_name_en)}</dd>
+                <dt>구분</dt><dd>{D(cv.company_type)}</dd>
+                <dt>대표자</dt><dd>{D(cv.rep_name)}</dd>
                 <dt>사업자번호</dt>
                 <dd>
-                  {D(brand.biz_no)}{" "}
-                  {brand.biz_no && (
-                    <span className={`cellchip ${company?.biz_verified ? "cc-ok" : "cc-no"}`} style={{ fontSize: 10 }}>
-                      {company?.biz_verified ? "진위확인 ✓" : "미확인"}
+                  {D(bv.biz_no)}{" "}
+                  {bv.biz_no && (
+                    <span className={`cellchip ${cv.biz_verified ? "cc-ok" : "cc-no"}`} style={{ fontSize: 10 }}>
+                      {cv.biz_verified ? "진위확인 ✓" : "미확인"}
                     </span>
                   )}
                 </dd>
-                <dt>개업일</dt><dd>{company?.reg_date ? company.reg_date.slice(0, 10) : "—"}</dd>
-                <dt>업태·종목</dt><dd>{D(company?.biz_category)}</dd>
-                <dt>주소 (국문)</dt><dd>{D(company?.address_kr)}</dd>
-                <dt>주소 (영문)</dt><dd>{D(company?.address_en)}</dd>
+                <dt>개업일</dt><dd>{cv.reg_date ? cv.reg_date.slice(0, 10) : "—"}</dd>
+                <dt>업태·종목</dt><dd>{D(cv.biz_category)}</dd>
+                <dt>주소 (국문)</dt><dd>{D(cv.address_kr)}</dd>
+                <dt>주소 (영문)</dt><dd>{D(cv.address_en)}</dd>
               </div>
             )}
             <hr className="hr" />
@@ -196,19 +202,19 @@ export default function Brand360Company({ brand, company, assets }: {
                     });
                   }}
                 >
-                  <input name="tax_email" className="f" defaultValue={company?.tax_email ?? ""} placeholder="발행 이메일" />
-                  <input name="tax_contact_name" className="f" defaultValue={company?.tax_contact_name ?? ""} placeholder="세금 담당자" />
-                  <input name="tax_contact_phone" className="f" defaultValue={company?.tax_contact_phone ?? ""} placeholder="담당자 연락처" />
-                  <input name="tax_cycle" className="f" defaultValue={company?.tax_cycle ?? ""} placeholder="발행 조건 (예: 월말 일괄)" />
-                  <input name="tax_note" className="f" defaultValue={company?.tax_note ?? ""} placeholder="특이사항" />
+                  <input name="tax_email" className="f" defaultValue={cv.tax_email ?? ""} placeholder="발행 이메일" />
+                  <input name="tax_contact_name" className="f" defaultValue={cv.tax_contact_name ?? ""} placeholder="세금 담당자" />
+                  <input name="tax_contact_phone" className="f" defaultValue={cv.tax_contact_phone ?? ""} placeholder="담당자 연락처" />
+                  <input name="tax_cycle" className="f" defaultValue={cv.tax_cycle ?? ""} placeholder="발행 조건 (예: 월말 일괄)" />
+                  <input name="tax_note" className="f" defaultValue={cv.tax_note ?? ""} placeholder="특이사항" />
                   <button className="btn sm pri" disabled={pending} type="submit">저장</button>
                 </form>
               ) : (
                 <div className="kv">
-                  <dt>발행 이메일</dt><dd>{D(company?.tax_email)}</dd>
-                  <dt>세금 담당자</dt><dd>{[company?.tax_contact_name, company?.tax_contact_phone].filter(Boolean).join(" · ") || "—"}</dd>
-                  <dt>발행 조건</dt><dd>{D(company?.tax_cycle)}</dd>
-                  <dt>특이사항</dt><dd>{D(company?.tax_note)}</dd>
+                  <dt>발행 이메일</dt><dd>{D(cv.tax_email)}</dd>
+                  <dt>세금 담당자</dt><dd>{[cv.tax_contact_name, cv.tax_contact_phone].filter(Boolean).join(" · ") || "—"}</dd>
+                  <dt>발행 조건</dt><dd>{D(cv.tax_cycle)}</dd>
+                  <dt>특이사항</dt><dd>{D(cv.tax_note)}</dd>
                 </div>
               )}
             </div>
@@ -233,16 +239,16 @@ export default function Brand360Company({ brand, company, assets }: {
                     });
                   }}
                 >
-                  <input name="bank_name" className="f" defaultValue={company?.bank_name ?? ""} placeholder="은행" />
-                  <input name="bank_holder" className="f" defaultValue={company?.bank_holder ?? ""} placeholder="예금주" />
-                  <input name="bank_account" className="f" defaultValue={company?.bank_account ?? ""} placeholder="계좌번호" />
+                  <input name="bank_name" className="f" defaultValue={cv.bank_name ?? ""} placeholder="은행" />
+                  <input name="bank_holder" className="f" defaultValue={cv.bank_holder ?? ""} placeholder="예금주" />
+                  <input name="bank_account" className="f" defaultValue={cv.bank_account ?? ""} placeholder="계좌번호" />
                   <button className="btn sm pri" disabled={pending} type="submit">저장</button>
                 </form>
               ) : (
                 <div className="kv">
-                  <dt>은행</dt><dd>{D(company?.bank_name)}</dd>
-                  <dt>예금주</dt><dd>{D(company?.bank_holder)}{company?.bank_verified && <span className="cellchip cc-ok" style={{ fontSize: 10, marginLeft: 4 }}>일치 확인 ✓</span>}</dd>
-                  <dt>계좌번호</dt><dd>{D(company?.bank_account)}</dd>
+                  <dt>은행</dt><dd>{D(cv.bank_name)}</dd>
+                  <dt>예금주</dt><dd>{D(cv.bank_holder)}{cv.bank_verified && <span className="cellchip cc-ok" style={{ fontSize: 10, marginLeft: 4 }}>일치 확인 ✓</span>}</dd>
+                  <dt>계좌번호</dt><dd>{D(cv.bank_account)}</dd>
                 </div>
               )}
               <div className="row" style={{ padding: "8px 0 0", border: "none" }}>
@@ -276,52 +282,57 @@ export default function Brand360Company({ brand, company, assets }: {
                   const countries = String(f.get("countries") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
                   const certified = String(f.get("certified") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
                   start(async () => {
-                    const r1 = await updateBrandAction(brand.id, {
+                    const patch = {
                       brand_name: String(f.get("brand_name") ?? ""),
-                      contact_name: String(f.get("contact_name") ?? "") || brand.contact_name,
+                      contact_name: String(f.get("contact_name") ?? "") || bv.contact_name,
                       email: String(f.get("email") ?? ""),
                       phone: String(f.get("phone") ?? ""),
                       biz_no: String(f.get("biz_no") ?? ""),
                       category: String(f.get("category") ?? ""),
                       brand_url: String(f.get("brand_url") ?? ""),
                       memo: String(f.get("memo") ?? ""),
-                    });
-                    const r2 = await setCountriesAction(brand.id, countries, certified);
+                    };
+                    const r1 = await updateBrandAction(bv.id, patch);
+                    const r2 = await setCountriesAction(bv.id, countries, certified);
                     setMsg(r1.ok && r2.ok ? "저장됨" : r1.error || r2.error || "실패");
-                    if (r1.ok && r2.ok) setEdit(null);
+                    if (r1.ok && r2.ok) {
+                      // 저장 성공값을 즉시 화면에 반영(빈 문자열은 표시상 그대로).
+                      setOv((p) => ({ ...p, ...patch, countries, certified_countries: certified }));
+                      setEdit(null);
+                    }
                     router.refresh();
                   });
                 }}
               >
-                <input name="brand_name" className="f" defaultValue={brand.brand_name} placeholder="브랜드명 (국문)" />
-                <input name="category" className="f" defaultValue={brand.category} placeholder="카테고리" />
-                <input name="brand_url" className="f" defaultValue={brand.brand_url} placeholder="대표 판매채널 URL" />
-                <input name="contact_name" className="f" defaultValue={brand.contact_name} placeholder="담당자명" />
-                <input name="email" className="f" defaultValue={brand.email ?? ""} placeholder="이메일" />
-                <input name="phone" className="f" defaultValue={brand.phone ?? ""} placeholder="전화" />
-                <input name="biz_no" className="f" defaultValue={brand.biz_no ?? ""} placeholder="사업자번호" />
-                <input name="countries" className="f" defaultValue={brand.countries.join(", ")} placeholder="목표국 (콤마 구분)" />
-                <input name="certified" className="f" defaultValue={brand.certified_countries.join(", ")} placeholder="인증국 (콤마 구분)" />
-                <textarea name="memo" className="f" style={{ minHeight: 50 }} defaultValue={brand.memo} placeholder="메모" />
+                <input name="brand_name" className="f" defaultValue={bv.brand_name} placeholder="브랜드명 (국문)" />
+                <input name="category" className="f" defaultValue={bv.category} placeholder="카테고리" />
+                <input name="brand_url" className="f" defaultValue={bv.brand_url} placeholder="대표 판매채널 URL" />
+                <input name="contact_name" className="f" defaultValue={bv.contact_name} placeholder="담당자명" />
+                <input name="email" className="f" defaultValue={bv.email ?? ""} placeholder="이메일" />
+                <input name="phone" className="f" defaultValue={bv.phone ?? ""} placeholder="전화" />
+                <input name="biz_no" className="f" defaultValue={bv.biz_no ?? ""} placeholder="사업자번호" />
+                <input name="countries" className="f" defaultValue={bv.countries.join(", ")} placeholder="목표국 (콤마 구분)" />
+                <input name="certified" className="f" defaultValue={bv.certified_countries.join(", ")} placeholder="인증국 (콤마 구분)" />
+                <textarea name="memo" className="f" style={{ minHeight: 50 }} defaultValue={bv.memo} placeholder="메모" />
                 <button className="btn sm pri" disabled={pending} type="submit">저장</button>
               </form>
             ) : (
               <>
                 <div className="kv">
-                  <dt>브랜드명 (국문)</dt><dd>{brand.brand_name}</dd>
-                  <dt>브랜드명 (영문)</dt><dd>{D(company?.brand_name_en || brand.brand_name_en)}</dd>
-                  <dt>카테고리</dt><dd>{D(brand.category)}</dd>
-                  <dt>목표국</dt><dd>{brand.countries.length ? brand.countries.join(", ") : "미정"}</dd>
-                  <dt>인증국</dt><dd>{brand.certified_countries.length ? brand.certified_countries.join(", ") : "—"}</dd>
+                  <dt>브랜드명 (국문)</dt><dd>{bv.brand_name}</dd>
+                  <dt>브랜드명 (영문)</dt><dd>{D(cv.brand_name_en || bv.brand_name_en)}</dd>
+                  <dt>카테고리</dt><dd>{D(bv.category)}</dd>
+                  <dt>목표국</dt><dd>{bv.countries.length ? bv.countries.join(", ") : "미정"}</dd>
+                  <dt>인증국</dt><dd>{bv.certified_countries.length ? bv.certified_countries.join(", ") : "—"}</dd>
                 </div>
                 <hr className="hr" />
                 <b style={{ fontSize: 11.5, color: "var(--ink3)" }}>채널</b>
                 <div className="kv" style={{ marginTop: 6 }}>
-                  <dt>대표 채널</dt><dd>{D(brand.brand_url)}</dd>
-                  {Object.entries(company?.channel_urls ?? {}).map(([k, v]) => (
+                  <dt>대표 채널</dt><dd>{D(bv.brand_url)}</dd>
+                  {Object.entries(cv.channel_urls ?? {}).map(([k, v]) => (
                     <span key={k} style={{ display: "contents" }}><dt>{k}</dt><dd>{v}</dd></span>
                   ))}
-                  <dt>연락처</dt><dd>{[brand.email, brand.phone].filter(Boolean).join(" · ") || "—"}</dd>
+                  <dt>연락처</dt><dd>{[bv.email, bv.phone].filter(Boolean).join(" · ") || "—"}</dd>
                 </div>
               </>
             )}
