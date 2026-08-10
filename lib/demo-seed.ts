@@ -393,7 +393,7 @@ function countryCode(k: string): string {
 }
 function nextActionFor(state: string): string {
   return ({
-    lead_new: "2일 내 1차 컨택", seminar: "미팅 일정 확정", meeting: "제안서 작성",
+    lead_new: "2일 내 1차 컨택", seminar: "1:1 미팅 전환/드랍 결정", meeting: "제안서 작성",
     contact: "제안서 발송·팔로업", contract_review: "계약 조건 협의", contract_done: "서류 착수",
     docs: "서류 100% 수급", setup: "입점 셋업 점검", live_mall: "이번 달 시딩 진행",
     live_onboarding: "온보딩 마일스톤", settling: "정산 확정",

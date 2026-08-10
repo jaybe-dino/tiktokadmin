@@ -565,7 +565,7 @@ export async function setProposalStatusV2Action(
 // state 코드 → 한글 라벨(퍼널 단계). 프롬프트 맥락용.
 const STATE_KO: Record<string, string> = {
   lead_new: "신규 리드",
-  seminar: "세미나",
+  seminar: "담당자배정",
   meeting: "미팅",
   contact: "컨택",
   contract_review: "계약 검토",

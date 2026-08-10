@@ -30,7 +30,7 @@ async function count(sql: string): Promise<number> {
 // 퍼널 단계 → 표시(짧은 이름·배지 클래스) — v3.1 s-home 퍼널 현황.
 const FUNNEL: { states: string[]; label: string; cls: string }[] = [
   { states: ["lead_new"], label: "리드", cls: "st-lead" },
-  { states: ["seminar"], label: "세미나", cls: "st-sem" },
+  { states: ["seminar"], label: "담당자배정", cls: "st-sem" },
   { states: ["meeting"], label: "미팅", cls: "st-meet" },
   { states: ["contact"], label: "컨택", cls: "st-cont" },
   { states: ["contract_review"], label: "계약검토", cls: "st-crev" },
@@ -165,7 +165,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         <div className="tile"><div className="k">전체 브랜드 (원장)</div><div className="v">{totalBrands}</div><div className="d up">▲ 이번 주 +{weekNew} · 중복 {dupCount}</div></div>
         <div className="tile"><div className="k">운영 중 (멀티몰+온보딩)</div><div className="v">{operating}</div><div className="d">멀티몰 {operMall} · 온보딩 {operOnb}</div></div>
         <div className={`tile${slaBreach > 0 ? " alert" : ""}`}><div className="k">SLA 위반</div><div className="v" style={{ color: slaBreach > 0 ? "var(--danger)" : undefined }}>{slaBreach}</div><div className={`d ${slaT2 > 0 ? "dn" : ""}`}>{slaT2 > 0 ? `T2+ ${slaT2}건 — 파트장 확인 필요` : "이상 없음"}</div></div>
-        <div className="tile" title="같은 코호트 추적이 아니라 이번 주 세미나 전이수 대비 미팅 전이수 비율입니다."><div className="k">주간 세미나·미팅 비율</div><div className="v">{convPct}<small>%</small></div><div className={`d ${convDiff >= 0 ? "up" : "dn"}`}>{convDiff >= 0 ? "▲" : "▼"} 4주 평균 {conv4wPct}% 대비 {convDiff >= 0 ? "+" : ""}{convDiff}%p</div></div>
+        <div className="tile" title="같은 코호트 추적이 아니라 이번 주 담당자배정 전이수 대비 미팅 전이수 비율입니다."><div className="k">주간 담당자배정·미팅 비율</div><div className="v">{convPct}<small>%</small></div><div className={`d ${convDiff >= 0 ? "up" : "dn"}`}>{convDiff >= 0 ? "▲" : "▼"} 4주 평균 {conv4wPct}% 대비 {convDiff >= 0 ? "+" : ""}{convDiff}%p</div></div>
       </div>
 
       <div className="grid g31 gap-3.5" style={{ display: "grid" }}>

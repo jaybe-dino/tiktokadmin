@@ -1,7 +1,7 @@
 import { query, queryOne, queryRo } from "../db";
 import { docProgress, type DocProgress } from "../docs";
 import { listFiles, listProposals, type BrandFile, type Proposal } from "./customer";
-import type { Brand, State } from "../types";
+import { STATE_LABELS, type Brand, type State } from "../types";
 
 // 대시보드 읽기 쿼리 (04-DASHBOARD).
 
@@ -108,12 +108,16 @@ export async function brand360(id: string): Promise<Brand360 | null> {
   };
 
   const timeline = [
-    ...history.map((h) => ({
-      kind: h.gate_passed ? "stage" : "gate_fail",
-      text: `${h.from_state ?? "?"} → ${h.to_state}${h.reason ? ` · ${h.reason}` : ""}`,
-      at: h.at,
-      actor: h.actor,
-    })),
+    ...history.map((h) => {
+      // 상태 코드 → 한글 라벨(예: seminar → 담당자배정).
+      const lbl = (s: string | null) => (s ? (STATE_LABELS[s as State] ?? s) : "?");
+      return {
+        kind: h.gate_passed ? "stage" : "gate_fail",
+        text: `${lbl(h.from_state)} → ${lbl(h.to_state)}${h.reason ? ` · ${h.reason}` : ""}`,
+        at: h.at,
+        actor: h.actor,
+      };
+    }),
     // 미팅 contact_logged 소스는 미팅 엔트리와 중복되므로 제외.
     ...sources
       .filter((s) => !(s.event === "contact_logged" && (s.payload as Record<string, unknown> | null)?.channel === "meeting"))

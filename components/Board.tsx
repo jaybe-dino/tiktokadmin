@@ -14,7 +14,7 @@ type ColDef = { key: string; label: string; part: string; dot: string; states: S
 
 const COLS: ColDef[] = [
   { key: "lead_new", label: "리드 확보", part: "mkt", dot: "var(--mkt)", states: ["lead_new"], drop: "lead_new" },
-  { key: "seminar", label: "세미나", part: "mkt", dot: "var(--mkt)", states: ["seminar"], drop: "seminar" },
+  { key: "seminar", label: "담당자배정", part: "mkt", dot: "var(--mkt)", states: ["seminar"], drop: "seminar" },
   { key: "meeting", label: "1:1 미팅", part: "sales", dot: "var(--sales)", states: ["meeting"], drop: "meeting" },
   { key: "contact", label: "개별 컨택", part: "sales", dot: "var(--sales)", states: ["contact"], drop: "contact" },
   { key: "contract", label: "계약 검토", part: "sales", dot: "var(--sales)", states: ["contract_review"], drop: "contract_review" },

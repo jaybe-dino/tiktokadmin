@@ -9,7 +9,7 @@ export type State = (typeof STATES)[number];
 
 export const STATE_LABELS: Record<State, string> = {
   lead_new: "리드확보",
-  seminar: "세미나신청",
+  seminar: "담당자배정",
   meeting: "1:1미팅",
   contact: "개별컨택중",
   contract_review: "계약서검토",

@@ -26,7 +26,7 @@ const SEGMENT_WHERE: Record<string, string> = {
 
 const SEGMENT_TITLE: Record<string, string> = {
   winback: "윈백 — 드랍(예산·보류)",
-  seminar: "세미나 미전환 90일+",
+  seminar: "담당자배정 미전환 90일+",
   expand: "운영중 국가추가 후보",
   pastdue: "past_due 재접촉",
 };

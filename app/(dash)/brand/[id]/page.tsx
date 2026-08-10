@@ -38,7 +38,7 @@ export const dynamic = "force-dynamic";
 // 진행 스텝퍼 정의 — canonical state → 10단계 (dropped/churned 는 종료라 미표시)
 const STEP_DEFS: { label: string; states: State[] }[] = [
   { label: "리드", states: ["lead_new"] },
-  { label: "세미나", states: ["seminar"] },
+  { label: "담당자배정", states: ["seminar"] },
   { label: "1:1 미팅", states: ["meeting"] },
   { label: "컨택", states: ["contact"] },
   { label: "계약검토", states: ["contract_review"] },

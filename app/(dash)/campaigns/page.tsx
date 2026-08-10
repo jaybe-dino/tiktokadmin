@@ -118,8 +118,8 @@ export default async function CampaignsPage() {
     },
     {
       key: "seminar",
-      title: "세미나 미전환 90일+",
-      sub: "세미나 신청 후 90일+ 무진행",
+      title: "담당자배정 미전환 90일+",
+      sub: "담당자배정 후 90일+ 무진행",
       count: seminarStale,
       cycle: "매월 첫 주",
       perf: perfOf("seminar"),

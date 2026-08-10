@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { STATE_LABELS } from "@/lib/types";
-import { deleteBrandAction } from "@/app/actions";
+import { deleteBrandAction, transitionAction, dropAction } from "@/app/actions";
 import type { BoardCard } from "@/lib/repo/queries";
 
 /** 트랙(계약 유형) 라벨 — 기획 8절: 멀티몰/온보딩/마케팅 */
@@ -43,6 +43,26 @@ export default function BoardCardLayer({ card, onClose }: { card: BoardCard; onC
       const r = await deleteBrandAction(card.id);
       if (r.ok) { onClose(); router.refresh(); }
       else setErr(r.error ?? "삭제 실패");
+    });
+  }
+
+  // 담당자배정 단계 결정 — 리드 담당자가 1:1 미팅으로 전환 또는 드랍.
+  function toMeeting() {
+    setErr("");
+    start(async () => {
+      const r = await transitionAction(card.id, "meeting");
+      if (r.ok) { onClose(); router.refresh(); }
+      else setErr((r.failed?.map((f) => f.label).join(" · ") || r.error) ?? "1:1 미팅 전환 실패");
+    });
+  }
+  function toDrop() {
+    const reason = prompt("드랍 사유를 입력하세요 (필수):", "")?.trim();
+    if (!reason) return;
+    setErr("");
+    start(async () => {
+      const r = await dropAction(card.id, reason);
+      if (r.ok) { onClose(); router.refresh(); }
+      else setErr(r.error ?? "드랍 실패");
     });
   }
 
@@ -139,6 +159,34 @@ export default function BoardCardLayer({ card, onClose }: { card: BoardCard; onC
             </div>
           ))}
         </dl>
+
+        {/* 담당자배정 단계 — 리드 담당자가 1:1 미팅 전환/드랍 결정 */}
+        {card.state === "seminar" && (
+          <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 8 }}>담당자배정 — 리드 담당자 결정</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={toMeeting}
+                disabled={pending}
+                className="pill"
+                style={{ background: "var(--sales, #2563eb)", color: "#fff", fontSize: 13, padding: "6px 14px", fontWeight: 700 }}
+              >
+                {pending ? "…" : "1:1 미팅 전환 →"}
+              </button>
+              <button
+                type="button"
+                onClick={toDrop}
+                disabled={pending}
+                className="pill"
+                style={{ background: "#fff7ed", color: "#c2410c", fontSize: 13, padding: "6px 14px", fontWeight: 700, border: "1px solid #fed7aa" }}
+              >
+                드랍
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--muted, #64748b)", marginTop: 6 }}>1:1 미팅 전환은 게이트(유입담당 지정·접촉 기록)를 검증합니다. 드랍은 사유가 필요합니다.</div>
+          </div>
+        )}
 
         {err && (
           <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: "var(--danger, #e03131)" }}>{err}</div>

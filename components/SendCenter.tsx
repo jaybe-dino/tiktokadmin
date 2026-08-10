@@ -165,7 +165,7 @@ function MailTab({ leadGroups, brands }: { leadGroups: LeadGroup[]; brands: Bran
             <div style={{ flex: 1 }}>
               <b>필터 조합</b> <span className="chip" style={{ fontSize: 10 }}>준비 중</span>
               <div className="tagz" style={{ marginTop: 6 }}>
-                <span className="chip">상태: 리드·세미나</span>
+                <span className="chip">상태: 리드·담당자배정</span>
                 <span className="chip">마지막 접촉 30일+</span>
                 <Link className="btn sm" href="/customers">고객목록에서 필터</Link>
               </div>
