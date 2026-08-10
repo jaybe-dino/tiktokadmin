@@ -217,6 +217,182 @@ export async function createAndSendProposalAction(input: {
   };
 }
 
+// ══════════════════════════════════════════════════════════════
+// 운영견적(재설계) — 트랙3종·약정/매월·수기 월금액·추가할인·계약기간(캘린더).
+//   생성 → 미리보기(임시) → 발송(메일+문자). 30%↑ 추가할인은 파트장 결재.
+// ══════════════════════════════════════════════════════════════
+import { computeOpsQuote, OPS_TRACKS, OPS_APPROVAL_THRESHOLD, type OpsPaymentMode } from "@/lib/quote";
+
+const isYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+/** 발송 내용 조립(미리보기·발송 공용). */
+function composeOpsProposal(b: { brand_name: string; contact_name: string | null }, d: {
+  trackLabel: string; mode: OpsPaymentMode; months: number; monthly: number; total: number;
+  addlDiscountPct: number; periodStart: string; periodEnd: string; contractFileUrl: string;
+}): { subject: string; body: string } {
+  const won = (n: number) => n.toLocaleString("ko-KR") + "원";
+  const period = d.periodStart || d.periodEnd ? `${d.periodStart || "미정"} ~ ${d.periodEnd || "미정"}` : null;
+  const amountLine = d.mode === "commitment"
+    ? `· 약정 ${d.months}개월 일시불 합계: ${won(d.total)} + VAT`
+    : `· 월 정기결제: ${won(d.monthly)} + VAT`;
+  const subject = `[GloveK] ${b.brand_name} 운영 제안서 — ${d.trackLabel}`;
+  const body = [
+    `안녕하세요, ${b.contact_name || b.brand_name} 담당자님.`,
+    "",
+    "GloveK 운영 제안 내용을 안내드립니다.",
+    `· 트랙: ${d.trackLabel}`,
+    amountLine,
+    d.addlDiscountPct > 0 ? `· 적용 할인: ${d.addlDiscountPct}%` : null,
+    period ? `· 계약기간: ${period}` : null,
+    d.contractFileUrl ? `· 계약서: ${d.contractFileUrl}` : null,
+    "",
+    "검토 후 회신 주시면 계약 절차를 안내드리겠습니다.",
+    "",
+    "감사합니다.",
+    "GloveK 드림",
+  ].filter((l): l is string => l !== null).join("\n");
+  return { subject, body };
+}
+
+export interface OpsQuoteResultOut extends ProposalActionResult {
+  proposalId?: string;
+  preview?: { subject: string; body: string };
+}
+
+/** 운영견적 → 제안서 생성(발송 전). 30%↑ 추가할인은 파트장 결재로 보류. */
+export async function createOpsProposalAction(input: {
+  brand_id: string;
+  track: string;              // OPS_TRACKS.key
+  monthlyAmount: number;      // 수기 월 금액(원)
+  paymentMode: OpsPaymentMode;
+  commitmentMonths?: number;  // 약정 3|6|12
+  addlDiscountPct: number;    // 0/5/10/20/30/40/50/60
+  periodStart?: string;       // YYYY-MM-DD
+  periodEnd?: string;
+  contractFileUrl?: string;
+}): Promise<OpsQuoteResultOut> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!input.brand_id) return { ok: false, error: "브랜드를 선택하세요." };
+  const track = OPS_TRACKS.find((t) => t.key === input.track);
+  if (!track) return { ok: false, error: "트랙을 선택하세요." };
+  const monthly = Math.round(Number(input.monthlyAmount) || 0);
+  if (monthly <= 0) return { ok: false, error: "월 정기 결제 금액을 입력하세요." };
+  const addl = Number(input.addlDiscountPct) || 0;
+  if (addl < 0 || addl > 100) return { ok: false, error: "추가 할인이 올바르지 않습니다." };
+
+  const ps = (input.periodStart ?? "").trim();
+  const pe = (input.periodEnd ?? "").trim();
+  if (ps && !isYmd(ps)) return { ok: false, error: "계약 시작일을 확인하세요." };
+  if (pe && !isYmd(pe)) return { ok: false, error: "계약 종료일을 확인하세요." };
+  if (ps && pe && ps > pe) return { ok: false, error: "계약 시작일이 종료일보다 늦습니다." };
+  const contractFileUrl = (input.contractFileUrl ?? "").trim();
+  if (contractFileUrl && !/^https:\/\//.test(contractFileUrl)) return { ok: false, error: "계약서 링크는 https:// 로 시작해야 합니다." };
+
+  const q = computeOpsQuote({ monthlyAmount: monthly, paymentMode: input.paymentMode, commitmentMonths: input.commitmentMonths, addlDiscountPct: addl });
+
+  const b = await query<{ brand_name: string; contact_name: string | null }>(
+    "SELECT brand_name, contact_name FROM brands WHERE id=$1", [input.brand_id],
+  ).catch(() => []);
+  if (b.length === 0) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
+
+  // 30%↑ 추가할인 → 파트장/대표가 아니면 결재 요청만 남기고 생성 보류.
+  if (addl >= OPS_APPROVAL_THRESHOLD && u.role !== "lead" && u.role !== "exec") {
+    await query(
+      `INSERT INTO approval_requests (brand_id, kind, payload, requested_by) VALUES ($1,'discount',$2,$3)`,
+      [input.brand_id, JSON.stringify({ track: track.key, monthly, mode: input.paymentMode, months: q.months, addlDiscountPct: addl, total: q.total, requested_by: `admin:${u.id}` }), `admin:${u.id}`],
+    ).catch(() => {});
+    revalidatePath("/proposals");
+    return { ok: true, pendingApproval: true, quote: q.total, breakdown: q.breakdown };
+  }
+
+  const termLabel = q.recurring ? "월 정기결제" : `약정 ${q.months}개월`;
+  const contractTerm = [termLabel, ps && pe ? `${ps} ~ ${pe}` : null].filter(Boolean).join(" · ");
+  const discountNote = `${q.breakdown}${addl > 0 ? ` | 추가할인 ${addl}%` : ""}`;
+
+  const row = await query<{ id: string }>(
+    `INSERT INTO proposals (brand_id, kind, plan, quote_amount, amount, term, period_start, period_end, contract_term, contract_file_url, discount_note, status, created_by)
+     VALUES ($1,'sales',$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11) RETURNING id`,
+    [input.brand_id, track.plan, q.total, q.total, input.paymentMode, ps || null, pe || null, contractTerm, contractFileUrl || null, discountNote, `admin:${u.id}`],
+  ).catch(() => []);
+  if (row.length === 0) return { ok: false, error: "제안서 저장 실패" };
+  const id = row[0].id;
+
+  // 브랜드 플랜·계약형태 반영(비어있으면).
+  await query(
+    "UPDATE brands SET plan=COALESCE(plan,$2), contract_type=COALESCE(contract_type,$3), updated_at=now() WHERE id=$1",
+    [input.brand_id, track.plan, track.contractType],
+  ).catch(() => {});
+
+  const preview = composeOpsProposal(b[0], {
+    trackLabel: track.label, mode: input.paymentMode, months: q.months, monthly: q.monthlyNet,
+    total: q.total, addlDiscountPct: addl, periodStart: ps, periodEnd: pe, contractFileUrl,
+  });
+
+  revalidatePath("/proposals");
+  revalidatePath(`/brand/${input.brand_id}`);
+  return { ok: true, proposalId: id, quote: q.total, breakdown: q.breakdown, preview };
+}
+
+/** 운영 제안서 발송 — 메일(안내 발송 선택) + 문자. sent 기록. */
+export async function sendOpsProposalAction(proposalId: string, opts: { sendEmailNotice: boolean }): Promise<{ ok: boolean; error?: string; sentEmail?: boolean; sentSms?: boolean; note?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const { queryOne } = await import("@/lib/db");
+  const p = await queryOne<{
+    brand_id: string; plan: string | null; quote_amount: number | null; amount: number | null; term: string | null;
+    period_start: string | null; period_end: string | null; contract_term: string | null; contract_file_url: string | null; discount_note: string | null;
+    brand_name: string; contact_name: string | null; email: string | null; phone: string | null;
+  }>(
+    `SELECT p.brand_id, p.plan, p.quote_amount, p.amount, p.term, p.period_start, p.period_end, p.contract_term, p.contract_file_url, p.discount_note,
+            b.brand_name, b.contact_name, b.email, b.phone
+       FROM proposals p JOIN brands b ON b.id=p.brand_id WHERE p.id=$1`, [proposalId],
+  ).catch(() => null);
+  if (!p) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+
+  const track = OPS_TRACKS.find((t) => t.plan === p.plan);
+  const mode: OpsPaymentMode = p.term === "commitment" ? "commitment" : "monthly";
+  // 약정 개월수: contract_term 에서 추출(없으면 계약기간 텍스트로 대체 표기).
+  const mMatch = (p.contract_term ?? "").match(/약정 (\d+)개월/);
+  const months = mMatch ? Number(mMatch[1]) : 1;
+  const total = Number(p.quote_amount ?? p.amount ?? 0);
+  const monthly = mode === "commitment" && months > 0 ? Math.round(total / months) : total;
+  const { subject, body } = composeOpsProposal(
+    { brand_name: p.brand_name, contact_name: p.contact_name },
+    { trackLabel: track?.label ?? (p.plan ?? "운영"), mode, months, monthly, total, addlDiscountPct: 0, periodStart: p.period_start ?? "", periodEnd: p.period_end ?? "", contractFileUrl: p.contract_file_url ?? "" },
+  );
+
+  let sentEmail = false, sentSms = false;
+  const errors: string[] = [];
+  if (opts.sendEmailNotice) {
+    if (!p.email) errors.push("이메일 미등록");
+    else {
+      const { sendEmail } = await import("@/lib/mailer");
+      const r = await sendEmail({ to: p.email, subject, text: body });
+      if (r.ok) sentEmail = true; else errors.push(r.skipped ? "메일 미설정(Gmail/RESEND)" : (r.error || "메일 실패"));
+    }
+  }
+  if (p.phone) {
+    const { sendSms } = await import("@/lib/sms");
+    const smsBody = `[GloveK] ${p.brand_name} 운영 제안서를 보내드렸습니다. 메일을 확인해 주세요.${p.contract_file_url ? ` ${p.contract_file_url}` : ""}`;
+    const r = await sendSms({ receiver: p.phone, msg: smsBody }).catch(() => ({ ok: false } as { ok: boolean }));
+    if (r.ok) sentSms = true; else errors.push("문자 실패/미설정");
+  }
+
+  // 발송 기록 — sent + 팔로업 기한.
+  await setProposalV2Status(proposalId, "sent").catch(() => {});
+  await query("UPDATE proposals SET followup_due=(sent_at + interval '3 days')::date WHERE id=$1 AND sent_at IS NOT NULL", [proposalId]).catch(() => {});
+  await query(
+    `INSERT INTO brand_sources (brand_id, site, event, source_ref, payload, occurred_at)
+     VALUES ($1,'manual','contact_logged',$2,$3,now()) ON CONFLICT (site, event, source_ref) DO NOTHING`,
+    [p.brand_id, `ops_proposal_send:${proposalId}`, JSON.stringify({ kind: "ops_proposal_sent", proposal_id: proposalId, email: sentEmail, sms: sentSms })],
+  ).catch(() => {});
+
+  revalidatePath("/proposals");
+  revalidatePath(`/brand/${p.brand_id}`);
+  return { ok: true, sentEmail, sentSms, note: errors.length ? errors.join(" · ") : undefined };
+}
+
 // 제안서 발송용 이메일 초안 생성(초안함 경유). 실패해도 제안서 생성은 유지한다.
 async function draftProposalEmail(
   proposalId: string,
