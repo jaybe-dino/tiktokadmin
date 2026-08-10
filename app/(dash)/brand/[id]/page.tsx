@@ -23,6 +23,8 @@ import { cardDeep } from "@/lib/repo/card";
 import { query } from "@/lib/db";
 import { brand360 } from "@/lib/repo/queries";
 import { currentUser } from "@/lib/auth";
+import { listMeetingNotes } from "@/lib/meeting-notes";
+import Brand360MeetingNotes from "@/components/Brand360MeetingNotes";
 import TimelineAddEntry from "./TimelineAddEntry";
 import { stageChecklist } from "@/lib/requirements";
 import { humanElapsed } from "@/lib/time";
@@ -100,6 +102,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     .map((h) => ({ from_state: h.from_state, to_state: h.to_state, actor: h.actor, at: h.at }));
   const viewer = await currentUser();
   const canForce = viewer?.role === "lead" || viewer?.role === "exec";
+  const meetingNotes = await listMeetingNotes(brand.id).catch(() => []);
 
   // 다음 스텝 게이트(현재) + 그다음 게이트(예고 — v3.1 gateNext) — 순수 로직(저렴)
   const gateRaw = gateCtx ? await nextStepGuide(brand, gateCtx).catch(() => null) : null;
@@ -245,6 +248,15 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     </section>
   );
 
+  // 회의록 — 자동(미팅 요약·전사) 날짜별 + 직접 입력(텍스트·파일)
+  const panelMeetingNotes = (
+    <Brand360MeetingNotes
+      brandId={brand.id}
+      meetings={meetings.map((m) => ({ id: m.id, topic: m.topic, status: m.status, started_at: m.started_at, scheduled_at: m.scheduled_at, summary_md: m.summary_md, transcript: m.transcript }))}
+      notes={meetingNotes}
+    />
+  );
+
   // 미팅·메일 — 미팅(회의록·다음 액션 반영) + 팔로업 초안(승인·발송) + 연동 메일(기존 기능 유지)
   const panelMail = (
     <div style={{ display: "grid", gap: 14 }}>
@@ -313,6 +325,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     { key: "co", label: "회사정보", node: panelCompany },
     { key: "tl", label: "타임라인", node: panelTimeline },
     { key: "mm", label: "미팅·메일", node: panelMail },
+    { key: "mn", label: "회의록", node: panelMeetingNotes },
     { key: "dc", label: "서류·물류", node: panelDocs },
     { key: "pd", label: "제품·인증·재고", node: panelProducts },
     { key: "ct", label: "계약·결제", node: panelContract },

@@ -7,6 +7,47 @@ import { currentUser } from "@/lib/auth";
 import { aiText, aiEnabled } from "@/lib/ai";
 import { STATE_LABELS, type State } from "@/lib/types";
 
+// ── 회의록(직접 입력) — 텍스트 + 파일(DB 저장). 브랜드360 회의록 탭 ──
+export async function addMeetingNoteAction(formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const brandId = String(formData.get("brand_id") ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
+  const noteDate = String(formData.get("note_date") ?? "").trim() || null;
+  const title = String(formData.get("title") ?? "").trim();
+  const body = String(formData.get("body") ?? "").trim();
+  const fileUrl = String(formData.get("file_url") ?? "").trim();
+  const file = formData.get("file");
+
+  let fileName: string | null = null, fileMime: string | null = null, fileBytes: Buffer | null = null;
+  if (file && typeof file === "object" && "arrayBuffer" in file && (file as File).size > 0) {
+    const f = file as File;
+    if (f.size > 15 * 1024 * 1024) return { ok: false, error: "파일은 15MB 이하만 가능합니다." };
+    fileName = f.name; fileMime = f.type || "application/octet-stream";
+    fileBytes = Buffer.from(await f.arrayBuffer());
+  }
+  if (!body && !fileBytes && !fileUrl) return { ok: false, error: "회의록 내용(텍스트) 또는 파일이 필요합니다." };
+
+  const { addMeetingNote } = await import("@/lib/meeting-notes");
+  const id = await addMeetingNote({
+    brand_id: brandId, note_date: noteDate, title, body,
+    file_url: fileUrl || null, file_name: fileName, file_mime: fileMime, file_bytes: fileBytes,
+    created_by: u.id,
+  });
+  if (!id) return { ok: false, error: "저장 실패(마이그레이션 0056 확인)" };
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
+export async function deleteMeetingNoteAction(id: string): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const { deleteMeetingNote } = await import("@/lib/meeting-notes");
+  const brandId = await deleteMeetingNote(id);
+  if (brandId) revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 // ── 타임라인 직접 입력(4-3) — brand_sources(event='note')로 기록, 타임라인에 내용 표시 ──
 export async function addTimelineEntryAction(brandId: string, text: string): Promise<{ ok: boolean; error?: string }> {
   const u = await currentUser();
