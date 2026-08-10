@@ -6,7 +6,7 @@ import { ensureDocTemplate } from "./docs";
 import { query } from "./db";
 import { isTransitionAllowed } from "./states";
 import { raiseGateViolation } from "./sla";
-import type { Brand, Role, State } from "./types";
+import type { Brand, OwnerField, Role, State } from "./types";
 
 // 게이트 검증 전이 — 모든 상태 쓰기의 단일 경로 (03-GATES-SLA §3).
 // 대시보드·Slack·MCP 가 전부 이 함수를 호출한다.
@@ -47,7 +47,7 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
     input.actor.startsWith("admin:")
   ) {
     const actorId = input.actor.slice("admin:".length);
-    const owners = [brand.owner_intake, brand.owner_sales, brand.owner_onboard, brand.owner_ads];
+    const owners = [brand.owner_intake, brand.owner_sales, brand.owner_onboard, brand.owner_ads, brand.owner_contract];
     const isOwner = owners.some((o) => !!o && o === actorId);
     if (!isOwner) {
       return { ok: false, error: "권한 없음: 담당 브랜드가 아니거나 결재 권한이 없습니다." };
@@ -107,10 +107,10 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
 /** 담당 배정 (owner_* 필드). */
 export async function assignOwner(
   brandId: string,
-  role: "owner_intake" | "owner_sales" | "owner_onboard" | "owner_ads",
+  role: OwnerField,
   adminUserId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const valid = ["owner_intake", "owner_sales", "owner_onboard", "owner_ads"];
+  const valid = ["owner_intake", "owner_sales", "owner_onboard", "owner_ads", "owner_contract"];
   if (!valid.includes(role)) return { ok: false, error: "잘못된 역할 필드" };
   await query(`UPDATE brands SET ${role}=$2 WHERE id=$1`, [brandId, adminUserId]);
   return { ok: true };

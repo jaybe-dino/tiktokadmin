@@ -85,6 +85,13 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord, opts
   if (rec.plan && !plan) return { ok: false, error: `잘못된 plan: ${rec.plan}` };
   if (rec.pay_status && !payStatus) return { ok: false, error: `잘못된 pay_status: ${rec.pay_status}` };
 
+  // 유입담당 기본값 — 사람(admin)이 수동/CSV 로 등록하면 그 등록자를 유입담당으로.
+  //   단, 메타 등 시스템 유입 소스는 담당자 없이(공란) 둔다("메타 등 시스템에서 오면 빈 공간").
+  const SYSTEM_INTAKE_SOURCES = new Set(["meta_ads"]);
+  const creatorId = actorId.startsWith("admin:") ? actorId.slice("admin:".length) : null;
+  const srcVal = (rec.source || "etc").trim();
+  const defaultIntakeOwner = creatorId && !SYSTEM_INTAKE_SOURCES.has(srcVal) ? creatorId : null;
+
   // dedup: 찾거나 생성
   let created = false;
   const brand = await tx<Brand>(async (client) => {
@@ -92,12 +99,12 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord, opts
     if (found) return found;
     created = true;
     const r = await client.query<Brand>(
-      `INSERT INTO brands (brand_name, email, phone, biz_no, contact_name, category, brand_url, source, state)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO brands (brand_name, email, phone, biz_no, contact_name, category, brand_url, source, state, owner_intake)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [
         brandNameFrom(rec), keys.email, keys.phone, keys.biz_no,
         rec.contact_name ?? "", rec.category ?? "", rec.brand_url ?? "",
-        rec.source || "etc", state || "lead_new",
+        rec.source || "etc", state || "lead_new", defaultIntakeOwner,
       ],
     );
     return r.rows[0];

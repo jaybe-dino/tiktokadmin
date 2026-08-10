@@ -64,10 +64,11 @@ export async function registerMktBrandAction(input: { brand_name: string; email?
   if (!u) return { ok: false, error: "세션 만료" };
   const name = (input.brand_name ?? "").trim();
   if (!name) return { ok: false, error: "브랜드명을 입력하세요." };
+  // 유입담당 기본값 = 등록한 담당자(수동 등록이므로 시스템 소스 아님).
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO brands (brand_name, email, category, source, state, memo)
-     VALUES ($1,$2,$3,'mkt_direct','lead_new',$4) RETURNING id`,
-    [name, (input.email ?? "").trim() || null, (input.category ?? "").trim(), (input.memo ?? "").trim()],
+    `INSERT INTO brands (brand_name, email, category, source, state, memo, owner_intake)
+     VALUES ($1,$2,$3,'mkt_direct','lead_new',$4,$5) RETURNING id`,
+    [name, (input.email ?? "").trim() || null, (input.category ?? "").trim(), (input.memo ?? "").trim(), u.id],
   ).catch(() => null);
   if (!row) return { ok: false, error: "등록 실패(중복 이메일/전화 확인)" };
   revalidatePath("/mkt");

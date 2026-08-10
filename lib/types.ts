@@ -85,7 +85,7 @@ export const SOURCE_LABELS: Record<string, string> = {
 };
 
 export type Role = "intake" | "sales" | "onboard" | "ads" | "settle" | "lead" | "exec";
-export type OwnerField = "owner_intake" | "owner_sales" | "owner_onboard" | "owner_ads";
+export type OwnerField = "owner_intake" | "owner_sales" | "owner_onboard" | "owner_ads" | "owner_contract";
 
 /** brands 행 (읽기 모델). DB 컬럼과 1:1. */
 export interface Brand {
@@ -113,6 +113,7 @@ export interface Brand {
   owner_sales: string | null;
   owner_onboard: string | null;
   owner_ads: string | null;
+  owner_contract: string | null;
   next_action: string;
   due_date: string | null;
   last_contact_at: string | null;

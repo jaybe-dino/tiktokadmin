@@ -8,10 +8,12 @@ export interface Candidate {
 
 const ROLE_TO_TEAM_PART: Record<OwnerField, string> = {
   owner_intake: "intake", owner_sales: "sales", owner_onboard: "onboard", owner_ads: "ads",
+  // 계약담당은 영업 파트에서 후보 산정(별도 파트 없음).
+  owner_contract: "sales",
 };
 
 // SQL 컬럼 위치 보간 전 화이트리스트 검증(인젝션 방어). 유효 owner 컬럼만 허용.
-const VALID_OWNER_FIELDS: OwnerField[] = ["owner_intake", "owner_sales", "owner_onboard", "owner_ads"];
+const VALID_OWNER_FIELDS: OwnerField[] = ["owner_intake", "owner_sales", "owner_onboard", "owner_ads", "owner_contract"];
 function assertOwnerField(role: string): OwnerField {
   if (!VALID_OWNER_FIELDS.includes(role as OwnerField)) {
     throw new Error(`invalid owner field: ${role}`);

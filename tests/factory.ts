@@ -26,6 +26,7 @@ export function makeBrand(over: Partial<Brand> = {}): Brand {
     owner_sales: null,
     owner_onboard: null,
     owner_ads: null,
+    owner_contract: null,
     next_action: "",
     due_date: null,
     last_contact_at: null,

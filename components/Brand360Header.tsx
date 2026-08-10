@@ -59,8 +59,12 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
 
   return (
     <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-      {/* 담당 3열 (v3.1: 영업 담당 · 온보딩 · 다음 액션) — select 로 실제 배정 가능 */}
-      <div style={{ display: "flex", gap: 14, fontSize: 12 }}>
+      {/* 담당 배정 (유입 · 영업 · 온보딩 · 계약 · 다음 액션) — select 로 실제 배정 */}
+      <div style={{ display: "flex", gap: 14, fontSize: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ color: "var(--ink3)", fontSize: 10.5, fontWeight: 700 }}>유입 담당</div>
+          {ownerSelect("owner_intake", "유입")}
+        </div>
         <div>
           <div style={{ color: "var(--ink3)", fontSize: 10.5, fontWeight: 700 }}>영업 담당</div>
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -71,6 +75,10 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
         <div>
           <div style={{ color: "var(--ink3)", fontSize: 10.5, fontWeight: 700 }}>온보딩</div>
           {ownerSelect("owner_onboard", "온보딩")}
+        </div>
+        <div>
+          <div style={{ color: "var(--ink3)", fontSize: 10.5, fontWeight: 700 }}>계약 담당</div>
+          {ownerSelect("owner_contract", "계약")}
         </div>
         <div>
           <div style={{ color: "var(--ink3)", fontSize: 10.5, fontWeight: 700 }}>다음 액션</div>
@@ -208,8 +216,7 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
             ))}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink3)" }}>유입·광고 담당</span>
-            {ownerSelect("owner_intake", "유입")}
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink3)" }}>광고 담당</span>
             {ownerSelect("owner_ads", "광고")}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
