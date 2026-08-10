@@ -10,6 +10,21 @@ export async function GET() {
   const started = Date.now();
   const out: Record<string, unknown> = { ok: true, ts: new Date().toISOString() };
 
+  // DB 연결 진단 — 값 노출 없이 "어떤 env 가 쓰이는지 + pooled 엔드포인트인지"만.
+  //   DB 조회 없이 env 파싱만 하므로, DB 가 down(503) 이어도 항상 포함(잘못된 URL 진단용).
+  {
+    const DB_VARS = ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "DATABASE_URL_UNPOOLED", "POSTGRES_URL_NON_POOLING"] as const;
+    const via = DB_VARS.find((k) => process.env[k]);
+    const url = via ? (process.env[via] as string) : "";
+    const host = (url.match(/@([^/?]+)/)?.[1] ?? "").replace(/:\d+$/, "");
+    out.dbConn = {
+      via: via ?? "none",
+      pooled: /-pooler\b/.test(url) || /[?&]pgbouncer=true/i.test(url),
+      hostSuffix: host.split(".").slice(-3).join("."),
+      hasUnpooledVar: Boolean(process.env.DATABASE_URL_UNPOOLED || process.env.POSTGRES_URL_NON_POOLING),
+    };
+  }
+
   try {
     await queryOne<{ one: number }>("SELECT 1 AS one");
     out.db = "up";
