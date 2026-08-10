@@ -33,8 +33,27 @@ export function verifySessionValue(value: string): string | null {
   return email;
 }
 
+/** env 화이트리스트(부트스트랩·창업자용). */
 export function isAllowed(email: string): boolean {
   return env.allowedEmails.includes(email.trim().toLowerCase());
+}
+
+/** 활성 admin_users 계정 존재 여부. */
+async function isActiveAccount(email: string): Promise<boolean> {
+  const u = await queryOne<{ active: boolean }>(
+    "SELECT active FROM admin_users WHERE id=$1", [email.trim().toLowerCase()],
+  ).catch(() => null);
+  return !!u && u.active;
+}
+
+/**
+ * 로그인·세션 허용 게이트: env 화이트리스트 "또는" 활성 계정.
+ * 계정/권한 UI 에서 만든 계정(admin_users)이 env 목록에 없어도 로그인되도록 —
+ * env 는 최초 부트스트랩용이고, 이후 계정 관리는 UI(admin_users)가 소스오브트루스.
+ * (비밀번호 검증은 verifyLogin 이 별도로 수행하므로 게이트 통과만으로 로그인되지 않는다.)
+ */
+export async function canLogin(email: string): Promise<boolean> {
+  return isAllowed(email) || isActiveAccount(email);
 }
 
 // ── 비밀번호 (scrypt) ─────────────────────────────────────────
@@ -89,7 +108,7 @@ export async function sessionEmail(): Promise<string | null> {
   const c = (await cookies()).get(COOKIE)?.value;
   if (!c) return null;
   const email = verifySessionValue(c);
-  if (!email || !isAllowed(email)) return null;
+  if (!email || !(await canLogin(email))) return null;
   return email;
 }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AUTH_COOKIE, isAllowed, makeSessionValue, verifyLogin } from "@/lib/auth";
+import { AUTH_COOKIE, canLogin, makeSessionValue, verifyLogin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -17,8 +17,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.redirect(url, { status: 303 });
   };
 
-  // 1차 게이트: 허용 이메일(env). 2차: admin_users 비밀번호 검증.
-  if (!isAllowed(email)) return fail("not_allowed");
+  // 1차 게이트: env 화이트리스트 또는 활성 계정(admin_users). 2차: 비밀번호 검증.
+  if (!(await canLogin(email))) return fail("not_allowed");
   if (!password) return fail("no_password");
 
   const r = await verifyLogin(email, password);
