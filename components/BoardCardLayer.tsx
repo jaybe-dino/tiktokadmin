@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { STATE_LABELS } from "@/lib/types";
+import { deleteBrandAction } from "@/app/actions";
 import type { BoardCard } from "@/lib/repo/queries";
 
 /** 트랙(계약 유형) 라벨 — 기획 8절: 멀티몰/온보딩/마케팅 */
@@ -30,6 +32,20 @@ function fmtDate(iso: string | null): string {
  * 브랜드360은 레이어의 링크로 이동한다.
  */
 export default function BoardCardLayer({ card, onClose }: { card: BoardCard; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState("");
+
+  function remove() {
+    if (!confirm(`'${card.brand_name}' 고객 카드를 완전히 삭제할까요?\n연관 데이터(제안·계약·이력 등)가 모두 삭제됩니다. (파트장/대표만)`)) return;
+    setErr("");
+    start(async () => {
+      const r = await deleteBrandAction(card.id);
+      if (r.ok) { onClose(); router.refresh(); }
+      else setErr(r.error ?? "삭제 실패");
+    });
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -124,22 +140,37 @@ export default function BoardCardLayer({ card, onClose }: { card: BoardCard; onC
           ))}
         </dl>
 
-        <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+        {err && (
+          <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: "var(--danger, #e03131)" }}>{err}</div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16, alignItems: "center" }}>
           <button
             type="button"
-            onClick={onClose}
+            onClick={remove}
+            disabled={pending}
             className="pill"
-            style={{ background: "#f1f5f9", color: "#334155", fontSize: 13, padding: "6px 14px", fontWeight: 600 }}
+            style={{ background: "#fff0f0", color: "#e03131", fontSize: 13, padding: "6px 14px", fontWeight: 700, border: "1px solid #ffc9c9" }}
           >
-            닫기
+            {pending ? "삭제 중…" : "삭제"}
           </button>
-          <Link
-            href={`/brand/${card.id}`}
-            className="pill"
-            style={{ background: "var(--sales, #2563eb)", color: "#fff", fontSize: 13, padding: "6px 14px", fontWeight: 700 }}
-          >
-            브랜드360 열기
-          </Link>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              className="pill"
+              style={{ background: "#f1f5f9", color: "#334155", fontSize: 13, padding: "6px 14px", fontWeight: 600 }}
+            >
+              닫기
+            </button>
+            <Link
+              href={`/brand/${card.id}`}
+              className="pill"
+              style={{ background: "var(--sales, #2563eb)", color: "#fff", fontSize: 13, padding: "6px 14px", fontWeight: 700 }}
+            >
+              브랜드360 열기
+            </Link>
+          </div>
         </div>
       </div>
     </div>
