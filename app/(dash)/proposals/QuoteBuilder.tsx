@@ -103,9 +103,10 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
           ))}
         </div>
 
-        {/* 월 정기결제 금액(수기) */}
-        <label style={lbl}>월 정기 결제 금액 (수기, 원)</label>
+        {/* 국가당 월비용(수기) — 선택 국가수만큼 합산된다 */}
+        <label style={lbl}>국가당 월비용 (수기, 원)</label>
         <input className="f" inputMode="numeric" placeholder="예: 4900000" value={monthlyAmount} onChange={(e) => setMonthlyAmount(e.target.value)} />
+        <div className="note" style={{ marginTop: 4, fontSize: 11 }}>선택한 국가 수만큼 월비용이 합산됩니다{countries.length > 1 ? ` (현재 ${countries.length}국)` : ""}.</div>
 
         {/* 결제 방식 */}
         <label style={lbl}>결제 방식</label>
@@ -163,7 +164,9 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
 
         {/* 합계 — 할인 0%는 표기하지 않음 */}
         <div className="kv">
-          <dt>월 금액(수기)</dt><dd>{monthlyNum ? won(monthlyNum) : "—"}</dd>
+          <dt>국가당 월비용(수기)</dt><dd>{monthlyNum ? won(monthlyNum) : "—"}</dd>
+          {countries.length > 1 && (<><dt>대상 국가</dt><dd>{quote.countryCount}국</dd></>)}
+          {countries.length > 1 && (<><dt>월 합계(국가 반영)</dt><dd>{won(quote.grossMonthly)}</dd></>)}
           {addlDiscountPct > 0 && (<><dt>추가 할인</dt><dd>-{addlDiscountPct}%</dd></>)}
           {countryDiscountPct > 0 && (<><dt>국가 추가할인</dt><dd>-{countryDiscountPct}%</dd></>)}
           {quote.totalDiscountPct > 0 && (<><dt>할인 후 월</dt><dd>{won(quote.monthlyNet)}</dd></>)}

@@ -128,7 +128,7 @@ export const OPS_COUNTRIES: { code: string; label: string }[] = [
 export type OpsPaymentMode = "commitment" | "monthly";
 
 export interface OpsQuoteInput {
-  monthlyAmount: number;          // 월 정기 결제 금액(수기, 원)
+  monthlyAmount: number;          // 월 정기 결제 금액(수기, 원) — 국가당 월비용
   paymentMode: OpsPaymentMode;    // 약정할인 | 매월결제
   commitmentMonths?: number;      // 약정 시 3|6|12
   addlDiscountPct: number;        // 추가할인 %
@@ -137,38 +137,47 @@ export interface OpsQuoteInput {
 }
 
 export interface OpsQuoteResult {
-  monthlyNet: number;   // 할인 반영 월 금액
-  total: number;        // 표시 합계(약정=일시불 합계 / 매월=월 금액)
+  monthlyNet: number;   // 할인 반영 월 합계(국가수 반영)
+  total: number;        // 표시 합계(약정=일시불 합계 / 매월=월 합계)
   months: number;       // 약정 개월(매월=1)
   recurring: boolean;   // true=월 정기 / false=약정 일시불
   totalDiscountPct: number;  // 합산 할인(추가+국가)
+  countryCount: number; // 청구 대상 국가 수(최소 1)
+  perCountryMonthly: number; // 국가당 월비용(수기)
+  grossMonthly: number; // 할인 전 월 합계 = 국가당 월비용 × 국가수
   label: string;        // 합계 라벨
   breakdown: string;
 }
 
-/** 운영견적 산출 — 약정: 월금액×개월(일시불 합계) / 매월: 월금액. 할인 0%는 표기하지 않는다. */
+/** 운영견적 산출 — 월비용은 국가당이며 국가수만큼 합산한다.
+ *   약정: 월합계×개월(일시불 합계) / 매월: 월합계. 할인 0%는 표기하지 않는다. */
 export function computeOpsQuote(i: OpsQuoteInput): OpsQuoteResult {
   const addl = Math.min(100, Math.max(0, Number(i.addlDiscountPct) || 0));
   const country = Math.min(100, Math.max(0, Number(i.countryDiscountPct) || 0));
   const totalDiscountPct = Math.min(95, addl + country); // 합산 할인(상한 95%)
-  const monthly = Math.max(0, Math.round(Number(i.monthlyAmount) || 0));
-  const monthlyNet = Math.round(monthly * (1 - totalDiscountPct / 100));
+  const perCountryMonthly = Math.max(0, Math.round(Number(i.monthlyAmount) || 0));
+  // 국가당 월비용 × 선택 국가수(미선택 시 1국 기준).
+  const countryCount = Math.max(1, (i.countries ?? []).length);
+  const grossMonthly = perCountryMonthly * countryCount;
+  const monthlyNet = Math.round(grossMonthly * (1 - totalDiscountPct / 100));
   // 할인 표기 — 0%는 넣지 않고, 값이 있을 때만.
   const discBits = [addl > 0 ? `추가 -${addl}%` : "", country > 0 ? `국가 -${country}%` : ""].filter(Boolean).join(" · ");
   const discSuffix = discBits ? ` (${discBits})` : "";
+  // 국가당 × 국가수 표기(1국이면 생략).
+  const perCountryBit = countryCount > 1 ? `월 ${won(perCountryMonthly)} × ${countryCount}국 = ${won(grossMonthly)}` : `월 ${won(grossMonthly)}`;
 
   if (i.paymentMode === "commitment") {
     const months = COMMIT_MONTHS.includes((i.commitmentMonths ?? 0) as 3 | 6 | 12) ? (i.commitmentMonths as number) : 3;
     const total = monthlyNet * months;
     return {
-      monthlyNet, total, months, recurring: false, totalDiscountPct,
+      monthlyNet, total, months, recurring: false, totalDiscountPct, countryCount, perCountryMonthly, grossMonthly,
       label: `약정 ${months}개월 일시불`,
-      breakdown: `월 ${won(monthly)}${discSuffix} × ${months}개월 = ${won(total)} (VAT 별도)`,
+      breakdown: `${perCountryBit}${discSuffix} × ${months}개월 = ${won(total)} (VAT 별도)`,
     };
   }
   return {
-    monthlyNet, total: monthlyNet, months: 1, recurring: true, totalDiscountPct,
+    monthlyNet, total: monthlyNet, months: 1, recurring: true, totalDiscountPct, countryCount, perCountryMonthly, grossMonthly,
     label: "월 정기결제",
-    breakdown: `월 ${won(monthlyNet)}${discSuffix} (VAT 별도)`,
+    breakdown: `${perCountryBit}${discSuffix} → 월 ${won(monthlyNet)} (VAT 별도)`,
   };
 }

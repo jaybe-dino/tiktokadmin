@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeQuote, multiCountryDiscount, termDiscount, exceedsDiscountCap } from "../lib/quote";
+import { computeQuote, multiCountryDiscount, termDiscount, exceedsDiscountCap, computeOpsQuote } from "../lib/quote";
 
 // 견적 규칙(10-C): 트랙료×국가수, 2국10%/3~4국15%/5국20%, 6개월약정 20%.
 describe("computeQuote", () => {
@@ -63,5 +63,28 @@ describe("exceedsDiscountCap (할인 상한 20%)", () => {
   it("20% 초과 잠금", () => {
     const q = computeQuote({ plan: "live_focus_490k", countries: ["미국"], term: "monthly" });
     expect(exceedsDiscountCap(q, 300_000)).toBe(true); // ~39% 할인
+  });
+});
+
+// 운영견적: 월비용은 국가당 — 선택 국가수만큼 합산.
+describe("computeOpsQuote (국가당 월비용)", () => {
+  it("매월결제 · 3국 → 국가당 × 3", () => {
+    const q = computeOpsQuote({ monthlyAmount: 1_000_000, paymentMode: "monthly", addlDiscountPct: 0, countries: ["US", "TH", "JP"] });
+    expect(q.countryCount).toBe(3);
+    expect(q.grossMonthly).toBe(3_000_000);
+    expect(q.monthlyNet).toBe(3_000_000);
+    expect(q.total).toBe(3_000_000);
+  });
+  it("국가 미선택 → 1국 기준", () => {
+    const q = computeOpsQuote({ monthlyAmount: 1_000_000, paymentMode: "monthly", addlDiscountPct: 0, countries: [] });
+    expect(q.countryCount).toBe(1);
+    expect(q.grossMonthly).toBe(1_000_000);
+  });
+  it("약정 6개월 · 2국 · 할인 10% → (월비용×2×0.9)×6", () => {
+    const q = computeOpsQuote({ monthlyAmount: 1_000_000, paymentMode: "commitment", commitmentMonths: 6, addlDiscountPct: 10, countries: ["US", "JP"] });
+    expect(q.grossMonthly).toBe(2_000_000);
+    expect(q.monthlyNet).toBe(1_800_000);
+    expect(q.total).toBe(1_800_000 * 6);
+    expect(q.totalDiscountPct).toBe(10);
   });
 });
