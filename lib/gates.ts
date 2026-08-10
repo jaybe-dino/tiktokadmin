@@ -114,6 +114,8 @@ const gradeChecksComplete: Rule = {
 };
 
 export const GATES: Record<string, Rule[]> = {
+  // 리드확보 → 담당자배정: 실제 유입담당자가 배정되어야 넘어갈 수 있다.
+  "lead_new→seminar": [assigned("owner_intake", "유입담당 미지정")],
   "lead_new→meeting": [hasContact, hasEmailOrPhone, hasSource, assigned("owner_intake", "유입담당 미지정")],
   "seminar→meeting": [hasContact, assigned("owner_intake", "유입담당 미지정")],
   "meeting→contact": [hasMeetingNote, assigned("owner_sales", "영업담당 미지정"), hasDiagnosis, hasPreSurvey],

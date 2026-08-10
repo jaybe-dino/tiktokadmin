@@ -107,7 +107,19 @@ function ctx(over: Partial<GateContext> = {}): GateContext {
 
 describe("gates", () => {
   it("게이트 없는 전이는 통과", () => {
-    expect(evaluateGate("lead_new", "seminar", ctx()).passed).toBe(true);
+    expect(evaluateGate("seminar", "contact", ctx()).passed).toBe(true);
+  });
+  it("lead_new→seminar(담당자배정): 유입담당 배정 필요", () => {
+    const bad = evaluateGate("lead_new", "seminar", ctx());
+    expect(bad.passed).toBe(false);
+    expect(bad.failed.map((f) => f.label)).toContain("유입담당 미지정");
+
+    const good = evaluateGate(
+      "lead_new",
+      "seminar",
+      ctx({ brand: makeBrand({ owner_intake: "intake@x.com" }) }),
+    );
+    expect(good.passed).toBe(true);
   });
   it("meeting→contact: 회의록·영업담당·등급 필요", () => {
     const bad = evaluateGate("meeting", "contact", ctx());
