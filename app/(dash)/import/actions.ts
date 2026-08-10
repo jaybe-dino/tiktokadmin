@@ -155,6 +155,8 @@ export interface RegisterLeadResult {
   briefed?: boolean;
   /** true=AI 1차 분석, false=규칙기반 브리프 */
   ai?: boolean;
+  /** 이전에 드랍(보류)/해지된 브랜드를 리드로 되살린 경우 true. */
+  revived?: boolean;
 }
 
 /** 수동 등록 — 등록 → 사전분석 실행. 중복 판정 키(이메일/전화) 하나만 받아 병합 게이트 경유. */
@@ -213,5 +215,5 @@ export async function registerLeadAction(input: {
 
   revalidatePath("/");
   revalidatePath("/import");
-  return { ok: true, brand_id: res.brand_id, briefed: brief.analyzed > 0, ai: brief.ai };
+  return { ok: true, brand_id: res.brand_id, briefed: brief.analyzed > 0, ai: brief.ai, revived: res.revived };
 }

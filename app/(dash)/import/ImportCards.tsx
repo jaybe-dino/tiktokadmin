@@ -192,9 +192,10 @@ export function ManualRegisterCard({ today, groups }: { today: string; groups: G
           setGroup(autoGroup);
           setNewGroup("");
           setMsg({
-            t: res.briefed
-              ? `등록·병합 완료 — ${res.ai ? "AI 1차 분석" : "규칙기반"} 브리프 생성`
-              : "등록·병합 완료 (기존 브리프 유지)",
+            t: (res.revived ? "이전 드랍(보류) 브랜드를 리드로 되살렸습니다 · " : "") +
+              (res.briefed
+                ? `등록·병합 완료 — ${res.ai ? "AI 1차 분석" : "규칙기반"} 브리프 생성`
+                : "등록·병합 완료 (기존 브리프 유지)"),
             bad: false, id: res.brand_id,
           });
           router.refresh();

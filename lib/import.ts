@@ -54,6 +54,8 @@ export interface ImportResult {
   ok: boolean;
   brand_id?: string;
   created?: boolean;
+  /** 종료(dropped/churned) 브랜드를 사람이 수동 재등록하여 리드로 되살린 경우 true. */
+  revived?: boolean;
   error?: string;
 }
 
@@ -62,6 +64,9 @@ export interface ImportOpts {
    *  glovek 동기화 전용 — 사람이 원장에서 수정한 값을 15분 주기 동기화가 되돌리는 것을 막는다.
    *  CSV 임포트·수동 등록은 관리자가 의도적으로 덮어쓰는 경로이므로 false(기본). */
   protectManual?: boolean;
+  /** true 면 사람이 종료(dropped/churned) 브랜드를 재등록할 때 리드(또는 지정 state)로 되살린다.
+   *  수동 단건 등록(createBrandAction)만 켠다 — glovek 자동 동기화·CSV 대량 임포트는 되살리지 않는다. */
+  reviveTerminal?: boolean;
 }
 
 export async function importBrandRecord(actorId: string, rec: ImportRecord, opts: ImportOpts = {}): Promise<ImportResult> {
@@ -161,21 +166,27 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord, opts
   //   동기화마다 state 가 뒤로 갔다가 돌아오며 stage_entered_at 이 재기록되어 updated_at 이
   //   끝없이 갱신됐다(원장 "최근 업데이트순" 평탄화). ingest 의 advanceStateIfAhead 와 동일 규칙.
   const terminal = brand.state === "dropped" || brand.state === "churned";
-  const stateChanges = !!state && (created || (state !== brand.state && !terminal && isAhead(state, brand.state)));
+  // 되살리기: 사람이 수동으로 종료(dropped/churned) 브랜드를 재등록하면 리드(또는 지정 state)로 되살린다.
+  //   (glovek 자동 동기화·CSV 대량 임포트는 reviveTerminal 을 켜지 않아 그대로 보류 — 좀비 부활 방지.)
+  const revive = !!opts.reviveTerminal && terminal && !created;
+  const targetState: State | undefined = revive ? (state ?? "lead_new") : state;
+  const stateChanges = revive
+    ? true
+    : (!!state && (created || (state !== brand.state && !terminal && isAhead(state, brand.state))));
   if (stateChanges) {
-    fields.state = state!;
+    fields.state = targetState!;
     fields.stage_entered_at = new Date().toISOString();
   }
 
   if (Object.keys(fields).length) await setFields(brand.id, fields);
 
   if (stateChanges && !created) {
-    await recordStageHistory(brand.id, brand.state, state!, `admin:${actorId}(import)`, true, "import");
+    await recordStageHistory(brand.id, brand.state, targetState!, `admin:${actorId}(import)`, true, revive ? "revive(수동 재등록)" : "import");
   }
 
   // 서류 체크리스트 보장 — import 로 contract_done 이상 단계로 올린 브랜드는 transitionBrand
   //   부수효과를 안 타므로 doc_items 가 비어 docs→setup 게이트에 영구 고립됨. 여기서 생성.
-  const effectiveState = state ?? (brand.state as State);
+  const effectiveState = targetState ?? (brand.state as State);
   const { ordinal } = await import("./states");
   if (contractType && ordinal(effectiveState) >= ordinal("contract_done")) {
     const { ensureDocTemplate } = await import("./docs");
@@ -190,5 +201,5 @@ export async function importBrandRecord(actorId: string, rec: ImportRecord, opts
     [brand.id, `import:${brand.id}:${Date.now()}`, JSON.stringify({ actor: actorId })],
   );
 
-  return { ok: true, brand_id: brand.id, created };
+  return { ok: true, brand_id: brand.id, created, revived: revive };
 }

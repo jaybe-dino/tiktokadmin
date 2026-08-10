@@ -188,11 +188,12 @@ export async function setNextActionAction(brandId: string, nextAction: string, d
 
 export async function createBrandAction(
   input: ImportRecord,
-): Promise<ActionResult & { brand_id?: string }> {
+): Promise<ActionResult & { brand_id?: string; created?: boolean; revived?: boolean }> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };
   const { importBrandRecord } = await import("@/lib/import");
-  const res = await importBrandRecord(a.actor, input);
+  // 수동 단건 등록은 종료(드랍/해지) 브랜드를 리드로 되살린다(자동 동기화는 되살리지 않음).
+  const res = await importBrandRecord(a.actor, input, { reviveTerminal: true });
   if (res.ok) {
     // 신규 리드 자동 안내(문자·메일) — welcome_config 활성 + 대상 소스일 때 1회
     if (res.created && res.brand_id) {
@@ -200,7 +201,7 @@ export async function createBrandAction(
       await maybeAutoWelcome(res.brand_id, String(input.source ?? "etc")).catch(() => {});
     }
     revalidatePath("/");
-    return { ok: true, brand_id: res.brand_id };
+    return { ok: true, brand_id: res.brand_id, created: res.created, revived: res.revived };
   }
   return { ok: false, error: res.error };
 }
