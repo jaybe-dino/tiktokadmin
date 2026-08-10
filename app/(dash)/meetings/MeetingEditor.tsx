@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateMeetingAction } from "@/app/(dash)/brand360/meeting-actions";
+import { deleteMeetingAction, unmapMeetingBrandAction } from "./actions";
 
 export interface CalendarMeeting {
   id: string;
@@ -71,6 +72,21 @@ export default function MeetingEditor({ meeting, cls }: { meeting: CalendarMeeti
             : `저장됨 · 재초대 ${inv?.sent ?? 0}건 발송${inv && inv.failed > 0 ? ` (실패 ${inv.failed})` : ""}${inv?.errors?.length ? ` — ${inv.errors[0]}` : ""}`,
       );
       router.refresh();
+    });
+  }
+
+  function removeMeeting() {
+    if (!confirm("이 일정을 삭제할까요? 캘린더에서 완전히 제거됩니다.")) return;
+    start(async () => {
+      const r = await deleteMeetingAction(meeting.id);
+      if (r.ok) { setOpen(false); router.refresh(); } else setMsg(r.error ?? "삭제 실패");
+    });
+  }
+  function unmap() {
+    if (!confirm("브랜드 연결을 해제할까요? '매칭 필요' 목록으로 이동합니다.")) return;
+    start(async () => {
+      const r = await unmapMeetingBrandAction(meeting.id);
+      if (r.ok) { router.refresh(); } else setMsg(r.error ?? "해제 실패");
     });
   }
 
@@ -140,12 +156,16 @@ export default function MeetingEditor({ meeting, cls }: { meeting: CalendarMeeti
                 저장 시 참석자에게 재초대 메일 발송 (ICS 일정 갱신)
               </label>
 
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                 <button className="btn pri" disabled={pending || !schedAt} onClick={save}>
                   {pending ? "저장 중…" : "저장"}
                 </button>
-                {msg && <span className="note">{msg}</span>}
+                {meeting.brand_id && (
+                  <button className="btn sm" disabled={pending} onClick={unmap} title="브랜드 연결 해제 → 매칭 필요로">🔗 연결 해제</button>
+                )}
+                <button className="btn sm" disabled={pending} style={{ marginLeft: "auto", color: "var(--bad)" }} onClick={removeMeeting}>🗑 일정 삭제</button>
               </div>
+              {msg && <span className="note">{msg}</span>}
             </div>
           </div>
         </div>

@@ -3,6 +3,7 @@ import ScreenHeader from "@/components/ScreenHeader";
 import { query } from "@/lib/db";
 import ConnectBrand from "./ConnectBrand";
 import MeetingEditor, { type CalendarMeeting } from "./MeetingEditor";
+import MeetingMappings, { type MappedMeeting } from "./MeetingMappings";
 import AddMeetingButton from "./AddMeetingButton";
 
 export const dynamic = "force-dynamic";
@@ -129,6 +130,18 @@ export default async function MeetingsPage() {
     .slice(0, 6);
   const unmatched = rows.filter((m) => !m.brand_id || m.status === "unmatched").slice(0, 6);
   const noshow = rows.filter((m) => m.status === "no_show" || m.status === "canceled" || m.status === "error").slice(0, 6);
+
+  // 브랜드 맵핑 리스트 — 브랜드에 연결된 미팅 전체(해제/재지정/삭제 관리용)
+  const mapped: MappedMeeting[] = rows
+    .filter((m) => m.brand_id)
+    .map((m) => ({
+      id: m.id as string,
+      topic: (m.topic as string) || "",
+      brand_id: m.brand_id as string,
+      brand_name: (m.brand_name as string) || "(이름 없음)",
+      when: shortWhen(m.scheduled_at),
+      status: m.status as string,
+    }));
 
   return (
     <div>
@@ -275,6 +288,9 @@ export default async function MeetingsPage() {
           </div>
         </div>
       </div>
+
+      {/* 브랜드 맵핑 리스트 관리 */}
+      <MeetingMappings rows={mapped} brands={brandList} />
     </div>
   );
 }

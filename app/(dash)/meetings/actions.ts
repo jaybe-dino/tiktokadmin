@@ -71,6 +71,35 @@ export async function cancelMeetingAction(meetingId: string): Promise<MeetingAct
 }
 
 /** 매칭 실패(unmatched·미매칭) 미팅을 브랜드에 수동 연결. brand_id 세팅 + 파이프라인 진입(received). */
+/** 개별 미팅(일정) 완전 삭제 — 캘린더에서 제거. email_drafts.meeting_id 는 ON DELETE SET NULL. */
+export async function deleteMeetingAction(meetingId: string): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!meetingId) return { ok: false, error: "미팅 ID 누락" };
+  const m = await queryOne<{ brand_id: string | null }>("SELECT brand_id FROM meetings WHERE id=$1", [meetingId]).catch(() => null);
+  if (!m) return { ok: false, error: "미팅을 찾을 수 없습니다." };
+  await query("DELETE FROM meetings WHERE id=$1", [meetingId]);
+  revalidatePath("/meetings");
+  if (m.brand_id) revalidatePath(`/brand/${m.brand_id}`);
+  return { ok: true };
+}
+
+/** 미팅↔브랜드 맵핑 해제 — brand_id 를 비우고 상태를 매칭필요(unmatched)로 되돌린다. */
+export async function unmapMeetingBrandAction(meetingId: string): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!meetingId) return { ok: false, error: "미팅 ID 누락" };
+  const m = await queryOne<{ brand_id: string | null }>("SELECT brand_id FROM meetings WHERE id=$1", [meetingId]).catch(() => null);
+  if (!m) return { ok: false, error: "미팅을 찾을 수 없습니다." };
+  await query(
+    "UPDATE meetings SET brand_id=NULL, status=CASE WHEN status='received' THEN 'unmatched' ELSE status END WHERE id=$1",
+    [meetingId],
+  );
+  revalidatePath("/meetings");
+  if (m.brand_id) revalidatePath(`/brand/${m.brand_id}`);
+  return { ok: true };
+}
+
 export async function connectMeetingBrandAction(
   meetingId: string,
   brandId: string,
