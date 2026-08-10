@@ -117,7 +117,13 @@ export const OPS_TRACKS: { key: string; label: string; plan: string; contractTyp
 /** 약정 개월 선택지 · 추가할인 티어 · 파트장 결재 임계(30%). */
 export const COMMIT_MONTHS = [3, 6, 12] as const;
 export const ADDL_DISCOUNTS = [0, 5, 10, 20, 30, 40, 50, 60] as const;
-export const OPS_APPROVAL_THRESHOLD = 30; // 이 값 이상(≥30%)이면 파트장 결재 필요
+export const OPS_APPROVAL_THRESHOLD = 30; // 합산 할인이 이 값 이상(≥30%)이면 파트장 결재 필요
+
+/** 운영견적 대상 국가(중복선택). */
+export const OPS_COUNTRIES: { code: string; label: string }[] = [
+  { code: "US", label: "미국" }, { code: "TH", label: "태국" }, { code: "PH", label: "필리핀" },
+  { code: "MY", label: "말레이시아" }, { code: "SG", label: "싱가폴" }, { code: "JP", label: "일본" },
+];
 
 export type OpsPaymentMode = "commitment" | "monthly";
 
@@ -126,6 +132,8 @@ export interface OpsQuoteInput {
   paymentMode: OpsPaymentMode;    // 약정할인 | 매월결제
   commitmentMonths?: number;      // 약정 시 3|6|12
   addlDiscountPct: number;        // 추가할인 %
+  countryDiscountPct?: number;    // 국가 추가할인 %
+  countries?: string[];
 }
 
 export interface OpsQuoteResult {
@@ -133,27 +141,34 @@ export interface OpsQuoteResult {
   total: number;        // 표시 합계(약정=일시불 합계 / 매월=월 금액)
   months: number;       // 약정 개월(매월=1)
   recurring: boolean;   // true=월 정기 / false=약정 일시불
+  totalDiscountPct: number;  // 합산 할인(추가+국가)
   label: string;        // 합계 라벨
   breakdown: string;
 }
 
-/** 운영견적 산출 — 약정: 월금액×개월(일시불 합계) / 매월: 월금액(합계 미표시). */
+/** 운영견적 산출 — 약정: 월금액×개월(일시불 합계) / 매월: 월금액. 할인 0%는 표기하지 않는다. */
 export function computeOpsQuote(i: OpsQuoteInput): OpsQuoteResult {
-  const disc = Math.min(100, Math.max(0, Number(i.addlDiscountPct) || 0));
+  const addl = Math.min(100, Math.max(0, Number(i.addlDiscountPct) || 0));
+  const country = Math.min(100, Math.max(0, Number(i.countryDiscountPct) || 0));
+  const totalDiscountPct = Math.min(95, addl + country); // 합산 할인(상한 95%)
   const monthly = Math.max(0, Math.round(Number(i.monthlyAmount) || 0));
-  const monthlyNet = Math.round(monthly * (1 - disc / 100));
+  const monthlyNet = Math.round(monthly * (1 - totalDiscountPct / 100));
+  // 할인 표기 — 0%는 넣지 않고, 값이 있을 때만.
+  const discBits = [addl > 0 ? `추가 -${addl}%` : "", country > 0 ? `국가 -${country}%` : ""].filter(Boolean).join(" · ");
+  const discSuffix = discBits ? ` (${discBits})` : "";
+
   if (i.paymentMode === "commitment") {
     const months = COMMIT_MONTHS.includes((i.commitmentMonths ?? 0) as 3 | 6 | 12) ? (i.commitmentMonths as number) : 3;
     const total = monthlyNet * months;
     return {
-      monthlyNet, total, months, recurring: false,
+      monthlyNet, total, months, recurring: false, totalDiscountPct,
       label: `약정 ${months}개월 일시불`,
-      breakdown: `월 ${won(monthly)}${disc ? ` -${disc}%` : ""} × ${months}개월 = ${won(total)} (VAT 별도)`,
+      breakdown: `월 ${won(monthly)}${discSuffix} × ${months}개월 = ${won(total)} (VAT 별도)`,
     };
   }
   return {
-    monthlyNet, total: monthlyNet, months: 1, recurring: true,
+    monthlyNet, total: monthlyNet, months: 1, recurring: true, totalDiscountPct,
     label: "월 정기결제",
-    breakdown: `월 ${won(monthlyNet)}${disc ? ` (${disc}% 할인 적용)` : ""} (VAT 별도)`,
+    breakdown: `월 ${won(monthlyNet)}${discSuffix} (VAT 별도)`,
   };
 }

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { setProposalStatusV2Action } from "./actions";
+import OpsSendButton from "./OpsSendButton";
 
 // 목록 행 액션 — 상태 스텝 이동(draft→sent, sent→accepted/rejected) + 기존 링크 보존.
 export default function ProposalRowActions({
@@ -50,18 +51,14 @@ export default function ProposalRowActions({
           <Link href={`/brand/${brandId}`} className="btn sm">
             이어서 작성
           </Link>
-          <button
-            className="btn sm pri"
-            disabled={pending}
-            onClick={() => step("sent")}
-          >
-            {pending ? "…" : "발송"}
-          </button>
+          {/* 발송은 내용 확인 후 메일(문자 선택) — 리스팅 발송 버튼. */}
+          <OpsSendButton id={id} />
         </>
       )}
 
       {status === "sent" && (
         <>
+          <OpsSendButton id={id} label="재발송" />
           <button
             className="btn sm"
             disabled={pending}

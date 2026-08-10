@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import ConnectBrand from "./ConnectBrand";
 import MeetingEditor, { type CalendarMeeting } from "./MeetingEditor";
 import MeetingMappings, { type MappedMeeting } from "./MeetingMappings";
+import MeetingDeleteButton from "./MeetingDeleteButton";
 import AddMeetingButton from "./AddMeetingButton";
 
 export const dynamic = "force-dynamic";
@@ -265,10 +266,13 @@ export default async function MeetingsPage() {
                   <div className="tt">{(m.topic as string) || "제목 없음"}</div>
                   <div className="ss">{shortWhen(m.scheduled_at)} · 참가자 이메일이 원장에 없음 — 수동 연결 필요</div>
                 </div>
-                <div className="rt"><ConnectBrand meetingId={m.id as string} brands={brandList} /></div>
+                <div className="rt" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <ConnectBrand meetingId={m.id as string} brands={brandList} />
+                  <MeetingDeleteButton meetingId={m.id as string} />
+                </div>
               </div>
             ))}
-            {unmatched.length > 0 && <div className="note">토픽에 [브랜드명]을 넣으면 자동 매칭률이 올라갑니다</div>}
+            {unmatched.length > 0 && <div className="note">토픽에 [브랜드명]을 넣으면 자동 매칭률이 올라갑니다 · 불필요한 미팅은 삭제</div>}
           </div>
         </div>
 
