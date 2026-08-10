@@ -120,6 +120,41 @@ export async function updateMktProjectAction(input: { id: string; title?: string
   return { ok: true };
 }
 
+/** 개별 프로젝트(카드) 완전 삭제 — 세부 내용까지 제거. 연결된 제안서(proposals)는 유지. */
+export async function deleteMktProjectAction(id: string): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!id) return { ok: false, error: "프로젝트 ID 누락" };
+  const cur = await queryOne<{ brand_id: string }>("SELECT brand_id FROM mkt_projects WHERE id=$1", [id]).catch(() => null);
+  if (!cur) return { ok: false, error: "프로젝트를 찾을 수 없습니다." };
+  await query("DELETE FROM mkt_projects WHERE id=$1", [id]);
+  revalidatePath("/mkt");
+  revalidatePath(`/brand/${cur.brand_id}`);
+  return { ok: true };
+}
+
+/** 기존 프로젝트에 마케팅 제안서를 만들어 연결 — 신규프로젝트=마케팅제안서 일치(2-3).
+ *   제안서 미연결 카드를 제안서 기반으로 승격시킨다. */
+export async function createProposalForProjectAction(projectId: string): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const p = await queryOne<{ brand_id: string; title: string; note: string | null; proposal_id: string | null }>(
+    "SELECT brand_id, title, note, proposal_id FROM mkt_projects WHERE id=$1", [projectId],
+  ).catch(() => null);
+  if (!p) return { ok: false, error: "프로젝트를 찾을 수 없습니다." };
+  if (p.proposal_id) return { ok: false, error: "이미 제안서가 연결돼 있습니다." };
+  const prow = await queryOne<{ id: string }>(
+    `INSERT INTO proposals (brand_id, kind, title, note, status, created_by)
+     VALUES ($1,'marketing',$2,$3,'draft',$4) RETURNING id`,
+    [p.brand_id, p.title, (p.note ?? "").trim(), `admin:${u.id}`],
+  ).catch(() => null);
+  if (!prow) return { ok: false, error: "제안서 생성 실패" };
+  await query("UPDATE mkt_projects SET proposal_id=$2, updated_at=now() WHERE id=$1", [projectId, prow.id]);
+  revalidatePath("/mkt");
+  revalidatePath(`/brand/${p.brand_id}`);
+  return { ok: true };
+}
+
 /** 마케팅 제안서 작성 — 브랜드·제목·금액·기간·범위 메모 → proposals(kind='marketing').
  *   link_project(기본 true)면 파이프라인 개별 프로젝트를 자동 생성·연결한다. */
 export async function createMktProposalAction(input: {

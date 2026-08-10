@@ -5,6 +5,8 @@ import Link from "next/link";
 import {
   createMktProjectAction,
   createMktProposalAction,
+  createProposalForProjectAction,
+  deleteMktProjectAction,
   draftMktProposalEmailAction,
   registerMktBrandAction,
   setMktProposalStatusAction,
@@ -125,7 +127,13 @@ function Pipeline({ projects, brands }: { projects: MktRow[]; brands: MktBrandOp
   const [nbBrand, setNbBrand] = useState(brands[0]?.id ?? "");
   const [nbTitle, setNbTitle] = useState("");
   const [nbNote, setNbNote] = useState("");
+  const [nbAmount, setNbAmount] = useState("");
+  const [nbFile, setNbFile] = useState("");
   const [nbErr, setNbErr] = useState("");
+  // 드래그앤드랍 이동 상태
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<string | null>(null);
+  const [moveMsg, setMoveMsg] = useState("");
   const kw = q.trim().toLowerCase();
   const filtered = kw
     ? projects.filter(
@@ -136,12 +144,27 @@ function Pipeline({ projects, brands }: { projects: MktRow[]; brands: MktBrandOp
       )
     : projects;
   const count = (k: string) => filtered.filter((r) => r.proposal_status === k).length;
+  // 신규 프로젝트 = 마케팅 제안서(2-3): 카드 생성 시 항상 제안서를 만들어 연결한다.
   function addProject() {
     setNbErr("");
     start(async () => {
-      const r = await createMktProjectAction({ brand_id: nbBrand, title: nbTitle, note: nbNote });
-      if (r.ok) { setNewOpen(false); setNbTitle(""); setNbNote(""); router.refresh(); }
+      const r = await createMktProposalAction({ brand_id: nbBrand, title: nbTitle, note: nbNote, amount: nbAmount, file_url: nbFile, link_project: true });
+      if (r.ok) { setNewOpen(false); setNbTitle(""); setNbNote(""); setNbAmount(""); setNbFile(""); router.refresh(); }
       else setNbErr(r.error ?? "등록 실패");
+    });
+  }
+  // 드롭 → 상태 이동(게이트 검증). 같은 열이면 무시.
+  function dropTo(colKey: string) {
+    const id = dragId;
+    setDragId(null); setOverCol(null);
+    if (!id) return;
+    const card = projects.find((r) => r.id === id);
+    if (!card || card.proposal_status === colKey) return;
+    setMoveMsg("");
+    start(async () => {
+      const r = await setMktStatusAction(id, colKey);
+      if (r.ok) router.refresh();
+      else { setMoveMsg(r.error ?? "이동 실패"); setTimeout(() => setMoveMsg(""), 3200); }
     });
   }
   return (
@@ -179,16 +202,24 @@ function Pipeline({ projects, brands }: { projects: MktRow[]; brands: MktBrandOp
               <input className="f" value={nbTitle} onChange={(e) => setNbTitle(e.target.value)} placeholder="예: 무신사 8월 브랜드 캠페인 RFP" />
             </div>
             <div style={{ flex: 1, minWidth: 180 }}>
-              <label className="f">메모(선택)</label>
+              <label className="f">메모/범위(선택)</label>
               <input className="f" value={nbNote} onChange={(e) => setNbNote(e.target.value)} placeholder="예: 인바운드 문의 · RFP 접수" />
             </div>
+            <div style={{ minWidth: 120 }}>
+              <label className="f">제안 금액(선택)</label>
+              <input className="f" value={nbAmount} onChange={(e) => setNbAmount(e.target.value)} placeholder="원" inputMode="numeric" />
+            </div>
+            <div style={{ minWidth: 160 }}>
+              <label className="f">제안서 파일 링크(선택)</label>
+              <input className="f" value={nbFile} onChange={(e) => setNbFile(e.target.value)} placeholder="드라이브 PPT/PDF URL" />
+            </div>
             <button className="btn pri" disabled={pending || !nbBrand || !nbTitle.trim()} onClick={addProject}>
-              {pending ? "등록 중…" : "등록"}
+              {pending ? "등록 중…" : "제안서·프로젝트 생성"}
             </button>
             {nbErr && <span className="chip red" style={{ fontSize: 11 }}>{nbErr}</span>}
           </div>
           <div className="bd" style={{ paddingTop: 0, fontSize: 11, color: "var(--ink3)" }}>
-            제안서와 함께 만들려면 「마케팅 제안서」 탭에서 작성 시 자동으로 프로젝트가 연결됩니다.
+            신규 프로젝트는 <b>마케팅 제안서로 함께 생성</b>되어 자동 연결됩니다(발송·수락 관리는 「마케팅 제안서」 탭).
           </div>
         </div>
       )}
@@ -201,13 +232,19 @@ function Pipeline({ projects, brands }: { projects: MktRow[]; brands: MktBrandOp
           {PIPE.map((col) => {
             const list = filtered.filter((r) => r.proposal_status === col.key);
             return (
-              <div key={col.key} className="kcol">
+              <div
+                key={col.key}
+                className={`kcol${overCol === col.key ? " dragover" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); if (overCol !== col.key) setOverCol(col.key); }}
+                onDragLeave={() => setOverCol((c) => (c === col.key ? null : c))}
+                onDrop={() => dropTo(col.key)}
+              >
                 <h4>
                   <span className="dot" style={{ background: col.dot }} />
                   {col.label} <span className="c">{list.length}</span>
                 </h4>
                 {list.map((m) => (
-                  <KCard key={m.id} m={m} />
+                  <KCard key={m.id} m={m} onDragStart={() => setDragId(m.id)} onDragEnd={() => { setDragId(null); setOverCol(null); }} dragging={dragId === m.id} />
                 ))}
                 {list.length === 0 && <div className="mt" style={{ padding: "2px 4px" }}>—</div>}
               </div>
@@ -215,19 +252,28 @@ function Pipeline({ projects, brands }: { projects: MktRow[]; brands: MktBrandOp
           })}
         </div>
       )}
+      {moveMsg && <div className="note" style={{ marginTop: 8, color: "var(--bad)" }}>⚠ {moveMsg}</div>}
       <div className="note" style={{ marginTop: 8 }}>
-        💡 완료된 프로젝트의 성과(GMV·콘텐츠)는 다음 제안의 근거 자료로 자동 축적 · 드랍 사유는 주간 자가학습에 반영
+        💡 카드를 드래그해 단계 이동 · 완료 프로젝트 성과(GMV·콘텐츠)는 다음 제안 근거로 자동 축적 · 수주 이동은 계약 등록 필요
       </div>
     </div>
   );
 }
 
-// 파이프라인 카드 — 클릭하면 상세 편집·제안서 연결 관리 모달. (요약은 카드에)
-function KCard({ m }: { m: MktRow }) {
+// 파이프라인 카드 — 드래그로 단계 이동, 클릭하면 상세 편집·제안서 연결 관리 모달.
+function KCard({ m, onDragStart, onDragEnd, dragging }: { m: MktRow; onDragStart?: () => void; onDragEnd?: () => void; dragging?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <div className="kcard" style={{ cursor: "pointer" }} onClick={() => setOpen(true)} title="클릭하여 상세 편집">
+      <div
+        className="kcard"
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        style={{ cursor: "grab", opacity: dragging ? 0.5 : 1 }}
+        onClick={() => setOpen(true)}
+        title="드래그로 이동 · 클릭하여 상세 편집"
+      >
         <div className="nm">{m.title}</div>
         <div className="mt">{m.brand_name}{m.note ? ` · ${m.note}` : ""}</div>
         <div className="ft" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -267,9 +313,16 @@ function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
   }
   function linkProposal() {
     start(async () => {
-      const r = await createMktProjectAction({ brand_id: m.brand_id, title: m.title, proposal_id: undefined });
-      // 제안서가 없으면 마케팅 제안서 탭으로 유도 — 여기서는 안내만.
-      flash(r.ok ? "제안서는 '마케팅 제안서' 탭에서 작성 시 자동 연결됩니다." : (r.error ?? ""));
+      const r = await createProposalForProjectAction(m.id);
+      if (r.ok) { flash("마케팅 제안서를 생성해 연결했습니다."); router.refresh(); }
+      else flash(r.error ?? "연결 실패");
+    });
+  }
+  function removeProject() {
+    if (!confirm(`'${m.title}' 프로젝트를 삭제할까요? 세부 내용이 모두 제거됩니다.`)) return;
+    start(async () => {
+      const r = await deleteMktProjectAction(m.id);
+      if (r.ok) { onClose(); router.refresh(); } else flash(r.error ?? "삭제 실패");
     });
   }
 
@@ -279,7 +332,8 @@ function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
           <b style={{ fontSize: 15 }}>프로젝트 상세</b>
           <Link href={`/brand/${m.brand_id}`} className="chip" style={{ fontSize: 11 }}>{m.brand_name} ↗</Link>
-          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={onClose}>닫기 ✕</button>
+          <button className="btn sm" style={{ marginLeft: "auto", color: "var(--bad)" }} disabled={pending} onClick={removeProject}>🗑 삭제</button>
+          <button className="btn sm" onClick={onClose}>닫기 ✕</button>
         </div>
 
         <label className="f">프로젝트명</label>
