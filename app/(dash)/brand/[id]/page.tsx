@@ -62,7 +62,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const id = rawId.trim(); // 복사된 URL의 꼬리 공백(%20) 방어
   const data = await brand360(id);
   if (!data) notFound();
-  const { brand, signals, docs, paymentsManual, glovekSubs, timeline, adminUsers } = data;
+  const { brand, signals, docs, paymentsManual, glovekSubs, timeline, stageHistory, adminUsers } = data;
 
   // 성능(Stage0): 서로 독립적인 조회는 한 번에 병렬 실행 — 순차 왕복 제거.
   //   (brand.id/brand.state 만 필요, 상호 의존 없음)
@@ -88,13 +88,16 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
                 left(transcript, 20000) AS transcript, summary_md
            FROM meetings WHERE brand_id=$1
           ORDER BY COALESCE(started_at, scheduled_at, created_at) DESC LIMIT 8`, [brand.id])),
-      safe(query<HistoryRow>(
-        "SELECT from_state, to_state, actor, at FROM stage_history WHERE brand_id=$1 AND gate_passed ORDER BY at DESC LIMIT 10",
-        [brand.id])),
     ]),
     buildGateContext(brand).catch(() => null),
   ]);
-  const [aliases, comments, presence, drafts, meetings, moveHistory] = extra;
+  const [aliases, comments, presence, drafts, meetings] = extra;
+  // moveHistory(성공 이동 이력)는 brand360 이 이미 가져온 stageHistory 에서 파생 — 중복 조회 제거.
+  //   (브랜드 전이 이력은 십수 건 수준이라 최근 30 조회에 항상 포함 → 기존 LIMIT 10 결과와 동일)
+  const moveHistory: HistoryRow[] = stageHistory
+    .filter((h) => h.gate_passed)
+    .slice(0, 10)
+    .map((h) => ({ from_state: h.from_state, to_state: h.to_state, actor: h.actor, at: h.at }));
   const viewer = await currentUser();
   const canForce = viewer?.role === "lead" || viewer?.role === "exec";
 

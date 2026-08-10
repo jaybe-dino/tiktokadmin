@@ -30,6 +30,8 @@ export interface Brand360 {
   paymentsManual: { id: string; plan: string; amount: number; method: string; paid_at: string; next_due: string | null; note: string }[];
   glovekSubs: { plan: string; amount: number | null; status: string; next_charge_at: string | null; failures: number | null }[];
   timeline: { kind: string; text: string; at: string; actor: string }[];
+  // 원본 단계 이력(최근 30) — 페이지에서 moveHistory(성공 이동)를 파생해 중복 조회 제거.
+  stageHistory: { from_state: string | null; to_state: string; actor: string; gate_passed: boolean; reason: string; at: string }[];
   alerts: { id: string; kind: string; tier: number; message: string; created_at: string }[];
   adminUsers: { id: string; name: string; role: string }[];
   files: BrandFile[];
@@ -145,7 +147,7 @@ export async function brand360(id: string): Promise<Brand360 | null> {
   }
 
   return {
-    brand, signals, docs, paymentsManual, glovekSubs, timeline, alerts, adminUsers,
+    brand, signals, docs, paymentsManual, glovekSubs, timeline, stageHistory: history, alerts, adminUsers,
     files, proposals, sites,
   };
 }

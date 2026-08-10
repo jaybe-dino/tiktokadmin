@@ -145,42 +145,17 @@ export function evaluateGate(from: State, to: State, ctx: GateContext): GateResu
 
 /** DB 에서 GateContext 조립. */
 export async function buildGateContext(brand: Brand): Promise<GateContext> {
-  const [meetingNote, manualPay, docStats, firstPerf, sentProposal, preSurvey] = await Promise.all([
-    queryOne<{ n: string }>(
-      `SELECT count(*)::text n FROM brand_sources
-        WHERE brand_id=$1 AND event='contact_logged'
-          AND payload->>'channel'='meeting'`,
-      [brand.id],
-    ),
-    queryOne<{ n: string }>(`SELECT count(*)::text n FROM payments_manual WHERE brand_id=$1`, [brand.id]),
-    queryOne<{ total: string; done: string }>(
-      `SELECT count(*)::text total, count(*) FILTER (WHERE done)::text done
-         FROM doc_items WHERE brand_id=$1`,
-      [brand.id],
-    ),
-    queryOne<{ n: string }>(
-      `SELECT count(*)::text n FROM brand_signals WHERE brand_id=$1 AND metric='first_gmv'`,
-      [brand.id],
-    ),
-    // proposals 테이블(0004/0007) 없거나 미적용 DB 방어 → 0
-    queryOne<{ n: string }>(
-      `SELECT count(*)::text n FROM proposals WHERE brand_id=$1 AND status='sent'`,
-      [brand.id],
-    ).catch(() => ({ n: "0" })),
-    // 1:1 사전학습 설문 발송 여부 — sent_at 있는 pre_meeting 설문(테이블 없으면 0)
-    queryOne<{ n: string }>(
-      `SELECT count(*)::text n FROM surveys WHERE brand_id=$1 AND kind='pre_meeting' AND sent_at IS NOT NULL`,
-      [brand.id],
-    ).catch(() => ({ n: "0" })),
-  ]);
+  // 게이트 컨텍스트 조립 — 6개 count 를 단일 쿼리(서브셀렉트)로 묶어 왕복 6→1.
+  //   미적용 DB(테이블 누락) 등으로 실패 시엔 기존 개별 쿼리 경로로 폴백(회복력 유지).
+  const c = await gateCounts(brand.id);
 
-  const total = Number(docStats?.total ?? 0);
-  const done = Number(docStats?.done ?? 0);
-  const manualPayCount = Number(manualPay?.n ?? 0);
+  const total = c.docTotal;
+  const done = c.docDone;
+  const manualPayCount = c.manualPay;
 
   return {
     brand,
-    hasMeetingNote: Number(meetingNote?.n ?? 0) > 0,
+    hasMeetingNote: c.meetingNote > 0,
     hasDiagnosis: brand.grade != null,
     paymentConfirmed:
       brand.pay_status === "once_paid" ||
@@ -188,9 +163,55 @@ export async function buildGateContext(brand: Brand): Promise<GateContext> {
       manualPayCount > 0,
     docTemplateCreated: total > 0,
     allDocsDone: total > 0 && done === total,
-    hasFirstPerformance: Number(firstPerf?.n ?? 0) > 0,
-    hasSentProposal: Number(sentProposal?.n ?? 0) > 0,
-    hasPreSurvey: Number(preSurvey?.n ?? 0) > 0,
+    hasFirstPerformance: c.firstPerf > 0,
+    hasSentProposal: c.sentProposal > 0,
+    hasPreSurvey: c.preSurvey > 0,
+  };
+}
+
+interface GateCounts {
+  meetingNote: number; manualPay: number; docTotal: number; docDone: number;
+  firstPerf: number; sentProposal: number; preSurvey: number;
+}
+
+/** 게이트용 count 7종을 단일 쿼리로. 실패(테이블 누락 등) 시 개별 쿼리 폴백 → 회복력 유지.
+ *  반환값은 기존 개별 쿼리 경로와 동일(가드: tests/gates-counts 및 앱 렌더 비교로 검증). */
+async function gateCounts(brandId: string): Promise<GateCounts> {
+  const one = await queryOne<{
+    meeting_note: string; manual_pay: string; doc_total: string; doc_done: string;
+    first_perf: string; sent_proposal: string; pre_survey: string;
+  }>(
+    `SELECT
+       (SELECT count(*) FROM brand_sources WHERE brand_id=$1 AND event='contact_logged' AND payload->>'channel'='meeting') AS meeting_note,
+       (SELECT count(*) FROM payments_manual WHERE brand_id=$1) AS manual_pay,
+       (SELECT count(*) FROM doc_items WHERE brand_id=$1) AS doc_total,
+       (SELECT count(*) FROM doc_items WHERE brand_id=$1 AND done) AS doc_done,
+       (SELECT count(*) FROM brand_signals WHERE brand_id=$1 AND metric='first_gmv') AS first_perf,
+       (SELECT count(*) FROM proposals WHERE brand_id=$1 AND status='sent') AS sent_proposal,
+       (SELECT count(*) FROM surveys WHERE brand_id=$1 AND kind='pre_meeting' AND sent_at IS NOT NULL) AS pre_survey`,
+    [brandId],
+  ).catch(() => null);
+  if (one) {
+    return {
+      meetingNote: Number(one.meeting_note), manualPay: Number(one.manual_pay),
+      docTotal: Number(one.doc_total), docDone: Number(one.doc_done),
+      firstPerf: Number(one.first_perf), sentProposal: Number(one.sent_proposal),
+      preSurvey: Number(one.pre_survey),
+    };
+  }
+  // 폴백 — 개별 쿼리(누락 테이블은 0). 병합 쿼리가 실패해도 게이트가 죽지 않게.
+  const [mn, mp, ds, fp, sp, ps] = await Promise.all([
+    queryOne<{ n: string }>(`SELECT count(*)::text n FROM brand_sources WHERE brand_id=$1 AND event='contact_logged' AND payload->>'channel'='meeting'`, [brandId]).catch(() => ({ n: "0" })),
+    queryOne<{ n: string }>(`SELECT count(*)::text n FROM payments_manual WHERE brand_id=$1`, [brandId]).catch(() => ({ n: "0" })),
+    queryOne<{ total: string; done: string }>(`SELECT count(*)::text total, count(*) FILTER (WHERE done)::text done FROM doc_items WHERE brand_id=$1`, [brandId]).catch(() => ({ total: "0", done: "0" })),
+    queryOne<{ n: string }>(`SELECT count(*)::text n FROM brand_signals WHERE brand_id=$1 AND metric='first_gmv'`, [brandId]).catch(() => ({ n: "0" })),
+    queryOne<{ n: string }>(`SELECT count(*)::text n FROM proposals WHERE brand_id=$1 AND status='sent'`, [brandId]).catch(() => ({ n: "0" })),
+    queryOne<{ n: string }>(`SELECT count(*)::text n FROM surveys WHERE brand_id=$1 AND kind='pre_meeting' AND sent_at IS NOT NULL`, [brandId]).catch(() => ({ n: "0" })),
+  ]);
+  return {
+    meetingNote: Number(mn?.n ?? 0), manualPay: Number(mp?.n ?? 0),
+    docTotal: Number(ds?.total ?? 0), docDone: Number(ds?.done ?? 0),
+    firstPerf: Number(fp?.n ?? 0), sentProposal: Number(sp?.n ?? 0), preSurvey: Number(ps?.n ?? 0),
   };
 }
 

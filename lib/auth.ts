@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual, randomBytes, scryptSync } from "node:crypto";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { queryOne, query } from "./db";
 import { env } from "./env";
@@ -103,17 +104,19 @@ export interface AdminUser {
   active: boolean;
 }
 
-/** 현재 세션 이메일 (쿠키). 없거나 무효면 null. */
-export async function sessionEmail(): Promise<string | null> {
+/** 현재 세션 이메일 (쿠키). 없거나 무효면 null.
+ *  React cache() — 같은 요청 안에서 여러 번 호출돼도 쿠키검증·canLogin 을 1회만. */
+export const sessionEmail = cache(async function sessionEmail(): Promise<string | null> {
   const c = (await cookies()).get(COOKIE)?.value;
   if (!c) return null;
   const email = verifySessionValue(c);
   if (!email || !(await canLogin(email))) return null;
   return email;
-}
+});
 
-/** 현재 어드민 사용자(역할 포함). admin_users 에 없으면 exec 취급(화이트리스트 통과자). */
-export async function currentUser(): Promise<AdminUser | null> {
+/** 현재 어드민 사용자(역할 포함). admin_users 에 없으면 exec 취급(화이트리스트 통과자).
+ *  React cache() — 요청 단위 메모이즈로 레이아웃·페이지·액션의 중복 admin_users 조회 제거. */
+export const currentUser = cache(async function currentUser(): Promise<AdminUser | null> {
   const email = await sessionEmail();
   if (!email) return null;
   // 행이 있으면 active 를 명시적으로 검사 — active=false 는 거부(null).
@@ -124,6 +127,6 @@ export async function currentUser(): Promise<AdminUser | null> {
     return u;
   }
   return { id: email, name: email, role: "exec", slack_user_id: null, active: true };
-}
+});
 
 export const AUTH_COOKIE = COOKIE;
