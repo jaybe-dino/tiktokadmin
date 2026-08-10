@@ -96,7 +96,7 @@ export default async function CustomersPage({
       </form>
 
       {/* 원장 테이블 (체크박스 일괄삭제 + 날짜 컬럼) */}
-      <CustomerTable rows={rows as unknown as Record<string, unknown>[]} canEdit={canEdit} ownerNames={Object.fromEntries(admins.map((a) => [a.id, a.name]))} />
+      <CustomerTable rows={rows as unknown as Record<string, unknown>[]} canEdit={canEdit} ownerNames={Object.fromEntries(admins.map((a) => [a.id, a.name]))} owners={ownerOptions} />
 
       <div style={{ padding: "10px 4px", color: "var(--ink3)", fontSize: 11.5, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span>{`${start}–${end} / ${total}`}</span>

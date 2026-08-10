@@ -5,9 +5,19 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge } from "@/components/badges";
 import { SOURCE_LABELS } from "@/lib/types";
-import { deleteBrandsAction, dropBrandsAction } from "@/app/actions";
+import { deleteBrandsAction, dropBrandsAction, bulkAssignAction } from "@/app/actions";
+import type { OwnerField } from "@/lib/types";
 
 type Row = Record<string, unknown>;
+
+// 일괄 배정 가능한 담당 역할.
+const ASSIGN_ROLES: { value: OwnerField; label: string }[] = [
+  { value: "owner_intake", label: "유입담당" },
+  { value: "owner_sales", label: "영업담당" },
+  { value: "owner_onboard", label: "온보딩담당" },
+  { value: "owner_ads", label: "광고담당" },
+  { value: "owner_contract", label: "계약담당" },
+];
 
 function initials(name: string): string {
   const n = (name || "").trim();
@@ -42,13 +52,15 @@ function completeness(b: Row): number {
   return Math.round(((filled + cn) / (keys.length + 1)) * 100);
 }
 
-export default function CustomerTable({ rows, canEdit, ownerNames = {} }: { rows: Row[]; canEdit: boolean; ownerNames?: Record<string, string> }) {
+export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners = [] }: { rows: Row[]; canEdit: boolean; ownerNames?: Record<string, string>; owners?: { id: string; name: string }[] }) {
   // owner_* 에는 admin_users.id(이메일)가 저장됨 → 사람 이름으로 표기(없으면 원값). (pipeline#1)
   const nm = (id: string | null | undefined) => (id ? ownerNames[id] ?? id : null);
   const router = useRouter();
   const [pending, start] = useTransition();
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [msg, setMsg] = useState("");
+  const [assignRole, setAssignRole] = useState<OwnerField>("owner_intake");
+  const [assignUser, setAssignUser] = useState("");
 
   const ids = rows.map((r) => String(r.id));
   const allChecked = ids.length > 0 && ids.every((id) => sel.has(id));
@@ -73,15 +85,45 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {} }: { rows
       else setMsg(r.error ?? "삭제 실패");
     });
   };
+  const doAssign = () => {
+    if (sel.size === 0) return;
+    if (!assignUser) { setMsg("배정할 담당자를 선택하세요."); return; }
+    start(async () => {
+      const r = await bulkAssignAction([...sel], assignRole, assignUser);
+      if (r.ok) {
+        const roleLabel = ASSIGN_ROLES.find((x) => x.value === assignRole)?.label ?? "담당";
+        const advanced = r.advanced ? ` · ${r.advanced}건 담당자배정 단계로 전진` : "";
+        const failed = r.failures?.length ? ` · ${r.failures.length}건 실패` : "";
+        setMsg(`${r.assigned}건 ${roleLabel} 배정됨${advanced}${failed}`);
+        setSel(new Set()); router.refresh();
+      } else setMsg(r.error ?? "배정 실패");
+    });
+  };
 
   return (
     <div className="card" style={{ overflowX: "auto" }}>
       {canEdit && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--line)" }}>
+        <>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--line)", flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: "var(--ink3)" }}>{sel.size > 0 ? `${sel.size}건 선택됨` : "행 왼쪽 체크로 선택"}</span>
           {msg && <span style={{ fontSize: 12, color: "var(--ok)" }}>{msg}</span>}
+
+          {/* 일괄 담당자 배정 — 유입담당 배정 시 lead_new 는 담당자배정 단계로 자동 전진 */}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+            <select className="f" style={{ width: 110, padding: "3px 6px", fontSize: 12 }} value={assignRole} onChange={(e) => setAssignRole(e.target.value as OwnerField)} title="배정 역할">
+              {ASSIGN_ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+            <select className="f" style={{ width: 130, padding: "3px 6px", fontSize: 12 }} value={assignUser} onChange={(e) => setAssignUser(e.target.value)} title="배정할 담당자">
+              <option value="">담당자 선택</option>
+              {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+            <button className="btn btn-sm btn-primary" disabled={pending || sel.size === 0 || !assignUser} onClick={doAssign} title="선택 브랜드에 담당자 일괄 배정">
+              {pending ? "처리 중…" : `담당 배정${sel.size ? ` (${sel.size})` : ""}`}
+            </button>
+          </div>
+
           <button className="btn btn-sm" disabled={pending || sel.size === 0}
-            style={{ marginLeft: "auto" }} onClick={doDrop} title="목록에서 제외(데이터 보존·복원 방지)">
+            onClick={doDrop} title="목록에서 제외(데이터 보존·복원 방지)">
             {pending ? "처리 중…" : `📥 선택 제외${sel.size ? ` (${sel.size})` : ""}`}
           </button>
           <button className="btn btn-sm" disabled={pending || sel.size === 0}
@@ -89,6 +131,12 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {} }: { rows
             🗑 완전삭제
           </button>
         </div>
+        {assignRole === "owner_intake" && (
+          <div className="note" style={{ padding: "6px 12px", fontSize: 11, color: "var(--ink3)", borderBottom: "1px solid var(--line)" }}>
+            유입담당을 배정하면 <b>리드확보</b> 단계 브랜드는 <b>담당자배정</b> 단계로 자동 전진합니다.
+          </div>
+        )}
+        </>
       )}
       <table className="t">
         <thead>
