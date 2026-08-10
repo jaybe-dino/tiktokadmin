@@ -236,7 +236,7 @@ export interface Contract {
   id: string; brand_id: string; kind: string; version: number; status: string;
   start_date: string | null; end_date: string | null; signed_at: string | null;
   terms: Record<string, unknown>; asset_id: string | null; esign_ref: string;
-  note: string; created_at: string;
+  note: string; proposal_id: string | null; created_at: string;
 }
 export function listContracts(brandId: string): Promise<Contract[]> {
   return query<Contract>("SELECT * FROM contracts WHERE brand_id=$1 ORDER BY created_at DESC", [brandId]);
@@ -244,12 +244,13 @@ export function listContracts(brandId: string): Promise<Contract[]> {
 export async function addContract(c: {
   brand_id: string; kind: string; terms: Record<string, unknown>;
   start_date?: string | null; end_date?: string | null; status?: string; note?: string;
+  proposal_id?: string | null;
 }): Promise<string> {
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO contracts (brand_id, kind, terms, start_date, end_date, status, note)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+    `INSERT INTO contracts (brand_id, kind, terms, start_date, end_date, status, note, proposal_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
     [c.brand_id, c.kind, JSON.stringify(c.terms ?? {}), c.start_date ?? null,
-     c.end_date ?? null, c.status ?? "draft", c.note ?? ""]);
+     c.end_date ?? null, c.status ?? "draft", c.note ?? "", c.proposal_id ?? null]);
   return row!.id;
 }
 export async function setContractStatus(id: string, status: string): Promise<void> {

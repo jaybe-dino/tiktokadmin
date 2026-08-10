@@ -642,6 +642,7 @@ export async function setContractTypeAction(brandId: string, contractType: strin
 export async function addContractAction(input: {
   brand_id: string; kind: string; fee_pct?: number; term_months?: number;
   countries?: string[]; start_date?: string; end_date?: string; note?: string;
+  proposal_id?: string;  // 운영제안서(견적) 연결 — 영업파트 계약·결제에서 추적
 }): Promise<ActionResult> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };
@@ -650,6 +651,7 @@ export async function addContractAction(input: {
       brand_id: input.brand_id, kind: input.kind,
       terms: { fee_pct: input.fee_pct ?? null, term_months: input.term_months ?? null, countries: input.countries ?? [] },
       start_date: input.start_date || null, end_date: input.end_date || null, note: input.note,
+      proposal_id: input.proposal_id || null,
     });
     // 계약 종류 → 브랜드 계약형태(트랙) 반영(비어 있을 때만) — 제안서/계약/원장 배지 정합.
     const { contractTypeFromKind } = await import("@/lib/track");
@@ -662,6 +664,9 @@ export async function addContractAction(input: {
     return { ok: false, error: e instanceof Error ? e.message : "계약 등록 실패" };
   }
   revalidatePath(`/brand/${input.brand_id}`);
+  // 영업파트 계약·결제 페이지에도 즉시 반영(맵핑).
+  revalidatePath("/contracts");
+  revalidatePath("/proposals");
   return { ok: true };
 }
 

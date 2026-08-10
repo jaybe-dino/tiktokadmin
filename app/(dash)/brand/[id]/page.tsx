@@ -282,6 +282,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
       contracts={deep?.contracts ?? []}
       paymentsManual={paymentsManual}
       glovekSubs={glovekSubs}
+      proposals={(data.proposals ?? []).map((p) => ({ id: p.id, title: p.title, amount: p.amount, status: p.status }))}
     />
   );
 

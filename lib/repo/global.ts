@@ -15,8 +15,10 @@ export function allProposals() {
 // 계약
 export function allContracts() {
   return query(`SELECT c.id, c.kind, c.status, c.start_date, c.end_date, c.terms, c.signed_at,
+      c.proposal_id, p.title AS proposal_title, p.amount AS proposal_amount,
       b.brand_name, b.id AS brand_id
      FROM contracts c JOIN brands b ON b.id=c.brand_id
+     LEFT JOIN proposals p ON p.id = c.proposal_id
     ORDER BY c.created_at DESC LIMIT 200`);
 }
 

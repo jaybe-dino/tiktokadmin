@@ -75,7 +75,12 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
                 const st = CC[c.status as string] ?? { ko: (c.status as string) ?? "—", c: "cc-ing" };
                 return (
                   <tr key={c.id as string}>
-                    <td><Link href={`/brand/${c.brand_id}`} className="hover:underline"><b>{c.brand_name as string}</b></Link></td>
+                    <td>
+                      <Link href={`/brand/${c.brand_id}`} className="hover:underline"><b>{c.brand_name as string}</b></Link>
+                      {c.proposal_title ? (
+                        <div className="sub" title="연결된 운영제안서"><span className="cellchip cc-ing" style={{ fontSize: 10 }}>📄 {c.proposal_title as string}</span></div>
+                      ) : null}
+                    </td>
                     <td>
                       {(() => {
                         const tb = TRACK_BADGE[c.kind as string];

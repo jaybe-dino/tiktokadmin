@@ -23,8 +23,10 @@ const CONTRACT_STATUS: Record<string, { label: string; cls: string }> = {
   terminated: { label: "해지", cls: "cc-exp" },
 };
 
-export default function Brand360Contract({ brandId, contracts, paymentsManual, glovekSubs }: {
-  brandId: string; contracts: Contract[]; paymentsManual: PaymentRow[]; glovekSubs: SubRow[];
+interface ProposalOpt { id: string; title: string; amount: number | null; status: string }
+
+export default function Brand360Contract({ brandId, contracts, paymentsManual, glovekSubs, proposals = [] }: {
+  brandId: string; contracts: Contract[]; paymentsManual: PaymentRow[]; glovekSubs: SubRow[]; proposals?: ProposalOpt[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -59,6 +61,7 @@ export default function Brand360Contract({ brandId, contracts, paymentsManual, g
                     start_date: String(f.get("start_date") ?? "") || undefined,
                     end_date: String(f.get("end_date") ?? "") || undefined,
                     note: String(f.get("note") ?? "") || undefined,
+                    proposal_id: String(f.get("proposal_id") ?? "") || undefined,
                   });
                   setMsg(r.ok ? "계약 등록됨" : r.error ?? "실패");
                   if (r.ok) { form.reset(); setOpenC(false); }
@@ -74,6 +77,15 @@ export default function Brand360Contract({ brandId, contracts, paymentsManual, g
               <input name="note" className="f" placeholder="특약·메모" />
               <input name="start_date" className="f" type="date" title="시작일" />
               <input name="end_date" className="f" type="date" title="종료일" />
+              {/* 운영제안서(견적) 연결 — 영업파트 계약·결제에서 어느 제안에서 나온 계약인지 추적 */}
+              <select name="proposal_id" className="f" style={{ gridColumn: "1 / -1" }} defaultValue="" title="연결할 운영제안서">
+                <option value="">운영제안서 연결 안 함</option>
+                {proposals.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    📄 {p.title || "(제목 없음)"}{p.amount != null ? ` · ${p.amount.toLocaleString("ko-KR")}원` : ""} ({p.status})
+                  </option>
+                ))}
+              </select>
               <button className="btn sm pri" style={{ gridColumn: "1 / -1" }} disabled={pending} type="submit">등록</button>
             </form>
           )}
@@ -91,7 +103,12 @@ export default function Brand360Contract({ brandId, contracts, paymentsManual, g
                   const st = CONTRACT_STATUS[c.status] ?? { label: c.status, cls: "cc-no" };
                   return (
                     <tr key={c.id}>
-                      <td>{CONTRACT_KIND[c.kind] ?? c.kind} v{c.version}</td>
+                      <td>
+                        {CONTRACT_KIND[c.kind] ?? c.kind} v{c.version}
+                        {c.proposal_id && (
+                          <div className="sub" title="연결된 운영제안서"><span className="cellchip cc-ing" style={{ fontSize: 10 }}>📄 {proposals.find((p) => p.id === c.proposal_id)?.title ?? "제안서 연결됨"}</span></div>
+                        )}
+                      </td>
                       <td>
                         <select
                           className="f"
