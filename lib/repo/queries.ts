@@ -29,7 +29,8 @@ export interface Brand360 {
   docs: DocProgress;
   paymentsManual: { id: string; plan: string; amount: number; method: string; paid_at: string; next_due: string | null; note: string }[];
   glovekSubs: { plan: string; amount: number | null; status: string; next_charge_at: string | null; failures: number | null }[];
-  timeline: { kind: string; text: string; at: string; actor: string }[];
+  // link: 키워드 클릭 시 이동할 탭(및 스크롤 앵커) — 미팅·메일 등 커뮤 내용으로 점프.
+  timeline: { kind: string; text: string; at: string; actor: string; link?: { tab: string; anchor?: string } }[];
   // 원본 단계 이력(최근 30) — 페이지에서 moveHistory(성공 이동)를 파생해 중복 조회 제거.
   stageHistory: { from_state: string | null; to_state: string; actor: string; gate_passed: boolean; reason: string; at: string }[];
   alerts: { id: string; kind: string; tier: number; message: string; created_at: string }[];
@@ -116,17 +117,24 @@ export async function brand360(id: string): Promise<Brand360 | null> {
     // 미팅 contact_logged 소스는 미팅 엔트리와 중복되므로 제외.
     ...sources
       .filter((s) => !(s.event === "contact_logged" && (s.payload as Record<string, unknown> | null)?.channel === "meeting"))
-      .map((s) => ({
-        kind: "source",
-        text: sourceText(s),
-        at: s.occurred_at,
-        actor: s.site,
-      })),
+      .map((s) => {
+        // 이메일/메일 관련 커뮤 소스는 클릭 시 미팅·메일 탭으로 이동.
+        const channel = typeof (s.payload as Record<string, unknown> | null)?.channel === "string" ? String((s.payload as Record<string, unknown>).channel) : "";
+        const isMail = channel === "email" || channel === "mail" || s.event === "email" || s.event === "email_sent";
+        return {
+          kind: "source",
+          text: sourceText(s),
+          at: s.occurred_at,
+          actor: s.site,
+          ...(isMail ? { link: { tab: "mm" } } : {}),
+        };
+      }),
     ...meetings.map((m) => ({
       kind: "meeting",
       text: `🎥 미팅: ${m.topic || "(제목 없음)"} · ${MST[m.status] ?? m.status}${m.summary ? ` — ${m.summary}` : ""}`,
       at: m.scheduled_at ?? m.created_at,
       actor: "meeting",
+      link: { tab: "mm", anchor: `mtg-${m.id}` },
     })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 

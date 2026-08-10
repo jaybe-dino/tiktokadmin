@@ -678,6 +678,135 @@ export async function setContractStatusAction(brandId: string, id: string, statu
   return { ok: true };
 }
 
+// ── 운영 견적(#2) → 계약등록·결제 등록 연동 ─────────────────────
+export interface OpsQuoteForContract {
+  id: string; created_at: string; status: string; plan: string;
+  contractType: string;   // mall | onboarding
+  trackLabel: string;
+  mode: "commitment" | "monthly";
+  months: number; monthly: number; total: number;
+  periodStart: string | null; periodEnd: string | null;
+  countries: string[];     // 한글 라벨
+  label: string;           // 요약 문구
+}
+
+/** 계약등록에서 이 브랜드가 가진 운영 견적 목록을 불러온다(#2에서 생성). */
+export async function listBrandOpsQuotesForContractAction(brandId: string): Promise<{ ok: boolean; error?: string; quotes?: OpsQuoteForContract[] }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  if (!brandId) return { ok: false, error: "브랜드를 선택하세요." };
+  const { query } = await import("@/lib/db");
+  const { OPS_TRACKS, OPS_COUNTRIES } = await import("@/lib/quote");
+  const rows = await query<{
+    id: string; created_at: string; status: string; plan: string | null; term: string | null;
+    quote_amount: number | null; amount: number | null; countries: string[] | null;
+    period_start: string | null; period_end: string | null; contract_term: string | null;
+  }>(
+    `SELECT id, created_at, status, plan, term, quote_amount, amount, countries, period_start, period_end, contract_term
+       FROM proposals
+      WHERE brand_id=$1 AND COALESCE(kind,'sales')='sales' AND COALESCE(quote_amount, amount) IS NOT NULL
+      ORDER BY created_at DESC LIMIT 30`,
+    [brandId],
+  ).catch(() => []);
+  const won = (n: number) => n.toLocaleString("ko-KR") + "원";
+  const quotes: OpsQuoteForContract[] = rows.map((p) => {
+    const track = OPS_TRACKS.find((t) => t.plan === p.plan);
+    const mode: "commitment" | "monthly" = p.term === "commitment" ? "commitment" : "monthly";
+    const mMatch = (p.contract_term ?? "").match(/약정\s*(\d+)\s*개월/);
+    const months = mMatch ? Number(mMatch[1]) : (mode === "commitment" ? 3 : 1);
+    const total = Number(p.quote_amount ?? p.amount ?? 0);
+    const monthly = mode === "commitment" && months > 0 ? Math.round(total / months) : total;
+    const countryLabels = (p.countries ?? []).map((c) => OPS_COUNTRIES.find((x) => x.code === c)?.label ?? c);
+    const label = mode === "commitment"
+      ? `약정 ${months}개월 · 일시불 ${won(total)}`
+      : `월 정기결제 ${won(monthly)}`;
+    return {
+      id: p.id, created_at: p.created_at, status: p.status, plan: p.plan ?? "",
+      contractType: track?.contractType ?? "mall", trackLabel: track?.label ?? (p.plan ?? "운영"),
+      mode, months, monthly, total, periodStart: p.period_start, periodEnd: p.period_end,
+      countries: countryLabels, label,
+    };
+  });
+  return { ok: true, quotes };
+}
+
+function addOneMonth(ymd: string): string {
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return ymd;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1 + 1, Number(m[3]));
+  return d.toISOString().slice(0, 10);
+}
+
+/** 견적을 계약으로 등록하고, 결제방식을 책정해 (선택 시) 결제까지 등록한다. */
+export async function registerContractFromQuoteAction(input: {
+  brandId: string; proposalId: string;
+  method: string;          // 결제 방식(일시불/계좌이체/매월 정기 등)
+  registerPayment: boolean; // 결제도 함께 등록할지
+  paidAt?: string;          // 결제 등록 시 결제일(YYYY-MM-DD)
+}): Promise<ActionResult & { paid?: boolean }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  if (!input.brandId || !input.proposalId) return { ok: false, error: "브랜드/견적을 선택하세요." };
+
+  const { queryOne, query } = await import("@/lib/db");
+  const p = await queryOne<{
+    plan: string | null; term: string | null; quote_amount: number | null; amount: number | null;
+    countries: string[] | null; period_start: string | null; period_end: string | null; contract_term: string | null;
+  }>(
+    `SELECT plan, term, quote_amount, amount, countries, period_start, period_end, contract_term
+       FROM proposals WHERE id=$1 AND brand_id=$2`,
+    [input.proposalId, input.brandId],
+  ).catch(() => null);
+  if (!p) return { ok: false, error: "견적을 찾을 수 없습니다." };
+
+  const { OPS_TRACKS } = await import("@/lib/quote");
+  const track = OPS_TRACKS.find((t) => t.plan === p.plan);
+  const contractType = track?.contractType ?? "mall";
+  const mode: "commitment" | "monthly" = p.term === "commitment" ? "commitment" : "monthly";
+  const mMatch = (p.contract_term ?? "").match(/약정\s*(\d+)\s*개월/);
+  const months = mMatch ? Number(mMatch[1]) : (mode === "commitment" ? 3 : 1);
+  const total = Number(p.quote_amount ?? p.amount ?? 0);
+  const monthly = mode === "commitment" && months > 0 ? Math.round(total / months) : total;
+
+  // 1) 계약 등록(견적 연결).
+  try {
+    await repoAddContract({
+      brand_id: input.brandId, kind: contractType,
+      terms: { fee_pct: null, term_months: months, countries: p.countries ?? [] },
+      start_date: p.period_start || null, end_date: p.period_end || null,
+      note: `운영견적 연결 · 결제방식 ${input.method}${mode === "commitment" ? ` · 약정 ${months}개월 일시불` : " · 매월 정기"}`,
+      proposal_id: input.proposalId,
+    });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "계약 등록 실패" };
+  }
+  const { contractTypeFromKind } = await import("@/lib/track");
+  const ct = contractTypeFromKind(contractType);
+  if (ct) await query("UPDATE brands SET contract_type=COALESCE(contract_type,$2), updated_at=now() WHERE id=$1", [input.brandId, ct]).catch(() => {});
+
+  // 2) 결제 등록(선택) — 약정=일시불 합계, 매월=월 금액. 게이트 경유(opsManualPayment).
+  let paid = false;
+  if (input.registerPayment) {
+    const amt = mode === "commitment" ? total : monthly;
+    if (amt <= 0) return { ok: false, error: "결제 금액이 0원입니다 — 견적 금액을 확인하세요." };
+    const paidAt = input.paidAt || new Date().toISOString().slice(0, 10);
+    const next_due = mode === "monthly" ? addOneMonth(paidAt) : undefined;
+    const res = await opsManualPayment(a, {
+      brand_id: input.brandId, plan: p.plan ?? "guarantee_1m", amount: amt,
+      paid_at: paidAt, next_due,
+      note: `운영견적 기반 · ${mode === "commitment" ? `약정 ${months}개월 일시불` : "매월 정기"} · ${input.method}`,
+    });
+    if (!res.ok) return { ok: false, error: res.error ?? "결제 등록 실패" };
+    paid = true;
+  }
+
+  revalidatePath(`/brand/${input.brandId}`);
+  revalidatePath("/contracts");
+  revalidatePath("/proposals");
+  revalidatePath("/pay");
+  return { ok: true, paid };
+}
+
 export async function upsertLogisticsAction(input: {
   brand_id: string; country: string; provider?: string; status?: string;
   warehouse_region?: string; end_date?: string;

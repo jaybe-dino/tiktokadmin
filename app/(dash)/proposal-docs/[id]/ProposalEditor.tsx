@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction, generateProductUspAction, fillReferencesByCategoryAction } from "../actions";
+import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction, generateProductUspAction, fillReferencesByCategoryAction, listBrandOpsQuotesAction, type OpsQuoteForDoc } from "../actions";
 import type { ProposalDoc, ProposalProduct, ProposalCreator, ProposalFeature, ProposalValueItem, ProposalStep, ProposalImpact, ProposalAddon } from "@/lib/proposal-doc";
 
 const TRACKS: [string, string][] = [["onboarding", "온보딩"], ["mall", "멀티몰"], ["marketing", "마케팅"]];
@@ -16,6 +16,8 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
   const [msg, setMsg] = useState("");
   const [uspInfo, setUspInfo] = useState("");   // 핵심 SKU USP 생성용 상품정보
   const [refCat, setRefCat] = useState("");      // 카테고리 레퍼런스용
+  const [quotes, setQuotes] = useState<OpsQuoteForDoc[] | null>(null);  // 불러온 운영 견적 목록
+  const [showQuotes, setShowQuotes] = useState(false);
   const set = <K extends keyof ProposalDoc>(k: K, v: ProposalDoc[K]) => setD((p) => ({ ...p, [k]: v }));
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
   const publicUrl = `${publicBase}/proposal/${d.token}`;
@@ -99,6 +101,33 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
     if (r.creators?.length) setD((p) => ({ ...p, creators: [...p.creators, ...r.creators!] }));
     flash(r.note ?? "완료");
   }
+  // 운영 견적 불러오기 — 이 브랜드의 #2 견적 목록을 열어 선택 → 가격조건에 채운다(저장은 별도, 수기 수정 가능).
+  async function loadQuotes() {
+    setBusy(true);
+    let r; try { r = await listBrandOpsQuotesAction(d.id); }
+    catch (e) { flash((e as Error).message || "견적 불러오기 실패"); setBusy(false); return; }
+    setBusy(false);
+    if (!r.ok) { flash(r.error ?? "견적 불러오기 실패"); return; }
+    setQuotes(r.quotes ?? []);
+    setShowQuotes(true);
+    if ((r.quotes ?? []).length === 0) flash("이 브랜드로 생성된 운영 견적이 없습니다 — 제안서(견적) 화면에서 먼저 생성하세요.");
+  }
+  // 선택한 견적을 가격조건 필드에 반영(수기 수정 가능). 기능 체크리스트에는 제안견적 항목을 추가한다.
+  function applyQuote(qz: OpsQuoteForDoc) {
+    setD((p) => {
+      const merged = [...p.features];
+      for (const line of qz.featureLines) if (!merged.includes(line)) merged.push(line);
+      return {
+        ...p,
+        monthly_amount: qz.monthly || p.monthly_amount,
+        term_months: qz.months || p.term_months,
+        list_amount: qz.total || p.list_amount,
+        features: merged,
+      };
+    });
+    setShowQuotes(false);
+    flash("견적을 가격조건에 반영했습니다 — 확인 후 저장하세요.");
+  }
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -133,6 +162,31 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
 
       {/* 가격 조건 */}
       <Card title="가격 조건">
+        {/* 운영 견적(#2) 불러오기 — 없으면 수기 입력 그대로. */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10, padding: 10, border: "1px dashed var(--line)", borderRadius: 8, background: "var(--bg)" }}>
+          <span style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>📄 운영 견적 불러오기</span>
+          <button className="btn sm" disabled={busy} onClick={loadQuotes}>이 브랜드 견적 불러오기</button>
+          <span style={{ fontSize: 11, color: "var(--ink3)" }}>선택 시 월 금액·약정 개월·계약총액이 채워지고, 견적 항목이 기능 체크리스트에 추가됩니다(수기 수정 가능).</span>
+        </div>
+        {showQuotes && quotes && quotes.length > 0 && (
+          <div style={{ marginBottom: 10, border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+            {quotes.map((qz) => (
+              <div key={qz.id} style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderBottom: "1px solid var(--line)" }}>
+                <div style={{ fontSize: 12 }}>
+                  <b>{qz.trackLabel}</b>
+                  {qz.countries.length ? <span style={{ color: "var(--ink3)" }}> · {qz.countries.join("·")}</span> : null}
+                  <span style={{ color: "var(--ink3)" }}> · {qz.mode === "commitment" ? `약정 ${qz.months}개월` : "월 정기결제"}</span>
+                  <span> · 월 {qz.monthly.toLocaleString("ko-KR")}원</span>
+                  <span style={{ color: "var(--ink3)" }}> · {new Date(qz.created_at).toLocaleDateString("ko-KR")} · {qz.status}</span>
+                </div>
+                <button className="btn sm primary" onClick={() => applyQuote(qz)}>반영</button>
+              </div>
+            ))}
+            <div style={{ padding: "6px 10px", textAlign: "right" }}>
+              <button className="btn sm" onClick={() => setShowQuotes(false)}>닫기</button>
+            </div>
+          </div>
+        )}
         <Grid>
           <F label="정가(list, 원)" v={d.list_amount?.toString() ?? ""} on={(v) => set("list_amount", numOrNull(v))} />
           <F label="월 금액(원)" v={d.monthly_amount?.toString() ?? ""} on={(v) => set("monthly_amount", numOrNull(v))} />

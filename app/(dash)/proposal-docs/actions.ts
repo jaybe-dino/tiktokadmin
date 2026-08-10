@@ -10,6 +10,69 @@ import {
   saveProposal, deleteProposal, prefillFromBrand, saveTemplate, getProposalById,
   type ProposalInput, type TemplateInput, type ProposalFeature, type ProposalCreator,
 } from "@/lib/proposal-doc";
+import { OPS_TRACKS, OPS_COUNTRIES } from "@/lib/quote";
+
+// 운영 견적(제안서 리스팅에서 만든 #2 견적)을 제안서 생성기 가격조건으로 불러오기용.
+export interface OpsQuoteForDoc {
+  id: string;
+  created_at: string;
+  status: string;
+  trackLabel: string;
+  mode: "commitment" | "monthly";
+  months: number;
+  monthly: number;      // 월 금액(약정이면 총액/개월)
+  total: number;        // 계약 총액(약정=일시불 합계 / 매월=월액)
+  discountNote: string;
+  countries: string[];  // 한글 라벨
+  featureLines: string[]; // 가격조건 기능 체크리스트에 넣을 제안견적 항목
+}
+
+/** 이 제안서(문서)의 브랜드가 가진 운영 견적 목록 — 최신순. 없으면 빈 배열. */
+export async function listBrandOpsQuotesAction(docId: string): Promise<{ ok: boolean; error?: string; brandName?: string; quotes?: OpsQuoteForDoc[] }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "권한이 없습니다." };
+  const doc = await queryOne<{ brand_id: string | null; brand_name: string | null }>(
+    "SELECT brand_id, brand_name FROM proposal_docs WHERE id=$1", [docId],
+  ).catch(() => null);
+  if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+  if (!doc.brand_id) return { ok: true, brandName: doc.brand_name ?? undefined, quotes: [] };
+
+  const rows = await query<{
+    id: string; created_at: string; status: string; plan: string | null; term: string | null;
+    quote_amount: number | null; amount: number | null; countries: string[] | null;
+    contract_term: string | null; discount_note: string | null; period_start: string | null; period_end: string | null;
+  }>(
+    `SELECT id, created_at, status, plan, term, quote_amount, amount, countries, contract_term, discount_note, period_start, period_end
+       FROM proposals
+      WHERE brand_id=$1 AND COALESCE(kind,'sales')='sales' AND COALESCE(quote_amount, amount) IS NOT NULL
+      ORDER BY created_at DESC LIMIT 30`,
+    [doc.brand_id],
+  ).catch(() => []);
+
+  const quotes: OpsQuoteForDoc[] = rows.map((p) => {
+    const track = OPS_TRACKS.find((t) => t.plan === p.plan);
+    const mode: "commitment" | "monthly" = p.term === "commitment" ? "commitment" : "monthly";
+    const mMatch = (p.contract_term ?? "").match(/약정\s*(\d+)\s*개월/);
+    const months = mMatch ? Number(mMatch[1]) : 1;
+    const total = Number(p.quote_amount ?? p.amount ?? 0);
+    const monthly = mode === "commitment" && months > 0 ? Math.round(total / months) : total;
+    const countryLabels = (p.countries ?? []).map((c) => OPS_COUNTRIES.find((x) => x.code === c)?.label ?? c);
+    const won = (n: number) => n.toLocaleString("ko-KR") + "원";
+    const featureLines = [
+      `트랙: ${track?.label ?? p.plan ?? "운영"}`,
+      countryLabels.length ? `대상 국가: ${countryLabels.join("·")}` : "",
+      mode === "commitment" ? `약정 ${months}개월 · 월 ${won(monthly)}(일시불 ${won(total)})` : `월 정기결제 ${won(monthly)}`,
+      p.discount_note ? `견적: ${p.discount_note}` : "",
+    ].filter(Boolean);
+    return {
+      id: p.id, created_at: p.created_at, status: p.status,
+      trackLabel: track?.label ?? (p.plan ?? "운영"), mode, months, monthly, total,
+      discountNote: p.discount_note ?? "", countries: countryLabels, featureLines,
+    };
+  });
+
+  return { ok: true, brandName: doc.brand_name ?? undefined, quotes };
+}
 
 export async function createProposalDocAction(brandId: string | null): Promise<{ ok: boolean; id?: string; error?: string }> {
   const u = await currentUser();

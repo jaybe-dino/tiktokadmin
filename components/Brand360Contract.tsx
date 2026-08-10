@@ -4,7 +4,7 @@
 // contracts · payments_manual · mall_subscriptions(읽기전용) 실데이터.
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addContractAction, composeEmailAction, manualPaymentAction, setContractStatusAction } from "@/app/actions";
+import { addContractAction, composeEmailAction, manualPaymentAction, setContractStatusAction, listBrandOpsQuotesForContractAction, registerContractFromQuoteAction, type OpsQuoteForContract } from "@/app/actions";
 import { PLANS, PLAN_LABELS } from "@/lib/types";
 import type { Contract } from "@/lib/repo/card";
 
@@ -34,17 +34,99 @@ export default function Brand360Contract({ brandId, contracts, paymentsManual, g
   const [openP, setOpenP] = useState(false);
   const [msg, setMsg] = useState("");
 
+  // 견적으로 계약·결제 등록(#2 견적 불러오기)
+  const [openQ, setOpenQ] = useState(false);
+  const [quotes, setQuotes] = useState<OpsQuoteForContract[] | null>(null);
+  const [qsel, setQsel] = useState<OpsQuoteForContract | null>(null);
+  const [payMethod, setPayMethod] = useState("");
+  const [payRegister, setPayRegister] = useState(true);
+  const [paidAt, setPaidAt] = useState("");
+
+  const won = (n: number) => n.toLocaleString("ko-KR") + "원";
+  function loadQuotes() {
+    start(async () => {
+      const r = await listBrandOpsQuotesForContractAction(brandId);
+      if (r.ok) {
+        setQuotes(r.quotes ?? []);
+        if ((r.quotes ?? []).length === 0) setMsg("이 브랜드로 생성된 운영 견적이 없습니다 — 제안서(견적) 화면에서 먼저 생성하세요.");
+      } else setMsg(r.error ?? "견적 불러오기 실패");
+    });
+  }
+  function pickQuote(q: OpsQuoteForContract) {
+    setQsel(q);
+    setPayMethod(q.mode === "commitment" ? "일시불(계좌이체)" : "매월 정기(카드)");
+  }
+  function registerFromQuote() {
+    if (!qsel) return;
+    start(async () => {
+      const r = await registerContractFromQuoteAction({
+        brandId, proposalId: qsel.id, method: payMethod,
+        registerPayment: payRegister, paidAt: paidAt || undefined,
+      });
+      if (r.ok) {
+        setMsg(`계약 등록 완료${r.paid ? " · 결제 등록됨" : ""} (견적 연결)`);
+        setOpenQ(false); setQsel(null); setQuotes(null); setPaidAt("");
+        router.refresh();
+      } else setMsg(r.error ?? "등록 실패");
+    });
+  }
+
   return (
     <div className="grid g2" style={{ gap: 14 }}>
       {/* ── 계약 ── */}
       <div className="card">
         <div className="hd">
           <b>계약</b>
-          <button className="btn sm pri" style={{ marginLeft: "auto" }} onClick={() => setOpenC((o) => !o)}>
+          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => { setOpenQ((o) => !o); if (!openQ && !quotes) loadQuotes(); }}>
+            {openQ ? "닫기" : "📄 견적으로 등록"}
+          </button>
+          <button className="btn sm pri" onClick={() => setOpenC((o) => !o)}>
             {openC ? "닫기" : "+ 계약 등록"}
           </button>
         </div>
         <div className="bd">
+          {/* 견적으로 계약·결제 등록 — #2에서 만든 견적을 불러와 결제방식 책정 후 등록 */}
+          {openQ && (
+            <div style={{ marginBottom: 12, padding: 10, border: "1px dashed var(--line)", borderRadius: 8 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                <b style={{ fontSize: 12 }}>운영 견적 불러오기</b>
+                <button className="btn sm" disabled={pending} onClick={loadQuotes}>새로고침</button>
+              </div>
+              {quotes && quotes.length > 0 && (
+                <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden", marginBottom: 8 }}>
+                  {quotes.map((q) => (
+                    <label key={q.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 10px", borderBottom: "1px solid var(--line)", cursor: "pointer", background: qsel?.id === q.id ? "var(--tint,#eef5ff)" : undefined, fontSize: 12 }}>
+                      <input type="radio" name="qsel" checked={qsel?.id === q.id} onChange={() => pickQuote(q)} />
+                      <span><b>{q.trackLabel}</b>{q.countries.length ? ` · ${q.countries.join("·")}` : ""} · {q.label} <span style={{ color: "var(--ink3)" }}>({new Date(q.created_at).toLocaleDateString("ko-KR")} · {q.status})</span></span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {qsel && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  <div style={{ gridColumn: "1 / -1", fontSize: 11.5, color: "var(--ink2)" }}>
+                    계약형태 <b>{qsel.contractType === "onboarding" ? "온보딩" : "멀티몰"}</b> · 기간 {qsel.months}개월
+                    {qsel.periodStart ? ` · ${qsel.periodStart}${qsel.periodEnd ? ` ~ ${qsel.periodEnd}` : ""}` : ""} ·
+                    결제 예정 {qsel.mode === "commitment" ? `일시불 ${won(qsel.total)}` : `월 ${won(qsel.monthly)}`}
+                  </div>
+                  <label style={{ fontSize: 11.5, color: "var(--ink3)", gridColumn: "1 / -1" }}>결제 방식
+                    <select className="f" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} style={{ marginTop: 2 }}>
+                      {qsel.mode === "commitment"
+                        ? ["일시불(계좌이체)", "일시불(카드)"].map((m) => <option key={m} value={m}>{m}</option>)
+                        : ["매월 정기(카드)", "매월 정기(계좌이체)"].map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                    <input type="checkbox" checked={payRegister} onChange={(e) => setPayRegister(e.target.checked)} /> 결제도 함께 등록
+                  </label>
+                  {payRegister && <input className="f" type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} title="결제일(미입력 시 오늘)" />}
+                  <button className="btn sm pri" style={{ gridColumn: "1 / -1" }} disabled={pending} onClick={registerFromQuote}>
+                    {pending ? "등록 중…" : payRegister ? "계약·결제 등록" : "계약만 등록"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {openC && (
             <form
               style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}

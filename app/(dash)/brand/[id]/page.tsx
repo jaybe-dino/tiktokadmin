@@ -26,6 +26,7 @@ import { currentUser } from "@/lib/auth";
 import { listMeetingNotes } from "@/lib/meeting-notes";
 import Brand360MeetingNotes from "@/components/Brand360MeetingNotes";
 import TimelineAddEntry from "./TimelineAddEntry";
+import TimelineJump from "./TimelineJump";
 import { stageChecklist } from "@/lib/requirements";
 import { humanElapsed } from "@/lib/time";
 import { nextStepGuide } from "@/lib/meetings";
@@ -238,7 +239,11 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
                     {t.actor && ` · ${t.actor}`}
                   </div>
                   {t.kind === "gate_fail" && <span className="chip red" style={{ marginRight: 6, fontSize: 10 }}>게이트 실패</span>}
-                  <span style={{ fontSize: 12.5 }}>{t.text}</span>
+                  {t.link ? (
+                    <TimelineJump tab={t.link.tab} anchor={t.link.anchor}>{t.text} ↗</TimelineJump>
+                  ) : (
+                    <span style={{ fontSize: 12.5 }}>{t.text}</span>
+                  )}
                 </div>
               );
             })}

@@ -4,16 +4,19 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { stepContractStatusAction } from "./actions";
+import PaymentNoticeButton from "./PaymentNoticeButton";
 
-// 계약 목록 행 액션 — 상태 스텝 이동 + 기존 "보기" 링크 보존.
+// 계약 목록 행 액션 — 상태 스텝 이동 + 결제안내 발송(내용 확인) + 기존 "보기" 링크 보존.
 export default function ContractRowActions({
   id,
   brandId,
   status,
+  paymentItem = "결제",
 }: {
   id: string;
   brandId: string;
   status: string;
+  paymentItem?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -60,6 +63,9 @@ export default function ContractRowActions({
           해지
         </button>
       )}
+
+      {/* 결제 안내 발송 — 리스팅에서 내용 확인 후 발송 */}
+      <PaymentNoticeButton brandId={brandId} item={paymentItem} />
 
       <Link href={`/brand/${brandId}`} className="btn sm">보기</Link>
     </span>

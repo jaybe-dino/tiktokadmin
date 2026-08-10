@@ -10,8 +10,25 @@ export default function Brand360Tabs({ tabs }: { tabs: Brand360Tab[] }) {
   const [active, setActive] = useState(tabs[0]?.key ?? "");
   useEffect(() => {
     const onJump = (e: Event) => {
-      const key = (e as CustomEvent<string>).detail;
-      if (tabs.some((t) => t.key === key)) setActive(key);
+      const detail = (e as CustomEvent<string | { tab: string; anchor?: string }>).detail;
+      const key = typeof detail === "string" ? detail : detail?.tab;
+      const anchor = typeof detail === "string" ? undefined : detail?.anchor;
+      if (key && tabs.some((t) => t.key === key)) {
+        setActive(key);
+        // 탭 전환 후 앵커 요소로 스크롤·강조(있으면).
+        if (anchor) {
+          setTimeout(() => {
+            const el = document.getElementById(anchor);
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              el.style.transition = "background-color .3s";
+              const prev = el.style.backgroundColor;
+              el.style.backgroundColor = "var(--tint,#fff3bf)";
+              setTimeout(() => { el.style.backgroundColor = prev; }, 1400);
+            }
+          }, 60);
+        }
+      }
     };
     window.addEventListener("b360:tab", onJump);
     return () => window.removeEventListener("b360:tab", onJump);

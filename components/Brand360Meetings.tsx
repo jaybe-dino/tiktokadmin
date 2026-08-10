@@ -161,7 +161,7 @@ export default function Brand360Meetings({ brandId, meetings, drafts }: {
             const st = MEETING_STATUS[m.status] ?? { label: m.status, cls: "" };
             const when = (m.started_at ?? m.scheduled_at)?.slice(0, 16).replace("T", " ") ?? "일시 미상";
             return (
-              <div key={m.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px" }}>
+              <div key={m.id} id={`mtg-${m.id}`} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <b style={{ fontSize: 12.5 }}>
                     {when} · {m.topic || "1:1 상담"}{m.duration_min ? ` (${m.duration_min}분)` : ""}

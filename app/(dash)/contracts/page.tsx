@@ -93,7 +93,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
                     <td>{(c.start_date as string) ?? "—"} ~ {(c.end_date as string) ?? "—"}</td>
                     <td>수수료 {terms.fee_pct ?? "—"}%{c.signed_at ? <span className="sub">체결 {ym(c.signed_at)}</span> : <span className="sub">미체결</span>}</td>
                     <td><span className={`cellchip ${st.c}`}>{st.ko}</span></td>
-                    <td><ContractRowActions id={c.id as string} brandId={c.brand_id as string} status={c.status as string} /></td>
+                    <td><ContractRowActions id={c.id as string} brandId={c.brand_id as string} status={c.status as string} paymentItem={KIND[c.kind as string] ?? "결제"} /></td>
                   </tr>
                 );
               })}

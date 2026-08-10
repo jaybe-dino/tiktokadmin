@@ -16,6 +16,30 @@ export interface ContractsActionResult {
   sent?: boolean;
 }
 
+// 결제 안내 메일 본문 조립(미리보기·발송 공용).
+function composePaymentGuide(brand: { brand_name: string }, item: string): { subject: string; text: string } {
+  const subject = `[GloveK] ${item} 결제 안내`;
+  const text =
+    `안녕하세요, ${brand.brand_name} 담당자님.\n\n` +
+    `${item} 결제를 안내드립니다.\n` +
+    `glovek 로그인 후 카드결제를 진행해 주세요. 결제가 완료되면 자동으로 확인됩니다.\n\n` +
+    `감사합니다.\nGloveK 드림`;
+  return { subject, text };
+}
+
+/** 결제 안내 발송 전 내용 미리보기 — 리스팅 발송 버튼에서 확인용. */
+export async function previewPaymentGuideAction(brandId: string, item?: string): Promise<{ ok: boolean; error?: string; subject?: string; body?: string; hasEmail?: boolean; gateReason?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!brandId) return { ok: false, error: "브랜드를 선택하세요." };
+  const { getBrand } = await import("@/lib/repo/brands");
+  const brand = await getBrand(brandId);
+  if (!brand) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
+  const { subject, text } = composePaymentGuide(brand, (item ?? "").trim() || "결제");
+  const gate = await canSend(brandId, "payment_notice");
+  return { ok: true, subject, body: text, hasEmail: !!brand.email, gateReason: gate.ok ? undefined : gate.reason };
+}
+
 // ① glovek 카드결제 안내 메일 발송.
 //   거래성(payment_notice) 이지만 발송 전 반드시 canSend 게이트를 경유한다(규칙 2).
 export async function sendPaymentGuideAction(input: {
@@ -35,12 +59,7 @@ export async function sendPaymentGuideAction(input: {
   if (!brand.email) return { ok: false, error: "브랜드 이메일이 없습니다." };
 
   const item = input.item?.trim() || "결제";
-  const subject = `[GloveK] ${item} 결제 안내`;
-  const text =
-    `안녕하세요, ${brand.brand_name} 담당자님.\n\n` +
-    `${item} 결제를 안내드립니다.\n` +
-    `glovek 로그인 후 카드결제를 진행해 주세요. 결제가 완료되면 자동으로 확인됩니다.\n\n` +
-    `감사합니다.\nGloveK 드림`;
+  const { subject, text } = composePaymentGuide(brand, item);
 
   const { sendEmail } = await import("@/lib/mailer");
   const r = await sendEmail({ to: brand.email, subject, text });
