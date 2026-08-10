@@ -4,7 +4,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createChannelAction, updateChannelAction, deleteChannelAction } from "@/app/actions";
-import { CAPTURE_COLUMNS, type IntakeChannel, type ChannelSend } from "@/lib/intake-channels";
+import { CAPTURE_COLUMNS } from "@/lib/intake-columns";
+import type { IntakeChannel, ChannelSend } from "@/lib/intake-channels";
 import { kstDateTime } from "@/lib/time";
 
 function originOf(): string {
