@@ -100,6 +100,7 @@ function ctx(over: Partial<GateContext> = {}): GateContext {
     allDocsDone: false,
     hasFirstPerformance: false,
     hasSentProposal: false,
+    hasPreSurvey: false,
     ...over,
   };
 }
@@ -121,18 +122,21 @@ describe("gates", () => {
         brand: makeBrand({ owner_sales: "sales@x.com", grade: "A" }),
         hasMeetingNote: true,
         hasDiagnosis: true,
+        hasPreSurvey: true,
       }),
     );
     expect(good.passed).toBe(true);
   });
-  it("contact→contract_done: 제안서 발송 + 결제 확인 필요", () => {
+  it("contact→contract_done: 제안서 발송 + 결제 확인 + 등급 5대지표 필요", () => {
+    // 컨택 단계 전이엔 등급 5대지표(q1~q5) 전부 입력이 필수(4-5).
     const b = makeBrand({ contract_type: "mall", plan: "live_focus_490k" });
+    (b as unknown as Record<string, unknown>).grade_checks = { q1: true, q2: false, q3: true, q4: false, q5: true };
     expect(evaluateGate("contact", "contract_done", ctx({ brand: b })).passed).toBe(false);
     // 결제만 확인되고 제안서 미발송이면 여전히 실패
     expect(
       evaluateGate("contact", "contract_done", ctx({ brand: b, paymentConfirmed: true })).passed,
     ).toBe(false);
-    // 제안서 발송 + 결제 확인 → 통과
+    // 제안서 발송 + 결제 확인 + 등급 5대지표 입력 → 통과
     expect(
       evaluateGate("contact", "contract_done", ctx({ brand: b, paymentConfirmed: true, hasSentProposal: true })).passed,
     ).toBe(true);

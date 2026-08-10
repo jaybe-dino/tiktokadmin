@@ -61,8 +61,8 @@ export async function brand360(id: string): Promise<Brand360 | null> {
       "SELECT from_state, to_state, actor, gate_passed, reason, at FROM stage_history WHERE brand_id=$1 ORDER BY at DESC LIMIT 30",
       [id],
     )),
-    safe(query<{ site: string; event: string; source_url: string | null; occurred_at: string }>(
-      "SELECT site, event, source_url, occurred_at FROM brand_sources WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 30",
+    safe(query<{ site: string; event: string; source_url: string | null; payload: Record<string, unknown> | null; occurred_at: string }>(
+      "SELECT site, event, source_url, payload, occurred_at FROM brand_sources WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 40",
       [id],
     )),
     safe(query<Brand360["alerts"][number]>(
@@ -87,6 +87,22 @@ export async function brand360(id: string): Promise<Brand360 | null> {
     }
   }
 
+  // 미팅캘린더 맵핑을 타임라인에 반영(4-2) — 브랜드에 연결된 미팅 일정/요약.
+  const meetings = await safe(query<{ id: string; topic: string; status: string; scheduled_at: string | null; summary: string | null; created_at: string }>(
+    "SELECT id, topic, status, scheduled_at, left(coalesce(summary_md,''), 300) AS summary, created_at FROM meetings WHERE brand_id=$1 ORDER BY coalesce(scheduled_at, created_at) DESC LIMIT 20",
+    [id],
+  ));
+  const MST: Record<string, string> = { scheduled: "예약", received: "수신", ready: "완료", unmatched: "매칭필요", no_show: "노쇼", canceled: "취소", error: "오류" };
+
+  // brand_sources 행 → 내용 포함 텍스트(4-4). payload(채널·종류·메모·직접입력)를 함께 노출.
+  const sourceText = (s: { site: string; event: string; source_url: string | null; payload: Record<string, unknown> | null }): string => {
+    const p = s.payload ?? {};
+    const str = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : "");
+    if (s.event === "note" && str("text")) return `📝 ${str("text")}`;   // 직접 입력 메모(4-3)
+    const detail = [str("kind"), str("intake"), str("channel")].filter(Boolean).join(" · ");
+    return `${s.site} · ${s.event}${detail ? ` · ${detail}` : ""}${s.source_url ? ` (${s.source_url})` : ""}`;
+  };
+
   const timeline = [
     ...history.map((h) => ({
       kind: h.gate_passed ? "stage" : "gate_fail",
@@ -94,11 +110,20 @@ export async function brand360(id: string): Promise<Brand360 | null> {
       at: h.at,
       actor: h.actor,
     })),
-    ...sources.map((s) => ({
-      kind: "source",
-      text: `${s.site} · ${s.event}`,
-      at: s.occurred_at,
-      actor: s.site,
+    // 미팅 contact_logged 소스는 미팅 엔트리와 중복되므로 제외.
+    ...sources
+      .filter((s) => !(s.event === "contact_logged" && (s.payload as Record<string, unknown> | null)?.channel === "meeting"))
+      .map((s) => ({
+        kind: "source",
+        text: sourceText(s),
+        at: s.occurred_at,
+        actor: s.site,
+      })),
+    ...meetings.map((m) => ({
+      kind: "meeting",
+      text: `🎥 미팅: ${m.topic || "(제목 없음)"} · ${MST[m.status] ?? m.status}${m.summary ? ` — ${m.summary}` : ""}`,
+      at: m.scheduled_at ?? m.created_at,
+      actor: "meeting",
     })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 

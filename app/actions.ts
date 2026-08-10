@@ -22,13 +22,15 @@ export interface ActionResult {
   failed?: { rule: string; label: string }[];
 }
 
-export async function transitionAction(brandId: string, to: State, reason?: string): Promise<ActionResult> {
+export async function transitionAction(brandId: string, to: State, reason?: string, force?: boolean): Promise<ActionResult & { needReason?: boolean }> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };
-  const res = await opsTransition(a, { brand_id: brandId, to_state: to, reason });
+  // 강제 이동은 파트장/대표만.
+  if (force && a.role !== "lead" && a.role !== "exec") return { ok: false, error: "강제 이동은 파트장/대표만 가능합니다." };
+  const res = await opsTransition(a, { brand_id: brandId, to_state: to, reason, force });
   revalidatePath("/");
   revalidatePath(`/brand/${brandId}`);
-  return { ok: res.ok, error: res.error, failed: res.failed };
+  return { ok: res.ok, error: res.error, failed: res.failed, needReason: res.needReason };
 }
 
 export async function dropAction(brandId: string, reason: string): Promise<ActionResult> {

@@ -22,6 +22,8 @@ import { GradeBadge, StateBadge } from "@/components/badges";
 import { cardDeep } from "@/lib/repo/card";
 import { query } from "@/lib/db";
 import { brand360 } from "@/lib/repo/queries";
+import { currentUser } from "@/lib/auth";
+import TimelineAddEntry from "./TimelineAddEntry";
 import { stageChecklist } from "@/lib/requirements";
 import { humanElapsed } from "@/lib/time";
 import { nextStepGuide } from "@/lib/meetings";
@@ -93,6 +95,8 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     buildGateContext(brand).catch(() => null),
   ]);
   const [aliases, comments, presence, drafts, meetings, moveHistory] = extra;
+  const viewer = await currentUser();
+  const canForce = viewer?.role === "lead" || viewer?.role === "exec";
 
   // 다음 스텝 게이트(현재) + 그다음 게이트(예고 — v3.1 gateNext) — 순수 로직(저렴)
   const gateRaw = gateCtx ? await nextStepGuide(brand, gateCtx).catch(() => null) : null;
@@ -156,7 +160,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
       </div>
 
       <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
-        <Brand360GateCard brandId={brand.id} gate={gate} gateNext={gateNext} stageReqs={stageReqs} />
+        <Brand360GateCard brandId={brand.id} gate={gate} gateNext={gateNext} stageReqs={stageReqs} canForce={canForce} />
 
         {/* 기획 확정: 담당자 보정 + 미입력 "입력 필요" + 운영 전이 전 전부 입력 */}
         <GradeChecksCard
@@ -214,6 +218,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const panelTimeline = (
     <section className="card">
       <div className="bd">
+        <TimelineAddEntry brandId={brand.id} />
         {timeline.length === 0 ? (
           <p className="note">기록된 이력이 없습니다.</p>
         ) : (

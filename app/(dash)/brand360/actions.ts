@@ -7,6 +7,22 @@ import { currentUser } from "@/lib/auth";
 import { aiText, aiEnabled } from "@/lib/ai";
 import { STATE_LABELS, type State } from "@/lib/types";
 
+// ── 타임라인 직접 입력(4-3) — brand_sources(event='note')로 기록, 타임라인에 내용 표시 ──
+export async function addTimelineEntryAction(brandId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const t = (text ?? "").trim();
+  if (!t) return { ok: false, error: "내용을 입력하세요." };
+  if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
+  await query(
+    `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
+     VALUES ($1,'admin','note',$2,now())`,
+    [brandId, JSON.stringify({ text: t, by: u.id })],
+  ).catch((e) => { throw e; });
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 // ── ④ 틱톡샵 계정 저장 + 개설 안내 발송(운영·정산) ──
 export async function saveTiktokAccountAction(brandId: string, input: {
   tiktok_shop_url?: string; tiktok_seller_id?: string; tiktok_seller_pw?: string;

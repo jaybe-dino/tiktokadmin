@@ -12,7 +12,7 @@ import type { OwnerField, State } from "./types";
 
 export async function opsTransition(
   a: OpsActor,
-  input: { brand_id: string; to_state: State; reason?: string },
+  input: { brand_id: string; to_state: State; reason?: string; force?: boolean },
 ): Promise<TransitionResult> {
   const res = await transitionBrand({
     brandId: input.brand_id,
@@ -20,6 +20,7 @@ export async function opsTransition(
     actor: a.actor,
     actorRole: a.role,
     reason: input.reason,
+    force: input.force,
   });
   // 해지 전이 성공 시 오프보딩 5연쇄 (17 §1)
   if (res.ok && input.to_state === "churned") {

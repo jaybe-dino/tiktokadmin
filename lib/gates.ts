@@ -14,6 +14,7 @@ export interface GateContext {
   allDocsDone: boolean; // doc_items 전부 done (항목 없으면 false)
   hasFirstPerformance: boolean; // brand_signals metric=first_gmv 존재
   hasSentProposal: boolean; // proposals.status='sent' 존재 (10-C)
+  hasPreSurvey: boolean; // 1:1 사전학습 설문(pre_meeting) 발송/작성됨
 }
 
 export interface Rule {
@@ -87,6 +88,12 @@ const hasSentProposal: Rule = {
   label: "제안서 발송 기록 없음",
   test: (c) => c.hasSentProposal,
 };
+// 1:1 미팅 → 컨택: 사전학습 설문(pre_meeting)에 내용이 입력(발송)됐는지 확인
+const hasPreSurvey: Rule = {
+  key: "hasPreSurvey",
+  label: "1:1 사전학습 설문 미발송 — 설문 발송 후 컨택으로",
+  test: (c) => c.hasPreSurvey,
+};
 
 function assigned(field: keyof Brand, label: string): Rule {
   return { key: `assigned:${String(field)}`, label, test: (c) => Boolean(c.brand[field]) };
@@ -109,9 +116,9 @@ const gradeChecksComplete: Rule = {
 export const GATES: Record<string, Rule[]> = {
   "lead_new→meeting": [hasContact, hasEmailOrPhone, hasSource, assigned("owner_intake", "유입담당 미지정")],
   "seminar→meeting": [hasContact, assigned("owner_intake", "유입담당 미지정")],
-  "meeting→contact": [hasMeetingNote, assigned("owner_sales", "영업담당 미지정"), hasDiagnosis],
-  "contact→contract_review": [hasContractType, hasPlan, hasSentProposal],
-  "contact→contract_done": [hasContractType, hasPlan, hasSentProposal, paymentConfirmed],
+  "meeting→contact": [hasMeetingNote, assigned("owner_sales", "영업담당 미지정"), hasDiagnosis, hasPreSurvey],
+  "contact→contract_review": [hasContractType, hasPlan, hasSentProposal, gradeChecksComplete],
+  "contact→contract_done": [hasContractType, hasPlan, hasSentProposal, paymentConfirmed, gradeChecksComplete],
   "contract_review→contract_done": [paymentConfirmed],
   "contract_done→docs": [assigned("owner_onboard", "온보딩담당 미지정"), docTemplateCreated],
   "docs→setup": [allDocsDone, hasBizNo],
@@ -138,7 +145,7 @@ export function evaluateGate(from: State, to: State, ctx: GateContext): GateResu
 
 /** DB 에서 GateContext 조립. */
 export async function buildGateContext(brand: Brand): Promise<GateContext> {
-  const [meetingNote, manualPay, docStats, firstPerf, sentProposal] = await Promise.all([
+  const [meetingNote, manualPay, docStats, firstPerf, sentProposal, preSurvey] = await Promise.all([
     queryOne<{ n: string }>(
       `SELECT count(*)::text n FROM brand_sources
         WHERE brand_id=$1 AND event='contact_logged'
@@ -160,6 +167,11 @@ export async function buildGateContext(brand: Brand): Promise<GateContext> {
       `SELECT count(*)::text n FROM proposals WHERE brand_id=$1 AND status='sent'`,
       [brand.id],
     ).catch(() => ({ n: "0" })),
+    // 1:1 사전학습 설문 발송 여부 — sent_at 있는 pre_meeting 설문(테이블 없으면 0)
+    queryOne<{ n: string }>(
+      `SELECT count(*)::text n FROM surveys WHERE brand_id=$1 AND kind='pre_meeting' AND sent_at IS NOT NULL`,
+      [brand.id],
+    ).catch(() => ({ n: "0" })),
   ]);
 
   const total = Number(docStats?.total ?? 0);
@@ -178,6 +190,7 @@ export async function buildGateContext(brand: Brand): Promise<GateContext> {
     allDocsDone: total > 0 && done === total,
     hasFirstPerformance: Number(firstPerf?.n ?? 0) > 0,
     hasSentProposal: Number(sentProposal?.n ?? 0) > 0,
+    hasPreSurvey: Number(preSurvey?.n ?? 0) > 0,
   };
 }
 

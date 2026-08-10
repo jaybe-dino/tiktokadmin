@@ -17,7 +17,7 @@ function ctx(over: Partial<GateContext> = {}): GateContext {
     brand: makeBrand(),
     hasMeetingNote: false, hasDiagnosis: false, paymentConfirmed: false,
     docTemplateCreated: false, allDocsDone: false, hasFirstPerformance: false,
-    hasSentProposal: false, ...over,
+    hasSentProposal: false, hasPreSurvey: false, ...over,
   };
 }
 

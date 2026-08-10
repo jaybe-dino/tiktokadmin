@@ -18,11 +18,12 @@ export interface GateView {
 
 interface StageReq { id: string; label: string; kind: string; field_key: string | null; done: boolean }
 
-export default function Brand360GateCard({ brandId, gate, gateNext, stageReqs }: {
+export default function Brand360GateCard({ brandId, gate, gateNext, stageReqs, canForce = false }: {
   brandId: string;
   gate: GateView | null;
   gateNext: { from: string; to: string; items: { label: string; done: boolean }[] } | null;
   stageReqs: StageReq[];
+  canForce?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -85,6 +86,27 @@ export default function Brand360GateCard({ brandId, gate, gateNext, stageReqs }:
           >
             게이트 통과 — {gate.to}(으)로 이동
           </button>
+          {/* 파트장/대표 강제 이동 — 게이트 미충족이어도 사유와 함께 이동(정보 스킵 가능) */}
+          {canForce && !allDone && (
+            <button
+              className="btn"
+              style={{ width: "100%", marginTop: 6, borderColor: "var(--warn, #d97706)", color: "var(--warn, #b45309)" }}
+              disabled={pending}
+              onClick={() => {
+                const reason = window.prompt(`게이트 미충족 상태로 ${gate.to}(으)로 강제 이동합니다.\n사유를 입력하세요(감사 기록에 남습니다):`, "");
+                if (reason == null || !reason.trim()) return;
+                start(async () => {
+                  const r = await transitionAction(brandId, gate.toState, reason.trim(), true);
+                  if (r.ok) setMsg({ t: `강제 이동됨 — ${gate.to} (사유 기록)`, bad: false });
+                  else setMsg({ t: r.error || "강제 이동 실패", bad: true });
+                  setTimeout(() => setMsg(null), 4000);
+                  router.refresh();
+                });
+              }}
+            >
+              ⚠ 파트장 강제 이동 — {gate.to}(으)로 (사유 필수)
+            </button>
+          )}
           {msg && (
             <div className="note" style={{ marginTop: 6, color: msg.bad ? "var(--danger)" : "var(--ok)", fontWeight: 700 }}>
               {msg.t}

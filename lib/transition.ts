@@ -17,6 +17,7 @@ export interface TransitionInput {
   actor: string; // admin:{id}|slack:{user}|mcp:{agent}
   actorRole?: Role;
   reason?: string;
+  force?: boolean; // 파트장/대표 강제 이동 — 게이트 미충족 건너뜀(감사 기록 남김)
 }
 
 export interface TransitionResult {
@@ -70,6 +71,17 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
     const failed = [...gate.failed, ...reqUnmet];
     if (failed.length > 0) {
       const labels = failed.map((f) => f.label).join(" · ");
+      // 파트장/대표 강제 이동 — 사유 필수. 게이트를 건너뛰되 강제 기록을 남긴다.
+      const canForce = input.actorRole === "lead" || input.actorRole === "exec";
+      if (input.force && canForce) {
+        if (!input.reason?.trim()) return { ok: false, needReason: true, error: "강제 이동은 사유가 필요합니다." };
+        await recordStageHistory(brand.id, from, to, input.actor, true, `force_override(${input.reason.trim()}) · 미충족: ${labels}`);
+        await query("UPDATE brands SET state=$2, stage_entered_at=now() WHERE id=$1", [brand.id, to]);
+        if (to === "contract_done" && brand.contract_type) await ensureDocTemplate(brand.id, brand.contract_type);
+        await resolveAlertsForBrand(brand.id, ["sla_breach", "gate_violation", "stale"]);
+        const updated = await getBrand(brand.id);
+        return { ok: true, brand: updated ?? undefined };
+      }
       await recordStageHistory(brand.id, from, to, input.actor, false, `gate_fail: ${labels}`);
       await raiseGateViolation(brand, labels);
       return { ok: false, failed, error: `이동 불가: ${labels}` };
