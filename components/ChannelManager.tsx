@@ -113,9 +113,9 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
               </label>
             </div>
 
-            {/* 수신 DB 칼럼 선택 — POST URL 에 파라미터로 담긴다 */}
+            {/* 수신 DB 칼럼 선택 — 각 칼럼이 POST URL 에 어떤 파라미터로 담기는지 함께 표기 */}
             <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 11, color: "var(--ink3)" }}>수신 칼럼:</span>
+              <span style={{ fontSize: 11, color: "var(--ink3)" }}>수신 칼럼(→URL 파라미터):</span>
               {CAPTURE_COLUMNS.map((col) => {
                 const on = (c.capture_fields ?? []).includes(col.key);
                 return (
@@ -123,17 +123,25 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
                     onClick={() => canEdit && toggleField(c, col.key)}
                     className={`pill ${on ? "chip-grn" : ""}`}
                     style={{ fontSize: 10, cursor: canEdit ? "pointer" : "default", border: "1px solid var(--line)" }}
-                    title={`URL 파라미터: ${col.param}`}>
-                    {on ? "✓ " : ""}{col.label}
+                    title={`선택 시 URL 에 ${col.param}=<${col.label}> 로 추가됩니다`}>
+                    {on ? "✓ " : ""}{col.label} <code style={{ fontSize: 9, opacity: 0.7 }}>{col.param}</code>
                   </button>
                 );
               })}
             </div>
-            {(c.capture_fields ?? []).length > 0 && (
-              <div style={{ marginTop: 4, fontSize: 10.5, color: "var(--ink3)", wordBreak: "break-all" }}>
-                <code>{buildUrl(c)}</code>
-              </div>
-            )}
+            {/* 선택 칼럼 → URL 파라미터 매핑 + 최종 URL 미리보기(선택이 없으면 기본 URL) */}
+            <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--ink3)" }}>
+              {(c.capture_fields ?? []).length > 0 ? (
+                <div style={{ marginBottom: 4 }}>
+                  매핑:{" "}
+                  {CAPTURE_COLUMNS.filter((col) => (c.capture_fields ?? []).includes(col.key))
+                    .map((col) => `${col.label} → ${col.param}`).join(" · ")}
+                </div>
+              ) : (
+                <div style={{ marginBottom: 4 }}>칼럼을 선택하면 URL 뒤에 <code>&파라미터=&lt;값&gt;</code> 형태로 추가됩니다.</div>
+              )}
+              <code style={{ wordBreak: "break-all" }}>{buildUrl(c)}</code>
+            </div>
 
             {histId === c.id && (
               <div style={{ marginTop: 10, padding: 10, background: "var(--bg)", borderRadius: 8 }}>
