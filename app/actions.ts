@@ -872,6 +872,34 @@ export async function deleteChannelAction(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
+// ═══ 유입 소스 라벨(CRUD) 관리 (파트장/대표) ═══════════════════
+import { createIntakeSource, updateIntakeSource, deleteIntakeSource } from "@/lib/intake-sources";
+
+export async function createIntakeSourceAction(input: { key: string; label: string; sort?: number }): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  if (!input.key?.trim() || !input.label?.trim()) return { ok: false, error: "키·표시명 필수" };
+  const s = await createIntakeSource(input);
+  revalidatePath("/channels"); revalidatePath("/settings");
+  return { ok: Boolean(s), error: s ? undefined : "생성 실패(키는 영문소문자·숫자·_ 2~40자, 마이그 0052 확인)" };
+}
+
+export async function updateIntakeSourceAction(key: string, patch: { label?: string; enabled?: boolean; sort?: number }): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  await updateIntakeSource(key, patch);
+  revalidatePath("/channels"); revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function deleteIntakeSourceAction(key: string): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  await deleteIntakeSource(key);
+  revalidatePath("/channels"); revalidatePath("/settings");
+  return { ok: true };
+}
+
 // ═══ 신규 리드 자동 안내 (파트장/대표) ═════════════════════════
 import { saveWelcomeConfig, sendWelcome, type WelcomeConfig } from "@/lib/welcome";
 

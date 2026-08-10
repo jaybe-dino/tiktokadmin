@@ -7,6 +7,7 @@ import { DOC_TEMPLATES } from "@/lib/docs";
 import { listMailboxes } from "@/lib/shared-mailboxes";
 import MailboxManager from "@/components/MailboxManager";
 import { getWelcomeConfig } from "@/lib/welcome";
+import { listIntakeSources } from "@/lib/intake-sources";
 import WelcomeConfigCard from "@/components/WelcomeConfig";
 import TestNotify from "@/components/TestNotify";
 import { env } from "@/lib/env";
@@ -29,13 +30,15 @@ const ROLE_LABEL: Record<string, string> = {
 export default async function SettingsPage() {
   const user = (await currentUser())!;
   const canEdit = user.role === "lead" || user.role === "exec";
-  const [policies, users, requirements, mailboxes, welcomeCfg] = await Promise.all([
+  const [policies, users, requirements, mailboxes, welcomeCfg, intakeSources] = await Promise.all([
     slaPolicyList().catch(() => []),
     adminUserList().catch(() => []),
     listAllRequirements().catch(() => []),
     listMailboxes().catch(() => []),
     getWelcomeConfig(),
+    listIntakeSources().catch(() => []),
   ]);
+  const welcomeSourceOpts = intakeSources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label }));
   const templates = await listTemplates();
 
   const activeUsers = users.filter((u) => u.active).length;
@@ -159,7 +162,7 @@ export default async function SettingsPage() {
           }} />
 
           {/* 신규 리드 자동 안내 */}
-          <WelcomeConfigCard config={welcomeCfg} canEdit={canEdit} />
+          <WelcomeConfigCard config={welcomeCfg} canEdit={canEdit} sources={welcomeSourceOpts} />
 
           {/* 발송 템플릿 CRUD */}
           <TemplateManager templates={templates} canEdit={canEdit} />

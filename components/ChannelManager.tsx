@@ -7,25 +7,24 @@ import { createChannelAction, updateChannelAction, deleteChannelAction } from "@
 import type { IntakeChannel, ChannelSend } from "@/lib/intake-channels";
 import { kstDateTime } from "@/lib/time";
 
-const SOURCE_OPTS: [string, string][] = [
-  ["meta_ads", "메타/페북 광고"], ["expo", "전시/팝업"], ["referrer", "영업 직접"],
-  ["tp_seminar", "세미나"], ["tp_ebook", "전자책"], ["etc", "기타"],
-];
-
 function originOf(): string {
   if (typeof window !== "undefined") return window.location.origin;
   return "https://tiktokadmin.vercel.app";
 }
 
-export default function ChannelManager({ channels, canEdit, sends = {}, sendCounts = {} }: {
+export default function ChannelManager({ channels, canEdit, sends = {}, sendCounts = {}, sources = [] }: {
   channels: IntakeChannel[]; canEdit: boolean;
   sends?: Record<string, ChannelSend[]>; sendCounts?: Record<string, { sms: number; email: number }>;
+  sources?: { key: string; label: string }[];
 }) {
   const router = useRouter();
+  // 소스 목록은 DB(intake_sources)에서 주입 — 하드코딩 서브셋 대신 전체 노출.
+  const SOURCE_OPTS: [string, string][] = sources.length ? sources.map((s) => [s.key, s.label]) : [["meta_ads", "메타/페북 광고"], ["etc", "기타"]];
+  const labelOf = (key: string): string => SOURCE_OPTS.find(([v]) => v === key)?.[1] ?? key;
   const [pending, start] = useTransition();
   const [openAdd, setOpenAdd] = useState(false);
   const [name, setName] = useState("");
-  const [source, setSource] = useState("meta_ads");
+  const [source, setSource] = useState(SOURCE_OPTS[0]?.[0] ?? "meta_ads");
   const [editId, setEditId] = useState<string | null>(null);
   const [histId, setHistId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -72,7 +71,7 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
           <div key={c.id} style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <b>{c.name}</b>
-              <span className="pill" style={{ fontSize: 10 }}>{SOURCE_OPTS.find(([v]) => v === c.source)?.[1] ?? c.source}</span>
+              <span className="pill" style={{ fontSize: 10 }}>{labelOf(c.source)}</span>
               <span style={{ color: "var(--ink3)", fontSize: 11 }}>
                 유입 {c.lead_count}건 · 발송 문자 {sendCounts[c.id]?.sms ?? 0}·메일 {sendCounts[c.id]?.email ?? 0}
                 {c.last_lead_at ? ` · 최근 ${kstDateTime(c.last_lead_at)}` : ""}

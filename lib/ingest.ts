@@ -253,9 +253,12 @@ async function handleEvent(
 
   switch (event) {
     case "lead": {
-      // #41: source 화이트리스트 검증. 미허용/누락은 'etc' 로 정규화.
+      // #41: source 화이트리스트 검증. 코드 기본(SOURCES) + DB 등록 소스(intake_sources) 허용.
+      //   미허용/누락은 'etc' 로 정규화.
       const rawSource = typeof p.source === "string" ? p.source : "";
-      const source: Source = (SOURCES as readonly string[]).includes(rawSource)
+      const { activeSourceKeys } = await import("./intake-sources");
+      const dbKeys = await activeSourceKeys().catch(() => new Set<string>());
+      const source: Source = ((SOURCES as readonly string[]).includes(rawSource) || dbKeys.has(rawSource))
         ? (rawSource as Source)
         : "etc";
       const candidate = LEAD_STATE[source] ?? "lead_new";

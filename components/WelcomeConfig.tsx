@@ -3,16 +3,15 @@ import { useState, useTransition } from "react";
 import type { WelcomeConfig } from "@/lib/welcome";
 import { saveWelcomeConfigAction } from "@/app/actions";
 
-const SOURCE_OPTIONS: { key: string; label: string }[] = [
+const DEFAULT_SOURCE_OPTIONS: { key: string; label: string }[] = [
   { key: "meta_ads", label: "메타/페북 광고" },
   { key: "glovek_consult", label: "Glovek 상담" },
-  { key: "glovek_inquiry", label: "Glovek 문의" },
-  { key: "apply_consult", label: "apply 상담" },
-  { key: "tp_seminar", label: "tp 세미나" },
-  { key: "tp_ebook", label: "tp 전자책" },
 ];
 
-export default function WelcomeConfigCard({ config, canEdit }: { config: WelcomeConfig; canEdit: boolean }) {
+export default function WelcomeConfigCard({ config, canEdit, sources }: { config: WelcomeConfig; canEdit: boolean; sources?: { key: string; label: string }[] }) {
+  // 소스 칩은 DB(intake_sources)에서 주입 — 이미 선택된 값이 목록에 없으면 함께 노출.
+  const base = sources && sources.length ? sources : DEFAULT_SOURCE_OPTIONS;
+  const SOURCE_OPTIONS = [...base, ...config.sources.filter((k) => !base.some((s) => s.key === k)).map((k) => ({ key: k, label: k }))];
   const [c, setC] = useState(config);
   const [msg, setMsg] = useState("");
   const [pending, start] = useTransition();
