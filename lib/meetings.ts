@@ -5,6 +5,52 @@ import { extractKeys, findBrand } from "./dedup";
 import { GATES, type GateContext, evaluateGate } from "./gates";
 import { FORWARD_TRANSITIONS } from "./states";
 import type { Brand, State } from "./types";
+import type { IcsEvent } from "./ics";
+
+/** 이메일 캘린더 초대(ICS VEVENT) → 미팅 캘린더 upsert. 공용 메일함 수집 시 자동 맵핑.
+ *   zoom_uuid=ics:<UID> 로 멱등. brand 미지정이면 참석자로 매칭 시도(실패=매칭필요). */
+export async function upsertCalendarMeeting(
+  ev: IcsEvent,
+  opts: { ownerEmail: string; brandId?: string | null },
+): Promise<{ created: boolean; meetingId?: string; brandId: string | null }> {
+  if (!ev.uid && !ev.summary) return { created: false, brandId: null };
+  const zoomUuid = `ics:${ev.uid || `${ev.summary}:${ev.startIso ?? ""}`}`;
+  const attendees = ev.attendees.map((a) => ({ name: a.name ?? "", email: a.email }));
+  const location = /^https?:\/\//i.test(ev.location) ? ev.location : null;
+
+  // 취소 초대(METHOD:CANCEL) → 기존 미팅 취소.
+  if (ev.method === "CANCEL") {
+    await query("UPDATE meetings SET status='canceled' WHERE zoom_uuid=$1", [zoomUuid]).catch(() => {});
+    return { created: false, brandId: null };
+  }
+
+  // 브랜드 매칭 — 지정 없으면 주최자·참석자 주소로 시도.
+  let brandId = opts.brandId ?? null;
+  if (!brandId) {
+    const { matchBrandByAddresses } = await import("./email-sync");
+    const emails = [ev.organizer?.email, ...ev.attendees.map((a) => a.email)].filter(Boolean) as string[];
+    const m = emails.length ? await matchBrandByAddresses(emails).catch(() => null) : null;
+    brandId = m?.brandId ?? null;
+  }
+
+  const existing = await queryOne<{ id: string }>("SELECT id FROM meetings WHERE zoom_uuid=$1", [zoomUuid]).catch(() => null);
+  if (existing) {
+    await query(
+      `UPDATE meetings SET topic=$2, scheduled_at=COALESCE($3, scheduled_at), attendees=$4,
+         brand_id=COALESCE(brand_id,$5), zoom_join_url=COALESCE($6, zoom_join_url) WHERE id=$1`,
+      [existing.id, ev.summary || "미팅 초대", ev.startIso, JSON.stringify(attendees), brandId, location],
+    ).catch(() => {});
+    return { created: false, meetingId: existing.id, brandId };
+  }
+
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO meetings (brand_id, zoom_meeting_id, zoom_uuid, topic, host_email, attendees, scheduled_at, zoom_join_url, status, created_by)
+     VALUES ($1,'ics',$2,$3,$4,$5,$6,$7,$8,'email-calendar') RETURNING id`,
+    [brandId, zoomUuid, ev.summary || "미팅 초대", ev.organizer?.email ?? opts.ownerEmail,
+     JSON.stringify(attendees), ev.startIso, location, brandId ? "scheduled" : "unmatched"],
+  ).catch(() => null);
+  return { created: Boolean(row), meetingId: row?.id, brandId };
+}
 
 export interface ZoomParticipant { name?: string; email?: string }
 

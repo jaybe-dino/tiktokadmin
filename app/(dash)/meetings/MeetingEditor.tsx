@@ -47,7 +47,8 @@ export default function MeetingEditor({ meeting, cls }: { meeting: CalendarMeeti
   const [resend, setResend] = useState(true);
   const [msg, setMsg] = useState("");
 
-  const label = `${meeting.host_name || meeting.host_email || "호스트 미지정"} · ${meeting.brand_name || "미매칭"} · ${meeting.topic || "미팅"}`;
+  const attendeeCount = (meeting.attendees ?? []).filter((a) => a?.email).length;
+  const label = `${meeting.host_name || meeting.host_email || "호스트 미지정"} · ${meeting.brand_name || "미매칭"} · ${meeting.topic || "미팅"}${attendeeCount ? ` · 참석 ${attendeeCount}` : ""}`;
 
   function addAttendee() {
     const email = addEmail.trim();

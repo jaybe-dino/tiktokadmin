@@ -69,7 +69,31 @@ function parseAddrs(v: string): string[] {
   }).filter((e) => e.includes("@"));
 }
 
-interface GmailPart { mimeType?: string; body?: { data?: string; size?: number }; parts?: GmailPart[] }
+interface GmailPart { mimeType?: string; filename?: string; body?: { data?: string; size?: number; attachmentId?: string }; parts?: GmailPart[] }
+
+/** MIME 트리에서 text/calendar(ICS) 파트 추출 — 인라인 data 우선, 없으면 첨부 fetch. */
+async function extractCalendar(payload: GmailPart | undefined, auth: Record<string, string>, msgId: string): Promise<string> {
+  if (!payload) return "";
+  const find = (part: GmailPart): GmailPart | null => {
+    const mt = (part.mimeType || "").toLowerCase();
+    const fn = (part.filename || "").toLowerCase();
+    if (mt.startsWith("text/calendar") || mt === "application/ics" || fn.endsWith(".ics")) return part;
+    for (const p of part.parts ?? []) { const r = find(p); if (r) return r; }
+    return null;
+  };
+  const part = find(payload);
+  if (!part) return "";
+  if (part.body?.data) return Buffer.from(part.body.data, "base64url").toString("utf8");
+  const attId = part.body?.attachmentId;
+  if (attId) {
+    const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}/attachments/${attId}`, { headers: auth }).catch(() => null);
+    if (res?.ok) {
+      const d = await res.json().catch(() => ({} as { data?: string }));
+      if (d.data) return Buffer.from(d.data, "base64url").toString("utf8");
+    }
+  }
+  return "";
+}
 
 /** MIME 트리에서 text/plain(없으면 text/html 태그제거) 본문 추출. base64url 디코드. */
 function extractBody(payload: GmailPart | undefined): string {
@@ -116,6 +140,20 @@ export async function syncMailbox(ownerEmail: string, maxResults = 30): Promise<
     const cc = parseAddrs(headerVal(headers, "Cc"));
     const subject = headerVal(headers, "Subject");
     const participants = [from, ...to, ...cc].filter(Boolean);
+
+    // 이메일 캘린더 초대(ICS) 자동 맵핑 — 공용 메일함에 온 초대를 미팅 캘린더로.
+    //   초대·참석자 정보를 미팅에 담아 표시(브랜드 미매칭이면 '매칭 필요'로 표시).
+    try {
+      const icsText = await extractCalendar(msg.payload, auth, id);
+      if (icsText) {
+        const { parseIcs } = await import("./ics");
+        const ev = parseIcs(icsText);
+        if (ev) {
+          const { upsertCalendarMeeting } = await import("./meetings");
+          await upsertCalendarMeeting(ev, { ownerEmail: ownerEmail.toLowerCase() });
+        }
+      }
+    } catch { /* 초대 파싱 실패는 메일 수집에 영향 주지 않음 */ }
 
     // 브랜드 매칭 메일만 (프라이버시 — 미매칭 폐기)
     const match = await matchBrandByAddresses(participants);
