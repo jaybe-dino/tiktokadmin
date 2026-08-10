@@ -49,7 +49,7 @@ export async function brand360(id: string): Promise<Brand360 | null> {
 
   // 각 조회를 개별 방어 — 하나가 실패해도 카드 전체가 죽지 않게.
   const safe = <T>(p: Promise<T[]>): Promise<T[]> => p.catch(() => [] as T[]);
-  const [signals, docs, paymentsManual, history, sources, alerts, adminUsers] = await Promise.all([
+  const [signals, docs, paymentsManual, history, sources, alerts, adminUsers, meetings] = await Promise.all([
     safe(query<Brand360["signals"][number]>(
       "SELECT source, metric, value_num, value_text, confidence, collected_at FROM brand_signals WHERE brand_id=$1 ORDER BY collected_at DESC",
       [id],
@@ -74,6 +74,11 @@ export async function brand360(id: string): Promise<Brand360 | null> {
     safe(query<{ id: string; name: string; role: string }>(
       "SELECT id, name, role FROM admin_users WHERE active ORDER BY role",
     )),
+    // 미팅캘린더 맵핑(타임라인 반영) — 위 조회들과 병렬로(순차 왕복 제거).
+    safe(query<{ id: string; topic: string; status: string; scheduled_at: string | null; summary: string | null; created_at: string }>(
+      "SELECT id, topic, status, scheduled_at, left(coalesce(summary_md,''), 300) AS summary, created_at FROM meetings WHERE brand_id=$1 ORDER BY coalesce(scheduled_at, created_at) DESC LIMIT 20",
+      [id],
+    )),
   ]);
 
   // glovek 구독(읽기전용). 미연동/로컬이면 빈 배열.
@@ -89,11 +94,7 @@ export async function brand360(id: string): Promise<Brand360 | null> {
     }
   }
 
-  // 미팅캘린더 맵핑을 타임라인에 반영(4-2) — 브랜드에 연결된 미팅 일정/요약.
-  const meetings = await safe(query<{ id: string; topic: string; status: string; scheduled_at: string | null; summary: string | null; created_at: string }>(
-    "SELECT id, topic, status, scheduled_at, left(coalesce(summary_md,''), 300) AS summary, created_at FROM meetings WHERE brand_id=$1 ORDER BY coalesce(scheduled_at, created_at) DESC LIMIT 20",
-    [id],
-  ));
+  // 미팅캘린더 맵핑을 타임라인에 반영(4-2) — meetings 는 위 Promise.all 에서 병렬 조회됨.
   const MST: Record<string, string> = { scheduled: "예약", received: "수신", ready: "완료", unmatched: "매칭필요", no_show: "노쇼", canceled: "취소", error: "오류" };
 
   // brand_sources 행 → 내용 포함 텍스트(4-4). payload(채널·종류·메모·직접입력)를 함께 노출.
