@@ -229,6 +229,7 @@ const isYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 function composeOpsProposal(b: { brand_name: string; contact_name: string | null }, d: {
   trackLabel: string; mode: OpsPaymentMode; months: number; monthly: number; total: number;
   totalDiscountPct: number; countries?: string[]; periodStart: string; periodEnd: string; contractFileUrl: string;
+  feePct?: number;
 }): { subject: string; body: string } {
   const won = (n: number) => n.toLocaleString("ko-KR") + "원";
   const period = d.periodStart || d.periodEnd ? `${d.periodStart || "미정"} ~ ${d.periodEnd || "미정"}` : null;
@@ -236,6 +237,7 @@ function composeOpsProposal(b: { brand_name: string; contact_name: string | null
   const amountLine = d.mode === "commitment"
     ? `· 약정 ${d.months}개월 일시불 합계: ${won(d.total)} + VAT`
     : `· 월 정기결제: ${won(d.monthly)} + VAT`;
+  const fee = Number(d.feePct) || 0;
   const subject = `[GloveK] ${b.brand_name} 운영 제안서 — ${d.trackLabel}`;
   const body = [
     `안녕하세요, ${b.contact_name || b.brand_name} 담당자님.`,
@@ -244,6 +246,7 @@ function composeOpsProposal(b: { brand_name: string; contact_name: string | null
     `· 트랙: ${d.trackLabel}`,
     countryLabels.length ? `· 대상 국가: ${countryLabels.join(", ")}` : null,
     amountLine,
+    fee > 0 ? `· 판매 수수료: 판매매출의 ${fee}%` : null,   // 0%면 미표기
     d.totalDiscountPct > 0 ? `· 적용 할인: ${d.totalDiscountPct}%` : null,   // 0%면 미표기
     period ? `· 계약기간: ${period}` : null,
     d.contractFileUrl ? `· 계약서: ${d.contractFileUrl}` : null,
@@ -271,6 +274,7 @@ export async function createOpsProposalAction(input: {
   addlDiscountPct: number;    // 0/5/10/20/30/40/50/60
   countryDiscountPct?: number;// 국가 추가할인 (같은 티어)
   countries?: string[];       // 대상 국가(중복선택)
+  feePct?: number;            // 판매 수수료 %(매출 연동)
   periodStart?: string;       // YYYY-MM-DD
   periodEnd?: string;
   contractFileUrl?: string;
@@ -295,7 +299,8 @@ export async function createOpsProposalAction(input: {
   const contractFileUrl = (input.contractFileUrl ?? "").trim();
   if (contractFileUrl && !/^https:\/\//.test(contractFileUrl)) return { ok: false, error: "계약서 링크는 https:// 로 시작해야 합니다." };
 
-  const q = computeOpsQuote({ monthlyAmount: monthly, paymentMode: input.paymentMode, commitmentMonths: input.commitmentMonths, addlDiscountPct: addl, countryDiscountPct: countryDisc, countries });
+  const feePct = Math.min(100, Math.max(0, Number(input.feePct) || 0));
+  const q = computeOpsQuote({ monthlyAmount: monthly, paymentMode: input.paymentMode, commitmentMonths: input.commitmentMonths, addlDiscountPct: addl, countryDiscountPct: countryDisc, countries, feePct });
 
   const b = await query<{ brand_name: string; contact_name: string | null }>(
     "SELECT brand_name, contact_name FROM brands WHERE id=$1", [input.brand_id],
@@ -319,9 +324,9 @@ export async function createOpsProposalAction(input: {
   const discountNote = `${q.breakdown}${discBits ? ` | ${discBits}` : ""}`;
 
   const row = await query<{ id: string }>(
-    `INSERT INTO proposals (brand_id, kind, plan, quote_amount, amount, term, countries, period_start, period_end, contract_term, contract_file_url, discount_note, status, created_by)
-     VALUES ($1,'sales',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft',$12) RETURNING id`,
-    [input.brand_id, track.plan, q.total, q.total, input.paymentMode, countries, ps || null, pe || null, contractTerm, contractFileUrl || null, discountNote, `admin:${u.id}`],
+    `INSERT INTO proposals (brand_id, kind, plan, quote_amount, amount, term, countries, period_start, period_end, contract_term, contract_file_url, discount_note, fee_pct, status, created_by)
+     VALUES ($1,'sales',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'draft',$13) RETURNING id`,
+    [input.brand_id, track.plan, q.total, q.total, input.paymentMode, countries, ps || null, pe || null, contractTerm, contractFileUrl || null, discountNote, feePct || null, `admin:${u.id}`],
   ).catch(() => []);
   if (row.length === 0) return { ok: false, error: "제안서 저장 실패" };
   const id = row[0].id;
@@ -334,7 +339,7 @@ export async function createOpsProposalAction(input: {
 
   const preview = composeOpsProposal(b[0], {
     trackLabel: track.label, mode: input.paymentMode, months: q.months, monthly: q.monthlyNet,
-    total: q.total, totalDiscountPct: q.totalDiscountPct, countries, periodStart: ps, periodEnd: pe, contractFileUrl,
+    total: q.total, totalDiscountPct: q.totalDiscountPct, countries, periodStart: ps, periodEnd: pe, contractFileUrl, feePct,
   });
 
   revalidatePath("/proposals");
@@ -348,10 +353,10 @@ async function loadOpsProposal(proposalId: string) {
   return queryOne<{
     brand_id: string; plan: string | null; quote_amount: number | null; amount: number | null; term: string | null;
     countries: string[] | null; period_start: string | null; period_end: string | null; contract_term: string | null;
-    contract_file_url: string | null; discount_note: string | null;
+    contract_file_url: string | null; discount_note: string | null; fee_pct: number | null;
     brand_name: string; contact_name: string | null; email: string | null; phone: string | null;
   }>(
-    `SELECT p.brand_id, p.plan, p.quote_amount, p.amount, p.term, p.countries, p.period_start, p.period_end, p.contract_term, p.contract_file_url, p.discount_note,
+    `SELECT p.brand_id, p.plan, p.quote_amount, p.amount, p.term, p.countries, p.period_start, p.period_end, p.contract_term, p.contract_file_url, p.discount_note, p.fee_pct,
             b.brand_name, b.contact_name, b.email, b.phone
        FROM proposals p JOIN brands b ON b.id=p.brand_id WHERE p.id=$1`, [proposalId],
   ).catch(() => null);
@@ -366,7 +371,7 @@ function opsProposalContent(p: NonNullable<Awaited<ReturnType<typeof loadOpsProp
   const monthly = mode === "commitment" && months > 0 ? Math.round(total / months) : total;
   return composeOpsProposal(
     { brand_name: p.brand_name, contact_name: p.contact_name },
-    { trackLabel: track?.label ?? (p.plan ?? "운영"), mode, months, monthly, total, totalDiscountPct: 0, countries: p.countries ?? [], periodStart: p.period_start ?? "", periodEnd: p.period_end ?? "", contractFileUrl: p.contract_file_url ?? "" },
+    { trackLabel: track?.label ?? (p.plan ?? "운영"), mode, months, monthly, total, totalDiscountPct: 0, countries: p.countries ?? [], periodStart: p.period_start ?? "", periodEnd: p.period_end ?? "", contractFileUrl: p.contract_file_url ?? "", feePct: Number(p.fee_pct) || 0 },
   );
 }
 

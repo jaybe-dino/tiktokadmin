@@ -134,6 +134,7 @@ export interface OpsQuoteInput {
   addlDiscountPct: number;        // 추가할인 %
   countryDiscountPct?: number;    // 국가 추가할인 %
   countries?: string[];
+  feePct?: number;                // 판매 수수료 % — 매출 연동(월비용과 별개, 변동)
 }
 
 export interface OpsQuoteResult {
@@ -145,6 +146,7 @@ export interface OpsQuoteResult {
   countryCount: number; // 청구 대상 국가 수(최소 1)
   perCountryMonthly: number; // 국가당 월비용(수기)
   grossMonthly: number; // 할인 전 월 합계 = 국가당 월비용 × 국가수
+  feePct: number;       // 판매 수수료 %(매출 연동 · 월비용과 별개)
   label: string;        // 합계 라벨
   breakdown: string;
 }
@@ -160,24 +162,27 @@ export function computeOpsQuote(i: OpsQuoteInput): OpsQuoteResult {
   const countryCount = Math.max(1, (i.countries ?? []).length);
   const grossMonthly = perCountryMonthly * countryCount;
   const monthlyNet = Math.round(grossMonthly * (1 - totalDiscountPct / 100));
+  const feePct = Math.min(100, Math.max(0, Number(i.feePct) || 0));
   // 할인 표기 — 0%는 넣지 않고, 값이 있을 때만.
   const discBits = [addl > 0 ? `추가 -${addl}%` : "", country > 0 ? `국가 -${country}%` : ""].filter(Boolean).join(" · ");
   const discSuffix = discBits ? ` (${discBits})` : "";
   // 국가당 × 국가수 표기(1국이면 생략).
   const perCountryBit = countryCount > 1 ? `월 ${won(perCountryMonthly)} × ${countryCount}국 = ${won(grossMonthly)}` : `월 ${won(grossMonthly)}`;
+  // 판매 수수료(매출 연동) — 값이 있을 때만 표기.
+  const feeBit = feePct > 0 ? ` + 판매 수수료 매출의 ${feePct}%` : "";
 
   if (i.paymentMode === "commitment") {
     const months = COMMIT_MONTHS.includes((i.commitmentMonths ?? 0) as 3 | 6 | 12) ? (i.commitmentMonths as number) : 3;
     const total = monthlyNet * months;
     return {
-      monthlyNet, total, months, recurring: false, totalDiscountPct, countryCount, perCountryMonthly, grossMonthly,
+      monthlyNet, total, months, recurring: false, totalDiscountPct, countryCount, perCountryMonthly, grossMonthly, feePct,
       label: `약정 ${months}개월 일시불`,
-      breakdown: `${perCountryBit}${discSuffix} × ${months}개월 = ${won(total)} (VAT 별도)`,
+      breakdown: `${perCountryBit}${discSuffix} × ${months}개월 = ${won(total)} (VAT 별도)${feeBit}`,
     };
   }
   return {
-    monthlyNet, total: monthlyNet, months: 1, recurring: true, totalDiscountPct, countryCount, perCountryMonthly, grossMonthly,
+    monthlyNet, total: monthlyNet, months: 1, recurring: true, totalDiscountPct, countryCount, perCountryMonthly, grossMonthly, feePct,
     label: "월 정기결제",
-    breakdown: `${perCountryBit}${discSuffix} → 월 ${won(monthlyNet)} (VAT 별도)`,
+    breakdown: `${perCountryBit}${discSuffix} → 월 ${won(monthlyNet)} (VAT 별도)${feeBit}`,
   };
 }

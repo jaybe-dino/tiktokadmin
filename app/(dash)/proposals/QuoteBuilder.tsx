@@ -29,14 +29,16 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
   const [commitmentMonths, setCommitmentMonths] = useState(6);
   const [addlDiscountPct, setAddlDiscountPct] = useState(0);
   const [countryDiscountPct, setCountryDiscountPct] = useState(0);
+  const [feePct, setFeePct] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
   const [contractFileUrl, setContractFileUrl] = useState("");
 
   const monthlyNum = Number((monthlyAmount || "").replace(/[, ]/g, "")) || 0;
+  const feeNum = Math.min(100, Math.max(0, Number((feePct || "").replace(/[^0-9.]/g, "")) || 0));
   const quote = useMemo(
-    () => computeOpsQuote({ monthlyAmount: monthlyNum, paymentMode, commitmentMonths, addlDiscountPct, countryDiscountPct, countries }),
-    [monthlyNum, paymentMode, commitmentMonths, addlDiscountPct, countryDiscountPct, countries],
+    () => computeOpsQuote({ monthlyAmount: monthlyNum, paymentMode, commitmentMonths, addlDiscountPct, countryDiscountPct, countries, feePct: feeNum }),
+    [monthlyNum, paymentMode, commitmentMonths, addlDiscountPct, countryDiscountPct, countries, feeNum],
   );
   const needsApproval = quote.totalDiscountPct >= OPS_APPROVAL_THRESHOLD;
   const toggleCountry = (c: string) => setCountries((cs) => cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]);
@@ -48,7 +50,7 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
       const r = await createOpsProposalAction({
         brand_id: brandId, track, monthlyAmount: monthlyNum, paymentMode,
         commitmentMonths: paymentMode === "commitment" ? commitmentMonths : undefined,
-        addlDiscountPct, countryDiscountPct, countries,
+        addlDiscountPct, countryDiscountPct, countries, feePct: feeNum || undefined,
         periodStart: periodStart || undefined, periodEnd: periodEnd || undefined,
         contractFileUrl: contractFileUrl.trim() || undefined,
       });
@@ -107,6 +109,11 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
         <label style={lbl}>국가당 월비용 (수기, 원)</label>
         <input className="f" inputMode="numeric" placeholder="예: 4900000" value={monthlyAmount} onChange={(e) => setMonthlyAmount(e.target.value)} />
         <div className="note" style={{ marginTop: 4, fontSize: 11 }}>선택한 국가 수만큼 월비용이 합산됩니다{countries.length > 1 ? ` (현재 ${countries.length}국)` : ""}.</div>
+
+        {/* 판매 수수료(%) — 매출 연동. 우리 비용 = 월비용 + 판매매출의 X% */}
+        <label style={lbl}>판매 수수료 (매출의 %, 선택)</label>
+        <input className="f" inputMode="decimal" placeholder="예: 10" value={feePct} onChange={(e) => setFeePct(e.target.value)} />
+        <div className="note" style={{ marginTop: 4, fontSize: 11 }}>우리 비용 = 월비용 + 판매매출의 수수료. 매출 연동이라 합계 금액에는 포함되지 않고 조건으로 표기됩니다.</div>
 
         {/* 결제 방식 */}
         <label style={lbl}>결제 방식</label>
@@ -170,8 +177,9 @@ export default function QuoteBuilder({ brands }: { brands: BrandOpt[] }) {
           {addlDiscountPct > 0 && (<><dt>추가 할인</dt><dd>-{addlDiscountPct}%</dd></>)}
           {countryDiscountPct > 0 && (<><dt>국가 추가할인</dt><dd>-{countryDiscountPct}%</dd></>)}
           {quote.totalDiscountPct > 0 && (<><dt>할인 후 월</dt><dd>{won(quote.monthlyNet)}</dd></>)}
+          {feeNum > 0 && (<><dt>판매 수수료</dt><dd>매출의 {feeNum}%</dd></>)}
           <dt><b>{quote.label}</b></dt>
-          <dd><b style={{ fontSize: 15 }}>{won(quote.total)} + VAT{quote.recurring ? " / 월" : ""}</b></dd>
+          <dd><b style={{ fontSize: 15 }}>{won(quote.total)} + VAT{quote.recurring ? " / 월" : ""}{feeNum > 0 ? ` + 매출 ${feeNum}%` : ""}</b></dd>
         </div>
         <div className="note" style={{ marginTop: 6, fontSize: 11 }}>{quote.breakdown}</div>
 
