@@ -12,8 +12,22 @@ export interface IntakeChannel {
   enabled: boolean; send_sms: boolean; send_email: boolean; test_mode: boolean;
   sms_template: string; email_subject: string; email_body: string;
   note: string; lead_count: number; last_lead_at: string | null;
+  capture_fields: string[];   // 이 채널이 수신할 brands 칼럼(POST URL 파라미터로 노출)
   created_by: string | null; created_at: string;
 }
+
+// 채널 세팅 시 선택 가능한 수신 DB 칼럼 — key(brands 칼럼) ↔ param(leadhook 쿼리 파라미터명).
+//   leadhook 이 이 param 들을 인식·매핑한다(별칭 다수 지원).
+export const CAPTURE_COLUMNS: { key: string; label: string; param: string }[] = [
+  { key: "brand_name", label: "브랜드/회사명", param: "company" },
+  { key: "contact_name", label: "담당자명", param: "name" },
+  { key: "email", label: "이메일", param: "email" },
+  { key: "phone", label: "전화번호", param: "phone" },
+  { key: "brand_url", label: "웹사이트", param: "website" },
+  { key: "category", label: "카테고리", param: "category" },
+  { key: "referral_code", label: "추천코드", param: "referral_code" },
+  { key: "memo", label: "메모", param: "memo" },
+];
 
 const maskContact = (s: string | null): string => {
   if (!s) return "";
@@ -58,11 +72,13 @@ export async function updateChannel(id: string, patch: Partial<IntakeChannel>): 
        name=COALESCE($2,name), source=COALESCE($3,source), enabled=COALESCE($4,enabled),
        send_sms=COALESCE($5,send_sms), send_email=COALESCE($6,send_email),
        sms_template=COALESCE($7,sms_template), email_subject=COALESCE($8,email_subject),
-       email_body=COALESCE($9,email_body), note=COALESCE($10,note), test_mode=COALESCE($11,test_mode)
+       email_body=COALESCE($9,email_body), note=COALESCE($10,note), test_mode=COALESCE($11,test_mode),
+       capture_fields=COALESCE($12,capture_fields)
      WHERE id=$1`,
     [id, patch.name ?? null, patch.source ?? null, patch.enabled ?? null,
      patch.send_sms ?? null, patch.send_email ?? null, patch.sms_template ?? null,
-     patch.email_subject ?? null, patch.email_body ?? null, patch.note ?? null, patch.test_mode ?? null]);
+     patch.email_subject ?? null, patch.email_body ?? null, patch.note ?? null, patch.test_mode ?? null,
+     patch.capture_fields ?? null]);
 }
 
 export async function deleteChannel(id: string): Promise<void> {

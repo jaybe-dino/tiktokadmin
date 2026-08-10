@@ -4,7 +4,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createChannelAction, updateChannelAction, deleteChannelAction } from "@/app/actions";
-import type { IntakeChannel, ChannelSend } from "@/lib/intake-channels";
+import { CAPTURE_COLUMNS, type IntakeChannel, type ChannelSend } from "@/lib/intake-channels";
 import { kstDateTime } from "@/lib/time";
 
 function originOf(): string {
@@ -35,11 +35,23 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
       router.refresh();
     });
 
-  const copyUrl = (key: string) => {
-    // 2-키: key=전역 Vercel 시크릿(직접 채워넣기) + source=이 소스 id 키.
-    const url = `${originOf()}/api/leadhook?key=<VERCEL_KEY>&source=${key}`;
-    navigator.clipboard?.writeText(url).then(() => { setMsg("POST URL 복사됨 — <VERCEL_KEY>를 실제 값으로 교체하세요"); setTimeout(() => setMsg(""), 2500); });
+  // 선택한 수신 칼럼을 POST URL 쿼리 파라미터로 담는다(통합쪽에서 값 매핑).
+  const buildUrl = (c: IntakeChannel): string => {
+    const params = CAPTURE_COLUMNS
+      .filter((col) => (c.capture_fields ?? []).includes(col.key))
+      .map((col) => `${col.param}=<${col.label}>`)
+      .join("&");
+    return `${originOf()}/api/leadhook?key=<VERCEL_KEY>&source=${c.key}${params ? "&" + params : ""}`;
   };
+  const copyUrl = (c: IntakeChannel) => {
+    navigator.clipboard?.writeText(buildUrl(c)).then(() => { setMsg("POST URL 복사됨 — <VERCEL_KEY>와 각 <칼럼> 자리를 실제 값으로 매핑하세요"); setTimeout(() => setMsg(""), 3200); });
+  };
+  const toggleField = (c: IntakeChannel, fieldKey: string) => start(async () => {
+    const cur = c.capture_fields ?? [];
+    const next = cur.includes(fieldKey) ? cur.filter((k) => k !== fieldKey) : [...cur, fieldKey];
+    await updateChannelAction(c.id, { capture_fields: next });
+    router.refresh();
+  });
 
   return (
     <div className="card">
@@ -76,7 +88,7 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
                 유입 {c.lead_count}건 · 발송 문자 {sendCounts[c.id]?.sms ?? 0}·메일 {sendCounts[c.id]?.email ?? 0}
                 {c.last_lead_at ? ` · 최근 ${kstDateTime(c.last_lead_at)}` : ""}
               </span>
-              <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => copyUrl(c.key)} title="이 채널 전용 POST URL 복사">📋 POST URL</button>
+              <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => copyUrl(c)} title="이 채널 전용 POST URL 복사(선택 칼럼 포함)">📋 POST URL</button>
               <button className="btn btn-sm" onClick={() => setHistId(histId === c.id ? null : c.id)}>{histId === c.id ? "접기" : "📊 발송내역"}</button>
               {canEdit && <button className="btn btn-sm" onClick={() => setEditId(editId === c.id ? null : c.id)}>{editId === c.id ? "접기" : "✏️ 내용"}</button>}
               {canEdit && <button className="btn btn-sm" disabled={pending} onClick={() => start(async () => { if (confirm(`'${c.name}' 채널 삭제?`)) { await deleteChannelAction(c.id); router.refresh(); } })}>삭제</button>}
@@ -99,6 +111,28 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
                 <b style={{ color: c.test_mode ? "#b45309" : undefined }}>🧪 테스트 모드{c.test_mode ? "(실발송 안 함)" : ""}</b>
               </label>
             </div>
+
+            {/* 수신 DB 칼럼 선택 — POST URL 에 파라미터로 담긴다 */}
+            <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: "var(--ink3)" }}>수신 칼럼:</span>
+              {CAPTURE_COLUMNS.map((col) => {
+                const on = (c.capture_fields ?? []).includes(col.key);
+                return (
+                  <button key={col.key} type="button" disabled={!canEdit || pending}
+                    onClick={() => canEdit && toggleField(c, col.key)}
+                    className={`pill ${on ? "chip-grn" : ""}`}
+                    style={{ fontSize: 10, cursor: canEdit ? "pointer" : "default", border: "1px solid var(--line)" }}
+                    title={`URL 파라미터: ${col.param}`}>
+                    {on ? "✓ " : ""}{col.label}
+                  </button>
+                );
+              })}
+            </div>
+            {(c.capture_fields ?? []).length > 0 && (
+              <div style={{ marginTop: 4, fontSize: 10.5, color: "var(--ink3)", wordBreak: "break-all" }}>
+                <code>{buildUrl(c)}</code>
+              </div>
+            )}
 
             {histId === c.id && (
               <div style={{ marginTop: 10, padding: 10, background: "var(--bg)", borderRadius: 8 }}>
