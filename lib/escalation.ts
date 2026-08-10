@@ -44,13 +44,16 @@ function ownerSlackField(brand: Brand): keyof Brand | null {
   return ownerFieldForState(brand.state);
 }
 
+// 담당자 Slack 타겟 — slack_user_id 가 있으면 사용, 없으면 담당자 이메일(=admin_users.id)로 DM(lookupByEmail).
 async function slackIdFor(adminUserId: string | null): Promise<string | null> {
   if (!adminUserId) return null;
   const r = await query<{ slack_user_id: string | null }>(
     "SELECT slack_user_id FROM admin_users WHERE id=$1",
     [adminUserId],
   );
-  return r[0]?.slack_user_id ?? null;
+  if (r[0]?.slack_user_id) return r[0].slack_user_id;
+  // slack_user_id 미설정 → 담당자 이메일이 곧 슬랙 ID. slackPostDM 이 이메일을 lookupByEmail 로 처리.
+  return adminUserId.includes("@") ? adminUserId : null;
 }
 
 /**

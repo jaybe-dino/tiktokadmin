@@ -50,9 +50,24 @@ export async function slackUpdate(channel: string, ts: string, args: { text?: st
   await call("chat.update", { channel, ts, text: args.text ?? "", blocks: args.blocks });
 }
 
-export async function slackPostDM(slackUserId: string, args: { text?: string; blocks?: Block[] }): Promise<void> {
-  // im.open → channel id, then postMessage
-  const open = await call("conversations.open", { users: slackUserId });
+/** 이메일 → Slack 사용자 ID (users.lookupByEmail). 담당자 슬랙ID = 회사 이메일 기준. 실패 시 null. */
+export async function slackUserIdByEmail(email: string): Promise<string | null> {
+  if (!email || !email.includes("@")) return null;
+  const r = await call("users.lookupByEmail", { email });
+  if (!r.ok) return null;
+  return (r.user as { id?: string } | undefined)?.id ?? null;
+}
+
+export async function slackPostDM(slackUserIdOrEmail: string, args: { text?: string; blocks?: Block[] }): Promise<void> {
+  // 이메일이면 Slack 사용자 ID 로 조회(담당자 슬랙ID = 이메일). 아니면 그대로 사용.
+  let userId = slackUserIdOrEmail;
+  if (slackUserIdOrEmail.includes("@")) {
+    const looked = await slackUserIdByEmail(slackUserIdOrEmail);
+    if (!looked) return; // 이메일로 슬랙 사용자 미발견 → 스킵
+    userId = looked;
+  }
+  // conversations.open → channel id, then postMessage
+  const open = await call("conversations.open", { users: userId });
   const channel = (open.channel as { id?: string } | undefined)?.id;
   if (channel) await call("chat.postMessage", { channel, text: args.text ?? "", blocks: args.blocks });
 }

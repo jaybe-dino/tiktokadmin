@@ -93,7 +93,17 @@ export default function Board({
     const prev = cards;
     setCards((cs) => cs.map((c) => (c.id === id ? { ...c, state: to } : c)));
 
-    const res = await transitionAction(id, to);
+    let res = await transitionAction(id, to);
+    // 뒤로 되돌리기(후퇴 전이) 등 사유가 필요한 경우 — 사유를 입력받아 재시도.
+    if (!res.ok && res.needReason) {
+      const reason = window.prompt(`'${STATE_LABELS[card.state]}' → '${STATE_LABELS[to]}' 단계 변경 사유를 입력하세요:`, "");
+      if (reason && reason.trim()) {
+        res = await transitionAction(id, to, reason.trim());
+      } else {
+        setCards(prev); // 취소 → 원위치
+        return;
+      }
+    }
     if (res.ok) {
       setToast({ msg: `${card.brand_name} → ${STATE_LABELS[to]}`, bad: false });
       router.refresh();
