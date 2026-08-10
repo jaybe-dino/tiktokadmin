@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge } from "@/components/badges";
 import { SOURCE_LABELS } from "@/lib/types";
-import { deleteBrandsAction, dropBrandsAction, bulkAssignAction } from "@/app/actions";
+import { deleteBrandsAction, dropBrandsAction, assignBrandOwnerAction } from "@/app/actions";
 import type { OwnerField } from "@/lib/types";
 
 type Row = Record<string, unknown>;
@@ -19,12 +19,6 @@ const ASSIGN_ROLES: { value: OwnerField; label: string }[] = [
   { value: "owner_contract", label: "계약담당" },
 ];
 
-function initials(name: string): string {
-  const n = (name || "").trim();
-  if (!n) return "?";
-  if (/[가-힣]/.test(n)) return n.slice(0, 1);
-  return n.split(/\s+/).map((s) => s[0]).join("").slice(0, 2).toUpperCase();
-}
 function sinceLabel(iso: unknown): { text: string; danger: boolean } {
   if (!iso) return { text: "—", danger: false };
   const t = new Date(String(iso)).getTime();
@@ -61,6 +55,9 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
   const [msg, setMsg] = useState("");
   const [assignRole, setAssignRole] = useState<OwnerField>("owner_intake");
   const [assignUser, setAssignUser] = useState("");
+  // 일괄 배정 진행률(브랜드별 순차 처리) — {done, total} 표시.
+  const [assigning, setAssigning] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   const ids = rows.map((r) => String(r.id));
   const allChecked = ids.length > 0 && ids.every((id) => sel.has(id));
@@ -85,19 +82,30 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
       else setMsg(r.error ?? "삭제 실패");
     });
   };
-  const doAssign = () => {
-    if (sel.size === 0) return;
+  // 브랜드별로 순차 배정하며 진행률을 갱신(처리중 몇/몇 완료 표시).
+  const doAssign = async () => {
+    if (sel.size === 0 || assigning) return;
     if (!assignUser) { setMsg("배정할 담당자를 선택하세요."); return; }
-    start(async () => {
-      const r = await bulkAssignAction([...sel], assignRole, assignUser);
-      if (r.ok) {
-        const roleLabel = ASSIGN_ROLES.find((x) => x.value === assignRole)?.label ?? "담당";
-        const advanced = r.advanced ? ` · ${r.advanced}건 담당자배정 단계로 전진` : "";
-        const failed = r.failures?.length ? ` · ${r.failures.length}건 실패` : "";
-        setMsg(`${r.assigned}건 ${roleLabel} 배정됨${advanced}${failed}`);
-        setSel(new Set()); router.refresh();
-      } else setMsg(r.error ?? "배정 실패");
-    });
+    const ids = [...sel];
+    const roleLabel = ASSIGN_ROLES.find((x) => x.value === assignRole)?.label ?? "담당";
+    setMsg("");
+    setAssigning(true);
+    setProgress({ done: 0, total: ids.length });
+    let assigned = 0, advanced = 0, failed = 0;
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        const r = await assignBrandOwnerAction(ids[i], assignRole, assignUser);
+        if (r.ok) { assigned++; if (r.advanced) advanced++; } else failed++;
+      } catch { failed++; }
+      setProgress({ done: i + 1, total: ids.length });
+    }
+    setAssigning(false);
+    setProgress(null);
+    const advTxt = advanced ? ` · ${advanced}건 담당자배정 단계로 전진` : "";
+    const failTxt = failed ? ` · ${failed}건 실패` : "";
+    setMsg(`${assigned}건 ${roleLabel} 배정됨${advTxt}${failTxt}`);
+    setSel(new Set());
+    router.refresh();
   };
 
   return (
@@ -117,20 +125,30 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
               <option value="">담당자 선택</option>
               {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
-            <button className="btn btn-sm btn-primary" disabled={pending || sel.size === 0 || !assignUser} onClick={doAssign} title="선택 브랜드에 담당자 일괄 배정">
-              {pending ? "처리 중…" : `담당 배정${sel.size ? ` (${sel.size})` : ""}`}
+            <button className="btn btn-sm btn-primary" disabled={pending || assigning || sel.size === 0 || !assignUser} onClick={doAssign} title="선택 브랜드에 담당자 일괄 배정">
+              {assigning && progress ? `배정 중 ${progress.done}/${progress.total}` : `담당 배정${sel.size ? ` (${sel.size})` : ""}`}
             </button>
           </div>
 
-          <button className="btn btn-sm" disabled={pending || sel.size === 0}
+          <button className="btn btn-sm" disabled={pending || assigning || sel.size === 0}
             onClick={doDrop} title="목록에서 제외(데이터 보존·복원 방지)">
             {pending ? "처리 중…" : `📥 선택 제외${sel.size ? ` (${sel.size})` : ""}`}
           </button>
-          <button className="btn btn-sm" disabled={pending || sel.size === 0}
+          <button className="btn btn-sm" disabled={pending || assigning || sel.size === 0}
             style={{ color: sel.size ? "var(--danger)" : undefined }} onClick={doDelete} title="완전 삭제(테스트 데이터 정리용)">
             🗑 완전삭제
           </button>
         </div>
+        {progress && (
+          <div style={{ padding: "6px 12px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, height: 8, background: "var(--line)", borderRadius: 999, overflow: "hidden" }}>
+              <div style={{ width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%`, height: "100%", background: "var(--sales, #2563eb)", transition: "width .15s" }} />
+            </div>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink2)", whiteSpace: "nowrap" }}>
+              {progress.done}/{progress.total} 완료
+            </span>
+          </div>
+        )}
         {assignRole === "owner_intake" && (
           <div className="note" style={{ padding: "6px 12px", fontSize: 11, color: "var(--ink3)", borderBottom: "1px solid var(--line)" }}>
             유입담당을 배정하면 <b>리드확보</b> 단계 브랜드는 <b>담당자배정</b> 단계로 자동 전진합니다.
@@ -143,7 +161,7 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
           <tr>
             {canEdit && <th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} title="전체 선택" /></th>}
             <th>브랜드</th><th>상태</th><th>등급</th><th>플랜 / 결제</th><th>국가</th>
-            <th>담당 (영업·온보딩)</th><th>리드 추가</th><th>최근 업데이트</th><th>완성도</th><th>SLA</th>
+            <th>담당 (유입·영업·온보딩·계약)</th><th>리드 추가</th><th>최근 업데이트</th><th>완성도</th><th>SLA</th>
           </tr>
         </thead>
         <tbody>
@@ -158,9 +176,13 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
             const sub = [category, site, SOURCE_LABELS[source] ?? source].filter(Boolean).join(" · ");
             const countries = (b.countries as string[] | null) ?? [];
             const ctyLabel = countries.length === 0 ? "—" : countries.length > 3 ? `${countries.length}개국` : countries.join("·");
-            const ownerSales = nm(b.owner_sales as string | null);
-            const ownerOnboard = nm(b.owner_onboard as string | null);
-            const unassigned = !ownerSales && !ownerOnboard;
+            const ownerCells: { label: string; name: string | null }[] = [
+              { label: "유입", name: nm(b.owner_intake as string | null) },
+              { label: "영업", name: nm(b.owner_sales as string | null) },
+              { label: "온보딩", name: nm(b.owner_onboard as string | null) },
+              { label: "계약", name: nm(b.owner_contract as string | null) },
+            ];
+            const unassigned = ownerCells.every((o) => !o.name);
             const contact = sinceLabel(b.last_contact_at);
             const pct = completeness(b);
             const breach = Boolean(b.has_breach);
@@ -179,12 +201,15 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
                   <span className="sub">{b.pay_status ? <PayBadge status={b.pay_status as string} /> : "미결제"}</span>
                 </td>
                 <td style={{ whiteSpace: "nowrap" }}>{ctyLabel}</td>
-                <td>
+                <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
                   {unassigned ? <span style={{ color: "var(--danger)", fontWeight: 700 }}>미배정</span> : (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      {ownerSales && <span className="av" title={`영업 ${ownerSales}`}>{initials(ownerSales)}</span>}
-                      {ownerOnboard && <span className="av" title={`온보딩 ${ownerOnboard}`}>{initials(ownerOnboard)}</span>}
-                      <span className="sub" style={{ display: "inline" }}>{ownerSales ?? "—"} · {ownerOnboard ?? "—"}</span>
+                    <div style={{ display: "grid", gap: 1 }}>
+                      {ownerCells.map((o) => (
+                        <div key={o.label}>
+                          <span style={{ color: "var(--ink3)", marginRight: 4 }}>{o.label}</span>
+                          {o.name ? <span style={{ fontWeight: 600 }}>{o.name}</span> : <span style={{ color: "var(--ink3)" }}>—</span>}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </td>

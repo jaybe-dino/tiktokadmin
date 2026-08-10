@@ -50,34 +50,62 @@ export async function assignAction(brandId: string, role: OwnerField, adminUserI
   return res;
 }
 
-/** 브랜드 원장 체크 후 일괄 담당자 배정.
+const ASSIGNABLE_ROLES: OwnerField[] = ["owner_intake", "owner_sales", "owner_onboard", "owner_ads", "owner_contract"];
+
+// 단일 브랜드 담당 배정 코어 — 유입담당 배정 시 lead_new 는 담당자배정(seminar)으로 자동 전진.
+async function assignOwnerCore(
+  a: OpsActor, brandId: string, role: OwnerField, adminUserId: string,
+): Promise<{ ok: boolean; error?: string; advanced?: boolean }> {
+  const res = await opsAssign(a, { brand_id: brandId, role, admin_user_id: adminUserId });
+  if (!res.ok) return { ok: false, error: res.error ?? "배정 실패" };
+  let advanced = false;
+  if (role === "owner_intake") {
+    const { queryOne } = await import("@/lib/db");
+    const b = await queryOne<{ state: string }>("SELECT state FROM brands WHERE id=$1", [brandId]).catch(() => null);
+    if (b?.state === "lead_new") {
+      const t = await opsTransition(a, { brand_id: brandId, to_state: "seminar" });
+      if (t.ok) advanced = true;
+    }
+  }
+  return { ok: true, advanced };
+}
+
+/** 단일 브랜드 담당 배정(원장 진행바가 브랜드별로 호출) — 진행률 표시용.
+ *  유입담당 배정 시 lead_new 는 담당자배정(seminar) 단계로 자동 전진한다. */
+export async function assignBrandOwnerAction(
+  brandId: string, role: OwnerField, adminUserId: string,
+): Promise<ActionResult & { advanced?: boolean }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  if (!ASSIGNABLE_ROLES.includes(role)) return { ok: false, error: "허용되지 않는 담당 역할" };
+  if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
+  if (!adminUserId) return { ok: false, error: "담당자를 선택하세요." };
+  const r = await assignOwnerCore(a, brandId, role, adminUserId);
+  revalidatePath(`/brand/${brandId}`);
+  revalidatePath("/customers");
+  revalidatePath("/");
+  return r;
+}
+
+/** 브랜드 원장 체크 후 일괄 담당자 배정(한 번에 처리).
  *  유입담당(owner_intake) 배정 시 lead_new 브랜드는 담당자배정(seminar) 단계로 자동 전진한다. */
 export async function bulkAssignAction(
   ids: string[], role: OwnerField, adminUserId: string,
 ): Promise<ActionResult & { assigned?: number; advanced?: number; failures?: { id: string; label: string }[] }> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };
-  const ALLOWED: OwnerField[] = ["owner_intake", "owner_sales", "owner_onboard", "owner_ads", "owner_contract"];
-  if (!ALLOWED.includes(role)) return { ok: false, error: "허용되지 않는 담당 역할" };
+  if (!ASSIGNABLE_ROLES.includes(role)) return { ok: false, error: "허용되지 않는 담당 역할" };
   const clean = (ids ?? []).filter((s) => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s));
   if (clean.length === 0) return { ok: false, error: "선택된 항목 없음" };
   if (!adminUserId) return { ok: false, error: "담당자를 선택하세요." };
 
-  const { queryOne } = await import("@/lib/db");
   let assigned = 0, advanced = 0;
   const failures: { id: string; label: string }[] = [];
   for (const id of clean) {
-    const res = await opsAssign(a, { brand_id: id, role, admin_user_id: adminUserId });
-    if (!res.ok) { failures.push({ id, label: res.error ?? "배정 실패" }); continue; }
+    const r = await assignOwnerCore(a, id, role, adminUserId);
+    if (!r.ok) { failures.push({ id, label: r.error ?? "배정 실패" }); continue; }
     assigned++;
-    // 유입담당 배정 → lead_new 는 담당자배정(seminar)으로 자동 전진(방금 배정으로 게이트 충족).
-    if (role === "owner_intake") {
-      const b = await queryOne<{ state: string }>("SELECT state FROM brands WHERE id=$1", [id]).catch(() => null);
-      if (b?.state === "lead_new") {
-        const t = await opsTransition(a, { brand_id: id, to_state: "seminar" });
-        if (t.ok) advanced++;
-      }
-    }
+    if (r.advanced) advanced++;
     revalidatePath(`/brand/${id}`);
   }
   revalidatePath("/customers");
