@@ -2,7 +2,7 @@
 // 제안서 생성기(웹 제안서) 어드민 액션 — 생성/저장/발행/삭제 + 템플릿 저장 + AI 자동 생성.
 import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
-import { queryOne } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import { aiEnabled, aiText } from "@/lib/ai";
 import { crawlUrl } from "@/lib/brand-crawl";
 import { similarProductContent } from "@/lib/glovek-content";
@@ -22,15 +22,42 @@ export async function createProposalDocAction(brandId: string | null): Promise<{
   } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "생성 실패" }; }
 }
 
-export async function saveProposalDocAction(input: ProposalInput & { id: string }): Promise<{ ok: boolean; token?: string; error?: string }> {
+export async function saveProposalDocAction(input: ProposalInput & { id: string }): Promise<{ ok: boolean; token?: string; error?: string; routineAdded?: boolean }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "권한이 없습니다." };
   try {
     const { token } = await saveProposal(input, u.name || u.id);
+    // 6) 무가시딩/라이브 수량이 0이 아니면 마케팅 루틴 운영대행(시딩·라이브) 카드 자동 생성/갱신.
+    const routineAdded = await ensureRoutineMktCard(input.id).catch(() => false);
     revalidatePath("/proposal-docs");
     revalidatePath(`/proposal-docs/${input.id}`);
-    return { ok: true, token };
+    if (routineAdded) revalidatePath("/mkt");
+    return { ok: true, token, routineAdded };
   } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "저장 실패" }; }
+}
+
+/** 운영 제안서의 무가시딩/라이브 수량이 0이 아니면, 해당 브랜드의 루틴 운영대행 카드(kind='routine')를
+ *  마케팅 프로젝트에 생성(없으면)하거나 노트를 갱신한다. 반환: 신규 생성 여부. */
+async function ensureRoutineMktCard(docId: string): Promise<boolean> {
+  const doc = await getProposalById(docId).catch(() => null);
+  if (!doc || !doc.brand_id) return false;
+  const seeding = Number(doc.seeding_qty ?? 0) || 0;
+  const live = Number(doc.live_qty ?? 0) || 0;
+  if (seeding === 0 && live === 0) return false;
+  const note = `무가시딩 ${seeding} · 라이브 ${live} (운영 제안서 반영)`;
+  const existing = await queryOne<{ id: string }>(
+    "SELECT id FROM mkt_projects WHERE brand_id=$1 AND kind='routine' LIMIT 1", [doc.brand_id],
+  ).catch(() => null);
+  if (existing) {
+    await query("UPDATE mkt_projects SET note=$2, updated_at=now() WHERE id=$1", [existing.id, note]).catch(() => {});
+    return false;
+  }
+  await query(
+    `INSERT INTO mkt_projects (brand_id, kind, title, note, proposal_status)
+     VALUES ($1,'routine',$2,$3,'draft')`,
+    [doc.brand_id, "루틴 운영대행 (시딩·라이브)", note],
+  ).catch(() => {});
+  return true;
 }
 
 export async function deleteProposalDocAction(id: string): Promise<{ ok: boolean }> {

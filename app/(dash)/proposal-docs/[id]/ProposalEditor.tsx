@@ -37,7 +37,11 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         addons: d.addons,
         status: publish === undefined ? d.status : publish ? "published" : "draft",
       });
-      if (r.ok) { if (publish !== undefined) set("status", publish ? "published" : "draft"); flash(publish ? "발행되었습니다." : "저장되었습니다."); router.refresh(); }
+      if (r.ok) {
+        if (publish !== undefined) set("status", publish ? "published" : "draft");
+        flash((publish ? "발행되었습니다." : "저장되었습니다.") + (r.routineAdded ? " · 마케팅 루틴 운영대행(시딩·라이브)에 카드가 추가되었습니다." : ""));
+        router.refresh();
+      }
       else flash(r.error ?? "저장 실패");
     } catch (e) { flash((e as Error).message || "저장 실패"); }
     finally { setBusy(false); }
