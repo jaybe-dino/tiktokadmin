@@ -3,7 +3,17 @@ import { ownerFieldForState } from "./states";
 import { slackPost, slackPostDM } from "./slack";
 import { brandAlertCard, sectionText } from "./blocks";
 import { setAlertSlack } from "./repo/alerts";
-import type { Brand } from "./types";
+import { STATE_LABELS, type Brand, type State } from "./types";
+
+// 알림 종류 → 담당자가 해야 할 일(한글).
+const TODO_BY_KIND: Record<string, string> = {
+  sla_breach: "단계 지연 — 다음 액션 진행",
+  doc_missing: "서류 수급 독촉·확인",
+  stale: "접촉 공백 — 재접촉",
+  pay_overdue: "결제 지연 — 결제 안내·확인",
+  gate_violation: "게이트 미충족 — 필수 항목 보완",
+};
+const adminBase = () => (process.env.ADMIN_URL || "").replace(/\/$/, "");
 
 // 에스컬레이션 사다리 + 일일 다이제스트 (03 §5, 05 §6).
 
@@ -69,27 +79,36 @@ export async function runEscalate(): Promise<{ dm: number; leads: number; exec: 
     }
   }
 
-  // 담당 DM (묶음)
+  // 담당별 "해야 할 일" 다이제스트 — Slack DM + 이메일. 브랜드·단계·할 일·링크 포함.
+  const base = adminBase();
+  const stageKo = (s: string) => STATE_LABELS[s as State] ?? s;
+  const todoOf = (kind: string) => TODO_BY_KIND[kind] ?? "확인 필요";
   for (const [ownerId, list] of byOwner) {
     const slackId = ownerId === "__unassigned__" ? null : await slackIdFor(ownerId);
-    const lines = list.map((a) => `• ${a.message} (${a.kind})`).join("\n");
+    // Slack 라인: • *브랜드* — 단계 · 할 일 (경과) <링크|열기>
+    const slackLines = list.map((a) => {
+      const link = base ? ` <${base}/brand/${a.brand_id}|열기>` : "";
+      return `• *${a.brand.brand_name}* — ${stageKo(a.brand.state)} · ${todoOf(a.kind)} _(${a.message})_${link}`;
+    }).join("\n");
+    const header = `*⏰ SLA 지연 — 오늘 처리할 일 ${list.length}건*`;
     if (slackId) {
-      await slackPostDM(slackId, {
-        text: "오늘 챙길 알림",
-        blocks: [sectionText(`*오늘 챙길 알림 ${list.length}건*\n${lines}`)],
-      });
+      await slackPostDM(slackId, { text: "오늘 처리할 일", blocks: [sectionText(`${header}\n${slackLines}`)] });
       dm++;
     } else {
       // 담당 미지정 → 파트장 채널로
-      await slackPost({ channelKey: "leads", blocks: [sectionText(`*담당 미지정 알림 ${list.length}건*\n${lines}`)] });
+      await slackPost({ channelKey: "leads", blocks: [sectionText(`*담당 미지정 · 처리 필요 ${list.length}건*\n${slackLines}`)] });
     }
-    // 기획 확정: Slack 외 이메일 채널 병행(담당자 회사 메일 = admin_users.id). RESEND 미설정 시 조용히 스킵.
+    // Slack 외 이메일 병행(담당자 회사 메일 = admin_users.id). RESEND 미설정 시 조용히 스킵.
     if (ownerId !== "__unassigned__" && ownerId.includes("@")) {
       const { sendEmail } = await import("./mailer");
+      const emailLines = list.map((a) => {
+        const link = base ? ` → ${base}/brand/${a.brand_id}` : "";
+        return `- [${stageKo(a.brand.state)}] ${a.brand.brand_name} · ${todoOf(a.kind)} (${a.message})${link}`;
+      }).join("\n");
       await sendEmail({
         to: ownerId,
-        subject: `[GloveK] 오늘 챙길 SLA 알림 ${list.length}건`,
-        text: `오늘 챙길 알림 ${list.length}건\n\n${list.map((a) => `- ${a.message} (${a.kind})`).join("\n")}\n\n워크큐: ${process.env.ADMIN_URL || ""}/queue`,
+        subject: `[GloveK] 오늘 처리할 일 ${list.length}건 (SLA 지연)`,
+        text: `담당 브랜드 중 SLA 일정이 지난 항목입니다. 아래 항목을 오늘 처리해 주세요.\n\n${emailLines}\n\n워크큐: ${base}/queue`,
       }).catch(() => {});
     }
     // 첫 알림에 카드 부착(대표 1건)

@@ -42,9 +42,16 @@ export async function dropAction(brandId: string, reason: string): Promise<Actio
   return { ok: res.ok, error: res.error };
 }
 
-export async function assignAction(brandId: string, role: OwnerField, adminUserId: string): Promise<ActionResult> {
+export async function assignAction(brandId: string, role: OwnerField, adminUserId: string): Promise<ActionResult & { advanced?: boolean }> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };
+  // 유입담당(owner_intake) 배정 시 lead_new 는 담당자배정(seminar)으로 자동 전진.
+  if (ASSIGNABLE_ROLES.includes(role)) {
+    const r = await assignOwnerCore(a, brandId, role, adminUserId);
+    revalidatePath(`/brand/${brandId}`);
+    revalidatePath("/");
+    return r;
+  }
   const res = await opsAssign(a, { brand_id: brandId, role, admin_user_id: adminUserId });
   revalidatePath(`/brand/${brandId}`);
   return res;

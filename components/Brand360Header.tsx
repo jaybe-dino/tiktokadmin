@@ -46,7 +46,7 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
       onChange={(e) =>
         start(async () => {
           const r = await assignAction(brand.id, field, e.target.value);
-          flash(r.ok ? `${label} 담당 변경` : r.error || "실패", !r.ok);
+          flash(r.ok ? `${label} 담당 변경${r.advanced ? " · 담당자배정 단계로 전진" : ""}` : r.error || "실패", !r.ok);
         })
       }
     >
