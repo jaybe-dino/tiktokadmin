@@ -12,6 +12,9 @@ import {
   setMktProposalStatusAction,
   setMktStatusAction,
   updateMktProjectAction,
+  pullRfpFromSurveyAction,
+  generateDirectionDraftAction,
+  regenerateDirectionAction,
 } from "@/app/(dash)/mkt/actions";
 
 // 마케팅 프로젝트 화면 — 프로토타입 s-mkt 3탭 구성(파이프라인 / 루틴 운영대행 / 브랜드사별 매핑).
@@ -52,6 +55,12 @@ export interface MktProposalRow {
   /** 연결된 파이프라인 프로젝트(mkt_projects) — 없으면 null */
   project_id: string | null;
   project_status: string | null;
+  // 고도화(0064): 제안 예정일·최종 일정·RFP·AI 제안방향
+  propose_date?: string | null;
+  final_due_date?: string | null;
+  rfp_text?: string | null;
+  rfp_file_url?: string | null;
+  ai_direction?: string | null;
 }
 
 export interface MktBrandOpt {
@@ -507,6 +516,12 @@ function Proposals({
   const [note, setNote] = useState("");
   const [fileUrl, setFileUrl] = useState("");
   const [linkProject, setLinkProject] = useState(true);
+  const [proposeDate, setProposeDate] = useState("");
+  const [finalDue, setFinalDue] = useState("");
+  const [rfp, setRfp] = useState("");
+  const [rfpFile, setRfpFile] = useState("");
+  const [aiDir, setAiDir] = useState("");
+  const [busyAi, setBusyAi] = useState(false);
   const [regOpen, setRegOpen] = useState(false);
   const [regName, setRegName] = useState("");
   const [regEmail, setRegEmail] = useState("");
@@ -529,19 +544,37 @@ function Proposals({
         period_end: pe,
         note,
         file_url: fileUrl,
+        propose_date: proposeDate,
+        final_due_date: finalDue,
+        rfp_text: rfp,
+        rfp_file_url: rfpFile,
+        ai_direction: aiDir,
         link_project: linkProject,
       });
       if (r.ok) {
-        setTitle("");
-        setAmount("");
-        setPs("");
-        setPe("");
-        setNote("");
-        setFileUrl("");
+        // AI 제안방향이 입력돼 있으면 방금 만든 제안서에 저장(최신 1건 대상).
+        setTitle(""); setAmount(""); setPs(""); setPe(""); setNote(""); setFileUrl("");
+        setProposeDate(""); setFinalDue(""); setRfp(""); setRfpFile(""); setAiDir("");
         setOk("제안서가 저장되었습니다 — 발송 준비 후 초안함에서 승인·발송하세요.");
         router.refresh();
       } else setErr(r.error ?? "저장 실패");
     });
+  }
+
+  function pullRfp() {
+    setErr(""); setOk("");
+    start(async () => {
+      const r = await pullRfpFromSurveyAction(brandId);
+      if (r.ok && r.rfp) { setRfp(r.rfp); setOk("설문에서 RFP 를 불러왔습니다."); }
+      else setErr(r.error ?? "RFP 불러오기 실패");
+    });
+  }
+  async function genDir() {
+    setErr(""); setOk(""); setBusyAi(true);
+    const r = await generateDirectionDraftAction({ brand_id: brandId, amount, rfp });
+    setBusyAi(false);
+    if (r.ok && r.direction) { setAiDir(r.direction); setOk("AI 제안 방향을 생성했습니다 — 검토 후 저장하세요."); }
+    else setErr(r.error ?? "AI 제안 방향 생성 실패");
   }
 
   function registerBrand() {
@@ -625,6 +658,36 @@ function Proposals({
             <label className="f">제안서 파일 링크 (드라이브 PPT/PDF)</label>
             <input className="f" value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} placeholder="https://drive.google.com/…" />
           </div>
+          <div>
+            <label className="f">제안 예정일</label>
+            <input className="f" type="date" value={proposeDate} onChange={(e) => setProposeDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="f">최종 제안 예정 일정</label>
+            <input className="f" type="date" value={finalDue} onChange={(e) => setFinalDue(e.target.value)} />
+          </div>
+
+          {/* 사전 RFP — 설문에서 불러오기 / 직접 입력 / 파일 링크 */}
+          <div style={{ flex: "1 1 100%", borderTop: "1px dashed var(--line)", paddingTop: 10 }}>
+            <label className="f" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              사전 RFP
+              <button type="button" className="btn sm" disabled={pending || !brandId} onClick={pullRfp}>설문에서 불러오기</button>
+              <span style={{ color: "var(--ink3)", fontSize: 10.5 }}>브랜드 설문 응답을 RFP 초안으로. 없으면 아래에 직접 입력/파일 링크</span>
+            </label>
+            <textarea className="f" value={rfp} onChange={(e) => setRfp(e.target.value)} rows={3} style={{ width: "100%", boxSizing: "border-box", resize: "vertical" }} placeholder="예산·목표국·일정·니즈 등 RFP 내용" />
+            <input className="f" value={rfpFile} onChange={(e) => setRfpFile(e.target.value)} placeholder="RFP 파일 링크(선택) — https://…" style={{ width: "100%", boxSizing: "border-box", marginTop: 6 }} />
+          </div>
+
+          {/* AI 제안 방향 — 예산·RFP·우리 서비스 기반 */}
+          <div style={{ flex: "1 1 100%" }}>
+            <label className="f" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              AI 제안 방향
+              <button type="button" className="btn sm pri" disabled={busyAi || pending || !brandId} onClick={genDir}>{busyAi ? "생성 중…" : "🤖 AI 제안방향 생성"}</button>
+              <span style={{ color: "var(--ink3)", fontSize: 10.5 }}>예산 + RFP + 우리 서비스(설정) 기반. 검토·수정 후 저장</span>
+            </label>
+            <textarea className="f" value={aiDir} onChange={(e) => setAiDir(e.target.value)} rows={5} style={{ width: "100%", boxSizing: "border-box", resize: "vertical" }} placeholder="AI 제안방향 생성 버튼을 누르면 채워집니다(직접 수정 가능)" />
+          </div>
+
           <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--ink2)", whiteSpace: "nowrap" }} title="파이프라인 개별 프로젝트 보드에 카드로도 등록·연결">
             <input type="checkbox" checked={linkProject} onChange={(e) => setLinkProject(e.target.checked)} />
             파이프라인 프로젝트로 등록
@@ -653,12 +716,13 @@ function Proposals({
           <thead>
             <tr>
               <th>브랜드</th><th>제목</th><th>금액</th><th>기간</th><th>범위</th>
+              <th>제안 일정·RFP·AI</th>
               <th>상태</th><th>발송 기록(초안함)</th><th>프로젝트 연결</th><th></th>
             </tr>
           </thead>
           <tbody>
             {proposals.length === 0 && (
-              <tr><td colSpan={9} style={{ color: "var(--ink3)" }}>마케팅 제안서가 없습니다 — 위에서 작성하세요.</td></tr>
+              <tr><td colSpan={10} style={{ color: "var(--ink3)" }}>마케팅 제안서가 없습니다 — 위에서 작성하세요.</td></tr>
             )}
             {proposals.map((p) => {
               const st = PROP_ST[p.status] ?? { ko: p.status, cc: "cc-ing" };
@@ -673,6 +737,22 @@ function Proposals({
                   <td>{p.amount != null ? `${p.amount.toLocaleString("ko-KR")}원` : "—"}</td>
                   <td>{p.period_start || p.period_end ? `${p.period_start ?? "미정"} ~ ${p.period_end ?? "미정"}` : "—"}</td>
                   <td>{p.note || "—"}{p.url && <div className="sub"><a href={p.url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>📎 제안서 파일 ↗</a></div>}</td>
+                  <td style={{ minWidth: 160 }}>
+                    <div className="sub">제안 {p.propose_date ?? "—"} · 최종 {p.final_due_date ?? "—"}</div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
+                      {(p.rfp_text || p.rfp_file_url) && <span className="cellchip cc-ok" style={{ fontSize: 10 }}>RFP</span>}
+                      {p.rfp_file_url && <a href={p.rfp_file_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)", fontSize: 10.5 }}>📎RFP</a>}
+                    </div>
+                    {p.ai_direction ? (
+                      <details style={{ marginTop: 3 }}>
+                        <summary style={{ cursor: "pointer", fontSize: 11, color: "var(--acc)" }}>🤖 AI 방향</summary>
+                        <pre style={{ whiteSpace: "pre-wrap", fontSize: 10.5, lineHeight: 1.5, fontFamily: "inherit", color: "var(--ink2)", marginTop: 4, maxWidth: 260 }}>{p.ai_direction}</pre>
+                        <button className="btn sm" disabled={pending} onClick={() => run(() => regenerateDirectionAction(p.id), "AI 제안방향을 재생성했습니다.")}>재생성</button>
+                      </details>
+                    ) : (
+                      <button className="btn sm" style={{ marginTop: 3 }} disabled={pending} onClick={() => run(() => regenerateDirectionAction(p.id), "AI 제안방향을 생성했습니다.")}>🤖 AI방향 생성</button>
+                    )}
+                  </td>
                   <td>
                     <span className={`cellchip ${st.cc}`}>{st.ko}</span>
                     {p.sent_at && <div className="sub">발송 {fmtTs(p.sent_at)}</div>}

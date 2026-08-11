@@ -45,24 +45,40 @@ export default async function MktPage() {
       ORDER BY p.created_at DESC LIMIT 200`,
   ).catch(() => [])) as Record<string, unknown>[];
 
-  const proposals: MktProposalRow[] = proposalsRaw.map((p) => ({
-    id: String(p.id),
-    title: p.title == null ? "" : String(p.title),
-    amount: p.amount == null ? null : Number(p.amount),
-    status: String(p.status ?? "draft"),
-    note: p.note == null ? null : String(p.note),
-    url: p.url == null ? null : String(p.url),
-    period_start: p.period_start == null ? null : String(p.period_start),
-    period_end: p.period_end == null ? null : String(p.period_end),
-    sent_at: p.sent_at == null ? null : String(p.sent_at),
-    created_at: String(p.created_at ?? ""),
-    brand_name: String(p.brand_name ?? ""),
-    brand_id: String(p.brand_id ?? ""),
-    draft_status: p.draft_status == null ? null : String(p.draft_status),
-    draft_sent_at: p.draft_sent_at == null ? null : String(p.draft_sent_at),
-    project_id: p.project_id == null ? null : String(p.project_id),
-    project_status: p.project_status == null ? null : String(p.project_status),
-  }));
+  // 신규 필드(제안 예정일·최종일정·RFP·AI방향) — 마이그레이션 0064 미적용 시 빈 맵(안전).
+  const metaRaw = (await query(
+    `SELECT id, propose_date::text AS propose_date, final_due_date::text AS final_due_date,
+            rfp_text, rfp_file_url, ai_direction
+       FROM proposals WHERE kind='marketing'`,
+  ).catch(() => [])) as Record<string, unknown>[];
+  const metaById = new Map(metaRaw.map((m) => [String(m.id), m]));
+
+  const proposals: MktProposalRow[] = proposalsRaw.map((p) => {
+    const meta = metaById.get(String(p.id)) ?? {};
+    return {
+      id: String(p.id),
+      title: p.title == null ? "" : String(p.title),
+      amount: p.amount == null ? null : Number(p.amount),
+      status: String(p.status ?? "draft"),
+      note: p.note == null ? null : String(p.note),
+      url: p.url == null ? null : String(p.url),
+      period_start: p.period_start == null ? null : String(p.period_start),
+      period_end: p.period_end == null ? null : String(p.period_end),
+      sent_at: p.sent_at == null ? null : String(p.sent_at),
+      created_at: String(p.created_at ?? ""),
+      brand_name: String(p.brand_name ?? ""),
+      brand_id: String(p.brand_id ?? ""),
+      draft_status: p.draft_status == null ? null : String(p.draft_status),
+      draft_sent_at: p.draft_sent_at == null ? null : String(p.draft_sent_at),
+      project_id: p.project_id == null ? null : String(p.project_id),
+      project_status: p.project_status == null ? null : String(p.project_status),
+      propose_date: meta.propose_date == null ? null : String(meta.propose_date),
+      final_due_date: meta.final_due_date == null ? null : String(meta.final_due_date),
+      rfp_text: meta.rfp_text == null ? null : String(meta.rfp_text),
+      rfp_file_url: meta.rfp_file_url == null ? null : String(meta.rfp_file_url),
+      ai_direction: meta.ai_direction == null ? null : String(meta.ai_direction),
+    };
+  });
 
   // 작성 폼 브랜드 선택 — 원장 전체(트랙 표시용 contract_type 포함).
   const brandsRaw = (await query(

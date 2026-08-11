@@ -166,6 +166,11 @@ export async function createMktProposalAction(input: {
   period_end?: string;
   note?: string;
   file_url?: string;  // 개별 제안서 파일 링크(드라이브 PPT/PDF)
+  propose_date?: string;    // 제안 예정일
+  final_due_date?: string;  // 최종 제안 예정 일정
+  rfp_text?: string;        // 사전 RFP(설문/직접)
+  rfp_file_url?: string;    // RFP 업로드 링크
+  ai_direction?: string;    // AI 제안 방향
   link_project?: boolean; // 파이프라인 프로젝트 자동 생성·연결(기본 true)
 }): Promise<MktResult> {
   const u = await currentUser();
@@ -185,14 +190,21 @@ export async function createMktProposalAction(input: {
   if (ps && !isYmd(ps)) return { ok: false, error: "기간 시작일 형식(YYYY-MM-DD)을 확인하세요." };
   if (pe && !isYmd(pe)) return { ok: false, error: "기간 종료일 형식(YYYY-MM-DD)을 확인하세요." };
   if (ps && pe && ps > pe) return { ok: false, error: "기간 시작일이 종료일보다 늦습니다." };
+  const pd = (input.propose_date ?? "").trim();
+  const fd = (input.final_due_date ?? "").trim();
+  if (pd && !isYmd(pd)) return { ok: false, error: "제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
+  if (fd && !isYmd(fd)) return { ok: false, error: "최종 제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
 
   const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]);
   if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
 
   const prow = await queryOne<{ id: string }>(
-    `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url, status, created_by)
-     VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,'draft',$8) RETURNING id`,
-    [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(), `admin:${u.id}`],
+    `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url,
+                            propose_date, final_due_date, rfp_text, rfp_file_url, ai_direction, status, created_by)
+     VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',$14) RETURNING id`,
+    [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(),
+     pd || null, fd || null, (input.rfp_text ?? "").trim() || null, (input.rfp_file_url ?? "").trim() || null,
+     (input.ai_direction ?? "").trim() || null, `admin:${u.id}`],
   );
   if (!prow) return { ok: false, error: "제안서 저장 실패" };
 
@@ -272,6 +284,92 @@ export async function draftMktProposalEmailAction(proposalId: string): Promise<M
 
   revalidatePath("/mkt");
   revalidatePath("/drafts");
+  return { ok: true };
+}
+
+/** 브랜드 설문에서 사전 RFP 초안 불러오기(제안서 작성 폼용). */
+export async function pullRfpFromSurveyAction(brandId: string): Promise<MktResult & { rfp?: string; from?: string | null }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!brandId) return { ok: false, error: "브랜드를 선택하세요." };
+  const { brandRfpFromSurvey } = await import("@/lib/mkt-proposal");
+  const r = await brandRfpFromSurvey(brandId).catch(() => ({ rfp: "", from: null }));
+  if (!r.rfp) return { ok: false, error: "이 브랜드의 설문 응답이 없습니다 — RFP 를 직접 입력/업로드하세요." };
+  return { ok: true, rfp: r.rfp, from: r.from };
+}
+
+/** 예산·RFP·우리 서비스 기반 AI 제안 방향 생성(폼 미리보기용 — 저장은 별도). */
+export async function generateDirectionDraftAction(input: { brand_id: string; amount?: string; rfp?: string }): Promise<MktResult & { direction?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!input.brand_id) return { ok: false, error: "브랜드를 선택하세요." };
+  const b = await queryOne<{ brand_name: string; category: string | null }>("SELECT brand_name, category FROM brands WHERE id=$1", [input.brand_id]).catch(() => null);
+  if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
+  let amount: number | null = null;
+  if (input.amount && input.amount.trim()) { amount = Number(input.amount.replace(/[, ]/g, "")); if (!Number.isFinite(amount)) amount = null; }
+  const { generateProposalDirection } = await import("@/lib/mkt-proposal");
+  const direction = await generateProposalDirection({ brandName: b.brand_name, category: b.category, amount, rfp: input.rfp });
+  return { ok: true, direction };
+}
+
+/** 기존 마케팅 제안서의 AI 제안 방향 재생성·저장(예산·RFP·우리 서비스 최신 반영). */
+export async function regenerateDirectionAction(proposalId: string): Promise<MktResult & { direction?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const p = await queryOne<{ brand_id: string; amount: number | null; rfp_text: string | null; brand_name: string; category: string | null }>(
+    `SELECT p.brand_id, p.amount, p.rfp_text, b.brand_name, b.category
+       FROM proposals p JOIN brands b ON b.id=p.brand_id WHERE p.id=$1 AND p.kind='marketing'`,
+    [proposalId]).catch(() => null);
+  if (!p) return { ok: false, error: "마케팅 제안서를 찾을 수 없습니다." };
+  const { generateProposalDirection } = await import("@/lib/mkt-proposal");
+  const direction = await generateProposalDirection({ brandName: p.brand_name, category: p.category, amount: p.amount, rfp: p.rfp_text });
+  await query("UPDATE proposals SET ai_direction=$2 WHERE id=$1", [proposalId, direction]);
+  revalidatePath("/mkt");
+  return { ok: true, direction };
+}
+
+/** 마케팅 제안서 메타 수정 — 제안 예정일·최종 일정·RFP·제안방향·금액. */
+export async function updateMktProposalMetaAction(input: {
+  id: string; propose_date?: string; final_due_date?: string; rfp_text?: string; rfp_file_url?: string; ai_direction?: string; amount?: string;
+}): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const cur = await queryOne<{ brand_id: string }>("SELECT brand_id FROM proposals WHERE id=$1 AND kind='marketing'", [input.id]).catch(() => null);
+  if (!cur) return { ok: false, error: "마케팅 제안서를 찾을 수 없습니다." };
+  const pd = (input.propose_date ?? "").trim();
+  const fd = (input.final_due_date ?? "").trim();
+  if (pd && !isYmd(pd)) return { ok: false, error: "제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
+  if (fd && !isYmd(fd)) return { ok: false, error: "최종 제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
+  let amount: number | null | undefined = undefined;
+  if (input.amount !== undefined) { const n = Number((input.amount || "").replace(/[, ]/g, "")); amount = input.amount.trim() && Number.isFinite(n) ? Math.round(n) : null; }
+  await query(
+    `UPDATE proposals SET
+       propose_date = COALESCE($2::date, propose_date),
+       final_due_date = COALESCE($3::date, final_due_date),
+       rfp_text = COALESCE($4, rfp_text),
+       rfp_file_url = COALESCE($5, rfp_file_url),
+       ai_direction = COALESCE($6, ai_direction),
+       amount = COALESCE($7, amount)
+     WHERE id=$1`,
+    [input.id, pd || null, fd || null,
+     input.rfp_text !== undefined ? input.rfp_text : null,
+     input.rfp_file_url !== undefined ? input.rfp_file_url : null,
+     input.ai_direction !== undefined ? input.ai_direction : null,
+     amount ?? null],
+  );
+  revalidatePath("/mkt");
+  revalidatePath(`/brand/${cur.brand_id}`);
+  return { ok: true };
+}
+
+/** 설정 — 마케팅 제안 AI 참고용 '우리 서비스 소개' 저장(파트장/대표). */
+export async function saveMktServicesAction(md: string): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u || (u.role !== "lead" && u.role !== "exec")) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  const { saveMktServices } = await import("@/lib/mkt-proposal");
+  await saveMktServices(md ?? "");
+  revalidatePath("/settings");
+  revalidatePath("/mkt");
   return { ok: true };
 }
 
