@@ -32,7 +32,9 @@ export default async function MktPage() {
       prop_status: r.prop_status == null ? null : String(r.prop_status),
       prop_url: r.prop_url == null ? null : String(r.prop_url),
       prop_propose_date: meta.propose_date == null ? null : String(meta.propose_date),
-      prop_final_due: meta.final_due_date == null ? null : String(meta.final_due_date),
+      prop_rfp_text: meta.rfp_text == null ? null : String(meta.rfp_text),
+      prop_rfp_file_url: meta.rfp_file_url == null ? null : String(meta.rfp_file_url),
+      prop_ai_direction: meta.ai_direction == null ? null : String(meta.ai_direction),
     };
   });
 

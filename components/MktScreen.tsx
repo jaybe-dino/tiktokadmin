@@ -35,7 +35,9 @@ export interface MktRow {
   prop_status: string | null;
   prop_url: string | null;
   prop_propose_date?: string | null;   // 제안 예정일(연결 제안서)
-  prop_final_due?: string | null;      // 최종 제안 예정 일정
+  prop_rfp_text?: string | null;
+  prop_rfp_file_url?: string | null;
+  prop_ai_direction?: string | null;
 }
 
 // 마케팅 제안서 행 (proposals kind='marketing' + 초안함 연결)
@@ -236,10 +238,9 @@ function KCard({ m, onDragStart, onDragEnd, dragging }: { m: MktRow; onDragStart
       >
         <div className="nm">{m.title}</div>
         <div className="mt">{m.brand_name}{m.note ? ` · ${m.note}` : ""}</div>
-        {(m.prop_propose_date || m.prop_final_due || m.prop_amount != null) && (
+        {(m.prop_propose_date || m.prop_amount != null) && (
           <div style={{ fontSize: 10.5, color: "var(--ink3)", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
             {m.prop_propose_date && <span>📅 제안 {m.prop_propose_date}</span>}
-            {m.prop_final_due && <span>🏁 최종 {m.prop_final_due}</span>}
             {m.prop_amount != null && <span>{m.prop_amount.toLocaleString("ko-KR")}원</span>}
           </div>
         )}
@@ -263,6 +264,7 @@ function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
   const [note, setNote] = useState(m.note ?? "");
   const [status, setStatus] = useState(m.proposal_status);
   const [msg, setMsg] = useState("");
+  const [editProp, setEditProp] = useState(false);
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(""), 2600); };
 
   function saveInfo() {
@@ -320,12 +322,22 @@ function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>연결된 마케팅 제안서</div>
           {m.proposal_id ? (
             <div className="card" style={{ padding: 12, background: "var(--tint, #fafafa)" }}>
-              <div style={{ fontWeight: 600 }}>{m.prop_title || "(제목 없음)"}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontWeight: 600 }}>{m.prop_title || "(제목 없음)"}</div>
+                <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => setEditProp(true)}>✏️ 제안 항목 편집</button>
+              </div>
               <div className="sub" style={{ marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <span className={`cellchip ${PROP_ST[m.prop_status ?? "draft"]?.cc ?? "cc-ing"}`}>{PROP_ST[m.prop_status ?? "draft"]?.ko ?? m.prop_status}</span>
+                {m.prop_propose_date && <span>📅 제안 {m.prop_propose_date}</span>}
                 {m.prop_amount != null && <span>{m.prop_amount.toLocaleString("ko-KR")}원</span>}
                 {m.prop_url && <a href={m.prop_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>📎 제안서 파일 ↗</a>}
               </div>
+              {m.prop_ai_direction && (
+                <details style={{ marginTop: 6 }}>
+                  <summary style={{ cursor: "pointer", fontSize: 11.5, color: "var(--acc)" }}>🤖 AI 제안방향</summary>
+                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, lineHeight: 1.5, fontFamily: "inherit", color: "var(--ink2)", marginTop: 4 }}>{m.prop_ai_direction}</pre>
+                </details>
+              )}
               <div className="note" style={{ marginTop: 8, fontSize: 11 }}>제안서 발송·수락/거절은 「마케팅 제안서」 탭에서 관리 — 상태는 프로젝트에 자동 반영됩니다.</div>
             </div>
           ) : (
@@ -337,6 +349,17 @@ function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
         </div>
         {msg && <div className="note" style={{ marginTop: 10 }}>{msg}</div>}
       </div>
+
+      {editProp && m.proposal_id && (
+        <ProposalEditModal
+          p={{
+            id: m.proposal_id, brand_id: m.brand_id, brand_name: m.brand_name, title: m.prop_title || m.title,
+            amount: m.prop_amount ?? null, propose_date: m.prop_propose_date ?? null,
+            rfp_text: m.prop_rfp_text ?? null, rfp_file_url: m.prop_rfp_file_url ?? null, ai_direction: m.prop_ai_direction ?? null,
+          }}
+          onClose={() => setEditProp(false)}
+        />
+      )}
     </div>
   );
 }
@@ -475,7 +498,6 @@ function Proposals({
   const [fileUrl, setFileUrl] = useState("");
   const [linkProject, setLinkProject] = useState(true);
   const [proposeDate, setProposeDate] = useState("");
-  const [finalDue, setFinalDue] = useState("");
   const [rfp, setRfp] = useState("");
   const [rfpFile, setRfpFile] = useState("");
   const [aiDir, setAiDir] = useState("");
@@ -504,16 +526,14 @@ function Proposals({
         note,
         file_url: fileUrl,
         propose_date: proposeDate,
-        final_due_date: finalDue,
         rfp_text: rfp,
         rfp_file_url: rfpFile,
         ai_direction: aiDir,
         link_project: linkProject,
       });
       if (r.ok) {
-        // AI 제안방향이 입력돼 있으면 방금 만든 제안서에 저장(최신 1건 대상).
         setTitle(""); setAmount(""); setPs(""); setPe(""); setNote(""); setFileUrl("");
-        setProposeDate(""); setFinalDue(""); setRfp(""); setRfpFile(""); setAiDir("");
+        setProposeDate(""); setRfp(""); setRfpFile(""); setAiDir("");
         setOk("제안서가 저장되었습니다 — 발송 준비 후 초안함에서 승인·발송하세요.");
         router.refresh();
       } else setErr(r.error ?? "저장 실패");
@@ -571,8 +591,8 @@ function Proposals({
             저장 → 발송 준비(초안함) → 담당 승인 후 발송
           </span>
         </div>
-        <div className="bd" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-          <div>
+        <div className="bd" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12, alignItems: "end" }}>
+          <div style={{ gridColumn: "1 / -1", maxWidth: 360 }}>
             <label className="f">브랜드 <button type="button" onClick={() => setRegOpen((o) => !o)} style={{ marginLeft: 6, fontSize: 10.5, color: "var(--acc)", background: "none", border: 0, cursor: "pointer" }}>{regOpen ? "취소" : "+ 리드 없는 브랜드 등록"}</button></label>
             {regOpen ? (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -582,52 +602,45 @@ function Proposals({
                 <button className="btn sm pri" disabled={pending || !regName.trim()} onClick={registerBrand}>등록</button>
               </div>
             ) : (
-              <select className="f" value={brandId} onChange={(e) => setBrandId(e.target.value)} style={{ minWidth: 160 }}>
+              <select className="f" value={brandId} onChange={(e) => setBrandId(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }}>
                 {localBrands.length === 0 && <option value="">브랜드가 없습니다 — 우측 '+ 등록'</option>}
                 {localBrands.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                    {b.contract_type === "marketing" ? " · 마케팅 트랙" : ""}
-                  </option>
+                  <option key={b.id} value={b.id}>{b.name}{b.contract_type === "marketing" ? " · 마케팅 트랙" : ""}</option>
                 ))}
               </select>
             )}
           </div>
-          <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ gridColumn: "1 / -1" }}>
             <label className="f">제목</label>
-            <input className="f" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 8월 시딩+라이브 패키지 제안" />
+            <input className="f" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 8월 시딩+라이브 패키지 제안" style={{ width: "100%", boxSizing: "border-box" }} />
           </div>
           <div>
             <label className="f">금액(원)</label>
-            <input className="f" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="예: 3000000" style={{ width: 120 }} />
-          </div>
-          <div>
-            <label className="f">기간 시작</label>
-            <input className="f" type="date" value={ps} onChange={(e) => setPs(e.target.value)} />
-          </div>
-          <div>
-            <label className="f">기간 종료</label>
-            <input className="f" type="date" value={pe} onChange={(e) => setPe(e.target.value)} />
-          </div>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <label className="f">범위 메모</label>
-            <input className="f" value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 시딩 30건 + 라이브 2회 + 소재 4종" />
-          </div>
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <label className="f">제안서 파일 링크 (드라이브 PPT/PDF)</label>
-            <input className="f" value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} placeholder="https://drive.google.com/…" />
+            <input className="f" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="예: 3000000" style={{ width: "100%", boxSizing: "border-box" }} />
           </div>
           <div>
             <label className="f">제안 예정일</label>
-            <input className="f" type="date" value={proposeDate} onChange={(e) => setProposeDate(e.target.value)} />
+            <input className="f" type="date" value={proposeDate} onChange={(e) => setProposeDate(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
           </div>
           <div>
-            <label className="f">최종 제안 예정 일정</label>
-            <input className="f" type="date" value={finalDue} onChange={(e) => setFinalDue(e.target.value)} />
+            <label className="f">기간 시작</label>
+            <input className="f" type="date" value={ps} onChange={(e) => setPs(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+          </div>
+          <div>
+            <label className="f">기간 종료</label>
+            <input className="f" type="date" value={pe} onChange={(e) => setPe(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label className="f">범위 메모</label>
+            <input className="f" value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 시딩 30건 + 라이브 2회 + 소재 4종" style={{ width: "100%", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label className="f">제안서 파일 링크 (드라이브 PPT/PDF)</label>
+            <input className="f" value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} placeholder="https://drive.google.com/…" style={{ width: "100%", boxSizing: "border-box" }} />
           </div>
 
           {/* 사전 RFP — 설문에서 불러오기 / 직접 입력 / 파일 링크 */}
-          <div style={{ flex: "1 1 100%", borderTop: "1px dashed var(--line)", paddingTop: 10 }}>
+          <div style={{ gridColumn: "1 / -1", borderTop: "1px dashed var(--line)", paddingTop: 10 }}>
             <label className="f" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               사전 RFP
               <button type="button" className="btn sm" disabled={pending || !brandId} onClick={pullRfp}>설문에서 불러오기</button>
@@ -638,7 +651,7 @@ function Proposals({
           </div>
 
           {/* AI 제안 방향 — 예산·RFP·우리 서비스 기반 */}
-          <div style={{ flex: "1 1 100%" }}>
+          <div style={{ gridColumn: "1 / -1" }}>
             <label className="f" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               AI 제안 방향
               <button type="button" className="btn sm pri" disabled={busyAi || pending || !brandId} onClick={genDir}>{busyAi ? "생성 중…" : "🤖 AI 제안방향 생성"}</button>
@@ -647,13 +660,15 @@ function Proposals({
             <textarea className="f" value={aiDir} onChange={(e) => setAiDir(e.target.value)} rows={5} style={{ width: "100%", boxSizing: "border-box", resize: "vertical" }} placeholder="AI 제안방향 생성 버튼을 누르면 채워집니다(직접 수정 가능)" />
           </div>
 
-          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--ink2)", whiteSpace: "nowrap" }} title="파이프라인 개별 프로젝트 보드에 카드로도 등록·연결">
-            <input type="checkbox" checked={linkProject} onChange={(e) => setLinkProject(e.target.checked)} />
-            파이프라인 프로젝트로 등록
-          </label>
-          <button className="btn pri" disabled={pending || !brandId} onClick={submit}>
-            {pending ? "저장 중…" : "저장"}
-          </button>
+          <div style={{ gridColumn: "1 / -1", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--ink2)" }} title="파이프라인 개별 프로젝트 보드에 카드로도 등록·연결">
+              <input type="checkbox" checked={linkProject} onChange={(e) => setLinkProject(e.target.checked)} />
+              파이프라인 프로젝트로 등록
+            </label>
+            <button className="btn pri" style={{ marginLeft: "auto" }} disabled={pending || !brandId} onClick={submit}>
+              {pending ? "저장 중…" : "저장"}
+            </button>
+          </div>
         </div>
         {(err || ok) && (
           <div className="bd" style={{ paddingTop: 0 }}>
@@ -800,12 +815,16 @@ function Proposals({
   );
 }
 
-// 마케팅 제안서 주요 항목 편집 모달 — 제안 예정일·최종 일정·금액·RFP·AI 제안방향.
-function ProposalEditModal({ p, onClose }: { p: MktProposalRow; onClose: () => void }) {
+// 마케팅 제안서 주요 항목 편집 모달 — 제안 예정일·금액·RFP·AI 제안방향.
+export interface ProposalEditData {
+  id: string; brand_id: string; brand_name: string; title: string;
+  amount: number | null; propose_date?: string | null;
+  rfp_text?: string | null; rfp_file_url?: string | null; ai_direction?: string | null;
+}
+function ProposalEditModal({ p, onClose }: { p: ProposalEditData; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [proposeDate, setProposeDate] = useState(p.propose_date ?? "");
-  const [finalDue, setFinalDue] = useState(p.final_due_date ?? "");
   const [amount, setAmount] = useState(p.amount != null ? String(p.amount) : "");
   const [rfp, setRfp] = useState(p.rfp_text ?? "");
   const [rfpFile, setRfpFile] = useState(p.rfp_file_url ?? "");
@@ -830,7 +849,7 @@ function ProposalEditModal({ p, onClose }: { p: MktProposalRow; onClose: () => v
   function save() {
     start(async () => {
       const r = await updateMktProposalMetaAction({
-        id: p.id, propose_date: proposeDate, final_due_date: finalDue, amount,
+        id: p.id, propose_date: proposeDate, amount,
         rfp_text: rfp, rfp_file_url: rfpFile, ai_direction: aiDir,
       });
       if (r.ok) { setMsg({ t: "저장되었습니다.", ok: true }); router.refresh(); setTimeout(onClose, 500); }
@@ -842,7 +861,7 @@ function ProposalEditModal({ p, onClose }: { p: MktProposalRow; onClose: () => v
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 100, display: "grid", placeItems: "center", padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "min(600px, 96vw)", maxHeight: "92vh", overflow: "auto", padding: 18 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <b style={{ fontSize: 15 }}>제안서 편집</b>
+          <b style={{ fontSize: 15 }}>제안서 항목 편집</b>
           <span className="chip" style={{ fontSize: 11 }}>{p.brand_name}</span>
           <span style={{ color: "var(--ink3)", fontSize: 12 }}>{p.title}</span>
           <button className="btn sm" style={{ marginLeft: "auto" }} onClick={onClose}>닫기 ✕</button>
@@ -850,8 +869,7 @@ function ProposalEditModal({ p, onClose }: { p: MktProposalRow; onClose: () => v
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <div><label className="f">제안 예정일</label><input className="f" type="date" value={proposeDate} onChange={(e) => setProposeDate(e.target.value)} /></div>
-          <div><label className="f">최종 제안 예정 일정</label><input className="f" type="date" value={finalDue} onChange={(e) => setFinalDue(e.target.value)} /></div>
-          <div><label className="f">금액(원)</label><input className="f" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: 130 }} /></div>
+          <div><label className="f">금액(원)</label><input className="f" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: 150 }} /></div>
         </div>
 
         <label className="f" style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
