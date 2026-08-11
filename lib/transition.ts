@@ -112,6 +112,15 @@ export async function assignOwner(
 ): Promise<{ ok: boolean; error?: string }> {
   const valid = ["owner_intake", "owner_sales", "owner_onboard", "owner_ads", "owner_contract"];
   if (!valid.includes(role)) return { ok: false, error: "잘못된 역할 필드" };
-  await query(`UPDATE brands SET ${role}=$2 WHERE id=$1`, [brandId, adminUserId]);
+  try {
+    await query(`UPDATE brands SET ${role}=$2 WHERE id=$1`, [brandId, adminUserId]);
+  } catch (e) {
+    // 컬럼 미존재(예: owner_contract 마이그레이션 0054 미적용) 등 — 500 대신 명확한 메시지.
+    const msg = (e as Error).message ?? "";
+    if (/owner_contract/.test(msg) || /column .* does not exist/i.test(msg)) {
+      return { ok: false, error: "계약담당 컬럼이 없습니다 — 마이그레이션(0054) 적용이 필요합니다(관리자)." };
+    }
+    return { ok: false, error: "담당 배정 저장 실패" };
+  }
   return { ok: true };
 }

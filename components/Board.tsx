@@ -130,7 +130,7 @@ export default function Board({
       {/* v3.1 .ph 헤더 + 필터 바 */}
       <div className="ph">
         <div>
-          <h1>파이프라인 보드</h1>
+          <h1>영업 파이프라인</h1>
           <p>카드를 옮기면 게이트가 검증됩니다 — 조건 미충족이면 이동이 거부되고 부족 항목이 표시돼요.</p>
         </div>
         <div className="bar" style={{ margin: 0 }}>
