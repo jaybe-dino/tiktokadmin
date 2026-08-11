@@ -15,7 +15,7 @@ import Brand360Meetings, { type DraftRow, type MeetingRow } from "@/components/B
 import Brand360Products from "@/components/Brand360Products";
 import Brand360SurveyCard from "@/components/Brand360SurveyCard";
 import CustomerEmails from "@/components/CustomerEmails";
-import { listBrandEmails } from "@/lib/email-link";
+import { listBrandComms } from "@/lib/email-link";
 import Brand360Tabs, { type Brand360Tab } from "@/components/Brand360Tabs";
 import TabJumpButton from "@/components/TabJumpButton";
 import { GradeBadge, StateBadge } from "@/components/badges";
@@ -76,7 +76,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const [rawReqs, deep, emails, extra, gateCtx] = await Promise.all([
     stageChecklist(brand.id, brand.state).catch(() => []),
     cardDeep(brand.id).catch(() => null),
-    listBrandEmails(brand.id).catch(() => []),
+    listBrandComms(brand.id).catch(() => []),
     Promise.all([
       safe(query<{ alias: string }>(
         "SELECT alias FROM brand_aliases WHERE brand_id=$1 AND kind='name' ORDER BY created_at", [brand.id])),

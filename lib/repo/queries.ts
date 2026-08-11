@@ -1,6 +1,7 @@
 import { query, queryOne, queryRo } from "../db";
 import { docProgress, type DocProgress } from "../docs";
 import { listFiles, listProposals, type BrandFile, type Proposal } from "./customer";
+import { listBrandComms } from "../email-link";
 import { STATE_LABELS, type Brand, type State } from "../types";
 
 // 대시보드 읽기 쿼리 (04-DASHBOARD).
@@ -80,11 +81,9 @@ export async function brand360(id: string): Promise<Brand360 | null> {
       "SELECT id, topic, status, scheduled_at, left(coalesce(summary_md,''), 300) AS summary, created_at FROM meetings WHERE brand_id=$1 ORDER BY coalesce(scheduled_at, created_at) DESC LIMIT 20",
       [id],
     )),
-    // 공식 이메일 커뮤 히스토리(brand_emails) — 타임라인에 반영, 클릭 시 메일로 이동.
-    safe(query<{ id: string; direction: string; subject: string | null; snippet: string | null; occurred_at: string }>(
-      "SELECT id, direction, subject, left(coalesce(snippet,''), 160) AS snippet, occurred_at FROM brand_emails WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 40",
-      [id],
-    )),
+    // 공식 이메일 커뮤 히스토리 — 수기 태깅(brand_emails) + 공식 메일함 자동수집(email_messages) 통합.
+    //   타임라인에 반영, 클릭 시 미팅·메일 탭의 해당 메일로 이동.
+    listBrandComms(id).catch(() => [] as Awaited<ReturnType<typeof listBrandComms>>),
   ]);
 
   // glovek 구독(읽기전용). 미연동/로컬이면 빈 배열.
@@ -148,7 +147,7 @@ export async function brand360(id: string): Promise<Brand360 | null> {
     // 공식 이메일 커뮤 히스토리 — 제목(키워드) 표기, 클릭 시 미팅·메일 탭의 해당 메일로 이동.
     ...brandEmails.map((e) => ({
       kind: "email",
-      text: `📧 메일 ${e.direction === "in" ? "수신" : e.direction === "out" ? "발신" : ""}: ${e.subject || "(제목 없음)"}${e.snippet ? ` — ${e.snippet}` : ""}`,
+      text: `📧 메일 ${e.direction === "in" ? "수신" : e.direction === "out" ? "발신" : ""}: ${e.subject || "(제목 없음)"}${e.snippet ? ` — ${e.snippet.slice(0, 160)}` : ""}`,
       at: e.occurred_at,
       actor: "email",
       link: { tab: "mm", anchor: `eml-${e.id}` },

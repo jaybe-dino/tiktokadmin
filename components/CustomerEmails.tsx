@@ -63,12 +63,15 @@ export default function CustomerEmails({ brandId, emails }: { brandId: string; e
               <span className={`pill ${m.direction === "out" ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700"}`}>
                 {m.direction === "out" ? "발신" : m.direction === "in" ? "수신" : "메일"}
               </span>
+              {m.source === "sync" && <span className="pill bg-violet-100 text-violet-700" title="공식 메일함에서 자동 수집">동기화</span>}
               {m.owner_part && <span className="pill bg-gray-100 text-gray-600">{PART_LABEL[m.owner_part] ?? m.owner_part}</span>}
               <span className="font-semibold flex-1 truncate">{m.subject || "(제목 없음)"}</span>
               <span className="text-[11px] text-muted whitespace-nowrap">{m.occurred_at.slice(5, 16).replace("T", " ")}</span>
-              <button className="text-xs text-bad hover:underline" onClick={async () => { await deleteEmailAction(brandId, m.id); router.refresh(); }}>
-                삭제
-              </button>
+              {m.source !== "sync" && (
+                <button className="text-xs text-bad hover:underline" onClick={async () => { await deleteEmailAction(brandId, m.id); router.refresh(); }}>
+                  삭제
+                </button>
+              )}
             </div>
             <div className="text-[11px] text-muted mt-0.5">{m.from_addr} {m.to_addr ? `→ ${m.to_addr}` : ""}</div>
             {m.snippet && <div className="text-xs text-ink mt-1 line-clamp-3 whitespace-pre-wrap">{m.snippet}</div>}

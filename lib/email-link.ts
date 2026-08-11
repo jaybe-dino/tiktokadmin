@@ -19,6 +19,7 @@ export interface BrandEmail {
   occurred_at: string;
   linked_by: string | null;
   created_at: string;
+  source?: "linked" | "sync"; // linked=수기 태깅(brand_emails), sync=공식 메일함 자동수집(email_messages)
 }
 
 export async function listBrandEmails(brandId: string): Promise<BrandEmail[]> {
@@ -26,6 +27,50 @@ export async function listBrandEmails(brandId: string): Promise<BrandEmail[]> {
     "SELECT * FROM brand_emails WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 100",
     [brandId],
   );
+}
+
+/**
+ * 브랜드 이메일 커뮤 통합 — 수기 태깅(brand_emails) + 공식 메일함 자동수집(email_messages).
+ *   두 소스를 합쳐 최신순으로. sync 행 id 는 'mm-<uuid>' 로 구분(삭제 대상은 linked 만).
+ *   같은 메시지가 양쪽에 있으면(message_id=gmail_msg_id) 중복 제거.
+ */
+export async function listBrandComms(brandId: string): Promise<BrandEmail[]> {
+  const [linked, synced] = await Promise.all([
+    query<BrandEmail>(
+      "SELECT * FROM brand_emails WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 100",
+      [brandId],
+    ).catch(() => [] as BrandEmail[]),
+    query<{ id: string; direction: string; from_addr: string | null; to_addrs: string[] | null; subject: string | null; snippet: string | null; gmail_msg_id: string | null; sent_at: string }>(
+      `SELECT id, direction, from_addr, to_addrs, subject, snippet, gmail_msg_id, sent_at
+         FROM email_messages WHERE brand_id=$1 ORDER BY sent_at DESC LIMIT 100`,
+      [brandId],
+    ).catch(() => []),
+  ]);
+
+  const linkedMsgIds = new Set(linked.map((l) => l.message_id).filter(Boolean) as string[]);
+  const syncRows: BrandEmail[] = synced
+    .filter((m) => !(m.gmail_msg_id && linkedMsgIds.has(m.gmail_msg_id)))
+    .map((m) => ({
+      id: `mm-${m.id}`,
+      brand_id: brandId,
+      direction: (m.direction === "in" || m.direction === "out" ? m.direction : "unknown") as "in" | "out" | "unknown",
+      from_addr: m.from_addr,
+      to_addr: (m.to_addrs ?? []).join(", ") || null,
+      subject: m.subject,
+      snippet: m.snippet,
+      owner_part: null,
+      owner_id: null,
+      message_id: m.gmail_msg_id,
+      occurred_at: m.sent_at,
+      linked_by: null,
+      created_at: m.sent_at,
+      source: "sync" as const,
+    }));
+
+  const linkedRows: BrandEmail[] = linked.map((l) => ({ ...l, source: "linked" as const }));
+  return [...linkedRows, ...syncRows]
+    .sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1))
+    .slice(0, 120);
 }
 
 const ROLE_PART: Record<Role, string> = {
