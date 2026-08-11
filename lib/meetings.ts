@@ -7,6 +7,18 @@ import { FORWARD_TRANSITIONS } from "./states";
 import type { Brand, State } from "./types";
 import type { IcsEvent } from "./ics";
 
+/**
+ * 캘린더 초대 제목 정리 — SUMMARY 에 섞인 URL(예약페이지·줌 링크 등)을 제거해 사람이 읽을 제목만 남긴다.
+ *   예약 링크(dinostudio.kr 등)가 SUMMARY 앞에 붙어 캘린더에 링크가 제목처럼 보이던 문제 방지.
+ *   URL 을 걷어내고 남는 텍스트가 없으면 "미팅 초대" 로 대체.
+ */
+export function cleanMeetingTitle(summary: string): string {
+  const s = (summary || "").trim();
+  if (!s) return "미팅 초대";
+  const stripped = s.replace(/https?:\/\/\S+/gi, " ").replace(/\s+/g, " ").trim();
+  return stripped || "미팅 초대";
+}
+
 /** 이메일 캘린더 초대(ICS VEVENT) → 미팅 캘린더 upsert. 공용 메일함 수집 시 자동 맵핑.
  *   zoom_uuid=ics:<UID> 로 멱등. brand 미지정이면 참석자로 매칭 시도(실패=매칭필요). */
 export async function upsertCalendarMeeting(
@@ -16,7 +28,10 @@ export async function upsertCalendarMeeting(
   if (!ev.uid && !ev.summary) return { created: false, brandId: null };
   const zoomUuid = `ics:${ev.uid || `${ev.summary}:${ev.startIso ?? ""}`}`;
   const attendees = ev.attendees.map((a) => ({ name: a.name ?? "", email: a.email }));
-  const location = /^https?:\/\//i.test(ev.location) ? ev.location : null;
+  const topic = cleanMeetingTitle(ev.summary);
+  // 줌/미팅 링크: LOCATION 이 URL 이면 그것, 아니면 SUMMARY 안의 첫 URL(예약페이지 등)을 참여 링크 후보로.
+  const summaryUrl = ev.summary.match(/https?:\/\/\S+/i)?.[0] ?? null;
+  const location = /^https?:\/\//i.test(ev.location) ? ev.location : summaryUrl;
 
   // 취소 초대(METHOD:CANCEL) → 기존 미팅 취소.
   if (ev.method === "CANCEL") {
@@ -38,7 +53,7 @@ export async function upsertCalendarMeeting(
     await query(
       `UPDATE meetings SET topic=$2, scheduled_at=COALESCE($3, scheduled_at), attendees=$4,
          brand_id=COALESCE(brand_id,$5), zoom_join_url=COALESCE($6, zoom_join_url) WHERE id=$1`,
-      [existing.id, ev.summary || "미팅 초대", ev.startIso, JSON.stringify(attendees), brandId, location],
+      [existing.id, topic, ev.startIso, JSON.stringify(attendees), brandId, location],
     ).catch(() => {});
     return { created: false, meetingId: existing.id, brandId };
   }
@@ -46,7 +61,7 @@ export async function upsertCalendarMeeting(
   const row = await queryOne<{ id: string }>(
     `INSERT INTO meetings (brand_id, zoom_meeting_id, zoom_uuid, topic, host_email, attendees, scheduled_at, zoom_join_url, status, created_by)
      VALUES ($1,'ics',$2,$3,$4,$5,$6,$7,$8,'email-calendar') RETURNING id`,
-    [brandId, zoomUuid, ev.summary || "미팅 초대", ev.organizer?.email ?? opts.ownerEmail,
+    [brandId, zoomUuid, topic, ev.organizer?.email ?? opts.ownerEmail,
      JSON.stringify(attendees), ev.startIso, location, brandId ? "scheduled" : "unmatched"],
   ).catch(() => null);
   return { created: Boolean(row), meetingId: row?.id, brandId };

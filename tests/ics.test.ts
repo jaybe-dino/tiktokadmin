@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { parseIcs } from "../lib/ics";
+import { cleanMeetingTitle } from "../lib/meetings";
+
+describe("cleanMeetingTitle", () => {
+  it("제목 앞에 붙은 URL 제거", () => {
+    expect(cleanMeetingTitle("https://dinostudio.kr/ 브랜드 상담")).toBe("브랜드 상담");
+  });
+  it("URL만 있으면 기본 제목", () => {
+    expect(cleanMeetingTitle("https://dinostudio.kr/")).toBe("미팅 초대");
+  });
+  it("빈 값이면 기본 제목", () => {
+    expect(cleanMeetingTitle("")).toBe("미팅 초대");
+  });
+  it("URL 없는 정상 제목은 그대로", () => {
+    expect(cleanMeetingTitle("브랜드 킥오프 미팅")).toBe("브랜드 킥오프 미팅");
+  });
+});
 
 const SAMPLE = [
   "BEGIN:VCALENDAR",
