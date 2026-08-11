@@ -4,9 +4,14 @@ import CsvExportButton from "./CsvExportButton";
 import CustomerTable from "@/components/CustomerTable";
 import { adminUserList, customersList } from "@/lib/repo/queries";
 import { currentUser } from "@/lib/auth";
-import { PLAN_LABELS, PLANS, SOURCE_LABELS, SOURCES, STATE_LABELS, STATES, GRADES } from "@/lib/types";
+import { PLAN_LABELS, PLANS, SOURCE_LABELS, SOURCES, STATE_LABELS, STATES, GRADES, COUNTRY_OPTIONS } from "@/lib/types";
+import { OPS_COUNTRIES } from "@/lib/quote";
+import { normCountry } from "@/lib/progress-countries";
 
 export const dynamic = "force-dynamic";
+
+// 진행국가 필터 옵션 — 목표국(COUNTRY_OPTIONS) + 운영견적 국가(OPS_COUNTRIES) 라벨 합집합(별칭 정규화).
+const COUNTRY_FILTER_OPTS = Array.from(new Set<string>([...COUNTRY_OPTIONS, ...OPS_COUNTRIES.map((c) => c.label)].map(normCountry)));
 
 const SORT_OPTS: [string, string][] = [
   ["updated", "최근 업데이트순"],
@@ -19,7 +24,7 @@ const SORT_OPTS: [string, string][] = [
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; state?: string; source?: string; grade?: string; plan?: string; owner?: string; breach?: string; sort?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; state?: string; source?: string; grade?: string; plan?: string; owner?: string; country?: string; breach?: string; sort?: string; page?: string }>;
 }) {
   const sp = await searchParams;
   const breachOn = sp.breach === "1";
@@ -27,7 +32,7 @@ export default async function CustomersPage({
   const [{ rows, total, page, pages }, user] = await Promise.all([
     customersList({
       q: sp.q, state: sp.state, source: sp.source, grade: sp.grade,
-      plan: sp.plan, owner: sp.owner, breach: breachOn, sort,
+      plan: sp.plan, owner: sp.owner, country: sp.country, breach: breachOn, sort,
       page: sp.page ? Number(sp.page) : 1,
     }),
     currentUser(),
@@ -37,7 +42,7 @@ export default async function CustomersPage({
   const admins = await adminUserList().catch(() => []);
   const ownerOptions = admins.filter((a) => a.name).map((a) => ({ id: a.id, name: a.name }));
 
-  const baseParams = { q: sp.q, state: sp.state, source: sp.source, grade: sp.grade, plan: sp.plan, owner: sp.owner, breach: sp.breach, sort: sp.sort };
+  const baseParams = { q: sp.q, state: sp.state, source: sp.source, grade: sp.grade, plan: sp.plan, owner: sp.owner, country: sp.country, breach: sp.breach, sort: sp.sort };
   const qs = (over: Record<string, string | number | undefined>) => {
     const params = new URLSearchParams();
     const merged = { ...baseParams, ...over };
@@ -83,6 +88,10 @@ export default async function CustomersPage({
         <select name="source" defaultValue={sp.source ?? ""} style={{ width: 140 }}>
           <option value="">유입 전체</option>
           {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s] ?? s}</option>)}
+        </select>
+        <select name="country" defaultValue={sp.country ?? ""} style={{ width: 120 }} title="진행국가">
+          <option value="">진행국가 전체</option>
+          {COUNTRY_FILTER_OPTS.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         <select name="sort" defaultValue={sort} style={{ width: 160 }} title="정렬">
           {SORT_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}

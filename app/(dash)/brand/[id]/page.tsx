@@ -22,6 +22,7 @@ import { GradeBadge, StateBadge } from "@/components/badges";
 import { cardDeep } from "@/lib/repo/card";
 import { query } from "@/lib/db";
 import { brand360 } from "@/lib/repo/queries";
+import { aggregateProgressCountries } from "@/lib/progress-countries";
 import { currentUser } from "@/lib/auth";
 import { listMeetingNotes } from "@/lib/meeting-notes";
 import Brand360MeetingNotes from "@/components/Brand360MeetingNotes";
@@ -70,6 +71,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   // 성능(Stage0): 서로 독립적인 조회는 한 번에 병렬 실행 — 순차 왕복 제거.
   //   (brand.id/brand.state 만 필요, 상호 의존 없음)
   const safe = <T,>(p: Promise<T[]>): Promise<T[]> => p.catch(() => [] as T[]);
+  const progressCountries = await aggregateProgressCountries(brand.id).catch(() => [] as string[]);
   const [rawReqs, deep, emails, extra, gateCtx] = await Promise.all([
     stageChecklist(brand.id, brand.state).catch(() => []),
     cardDeep(brand.id).catch(() => null),
@@ -167,6 +169,18 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
       </div>
 
       <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
+        {/* 진행국가 — 목표국·운영견적·온보딩 KYC·물류에서 합산(중복 제거) */}
+        <div className="card" style={{ padding: 14 }}>
+          <b style={{ display: "block", marginBottom: 8, fontSize: 13 }}>🌏 진행국가</b>
+          {progressCountries.length === 0 ? (
+            <p className="note" style={{ margin: 0 }}>아직 진행국가가 없습니다 — 운영견적·온보딩 서류에서 국가를 입력하면 표기됩니다.</p>
+          ) : (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {progressCountries.map((c) => <span key={c} className="pill" style={{ background: "#eef5ff", color: "#1e40af", fontSize: 12 }}>{c}</span>)}
+            </div>
+          )}
+        </div>
+
         <Brand360GateCard brandId={brand.id} gate={gate} gateNext={gateNext} stageReqs={stageReqs} canForce={canForce} />
 
         {/* 기획 확정: 담당자 보정 + 미입력 "입력 필요" + 운영 전이 전 전부 입력 */}

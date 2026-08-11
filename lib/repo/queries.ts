@@ -348,7 +348,7 @@ const CUSTOMER_SORTS: Record<string, string> = {
 
 export async function customersList(f: {
   q?: string; state?: string; source?: string; grade?: string;
-  plan?: string; owner?: string; breach?: boolean; sort?: string; page?: number;
+  plan?: string; owner?: string; country?: string; breach?: boolean; sort?: string; page?: number;
 }): Promise<{ rows: CustomerRow[]; total: number; page: number; pages: number }> {
   const where: string[] = ["1=1"];
   const p: unknown[] = [];
@@ -366,6 +366,21 @@ export async function customersList(f: {
   if (f.owner) {
     p.push(f.owner);
     where.push(`$${p.length} IN (b.owner_intake, b.owner_sales, b.owner_onboard, b.owner_ads)`);
+  }
+  // 진행국가 필터 — 목표국·운영견적·물류·온보딩 KYC 중 하나라도 선택 국가를 포함하면 매칭(라벨/코드 동시).
+  if (f.country) {
+    const { normCountry, codeForLabel } = await import("@/lib/progress-countries");
+    const label = normCountry(f.country);
+    const code = codeForLabel(label);
+    p.push(label); const pl = p.length;
+    p.push(code); const pc = p.length;
+    where.push(`(
+      b.countries @> ARRAY[$${pl}]::text[]
+      OR EXISTS(SELECT 1 FROM proposals pr WHERE pr.brand_id=b.id AND pr.countries && ARRAY[$${pc}]::text[])
+      OR EXISTS(SELECT 1 FROM logistics_contracts lc WHERE lc.brand_id=b.id AND lc.country=$${pc})
+      OR EXISTS(SELECT 1 FROM onb_applications oa JOIN onb_countries oc ON oc.application_id=oa.id
+                 WHERE oa.brand_id=b.id AND (oc.country_name=$${pl} OR oc.country_code=$${pc}))
+    )`);
   }
   if (f.breach) {
     where.push(`EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind='sla_breach' AND a.resolved_at IS NULL)`);
