@@ -113,7 +113,7 @@ function extractBody(payload: GmailPart | undefined): string {
   return html ? html.replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "";
 }
 
-/** 한 사서함(owner) 최근 메일 수집 → 브랜드 매칭분만 적재. 반환 저장 건수. */
+/** 한 사서함(owner) 최근 메일 전체 수집 → 매칭분은 브랜드 연결, 미매칭은 brand_id=null 로 적재. 반환 저장 건수. */
 export async function syncMailbox(ownerEmail: string, maxResults = 30): Promise<number> {
   const token = await getAccessToken(ownerEmail);
   if (!token) return 0;
@@ -155,15 +155,14 @@ export async function syncMailbox(ownerEmail: string, maxResults = 30): Promise<
       }
     } catch { /* 초대 파싱 실패는 메일 수집에 영향 주지 않음 */ }
 
-    // 브랜드 매칭 메일만 (프라이버시 — 미매칭 폐기)
+    // 공용 메일함은 모든 메일을 기본 수집 — 매칭되면 브랜드 연결, 미매칭이면 brand_id=null 로 저장(메일함에서 수동 연결).
     const match = await matchBrandByAddresses(participants);
-    if (!match) continue;
 
     const owner = ownerEmail.toLowerCase();
     const direction: "in" | "out" = from === owner ? "out" : "in";
     const sentAt = new Date(Number(msg.internalDate ?? Date.now())).toISOString();
 
-    const ok = await ingestEmailMessage(match.brandId, {
+    const ok = await ingestEmailMessage(match?.brandId ?? null, {
       gmailMsgId: id, threadId: msg.threadId ?? id, direction,
       ownerEmail: owner, fromAddr: from, toAddrs: to,
       subject, snippet: (msg.snippet ?? "").slice(0, 300),

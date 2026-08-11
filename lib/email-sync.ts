@@ -1,4 +1,4 @@
-// Gmail 수집 매칭·부수효과 (09-A). 브랜드 매칭 메일만 저장(프라이버시).
+// Gmail 수집 매칭·부수효과 (09-A). 공용 메일함 전체 수집 — 매칭분은 브랜드 연결, 미매칭은 brand_id NULL 로 저장.
 import { query, queryOne } from "./db";
 import { normalizeEmail, urlHost } from "./dedup";
 
@@ -59,8 +59,11 @@ export interface IncomingEmail {
   hasAttachment: boolean; sentAt: string;
 }
 
-/** 매칭된 메일 저장 + 부수효과(contact_logged·last_contact_at·무응답 해제). 멱등. */
-export async function ingestEmailMessage(brandId: string, m: IncomingEmail): Promise<boolean> {
+/**
+ * 메일 저장 + 브랜드 매칭분에 한해 부수효과(contact_logged·last_contact_at·무응답 해제). 멱등.
+ *   brandId=null(미매칭)이면 메시지만 저장하고 부수효과는 건너뛴다(메일함에서 수동 연결 대상).
+ */
+export async function ingestEmailMessage(brandId: string | null, m: IncomingEmail): Promise<boolean> {
   const dup = await queryOne<{ id: string }>("SELECT id FROM email_messages WHERE gmail_msg_id=$1", [m.gmailMsgId]);
   if (dup) return false;
 
@@ -70,6 +73,9 @@ export async function ingestEmailMessage(brandId: string, m: IncomingEmail): Pro
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     [brandId, m.gmailMsgId, m.threadId, m.direction, m.ownerEmail, m.fromAddr, m.toAddrs,
      m.subject, m.snippet, m.bodyText ?? null, m.hasAttachment, m.sentAt]);
+
+  // 미매칭 메일은 저장만 (브랜드 부수효과 없음)
+  if (!brandId) return true;
 
   // contact_logged + last_contact_at (in/out 모두)
   await query(

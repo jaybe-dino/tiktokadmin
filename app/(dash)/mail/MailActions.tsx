@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { assignAction, composeEmailAction } from "@/app/actions";
-import { listAssigneesAction, type Assignee } from "./actions";
+import { listAssigneesAction, listBrandOptionsAction, connectThreadToBrandAction, type Assignee, type BrandOption } from "./actions";
 
 // 메일 스레드 우측/본문 액션들 — 실제 서버액션에 연결.
 //   · AssignOwnerButton: 담당(영업) 이관 → assignAction("owner_sales") 게이트 경유.
@@ -84,6 +85,84 @@ export function AssignOwnerButton({ brandId }: { brandId: string | null }) {
               </option>
             ))}
           </select>
+        )}
+      </span>
+      {msg && <Msg text={msg.text} ok={msg.ok} />}
+    </span>
+  );
+}
+
+/** 미매칭 스레드 → 브랜드 수동 연결. 연결 시 상대 주소를 별칭 등록해 향후 자동 매칭. */
+export function ConnectBrandButton({ threadId }: { threadId: string }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [brands, setBrands] = useState<BrandOption[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [q, setQ] = useState("");
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  function toggle() {
+    setMsg(null);
+    setOpen((v) => !v);
+    if (!loaded) {
+      start(async () => {
+        const r = await listBrandOptionsAction();
+        setBrands(r.brands);
+        setLoaded(true);
+        if (!r.ok) setMsg({ text: r.error ?? "브랜드 목록 로드 실패", ok: false });
+      });
+    }
+  }
+
+  function onPick(brandId: string) {
+    if (!brandId) return;
+    start(async () => {
+      const r = await connectThreadToBrandAction(threadId, brandId);
+      if (r.ok) {
+        setMsg({ text: `브랜드 연결 완료 (${r.moved ?? 0}건)`, ok: true });
+        setOpen(false);
+        router.refresh();
+      } else {
+        setMsg({ text: r.error ?? "연결 실패", ok: false });
+      }
+    });
+  }
+
+  const filtered = q.trim()
+    ? brands.filter((b) => b.name.toLowerCase().includes(q.trim().toLowerCase()))
+    : brands;
+
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <button className="btn" type="button" onClick={toggle} disabled={pending}>
+          🔗 브랜드 연결
+        </button>
+        {open && (
+          <>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="브랜드 검색…"
+              style={{ fontSize: 12, padding: "3px 6px", border: "1px solid var(--line)", borderRadius: 6, width: 130 }}
+            />
+            <select
+              defaultValue=""
+              disabled={pending}
+              onChange={(e) => onPick(e.target.value)}
+              style={{ fontSize: 12, maxWidth: 180 }}
+            >
+              <option value="" disabled>
+                {loaded ? "브랜드 선택…" : "불러오는 중…"}
+              </option>
+              {filtered.slice(0, 200).map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </>
         )}
       </span>
       {msg && <Msg text={msg.text} ok={msg.ok} />}

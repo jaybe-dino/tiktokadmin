@@ -5,7 +5,7 @@ import { kstDateTime, kstTime } from "@/lib/time";
 import Link from "next/link";
 import { GradeBadge, StateBadge, PlanBadge, PayBadge } from "@/components/badges";
 import type { Grade, State, Plan } from "@/lib/types";
-import { AssignOwnerButton, DraftReplyButton } from "./MailActions";
+import { AssignOwnerButton, DraftReplyButton, ConnectBrandButton } from "./MailActions";
 
 // 메일함 3분할 클라이언트 (.mail3 .ml .it) — 프로토타입 s-mail 레이아웃.
 // 데이터(스레드 목록·스레드별 메시지·브랜드 컨텍스트)는 서버 page.tsx 에서 주입.
@@ -224,11 +224,13 @@ export default function MailPanel({
                 </div>
               )}
 
-              <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
-                {sel.brand_id && (
+              <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                {sel.brand_id ? (
                   <Link href={`/brand/${sel.brand_id}`} className="btn">
                     타임라인 보기
                   </Link>
+                ) : (
+                  <ConnectBrandButton threadId={sel.thread_id} />
                 )}
                 <AssignOwnerButton brandId={sel.brand_id} />
               </div>

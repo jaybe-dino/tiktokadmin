@@ -132,15 +132,17 @@ export default async function MailPage() {
   const noReplyCount = threads.filter(
     (t) => t.direction === "in" && elapsedMs(t.sent_at) >= NO_REPLY_MS
   ).length;
+  const unmatchedCount = threads.filter((t) => !t.brand_id).length;
 
   return (
     <div>
       <ScreenHeader
         title="메일함"
-        desc="브랜드 매칭된 메일만 자동 수집 · 질문은 QnA로 답장 초안 · 무응답 감시"
+        desc="공용 메일함 전체 자동 수집 · 미매칭은 브랜드에 수동 연결 · 질문은 QnA로 답장 초안 · 무응답 감시"
         right={
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span className="chip">스레드 {threads.length}</span>
+            {unmatchedCount > 0 && <span className="chip amb">미매칭 {unmatchedCount}</span>}
             {noReplyCount > 0 && <span className="chip red">무응답 48h+ {noReplyCount}</span>}
           </div>
         }
