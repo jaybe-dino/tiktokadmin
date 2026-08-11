@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { connectMeetingBrandAction } from "./actions";
 
-// 매칭 필요 미팅 → 브랜드 수동 연결(브랜드 선택 + 연결 실행).
+// 매칭 필요 미팅 → 브랜드 수동 연결. '브랜드 매칭' 클릭 → 검색 → 연결.
 export default function ConnectBrand({
   meetingId,
   brands,
@@ -13,40 +13,74 @@ export default function ConnectBrand({
   brands: { id: string; name: string }[];
 }) {
   const router = useRouter();
-  const [brandId, setBrandId] = useState("");
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
   const [pending, start] = useTransition();
   const [err, setErr] = useState("");
 
-  function connect() {
-    if (!brandId) {
-      setErr("브랜드를 선택하세요.");
-      return;
-    }
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return brands.slice(0, 50);
+    return brands.filter((b) => b.name.toLowerCase().includes(s)).slice(0, 50);
+  }, [q, brands]);
+
+  function connect(brandId: string) {
     setErr("");
     start(async () => {
       const r = await connectMeetingBrandAction(meetingId, brandId);
-      if (r.ok) router.refresh();
+      if (r.ok) { setOpen(false); router.refresh(); }
       else setErr(r.error ?? "연결 실패");
     });
   }
 
+  if (!open) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        {err && <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--danger)" }}>{err}</span>}
+        <button className="btn sm pri" onClick={() => setOpen(true)}>브랜드 매칭</button>
+      </span>
+    );
+  }
+
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 4, alignItems: "flex-end", position: "relative" }}>
+      <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+        <input
+          autoFocus
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="브랜드 검색…"
+          disabled={pending}
+          style={{ border: "1px solid var(--line)", borderRadius: 7, padding: "4px 8px", fontSize: 11.5, fontFamily: "inherit", width: 150 }}
+        />
+        <button className="btn sm" disabled={pending} onClick={() => { setOpen(false); setQ(""); setErr(""); }}>닫기</button>
+      </div>
       {err && <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--danger)" }}>{err}</span>}
-      <select
-        value={brandId}
-        onChange={(e) => setBrandId(e.target.value)}
-        disabled={pending}
-        style={{ border: "1px solid var(--line)", borderRadius: 7, padding: "4px 8px", fontSize: 11, background: "#fff", fontFamily: "inherit", color: "var(--ink2)", maxWidth: 130 }}
+      <div
+        style={{
+          maxHeight: 200, overflowY: "auto", width: 214, border: "1px solid var(--line)", borderRadius: 8,
+          background: "#fff", boxShadow: "0 6px 16px rgba(15,23,42,.12)", display: "flex", flexDirection: "column",
+        }}
       >
-        <option value="">브랜드 선택…</option>
-        {brands.map((b) => (
-          <option key={b.id} value={b.id}>{b.name}</option>
-        ))}
-      </select>
-      <button className="btn sm pri" disabled={pending} onClick={connect}>
-        {pending ? "연결 중…" : "브랜드 연결"}
-      </button>
+        {filtered.length === 0 ? (
+          <div style={{ padding: 10, fontSize: 11.5, color: "var(--ink3)" }}>검색 결과 없음</div>
+        ) : (
+          filtered.map((b) => (
+            <button
+              key={b.id}
+              disabled={pending}
+              onClick={() => connect(b.id)}
+              style={{
+                textAlign: "left", padding: "6px 10px", fontSize: 12, border: "none", background: "none",
+                cursor: "pointer", borderBottom: "1px solid var(--line)", fontFamily: "inherit", color: "var(--ink)",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}
+            >
+              {pending ? "연결 중…" : b.name}
+            </button>
+          ))
+        )}
+      </div>
     </span>
   );
 }
