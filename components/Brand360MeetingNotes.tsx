@@ -67,11 +67,14 @@ export default function Brand360MeetingNotes({ brandId, meetings, notes }: {
           <div><label className="label">회의록 내용(텍스트)</label>
             <textarea name="body" className="input" rows={5} style={{ width: "100%" }} placeholder="논의 내용·결정사항·다음 액션 등" /></div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <div style={{ flex: 1, minWidth: 200 }}><label className="label">파일 업로드(선택, 15MB↓)</label><input name="file" type="file" className="input" style={{ width: "100%" }} /></div>
+            <div style={{ flex: 1, minWidth: 200 }}><label className="label">파일 업로드 · 녹음(25MB↓) / 첨부(15MB↓)</label><input name="file" type="file" className="input" style={{ width: "100%" }} accept="audio/*,video/*,.pdf,.doc,.docx,.txt,.png,.jpg" /></div>
             <div style={{ flex: 1, minWidth: 200 }}><label className="label">또는 파일 링크(구글드라이브 등)</label><input name="file_url" type="url" className="input" style={{ width: "100%" }} placeholder="https://drive.google.com/…" /></div>
           </div>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
+            <input name="transcribe" type="checkbox" defaultChecked /> 🎙️ 녹음 파일이면 자동 전사(한국어)·AI 회의록 작성 <span style={{ color: "var(--ink3)", fontSize: 11 }}>(전사에 30초~1분 소요될 수 있어요)</span>
+          </label>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button className="btn btn-primary btn-sm" type="submit" disabled={pending}>{pending ? "저장 중…" : "저장"}</button>
+            <button className="btn btn-primary btn-sm" type="submit" disabled={pending}>{pending ? "저장·전사 중…" : "저장"}</button>
             {msg && <span className="note" style={{ color: "var(--bad)" }}>{msg}</span>}
           </div>
         </form>

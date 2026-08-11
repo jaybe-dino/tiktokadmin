@@ -37,6 +37,8 @@ import { buildGateContext } from "@/lib/gates";
 import { SOURCE_LABELS, STATE_LABELS, type Brand, type State } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+// 회의록 녹음 전사(Whisper)·AI 요약 서버액션이 이 라우트에서 실행 — 최대 60초 허용.
+export const maxDuration = 60;
 
 // 진행 스텝퍼 정의 — canonical state → 10단계 (dropped/churned 는 종료라 미표시)
 const STEP_DEFS: { label: string; states: State[] }[] = [

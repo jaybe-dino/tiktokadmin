@@ -14,6 +14,32 @@ export function sttEnabled(): boolean {
   return provider() !== null;
 }
 
+/** 업로드된 녹음 파일(바이트) → 한국어 전사 텍스트. 실패/키없음 시 null. (Whisper 25MB 제한) */
+export async function transcribeAudioBuffer(bytes: Buffer, filename = "recording.m4a", mime = "audio/m4a"): Promise<string | null> {
+  const p = provider();
+  if (!p) return null;
+  try {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(bytes)], { type: mime }), filename);
+    form.append("model", p.model);
+    form.append("language", "ko");
+    form.append("response_format", "text");
+    const res = await fetch(p.url, { method: "POST", headers: { authorization: `Bearer ${p.key}` }, body: form });
+    if (!res.ok) { console.error("[stt] buffer transcription failed:", res.status); return null; }
+    const text = await res.text();
+    return text.trim() || null;
+  } catch (e) {
+    console.error("[stt] buffer error:", (e as Error).message);
+    return null;
+  }
+}
+
+/** 파일이 음성/영상 녹음인지 판정(mime 또는 확장자). */
+export function isAudioFile(name: string, mime: string): boolean {
+  if (/^(audio|video)\//i.test(mime)) return true;
+  return /\.(m4a|mp3|wav|aac|ogg|flac|mp4|mov|webm|mpeg|mpga|amr)$/i.test(name);
+}
+
 /**
  * 녹음 URL(M4A/MP3 등) → 한국어 전사 텍스트. 실패/키없음 시 null.
  *   25MB 초과는 provider 제한 — 프로덕션에선 청크 분할 필요(현재는 단일 요청).

@@ -14,23 +14,62 @@ export async function addMeetingNoteAction(formData: FormData): Promise<{ ok: bo
   const brandId = String(formData.get("brand_id") ?? "");
   if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
   const noteDate = String(formData.get("note_date") ?? "").trim() || null;
-  const title = String(formData.get("title") ?? "").trim();
-  const body = String(formData.get("body") ?? "").trim();
+  let title = String(formData.get("title") ?? "").trim();
+  let body = String(formData.get("body") ?? "").trim();
   const fileUrl = String(formData.get("file_url") ?? "").trim();
+  const wantTranscribe = String(formData.get("transcribe") ?? "") === "on";
   const file = formData.get("file");
 
   let fileName: string | null = null, fileMime: string | null = null, fileBytes: Buffer | null = null;
+  let isAudio = false;
   if (file && typeof file === "object" && "arrayBuffer" in file && (file as File).size > 0) {
     const f = file as File;
-    if (f.size > 15 * 1024 * 1024) return { ok: false, error: "파일은 15MB 이하만 가능합니다." };
     fileName = f.name; fileMime = f.type || "application/octet-stream";
+    const { isAudioFile } = await import("@/lib/stt");
+    isAudio = isAudioFile(fileName, fileMime);
+    // 녹음(전사 대상)은 25MB(Whisper 한도), 그 외 첨부는 15MB.
+    const cap = isAudio && wantTranscribe ? 25 : 15;
+    if (f.size > cap * 1024 * 1024) return { ok: false, error: `파일은 ${cap}MB 이하만 가능합니다.` };
     fileBytes = Buffer.from(await f.arrayBuffer());
   }
   if (!body && !fileBytes && !fileUrl) return { ok: false, error: "회의록 내용(텍스트) 또는 파일이 필요합니다." };
 
+  // 녹음 파일 자동 전사·요약 — 한국어 전사(Whisper) 후 AI 회의록 요약.
+  let transcript = "";
+  let note = "";
+  if (fileBytes && isAudio && wantTranscribe) {
+    const { transcribeAudioBuffer, sttEnabled } = await import("@/lib/stt");
+    if (!sttEnabled()) {
+      note = "전사 미설정(OPENAI/GROQ 키 없음) — 녹음 파일만 저장했습니다.";
+    } else {
+      transcript = (await transcribeAudioBuffer(fileBytes, fileName ?? "recording.m4a", fileMime ?? "audio/m4a")) ?? "";
+      if (!transcript) {
+        note = "전사 실패(파일 형식/크기 확인) — 녹음 파일만 저장했습니다.";
+      } else {
+        // AI 회의록 요약(키 있으면).
+        let summary = "";
+        if (aiEnabled()) {
+          summary = (await aiText({
+            system: "너는 GloveK 영업/온보딩 미팅 서기다. 아래 한국어 녹취를 회의록으로 정리하라. 마크다운으로 " +
+              "① 핵심 논의 요약(3~5줄) ② 결정 사항 ③ 액션 아이템(담당/기한 추정 포함) ④ 후속 확인 필요 항목. 과장 없이 사실 기반.",
+            user: `미팅 녹취:\n${transcript.slice(0, 12000)}`,
+            maxTokens: 1200,
+          }).catch(() => null)) ?? "";
+        }
+        // 본문 = (사용자 입력) + 요약(있으면) + 전사 원문. 요약 없으면 전사 원문이 본문 역할.
+        const parts = [body];
+        if (summary) parts.push(summary);
+        parts.push(`---\n[전사 원문]\n${transcript.slice(0, 20000)}`);
+        body = parts.filter(Boolean).join("\n\n");
+        if (!title) title = "녹음 회의록";
+      }
+    }
+  }
+
   const { addMeetingNote } = await import("@/lib/meeting-notes");
   const id = await addMeetingNote({
-    brand_id: brandId, note_date: noteDate, title, body,
+    brand_id: brandId, note_date: noteDate, title,
+    body: [body, note].filter(Boolean).join("\n\n"),
     file_url: fileUrl || null, file_name: fileName, file_mime: fileMime, file_bytes: fileBytes,
     created_by: u.id,
   });
