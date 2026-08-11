@@ -7,20 +7,34 @@ export const dynamic = "force-dynamic";
 
 export default async function MktPage() {
   const raw = (await allMktProjects().catch(() => [])) as Record<string, unknown>[];
-  const rows: MktRow[] = raw.map((r) => ({
-    id: String(r.id),
-    title: String(r.title ?? ""),
-    kind: String(r.kind ?? "project"),
-    proposal_status: String(r.proposal_status ?? "draft"),
-    note: r.note == null ? null : String(r.note),
-    brand_name: String(r.brand_name ?? ""),
-    brand_id: String(r.brand_id ?? ""),
-    proposal_id: r.proposal_id == null ? null : String(r.proposal_id),
-    prop_title: r.prop_title == null ? null : String(r.prop_title),
-    prop_amount: r.prop_amount == null ? null : Number(r.prop_amount),
-    prop_status: r.prop_status == null ? null : String(r.prop_status),
-    prop_url: r.prop_url == null ? null : String(r.prop_url),
-  }));
+
+  // 마케팅 제안서 신규 필드(제안 예정일·최종 일정·RFP·AI방향) — 0064 미적용 시 빈 맵(안전).
+  const metaRaw = (await query(
+    `SELECT id, propose_date::text AS propose_date, final_due_date::text AS final_due_date,
+            rfp_text, rfp_file_url, ai_direction
+       FROM proposals WHERE kind='marketing'`,
+  ).catch(() => [])) as Record<string, unknown>[];
+  const metaById = new Map(metaRaw.map((m) => [String(m.id), m]));
+
+  const rows: MktRow[] = raw.map((r) => {
+    const meta = r.proposal_id ? metaById.get(String(r.proposal_id)) ?? {} : {};
+    return {
+      id: String(r.id),
+      title: String(r.title ?? ""),
+      kind: String(r.kind ?? "project"),
+      proposal_status: String(r.proposal_status ?? "draft"),
+      note: r.note == null ? null : String(r.note),
+      brand_name: String(r.brand_name ?? ""),
+      brand_id: String(r.brand_id ?? ""),
+      proposal_id: r.proposal_id == null ? null : String(r.proposal_id),
+      prop_title: r.prop_title == null ? null : String(r.prop_title),
+      prop_amount: r.prop_amount == null ? null : Number(r.prop_amount),
+      prop_status: r.prop_status == null ? null : String(r.prop_status),
+      prop_url: r.prop_url == null ? null : String(r.prop_url),
+      prop_propose_date: meta.propose_date == null ? null : String(meta.propose_date),
+      prop_final_due: meta.final_due_date == null ? null : String(meta.final_due_date),
+    };
+  });
 
   // 마케팅 제안서 (proposals kind='marketing') + 초안함 발송 연결(email_drafts.proposal_id).
   // 0018 마이그레이션 전 DB 방어: 실패 시 빈 목록.
@@ -44,14 +58,6 @@ export default async function MktPage() {
       WHERE p.kind = 'marketing'
       ORDER BY p.created_at DESC LIMIT 200`,
   ).catch(() => [])) as Record<string, unknown>[];
-
-  // 신규 필드(제안 예정일·최종일정·RFP·AI방향) — 마이그레이션 0064 미적용 시 빈 맵(안전).
-  const metaRaw = (await query(
-    `SELECT id, propose_date::text AS propose_date, final_due_date::text AS final_due_date,
-            rfp_text, rfp_file_url, ai_direction
-       FROM proposals WHERE kind='marketing'`,
-  ).catch(() => [])) as Record<string, unknown>[];
-  const metaById = new Map(metaRaw.map((m) => [String(m.id), m]));
 
   const proposals: MktProposalRow[] = proposalsRaw.map((p) => {
     const meta = metaById.get(String(p.id)) ?? {};

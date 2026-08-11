@@ -33,6 +33,8 @@ export interface MktRow {
   prop_amount: number | null;
   prop_status: string | null;
   prop_url: string | null;
+  prop_propose_date?: string | null;   // 제안 예정일(연결 제안서)
+  prop_final_due?: string | null;      // 최종 제안 예정 일정
 }
 
 // 마케팅 제안서 행 (proposals kind='marketing' + 초안함 연결)
@@ -119,7 +121,7 @@ export default function MktScreen({
         </button>
       </div>
 
-      {tab === "pipe" && <Pipeline projects={projects} brands={brands} onGoProposals={() => setTab("prop")} />}
+      {tab === "pipe" && <Pipeline projects={projects} onGoProposals={() => setTab("prop")} />}
       {tab === "routine" && <Routine routines={routines} />}
       {tab === "prop" && <Proposals proposals={proposals} brands={brands} projects={rows} />}
       {tab === "map" && <BrandMap rows={rows} />}
@@ -128,17 +130,10 @@ export default function MktScreen({
 }
 
 // ── 탭 1: 파이프라인 보드 ─────────────────────────────────────
-function Pipeline({ projects, brands, onGoProposals }: { projects: MktRow[]; brands: MktBrandOpt[]; onGoProposals: () => void }) {
+function Pipeline({ projects, onGoProposals }: { projects: MktRow[]; onGoProposals: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
-  const [newOpen, setNewOpen] = useState(false);
-  const [nbBrand, setNbBrand] = useState(brands[0]?.id ?? "");
-  const [nbTitle, setNbTitle] = useState("");
-  const [nbNote, setNbNote] = useState("");
-  const [nbAmount, setNbAmount] = useState("");
-  const [nbFile, setNbFile] = useState("");
-  const [nbErr, setNbErr] = useState("");
   // 드래그앤드랍 이동 상태
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
@@ -153,15 +148,6 @@ function Pipeline({ projects, brands, onGoProposals }: { projects: MktRow[]; bra
       )
     : projects;
   const count = (k: string) => filtered.filter((r) => r.proposal_status === k).length;
-  // 신규 프로젝트 = 마케팅 제안서(2-3): 카드 생성 시 항상 제안서를 만들어 연결한다.
-  function addProject() {
-    setNbErr("");
-    start(async () => {
-      const r = await createMktProposalAction({ brand_id: nbBrand, title: nbTitle, note: nbNote, amount: nbAmount, file_url: nbFile, link_project: true });
-      if (r.ok) { setNewOpen(false); setNbTitle(""); setNbNote(""); setNbAmount(""); setNbFile(""); router.refresh(); }
-      else setNbErr(r.error ?? "등록 실패");
-    });
-  }
   // 드롭 → 상태 이동(게이트 검증). 같은 열이면 무시.
   function dropTo(colKey: string) {
     const id = dragId;
@@ -185,7 +171,7 @@ function Pipeline({ projects, brands, onGoProposals }: { projects: MktRow[]; bra
           </span>
         ))}
         <button className="btn sm pri" onClick={onGoProposals} style={{ marginLeft: "auto" }} title="마케팅 제안서 작성 화면으로 이동(제안서 저장 시 프로젝트가 자동 생성·연결됩니다)">
-          + 신규 제안·프로젝트
+          + 신규 프로젝트
         </button>
         <input
           value={q}
@@ -196,42 +182,6 @@ function Pipeline({ projects, brands, onGoProposals }: { projects: MktRow[]; bra
           수주→진행은 계약 등록이 필요합니다 — 카드 이동도 게이트 검증
         </span>
       </div>
-      {newOpen && (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <div className="bd" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-            <div>
-              <label className="f">브랜드</label>
-              <select className="f" value={nbBrand} onChange={(e) => setNbBrand(e.target.value)} style={{ minWidth: 160 }}>
-                {brands.length === 0 && <option value="">브랜드 없음 — 마케팅 제안서 탭에서 등록</option>}
-                {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </div>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <label className="f">프로젝트명</label>
-              <input className="f" value={nbTitle} onChange={(e) => setNbTitle(e.target.value)} placeholder="예: 무신사 8월 브랜드 캠페인 RFP" />
-            </div>
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <label className="f">메모/범위(선택)</label>
-              <input className="f" value={nbNote} onChange={(e) => setNbNote(e.target.value)} placeholder="예: 인바운드 문의 · RFP 접수" />
-            </div>
-            <div style={{ minWidth: 120 }}>
-              <label className="f">제안 금액(선택)</label>
-              <input className="f" value={nbAmount} onChange={(e) => setNbAmount(e.target.value)} placeholder="원" inputMode="numeric" />
-            </div>
-            <div style={{ minWidth: 160 }}>
-              <label className="f">제안서 파일 링크(선택)</label>
-              <input className="f" value={nbFile} onChange={(e) => setNbFile(e.target.value)} placeholder="드라이브 PPT/PDF URL" />
-            </div>
-            <button className="btn pri" disabled={pending || !nbBrand || !nbTitle.trim()} onClick={addProject}>
-              {pending ? "등록 중…" : "제안서·프로젝트 생성"}
-            </button>
-            {nbErr && <span className="chip red" style={{ fontSize: 11 }}>{nbErr}</span>}
-          </div>
-          <div className="bd" style={{ paddingTop: 0, fontSize: 11, color: "var(--ink3)" }}>
-            신규 프로젝트는 <b>마케팅 제안서로 함께 생성</b>되어 자동 연결됩니다(발송·수락 관리는 「마케팅 제안서」 탭).
-          </div>
-        </div>
-      )}
       {projects.length === 0 ? (
         <div className="note">진행 중인 개별 프로젝트가 없습니다. RFP 접수·인바운드 문의가 등록되면 여기에 카드로 표시됩니다.</div>
       ) : filtered.length === 0 ? (
@@ -285,6 +235,13 @@ function KCard({ m, onDragStart, onDragEnd, dragging }: { m: MktRow; onDragStart
       >
         <div className="nm">{m.title}</div>
         <div className="mt">{m.brand_name}{m.note ? ` · ${m.note}` : ""}</div>
+        {(m.prop_propose_date || m.prop_final_due || m.prop_amount != null) && (
+          <div style={{ fontSize: 10.5, color: "var(--ink3)", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {m.prop_propose_date && <span>📅 제안 {m.prop_propose_date}</span>}
+            {m.prop_final_due && <span>🏁 최종 {m.prop_final_due}</span>}
+            {m.prop_amount != null && <span>{m.prop_amount.toLocaleString("ko-KR")}원</span>}
+          </div>
+        )}
         <div className="ft" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span className={`cellchip ${ST[m.proposal_status]?.cc ?? "cc-no"}`}>{ST[m.proposal_status]?.ko ?? m.proposal_status}</span>
           {m.proposal_id
