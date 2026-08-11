@@ -25,7 +25,7 @@ const GROUPS: Group[] = [
     { href: "/contracts", label: "계약·결제", ic: "✍️" },
   ]},
   { title: "마케팅", items: [
-    { href: "/mkt", label: "마케팅 프로젝트", ic: "📣" },
+    { href: "/mkt", label: "마케팅 파이프라인", ic: "📣" },
     { href: "/send", label: "발송 센터", ic: "📤" },
   ]},
   { title: "커뮤니케이션", items: [

@@ -773,7 +773,7 @@ function BrandMap({ rows }: { rows: MktRow[] }) {
   const cur = brands.find((b) => b.id === sel) ?? brands[0];
 
   if (brands.length === 0) {
-    return <div className="note">마케팅 프로젝트가 연결된 브랜드사가 없습니다.</div>;
+    return <div className="note">마케팅 파이프라인이 연결된 브랜드사가 없습니다.</div>;
   }
 
   return (
@@ -781,7 +781,7 @@ function BrandMap({ rows }: { rows: MktRow[] }) {
       <div className="card">
         <div className="hd">
           <b>브랜드사</b>
-          <span style={{ color: "var(--ink3)", fontSize: "11px" }}>마케팅 프로젝트 보유</span>
+          <span style={{ color: "var(--ink3)", fontSize: "11px" }}>마케팅 파이프라인 보유</span>
         </div>
         <div style={{ padding: "4px 0 8px" }}>
           <div className="ml">
