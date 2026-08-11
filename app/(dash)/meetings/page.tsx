@@ -5,6 +5,7 @@ import ConnectBrand from "./ConnectBrand";
 import MeetingEditor, { type CalendarMeeting } from "./MeetingEditor";
 import MeetingMappings, { type MappedMeeting } from "./MeetingMappings";
 import MeetingDeleteButton from "./MeetingDeleteButton";
+import { MeetingDismissButton, MeetingRestoreButton } from "./MeetingMatchDismiss";
 import AddMeetingButton from "./AddMeetingButton";
 
 export const dynamic = "force-dynamic";
@@ -129,6 +130,13 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Pro
   ).catch(() => [])) as { id: string; brand_name: string }[];
   const brandList = brandOptions.map((b) => ({ id: b.id, name: b.brand_name || "(이름 없음)" }));
 
+  // 매칭 무시 처리된 미팅 id (마이그레이션 0063 미적용 시 빈 셋 — 안전).
+  const dismissedRows = (await query(
+    `SELECT id, topic, status, scheduled_at, host_email, brand_id FROM meetings
+      WHERE COALESCE(match_dismissed,false)=true ORDER BY COALESCE(scheduled_at, created_at) DESC LIMIT 100`,
+  ).catch(() => [])) as Record<string, unknown>[];
+  const dismissedIds = new Set(dismissedRows.map((m) => m.id as string));
+
   const days = weekDays(anchor);
   const weekYmds = days.map((d) => d.ymd);
   const month = monthGrid(anchor);
@@ -198,7 +206,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Pro
   const pipeline = rows
     .filter((m) => m.status === "received" || m.status === "ready" || (m.followup_status && m.followup_status !== "none"))
     .slice(0, 6);
-  const unmatched = rows.filter((m) => !m.brand_id || m.status === "unmatched").slice(0, 6);
+  const unmatched = rows.filter((m) => (!m.brand_id || m.status === "unmatched") && !dismissedIds.has(m.id as string)).slice(0, 6);
   const noshow = rows.filter((m) => m.status === "no_show" || m.status === "canceled" || m.status === "error").slice(0, 6);
 
   // 브랜드 맵핑 리스트 — 브랜드에 연결된 미팅 전체(해제/재지정/삭제 관리용)
@@ -394,13 +402,36 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Pro
                 </div>
                 <div className="rt" style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <ConnectBrand meetingId={m.id as string} brands={brandList} />
-                  <MeetingDeleteButton meetingId={m.id as string} />
+                  <MeetingDismissButton meetingId={m.id as string} />
                 </div>
               </div>
             ))}
-            {unmatched.length > 0 && <div className="note">토픽에 [브랜드명]을 넣으면 자동 매칭률이 올라갑니다 · 불필요한 미팅은 삭제</div>}
+            {unmatched.length > 0 && <div className="note">토픽에 [브랜드명]을 넣으면 자동 매칭률이 올라갑니다 · &quot;목록에서 제거&quot;는 미팅을 삭제하지 않고 아래 무시 목록으로 이동합니다.</div>}
           </div>
         </div>
+
+        {/* 매칭 무시 목록 — 목록에서 제거한 미팅(미팅 자체는 유지). 복원/삭제 관리. */}
+        {dismissedRows.length > 0 && (
+          <div className="card">
+            <div className="hd"><b>매칭 무시 목록</b><span className="chip">{dismissedRows.length}</span></div>
+            <div className="bd" style={{ fontSize: 12 }}>
+              {dismissedRows.map((m) => (
+                <div key={m.id as string} className="row">
+                  <span className="ico" style={{ background: "#e2e8f0" }}>🙈</span>
+                  <div>
+                    <div className="tt">{(m.topic as string) || "제목 없음"}</div>
+                    <div className="ss">{shortWhen(m.scheduled_at)}{m.host_email ? ` · ${m.host_email}` : ""}</div>
+                  </div>
+                  <div className="rt" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <MeetingRestoreButton meetingId={m.id as string} />
+                    <MeetingDeleteButton meetingId={m.id as string} />
+                  </div>
+                </div>
+              ))}
+              <div className="note">복원 시 다시 &quot;매칭 필요&quot;에 표시됩니다. 삭제는 미팅을 완전히 제거합니다.</div>
+            </div>
+          </div>
+        )}
 
         <div className="card">
           <div className="hd"><b>노쇼·취소</b>{noshow.length > 0 && <span className="chip amb">{noshow.length}</span>}</div>

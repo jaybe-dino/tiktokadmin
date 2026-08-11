@@ -84,6 +84,30 @@ export async function deleteMeetingAction(meetingId: string): Promise<{ ok: bool
   return { ok: true };
 }
 
+/** '매칭 필요' 목록에서 무시 — 미팅은 유지하고 목록에서만 제외(match_dismissed=true). */
+export async function dismissMeetingMatchAction(meetingId: string): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!meetingId) return { ok: false, error: "미팅 ID 누락" };
+  const r = await query("UPDATE meetings SET match_dismissed=true WHERE id=$1", [meetingId]).catch((e) => {
+    if (/match_dismissed/.test((e as Error).message)) throw new Error("마이그레이션(0063) 적용 필요");
+    throw e;
+  });
+  void r;
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
+/** 무시 취소 — 다시 '매칭 필요' 목록으로 복원. */
+export async function restoreMeetingMatchAction(meetingId: string): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!meetingId) return { ok: false, error: "미팅 ID 누락" };
+  await query("UPDATE meetings SET match_dismissed=false WHERE id=$1", [meetingId]).catch(() => {});
+  revalidatePath("/meetings");
+  return { ok: true };
+}
+
 /** 미팅↔브랜드 맵핑 해제 — brand_id 를 비우고 상태를 매칭필요(unmatched)로 되돌린다. */
 export async function unmapMeetingBrandAction(meetingId: string): Promise<{ ok: boolean; error?: string }> {
   const u = await currentUser();

@@ -24,7 +24,13 @@ export function codeForLabel(label: string): string {
   return "";
 }
 
-/** 브랜드 진행국가(한글 라벨) 통합 — 목표국·운영견적·온보딩·물류 union(중복 제거). */
+/**
+ * 브랜드 진행국가(한글 라벨) 통합 — 운영견적(최신) 중심 + 온보딩·물류·목표국(중복 제거).
+ *   · 견적: 최신 견적 1건의 countries 만 사용 → 견적을 수정(새 견적)하면 그에 맞게 갱신
+ *     (과거 견적 국가가 계속 누적돼 삭제가 반영 안 되던 문제 방지).
+ *   · 온보딩 KYC·물류 계약: 실제 진행 국가로 함께 반영.
+ *   · 목표국(brands.countries): 담당이 지정한 목표국도 포함.
+ */
 export async function aggregateProgressCountries(brandId: string): Promise<string[]> {
   const out = new Set<string>();
   const add = (v: string | null | undefined) => { const n = normCountry(String(v ?? "")); if (n) out.add(n); };
@@ -32,7 +38,10 @@ export async function aggregateProgressCountries(brandId: string): Promise<strin
   const rows = await query<{ src: string; val: string }>(
     `SELECT 'brand' src, unnest(coalesce(b.countries,'{}')) val FROM brands b WHERE b.id=$1
      UNION ALL
-     SELECT 'quote', unnest(coalesce(p.countries,'{}')) FROM proposals p WHERE p.brand_id=$1 AND p.countries IS NOT NULL
+     SELECT 'quote', unnest(coalesce(p.countries,'{}')) FROM proposals p
+       WHERE p.id = (SELECT id FROM proposals
+                       WHERE brand_id=$1 AND countries IS NOT NULL AND array_length(countries,1) > 0
+                       ORDER BY created_at DESC LIMIT 1)
      UNION ALL
      SELECT 'logi', lc.country FROM logistics_contracts lc WHERE lc.brand_id=$1
      UNION ALL
