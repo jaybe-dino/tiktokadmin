@@ -31,6 +31,8 @@ export default async function MktPage() {
       prop_amount: r.prop_amount == null ? null : Number(r.prop_amount),
       prop_status: r.prop_status == null ? null : String(r.prop_status),
       prop_url: r.prop_url == null ? null : String(r.prop_url),
+      prop_period_start: r.prop_period_start == null ? null : String(r.prop_period_start),
+      prop_period_end: r.prop_period_end == null ? null : String(r.prop_period_end),
       prop_propose_date: meta.propose_date == null ? null : String(meta.propose_date),
       prop_rfp_text: meta.rfp_text == null ? null : String(meta.rfp_text),
       prop_rfp_file_url: meta.rfp_file_url == null ? null : String(meta.rfp_file_url),

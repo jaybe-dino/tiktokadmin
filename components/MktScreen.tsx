@@ -35,6 +35,8 @@ export interface MktRow {
   prop_status: string | null;
   prop_url: string | null;
   prop_propose_date?: string | null;   // 제안 예정일(연결 제안서)
+  prop_period_start?: string | null;
+  prop_period_end?: string | null;
   prop_rfp_text?: string | null;
   prop_rfp_file_url?: string | null;
   prop_ai_direction?: string | null;
@@ -355,6 +357,7 @@ function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
           p={{
             id: m.proposal_id, brand_id: m.brand_id, brand_name: m.brand_name, title: m.prop_title || m.title,
             amount: m.prop_amount ?? null, propose_date: m.prop_propose_date ?? null,
+            period_start: m.prop_period_start ?? null, period_end: m.prop_period_end ?? null,
             rfp_text: m.prop_rfp_text ?? null, rfp_file_url: m.prop_rfp_file_url ?? null, ai_direction: m.prop_ai_direction ?? null,
           }}
           onClose={() => setEditProp(false)}
@@ -819,12 +822,15 @@ function Proposals({
 export interface ProposalEditData {
   id: string; brand_id: string; brand_name: string; title: string;
   amount: number | null; propose_date?: string | null;
+  period_start?: string | null; period_end?: string | null;
   rfp_text?: string | null; rfp_file_url?: string | null; ai_direction?: string | null;
 }
 function ProposalEditModal({ p, onClose }: { p: ProposalEditData; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [proposeDate, setProposeDate] = useState(p.propose_date ?? "");
+  const [ps, setPs] = useState(p.period_start ?? "");
+  const [pe, setPe] = useState(p.period_end ?? "");
   const [amount, setAmount] = useState(p.amount != null ? String(p.amount) : "");
   const [rfp, setRfp] = useState(p.rfp_text ?? "");
   const [rfpFile, setRfpFile] = useState(p.rfp_file_url ?? "");
@@ -849,7 +855,7 @@ function ProposalEditModal({ p, onClose }: { p: ProposalEditData; onClose: () =>
   function save() {
     start(async () => {
       const r = await updateMktProposalMetaAction({
-        id: p.id, propose_date: proposeDate, amount,
+        id: p.id, propose_date: proposeDate, period_start: ps, period_end: pe, amount,
         rfp_text: rfp, rfp_file_url: rfpFile, ai_direction: aiDir,
       });
       if (r.ok) { setMsg({ t: "저장되었습니다.", ok: true }); router.refresh(); setTimeout(onClose, 500); }
@@ -869,6 +875,8 @@ function ProposalEditModal({ p, onClose }: { p: ProposalEditData; onClose: () =>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <div><label className="f">제안 예정일</label><input className="f" type="date" value={proposeDate} onChange={(e) => setProposeDate(e.target.value)} /></div>
+          <div><label className="f">기간 시작</label><input className="f" type="date" value={ps} onChange={(e) => setPs(e.target.value)} /></div>
+          <div><label className="f">기간 종료</label><input className="f" type="date" value={pe} onChange={(e) => setPe(e.target.value)} /></div>
           <div><label className="f">금액(원)</label><input className="f" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: 150 }} /></div>
         </div>
 

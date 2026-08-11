@@ -347,38 +347,51 @@ export async function regenerateDirectionAction(proposalId: string): Promise<Mkt
   return { ok: true, direction };
 }
 
-/** 마케팅 제안서 메타 수정 — 제안 예정일·최종 일정·RFP·제안방향·금액. */
+/** 마케팅 제안서 메타 수정 — 제안 예정일·기간·RFP·제안방향·금액. */
 export async function updateMktProposalMetaAction(input: {
-  id: string; propose_date?: string; final_due_date?: string; rfp_text?: string; rfp_file_url?: string; ai_direction?: string; amount?: string;
+  id: string; propose_date?: string; period_start?: string; period_end?: string;
+  rfp_text?: string; rfp_file_url?: string; ai_direction?: string; amount?: string;
 }): Promise<MktResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   const cur = await queryOne<{ brand_id: string }>("SELECT brand_id FROM proposals WHERE id=$1 AND kind='marketing'", [input.id]).catch(() => null);
   if (!cur) return { ok: false, error: "마케팅 제안서를 찾을 수 없습니다." };
   const pd = (input.propose_date ?? "").trim();
-  const fd = (input.final_due_date ?? "").trim();
+  const ps = (input.period_start ?? "").trim();
+  const pe = (input.period_end ?? "").trim();
   if (pd && !isYmd(pd)) return { ok: false, error: "제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
-  if (fd && !isYmd(fd)) return { ok: false, error: "최종 제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
+  if (ps && !isYmd(ps)) return { ok: false, error: "기간 시작일 형식(YYYY-MM-DD)을 확인하세요." };
+  if (pe && !isYmd(pe)) return { ok: false, error: "기간 종료일 형식(YYYY-MM-DD)을 확인하세요." };
+  if (ps && pe && ps > pe) return { ok: false, error: "기간 시작일이 종료일보다 늦습니다." };
   let amount: number | null | undefined = undefined;
   if (input.amount !== undefined) { const n = Number((input.amount || "").replace(/[, ]/g, "")); amount = input.amount.trim() && Number.isFinite(n) ? Math.round(n) : null; }
+
+  // 1) 기본 컬럼(금액·기간) — 마이그레이션과 무관하게 항상 저장.
+  await query(
+    `UPDATE proposals SET
+       amount = COALESCE($2, amount),
+       period_start = COALESCE($3::date, period_start),
+       period_end = COALESCE($4::date, period_end)
+     WHERE id=$1`,
+    [input.id, amount ?? null, ps || null, pe || null],
+  ).catch(() => {});
+
+  // 2) 고도화 컬럼(제안 예정일·RFP·AI방향, 0064) — 미적용 시 안내(기본 항목은 이미 저장됨).
   const ok = await query(
     `UPDATE proposals SET
        propose_date = COALESCE($2::date, propose_date),
-       final_due_date = COALESCE($3::date, final_due_date),
-       rfp_text = COALESCE($4, rfp_text),
-       rfp_file_url = COALESCE($5, rfp_file_url),
-       ai_direction = COALESCE($6, ai_direction),
-       amount = COALESCE($7, amount)
+       rfp_text = COALESCE($3, rfp_text),
+       rfp_file_url = COALESCE($4, rfp_file_url),
+       ai_direction = COALESCE($5, ai_direction)
      WHERE id=$1`,
-    [input.id, pd || null, fd || null,
+    [input.id, pd || null,
      input.rfp_text !== undefined ? input.rfp_text : null,
      input.rfp_file_url !== undefined ? input.rfp_file_url : null,
-     input.ai_direction !== undefined ? input.ai_direction : null,
-     amount ?? null],
+     input.ai_direction !== undefined ? input.ai_direction : null],
   ).then(() => true).catch(() => false);
-  if (!ok) return { ok: false, error: "마이그레이션(0064) 적용이 필요합니다(관리자)." };
   revalidatePath("/mkt");
   revalidatePath(`/brand/${cur.brand_id}`);
+  if (!ok) return { ok: false, error: "금액·기간은 저장됨 · 제안예정일/RFP/AI방향은 마이그레이션(0064) 필요." };
   return { ok: true };
 }
 
