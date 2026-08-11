@@ -4,7 +4,7 @@
 // contracts · payments_manual · mall_subscriptions(읽기전용) 실데이터.
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addContractAction, composeEmailAction, manualPaymentAction, setContractStatusAction, listBrandOpsQuotesForContractAction, registerContractFromQuoteAction, type OpsQuoteForContract } from "@/app/actions";
+import { addContractAction, composeEmailAction, manualPaymentAction, setContractStatusAction, listBrandOpsQuotesForContractAction, registerContractFromQuoteAction, updateManualPaymentAction, deleteManualPaymentAction, type OpsQuoteForContract } from "@/app/actions";
 import { PLANS, PLAN_LABELS } from "@/lib/types";
 import type { Contract } from "@/lib/repo/card";
 
@@ -296,10 +296,7 @@ export default function Brand360Contract({ brandId, contracts, paymentsManual, g
                 <p className="note">수기 확인 건 없음.</p>
               ) : (
                 paymentsManual.map((p) => (
-                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}>
-                    <span>{PLAN_LABELS[p.plan as keyof typeof PLAN_LABELS] ?? p.plan} · {p.method}</span>
-                    <span>₩{p.amount.toLocaleString()} · {p.paid_at?.slice(0, 10)}</span>
-                  </div>
+                  <ManualPayRow key={p.id} p={p} brandId={brandId} onMsg={setMsg} />
                 ))
               )}
             </>
@@ -307,6 +304,53 @@ export default function Brand360Contract({ brandId, contracts, paymentsManual, g
           {msg && <div className="note" style={{ marginTop: 10 }}>{msg}</div>}
         </div>
       </div>
+    </div>
+  );
+}
+
+// 수기 결제 1행 — 열람 + 인라인 수정/삭제.
+function ManualPayRow({ p, brandId, onMsg }: { p: PaymentRow; brandId: string; onMsg: (m: string) => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [edit, setEdit] = useState(false);
+  const [plan, setPlan] = useState(p.plan);
+  const [amount, setAmount] = useState(String(p.amount));
+  const [paidAt, setPaidAt] = useState((p.paid_at ?? "").slice(0, 10));
+  const [note, setNote] = useState(p.note ?? "");
+
+  if (edit) {
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+        <select className="f" value={plan} onChange={(e) => setPlan(e.target.value)}>
+          {PLANS.map((pl) => <option key={pl} value={pl}>{PLAN_LABELS[pl]}</option>)}
+        </select>
+        <input className="f" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="금액(원)" />
+        <input className="f" type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+        <input className="f" style={{ gridColumn: "1 / -1" }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="메모" />
+        <div style={{ gridColumn: "1 / -1", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+          <button className="btn sm" disabled={pending} onClick={() => setEdit(false)}>취소</button>
+          <button className="btn sm pri" disabled={pending} onClick={() => start(async () => {
+            const r = await updateManualPaymentAction({ id: p.id, brandId, plan, amount: Number(amount), paid_at: paidAt || undefined, note });
+            onMsg(r.ok ? "수기 결제 수정됨" : r.error ?? "수정 실패");
+            if (r.ok) { setEdit(false); router.refresh(); }
+          })}>{pending ? "저장 중…" : "저장"}</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 12.5, padding: "3px 0" }}>
+      <span>{PLAN_LABELS[p.plan as keyof typeof PLAN_LABELS] ?? p.plan} · {p.method}{p.note ? ` · ${p.note}` : ""}</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span>₩{p.amount.toLocaleString()} · {p.paid_at?.slice(0, 10)}</span>
+        <button className="btn sm" onClick={() => setEdit(true)}>수정</button>
+        <button className="btn sm" style={{ color: "var(--danger)" }} disabled={pending}
+          onClick={() => { if (confirm("이 수기 결제 기록을 삭제할까요?")) start(async () => {
+            const r = await deleteManualPaymentAction(p.id, brandId);
+            onMsg(r.ok ? "수기 결제 삭제됨" : r.error ?? "삭제 실패");
+            if (r.ok) router.refresh();
+          }); }}>삭제</button>
+      </span>
     </div>
   );
 }

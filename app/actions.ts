@@ -155,6 +155,43 @@ export async function manualPaymentAction(input: {
   return res;
 }
 
+/** 수기 결제(payments_manual) 수정 — 브랜드360 계약·결제 탭. */
+export async function updateManualPaymentAction(input: {
+  id: string; brandId: string; plan?: string; amount?: number; paid_at?: string; next_due?: string | null; note?: string;
+}): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  if (!input.id) return { ok: false, error: "결제 ID 누락" };
+  const amount = input.amount === undefined ? undefined : Number(input.amount);
+  if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) return { ok: false, error: "금액을 확인하세요." };
+  const { query } = await import("@/lib/db");
+  await query(
+    `UPDATE payments_manual
+        SET plan = COALESCE($3, plan),
+            amount = COALESCE($4, amount),
+            paid_at = COALESCE($5, paid_at),
+            next_due = $6,
+            note = COALESCE($7, note)
+      WHERE id = $1 AND brand_id = $2`,
+    [input.id, input.brandId, input.plan ?? null, amount ?? null, input.paid_at || null, input.next_due || null, input.note ?? null],
+  );
+  revalidatePath(`/brand/${input.brandId}`);
+  revalidatePath("/pay");
+  return { ok: true };
+}
+
+/** 수기 결제(payments_manual) 삭제 — 브랜드360 계약·결제 탭. */
+export async function deleteManualPaymentAction(id: string, brandId: string): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  if (!id) return { ok: false, error: "결제 ID 누락" };
+  const { query } = await import("@/lib/db");
+  await query("DELETE FROM payments_manual WHERE id=$1 AND brand_id=$2", [id, brandId]);
+  revalidatePath(`/brand/${brandId}`);
+  revalidatePath("/pay");
+  return { ok: true };
+}
+
 export async function remindAction(brandId: string, channel: "email" | "sms", overrideBody?: string): Promise<ActionResult & { draft?: { subject?: string; body: string }; sent?: boolean }> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };

@@ -153,6 +153,19 @@ describe("gates", () => {
       evaluateGate("contact", "contract_done", ctx({ brand: b, paymentConfirmed: true, hasSentProposal: true })).passed,
     ).toBe(true);
   });
+  it("contact→contract_review: 계약담당 지정 필요", () => {
+    const grade = { q1: true, q2: true, q3: true, q4: true, q5: true };
+    const b = makeBrand({ contract_type: "mall", plan: "live_focus_490k" });
+    (b as unknown as Record<string, unknown>).grade_checks = grade;
+    const bad = evaluateGate("contact", "contract_review", ctx({ brand: b, hasSentProposal: true }));
+    expect(bad.passed).toBe(false);
+    expect(bad.failed.map((f) => f.label)).toContain("계약담당 미지정");
+
+    const b2 = makeBrand({ contract_type: "mall", plan: "live_focus_490k", owner_contract: "contract@x.com" });
+    (b2 as unknown as Record<string, unknown>).grade_checks = grade;
+    const good = evaluateGate("contact", "contract_review", ctx({ brand: b2, hasSentProposal: true }));
+    expect(good.passed).toBe(true);
+  });
   it("docs→setup: 서류 100% + 사업자번호", () => {
     const b = makeBrand({ biz_no: "1234567890" });
     expect(evaluateGate("docs", "setup", ctx({ brand: b })).passed).toBe(false);
