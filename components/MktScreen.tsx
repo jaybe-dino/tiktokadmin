@@ -119,7 +119,7 @@ export default function MktScreen({
         </button>
       </div>
 
-      {tab === "pipe" && <Pipeline projects={projects} brands={brands} />}
+      {tab === "pipe" && <Pipeline projects={projects} brands={brands} onGoProposals={() => setTab("prop")} />}
       {tab === "routine" && <Routine routines={routines} />}
       {tab === "prop" && <Proposals proposals={proposals} brands={brands} projects={rows} />}
       {tab === "map" && <BrandMap rows={rows} />}
@@ -128,7 +128,7 @@ export default function MktScreen({
 }
 
 // ── 탭 1: 파이프라인 보드 ─────────────────────────────────────
-function Pipeline({ projects, brands }: { projects: MktRow[]; brands: MktBrandOpt[] }) {
+function Pipeline({ projects, brands, onGoProposals }: { projects: MktRow[]; brands: MktBrandOpt[]; onGoProposals: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
@@ -184,8 +184,8 @@ function Pipeline({ projects, brands }: { projects: MktRow[]; brands: MktBrandOp
             {c.label} {count(c.key)}
           </span>
         ))}
-        <button className="btn sm pri" onClick={() => setNewOpen((o) => !o)} style={{ marginLeft: "auto" }}>
-          {newOpen ? "취소" : "+ 신규 프로젝트"}
+        <button className="btn sm pri" onClick={onGoProposals} style={{ marginLeft: "auto" }} title="마케팅 제안서 작성 화면으로 이동(제안서 저장 시 프로젝트가 자동 생성·연결됩니다)">
+          + 신규 제안·프로젝트
         </button>
         <input
           value={q}

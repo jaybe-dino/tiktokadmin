@@ -198,14 +198,26 @@ export async function createMktProposalAction(input: {
   const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]);
   if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
 
-  const prow = await queryOne<{ id: string }>(
-    `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url,
-                            propose_date, final_due_date, rfp_text, rfp_file_url, ai_direction, status, created_by)
-     VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',$14) RETURNING id`,
-    [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(),
-     pd || null, fd || null, (input.rfp_text ?? "").trim() || null, (input.rfp_file_url ?? "").trim() || null,
-     (input.ai_direction ?? "").trim() || null, `admin:${u.id}`],
-  );
+  // 신규 컬럼(0064) 포함 INSERT 시도 → 컬럼 미존재(마이그레이션 미적용) 시 기본 컬럼으로 폴백.
+  let prow: { id: string } | null = null;
+  try {
+    prow = await queryOne<{ id: string }>(
+      `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url,
+                              propose_date, final_due_date, rfp_text, rfp_file_url, ai_direction, status, created_by)
+       VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',$14) RETURNING id`,
+      [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(),
+       pd || null, fd || null, (input.rfp_text ?? "").trim() || null, (input.rfp_file_url ?? "").trim() || null,
+       (input.ai_direction ?? "").trim() || null, `admin:${u.id}`],
+    );
+  } catch (e) {
+    if (/column .* does not exist|propose_date|final_due_date|rfp_text|rfp_file_url|ai_direction/i.test((e as Error).message)) {
+      prow = await queryOne<{ id: string }>(
+        `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url, status, created_by)
+         VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,'draft',$8) RETURNING id`,
+        [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(), `admin:${u.id}`],
+      );
+    } else throw e;
+  }
   if (!prow) return { ok: false, error: "제안서 저장 실패" };
 
   // 파이프라인 개별 프로젝트 자동 생성·연결(기본 동작). 실패해도 제안서 저장은 유지.
@@ -316,14 +328,21 @@ export async function generateDirectionDraftAction(input: { brand_id: string; am
 export async function regenerateDirectionAction(proposalId: string): Promise<MktResult & { direction?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
-  const p = await queryOne<{ brand_id: string; amount: number | null; rfp_text: string | null; brand_name: string; category: string | null }>(
-    `SELECT p.brand_id, p.amount, p.rfp_text, b.brand_name, b.category
-       FROM proposals p JOIN brands b ON b.id=p.brand_id WHERE p.id=$1 AND p.kind='marketing'`,
-    [proposalId]).catch(() => null);
+  let p: { brand_id: string; amount: number | null; rfp_text: string | null; brand_name: string; category: string | null } | null;
+  try {
+    p = await queryOne(
+      `SELECT p.brand_id, p.amount, p.rfp_text, b.brand_name, b.category
+         FROM proposals p JOIN brands b ON b.id=p.brand_id WHERE p.id=$1 AND p.kind='marketing'`,
+      [proposalId]);
+  } catch (e) {
+    if (/rfp_text|column .* does not exist/i.test((e as Error).message)) return { ok: false, error: "마이그레이션(0064) 적용이 필요합니다(관리자)." };
+    throw e;
+  }
   if (!p) return { ok: false, error: "마케팅 제안서를 찾을 수 없습니다." };
   const { generateProposalDirection } = await import("@/lib/mkt-proposal");
   const direction = await generateProposalDirection({ brandName: p.brand_name, category: p.category, amount: p.amount, rfp: p.rfp_text });
-  await query("UPDATE proposals SET ai_direction=$2 WHERE id=$1", [proposalId, direction]);
+  const upd = await query("UPDATE proposals SET ai_direction=$2 WHERE id=$1", [proposalId, direction]).then(() => true).catch(() => false);
+  if (!upd) return { ok: false, error: "마이그레이션(0064) 적용이 필요합니다(관리자)." };
   revalidatePath("/mkt");
   return { ok: true, direction };
 }
@@ -342,7 +361,7 @@ export async function updateMktProposalMetaAction(input: {
   if (fd && !isYmd(fd)) return { ok: false, error: "최종 제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
   let amount: number | null | undefined = undefined;
   if (input.amount !== undefined) { const n = Number((input.amount || "").replace(/[, ]/g, "")); amount = input.amount.trim() && Number.isFinite(n) ? Math.round(n) : null; }
-  await query(
+  const ok = await query(
     `UPDATE proposals SET
        propose_date = COALESCE($2::date, propose_date),
        final_due_date = COALESCE($3::date, final_due_date),
@@ -356,7 +375,8 @@ export async function updateMktProposalMetaAction(input: {
      input.rfp_file_url !== undefined ? input.rfp_file_url : null,
      input.ai_direction !== undefined ? input.ai_direction : null,
      amount ?? null],
-  );
+  ).then(() => true).catch(() => false);
+  if (!ok) return { ok: false, error: "마이그레이션(0064) 적용이 필요합니다(관리자)." };
   revalidatePath("/mkt");
   revalidatePath(`/brand/${cur.brand_id}`);
   return { ok: true };
