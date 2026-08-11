@@ -9,6 +9,7 @@ const GROUPS: Group[] = [
   { title: "대시보드", items: [
     { href: "/today", label: "오늘 (홈)", ic: "🏠" },
     { href: "/", label: "영업 파이프라인", ic: "📋" },
+    { href: "/onboarding-pipeline", label: "온보딩 파이프라인", ic: "🚚" },
     { href: "/queue", label: "내 워크큐", ic: "⚡" },
     { href: "/monitor", label: "SLA 모니터", ic: "🛡️" },
   ]},
