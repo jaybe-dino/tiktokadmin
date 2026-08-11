@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import SideNav from "@/components/SideNav";
 import BugReportButton from "@/components/BugReportButton";
+import NotificationBell from "@/components/NotificationBell";
+import { myNotifications } from "@/lib/notifications";
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
   let user;
@@ -19,6 +21,7 @@ export default async function DashLayout({ children }: { children: React.ReactNo
   if (!user) redirect("/login");
 
   const initial = (user.name ?? "?").slice(0, 2);
+  const notif = await myNotifications(user.id).catch(() => ({ count: 0, items: [] }));
 
   return (
     <div className="flex min-h-screen">
@@ -55,6 +58,9 @@ export default async function DashLayout({ children }: { children: React.ReactNo
             <span>🔍</span>
             <span className="text-[13px]">브랜드·담당자 검색 (고객 목록으로)</span>
           </Link>
+          <div className="ml-auto flex items-center gap-2">
+            <NotificationBell count={notif.count} items={notif.items} />
+          </div>
         </header>
         <main className="flex-1 min-w-0 px-[22px] py-5 pb-16" style={{ maxWidth: 1440 }}>{children}</main>
       </div>
