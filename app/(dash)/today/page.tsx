@@ -7,7 +7,8 @@ import { listDrafts } from "@/lib/drafts";
 import { allApprovals } from "@/lib/repo/global";
 import { findDuplicateGroups } from "@/lib/repo/queries";
 import type { Grade } from "@/lib/types";
-import { AcceptLeadButton, ApproveSendButton } from "./TodayButtons";
+import { AcceptLeadButton, ApproveSendButton, DiscardDraftButton } from "./TodayButtons";
+import { onboardingPipeline, ONB_STAGES } from "@/lib/onboarding-pipeline";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ async function count(sql: string): Promise<number> {
   return num(r?.c);
 }
 
-// 퍼널 단계 → 표시(짧은 이름·배지 클래스) — v3.1 s-home 퍼널 현황.
+// 영업 파이프라인 단계(브랜드 state 기반) — v3.1 s-home 퍼널 현황.
 const FUNNEL: { states: string[]; label: string; cls: string }[] = [
   { states: ["lead_new"], label: "리드", cls: "st-lead" },
   { states: ["seminar"], label: "담당자배정", cls: "st-sem" },
@@ -39,6 +40,15 @@ const FUNNEL: { states: string[]; label: string; cls: string }[] = [
   { states: ["setup"], label: "셋업", cls: "st-setup" },
   { states: ["live_mall", "live_onboarding"], label: "운영", cls: "st-live" },
   { states: ["settling"], label: "정산", cls: "st-set" },
+];
+
+// 마케팅 파이프라인 단계(mkt_projects.proposal_status) — MktScreen PIPE 와 동일.
+const MKT_PIPE: { key: string; label: string }[] = [
+  { key: "draft", label: "제안작성" },
+  { key: "sent", label: "발송·협의" },
+  { key: "negotiating", label: "협의중" },
+  { key: "won", label: "수주" },
+  { key: "dropped", label: "완료·드랍" },
 ];
 
 const AGENT_LABEL: Record<string, string> = {
@@ -107,7 +117,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const convDiff = convPct - conv4wPct;
 
   // ── 서로 독립인 조회들을 한 번에 병렬 실행(직렬 왕복 제거 — 홈 로딩 근본 개선) ─
-  const [dupCount, funnelRows, draftsAll, approvalsAllRaw, meetingsAll, agentRuns, lead] = await Promise.all([
+  const [dupCount, funnelRows, draftsAll, approvalsAllRaw, meetingsAll, agentRuns, lead, onbPipe, mktStatusRows] = await Promise.all([
     findDuplicateGroups().then((g) => g.length).catch(() => 0),
     query<{ state: string; c: string }>(
       "SELECT state, count(*) c FROM brands WHERE coalesce(is_test,false)=false GROUP BY state").catch(() => []),
@@ -124,11 +134,22 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     queryOne<Row>(
       `SELECT id, brand_name, grade, source, category, created_at FROM brands
         WHERE coalesce(is_test,false)=false ORDER BY created_at DESC NULLS LAST LIMIT 1`).catch(() => null),
+    onboardingPipeline().catch(() => ({ invite: [], company: [], signup: [], product: [], ready: [] })),
+    query<{ proposal_status: string; c: string }>(
+      "SELECT proposal_status, count(*) c FROM mkt_projects GROUP BY proposal_status").catch(() => []),
   ]);
 
-  // ── 퍼널 현황 ─────────────────────────────────────────────────
+  // ── 퍼널 현황 (영업·온보딩·마케팅 3개 파이프라인) ───────────────
   const funnelMap = new Map(funnelRows.map((r) => [r.state, num(r.c)]));
   const funnel = FUNNEL.map((f) => ({ ...f, n: f.states.reduce((s, st) => s + (funnelMap.get(st) ?? 0), 0) }));
+  // 온보딩 파이프라인 — onboardingPipeline() 단계별 카드 수
+  const onbFunnel = ONB_STAGES.map((s) => ({ key: s.key, label: s.label, n: (onbPipe[s.key] ?? []).length }));
+  const onbTotal = onbFunnel.reduce((s, f) => s + f.n, 0);
+  // 마케팅 파이프라인 — mkt_projects.proposal_status 별 수
+  const mktMap = new Map(mktStatusRows.map((r) => [r.proposal_status, num(r.c)]));
+  const mktFunnel = MKT_PIPE.map((p) => ({ ...p, n: mktMap.get(p.key) ?? 0 }));
+  const mktTotal = mktFunnel.reduce((s, f) => s + f.n, 0);
+  const salesTotal = funnel.reduce((s, f) => s + f.n, 0);
 
   // ── 승인 대기 — AI가 준비해둔 것 (초안 + 결재 요청, scope 반영) ─
   const approvalsAll = approvalsAllRaw.filter((a) => a.status === "pending");
@@ -171,16 +192,60 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <div className="grid g31 gap-3.5" style={{ display: "grid" }}>
         {/* 좌측 */}
         <div style={{ display: "grid", gap: 14 }}>
-          {/* 퍼널 현황 */}
+          {/* 퍼널 현황 — 영업 · 온보딩 · 마케팅 3개 파이프라인 */}
           <div className="card">
-            <div className="hd"><b>퍼널 현황</b><span style={{ color: "var(--ink3)", fontSize: 11.5 }}>브랜드 수 · 칸반에서 상세</span><div className="rt"><Link href="/" className="btn sm">보드 열기 →</Link></div></div>
-            <div className="bd" style={{ display: "flex", gap: 6, overflowX: "auto" }}>
-              {funnel.map((f) => (
-                <div key={f.label} style={{ textAlign: "center", minWidth: 74 }}>
-                  <div style={{ fontSize: 20, fontWeight: 800 }}>{f.n}</div>
-                  <span className={`bdg ${f.cls}`}>{f.label}</span>
+            <div className="hd"><b>퍼널 현황</b><span style={{ color: "var(--ink3)", fontSize: 11.5 }}>파이프라인별 단계 수</span></div>
+            <div className="bd" style={{ display: "grid", gap: 12 }}>
+              {/* 영업 파이프라인 */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <b style={{ fontSize: 12.5 }}>📋 영업 파이프라인</b>
+                  <span className="chip">{salesTotal}</span>
+                  <Link href="/" className="btn sm" style={{ marginLeft: "auto" }}>보드 →</Link>
                 </div>
-              ))}
+                <div style={{ display: "flex", gap: 6, overflowX: "auto" }}>
+                  {funnel.map((f) => (
+                    <div key={f.label} style={{ textAlign: "center", minWidth: 68 }}>
+                      <div style={{ fontSize: 18, fontWeight: 800 }}>{f.n}</div>
+                      <span className={`bdg ${f.cls}`}>{f.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 온보딩 파이프라인 */}
+              <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <b style={{ fontSize: 12.5 }}>🚚 온보딩 파이프라인</b>
+                  <span className="chip">{onbTotal}</span>
+                  <Link href="/onboarding-pipeline" className="btn sm" style={{ marginLeft: "auto" }}>보드 →</Link>
+                </div>
+                <div style={{ display: "flex", gap: 6, overflowX: "auto" }}>
+                  {onbFunnel.map((f) => (
+                    <div key={f.key} style={{ textAlign: "center", minWidth: 84 }}>
+                      <div style={{ fontSize: 18, fontWeight: 800 }}>{f.n}</div>
+                      <span className="bdg" style={{ background: "var(--onb-bg,#ecfeff)", color: "var(--onb,#0891b2)" }}>{f.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 마케팅 파이프라인 */}
+              <div style={{ borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <b style={{ fontSize: 12.5 }}>📣 마케팅 파이프라인</b>
+                  <span className="chip">{mktTotal}</span>
+                  <Link href="/mkt" className="btn sm" style={{ marginLeft: "auto" }}>보드 →</Link>
+                </div>
+                <div style={{ display: "flex", gap: 6, overflowX: "auto" }}>
+                  {mktFunnel.map((f) => (
+                    <div key={f.key} style={{ textAlign: "center", minWidth: 72 }}>
+                      <div style={{ fontSize: 18, fontWeight: 800 }}>{f.n}</div>
+                      <span className="bdg" style={{ background: "var(--mkt-bg,#fdf4ff)", color: "var(--mkt,#a21caf)" }}>{f.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -205,6 +270,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                       {d.to_email
                         ? <ApproveSendButton id={d.id} />
                         : <Link href="/drafts" className="btn sm dgr">답변 필요</Link>}
+                      <DiscardDraftButton id={d.id} />
                     </div>
                   </div>
                 );

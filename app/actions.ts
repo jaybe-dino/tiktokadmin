@@ -992,6 +992,7 @@ export async function discardDraftAction(id: string): Promise<ActionResult> {
   if (!a) return { ok: false, error: "세션 만료" };
   await discardDraft(id);
   revalidatePath("/drafts");
+  revalidatePath("/today");
   return { ok: true };
 }
 

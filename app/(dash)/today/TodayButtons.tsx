@@ -6,8 +6,33 @@
 //  · AcceptLeadButton: 유입알림 [담당 수락] → acceptLeadAction(현재 사용자를 영업 담당으로).
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { approveDraftAction } from "@/app/actions";
+import { approveDraftAction, discardDraftAction } from "@/app/actions";
 import { acceptLeadAction } from "./actions";
+
+/** AI가 준비한 초안 삭제(폐기) — status='discarded'. 확인 후 목록에서 제거. */
+export function DiscardDraftButton({ id }: { id: string }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [gone, setGone] = useState(false);
+  if (gone) return <span className="chip" style={{ color: "var(--ink3)" }}>삭제됨</span>;
+  return (
+    <button
+      className="btn sm"
+      style={{ color: "var(--danger)" }}
+      disabled={pending}
+      title="이 AI 초안을 삭제합니다"
+      onClick={() => {
+        if (!confirm("이 초안을 삭제할까요?")) return;
+        start(async () => {
+          const r = await discardDraftAction(id);
+          if (r.ok) { setGone(true); router.refresh(); }
+        });
+      }}
+    >
+      {pending ? "…" : "삭제"}
+    </button>
+  );
+}
 
 export function ApproveSendButton({ id }: { id: string }) {
   const router = useRouter();
