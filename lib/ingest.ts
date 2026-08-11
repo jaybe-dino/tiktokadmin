@@ -37,6 +37,9 @@ const Common = z.object({
 type Common = z.infer<typeof Common>;
 
 // lead → 초기 후보 state (02 §3-1)
+//   자동 유입(광고·세미나·문의·가입 등)은 전부 '리드 확보(lead_new)'에서 시작한다.
+//   '담당자배정(seminar)'은 유입담당이 실제 배정될 때만 진입(assignOwnerCore 자동 전진) —
+//   자동 유입이 담당자배정으로 직행하지 않도록 세미나 소스도 lead_new 로 매핑한다.
 const LEAD_STATE: Record<string, State> = {
   glovek_consult: "contact",
   apply_consult: "contact",
@@ -46,8 +49,8 @@ const LEAD_STATE: Record<string, State> = {
   apply_smr: "lead_new",
   tp_ebook: "lead_new",
   referrer: "lead_new",
-  apply_seminar: "seminar",
-  tp_seminar: "seminar",
+  apply_seminar: "lead_new",
+  tp_seminar: "lead_new",
 };
 
 /**
