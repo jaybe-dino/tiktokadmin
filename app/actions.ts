@@ -397,6 +397,18 @@ export async function deleteBrandAction(brandId: string): Promise<ActionResult> 
   return { ok: true };
 }
 
+/** 결재 요청(approval_requests) 삭제 — 파트장/대표만. 홈·결재함 목록에서 제거. */
+export async function deleteApprovalRequestAction(id: string): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (삭제는 파트장/대표만)" };
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "잘못된 요청" };
+  const { query } = await import("@/lib/db");
+  await query("DELETE FROM approval_requests WHERE id=$1", [id]);
+  revalidatePath("/today");
+  revalidatePath("/approvals");
+  return { ok: true };
+}
+
 /** 브랜드 원장 일괄 삭제(체크 선택). 파트장/대표만. 연관 데이터 CASCADE.
  *   ⚠️ 완전삭제 — glovek 원본 고객은 동기화로 복원될 수 있음(테스트 데이터 정리용). */
 export async function deleteBrandsAction(ids: string[]): Promise<ActionResult & { deleted?: number }> {

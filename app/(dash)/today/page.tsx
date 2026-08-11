@@ -7,7 +7,7 @@ import { listDrafts } from "@/lib/drafts";
 import { allApprovals } from "@/lib/repo/global";
 import { findDuplicateGroups } from "@/lib/repo/queries";
 import type { Grade } from "@/lib/types";
-import { AcceptLeadButton, ApproveSendButton, DiscardDraftButton } from "./TodayButtons";
+import { AcceptLeadButton, ApproveSendButton, DiscardDraftButton, DeleteApprovalButton } from "./TodayButtons";
 import { onboardingPipeline, ONB_STAGES } from "@/lib/onboarding-pipeline";
 
 export const dynamic = "force-dynamic";
@@ -288,8 +288,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                     <div className="ss">요청자 {(a.requested_by as string) || "—"} · {approvalReason((a.payload as Row) ?? {})}</div>
                   </div>
                   <div className="rt" style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    {/* 기획 확정: 결재(드랍·환불·정산확정)는 홈에서 원클릭 금지 — 결재함에서 처리 */}
+                    {/* 기획 확정: 결재(드랍·환불·정산확정)는 홈에서 원클릭 금지 — 결재함에서 처리 · 삭제는 파트장/대표 */}
                     <Link href="/approvals" className="btn sm pri">결재함에서 처리 →</Link>
+                    <DeleteApprovalButton id={a.id as string} />
                   </div>
                 </div>
               ))}
