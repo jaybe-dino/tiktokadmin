@@ -1189,6 +1189,37 @@ export async function sendWelcomeAction(brandId: string, force = false): Promise
   return { ok: r.ok, error: r.error, sent: r.sent, skipped: r.skipped };
 }
 
+// ═══ 소개자료 발송 (설정 intro_config 기반) ═══════════════════
+export async function saveIntroConfigAction(cfg: Partial<import("@/lib/intro").IntroConfig>): Promise<ActionResult> {
+  const a = await requireLead();
+  if (!a) return { ok: false, error: "권한 없음 (파트장/대표만)" };
+  const { saveIntroConfig } = await import("@/lib/intro");
+  await saveIntroConfig(cfg);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+/** 소개자료 미리보기(예시) — 설정 내용 + 브랜드 연락처 치환본. */
+export async function previewIntroAction(brandId: string): Promise<ActionResult & { preview?: import("@/lib/intro").IntroPreview }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { previewIntro } = await import("@/lib/intro");
+  const preview = await previewIntro(brandId).catch(() => null);
+  if (!preview) return { ok: false, error: "브랜드/설정을 불러오지 못했습니다." };
+  return { ok: true, preview };
+}
+
+/** 소개자료 발송 — 선택 채널(문자/이메일)로. */
+export async function sendIntroAction(brandId: string, want: { sms: boolean; email: boolean }): Promise<ActionResult & { sent?: string[]; errors?: string[] }> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  if (!want.sms && !want.email) return { ok: false, error: "발송할 채널(문자/이메일)을 선택하세요." };
+  const { sendIntro } = await import("@/lib/intro");
+  const r = await sendIntro(brandId, want);
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: r.ok, error: r.ok ? undefined : (r.errors[0] ?? "발송 실패"), sent: r.sent, errors: r.errors };
+}
+
 /** 테스트 발송 — 내 번호/이메일로 문자·메일을 직접 보내 연동(ALIGO·RESEND) 동작 확인. */
 export async function testNotifyAction(input: { phone?: string; email?: string; slack?: boolean }): Promise<ActionResult & { sms?: string; email?: string; slack?: string }> {
   const a = await requireLead();

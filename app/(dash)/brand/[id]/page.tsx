@@ -27,6 +27,7 @@ import { currentUser } from "@/lib/auth";
 import { listMeetingNotes } from "@/lib/meeting-notes";
 import Brand360MeetingNotes from "@/components/Brand360MeetingNotes";
 import Brand360Danger from "@/components/Brand360Danger";
+import Brand360IntroSend from "@/components/Brand360IntroSend";
 import TimelineAddEntry from "./TimelineAddEntry";
 import TimelineJump from "./TimelineJump";
 import { stageChecklist } from "@/lib/requirements";
@@ -222,7 +223,10 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           </div>
         </div>
 
-        <Brand360AiButton brandId={brand.id} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <Brand360AiButton brandId={brand.id} />
+          <Brand360IntroSend brandId={brand.id} />
+        </div>
       </div>
     </div>
   );

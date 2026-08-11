@@ -9,6 +9,8 @@ import MailboxManager from "@/components/MailboxManager";
 import { getWelcomeConfig } from "@/lib/welcome";
 import { listIntakeSources } from "@/lib/intake-sources";
 import WelcomeConfigCard from "@/components/WelcomeConfig";
+import { getIntroConfig } from "@/lib/intro";
+import IntroConfigCard from "@/components/IntroConfig";
 import TestNotify from "@/components/TestNotify";
 import { env } from "@/lib/env";
 import { listTemplates } from "@/lib/templates";
@@ -38,6 +40,7 @@ export default async function SettingsPage() {
     getWelcomeConfig(),
     listIntakeSources().catch(() => []),
   ]);
+  const introCfg = await getIntroConfig();
   const welcomeSourceOpts = intakeSources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label }));
   const templates = await listTemplates();
 
@@ -163,6 +166,9 @@ export default async function SettingsPage() {
 
           {/* 신규 리드 자동 안내 */}
           <WelcomeConfigCard config={welcomeCfg} canEdit={canEdit} sources={welcomeSourceOpts} />
+
+          {/* 소개자료 발송 문구 */}
+          <IntroConfigCard config={introCfg} canEdit={canEdit} />
 
           {/* 발송 템플릿 CRUD */}
           <TemplateManager templates={templates} canEdit={canEdit} />
