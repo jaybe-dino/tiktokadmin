@@ -50,7 +50,7 @@ export async function brand360(id: string): Promise<Brand360 | null> {
 
   // 각 조회를 개별 방어 — 하나가 실패해도 카드 전체가 죽지 않게.
   const safe = <T>(p: Promise<T[]>): Promise<T[]> => p.catch(() => [] as T[]);
-  const [signals, docs, paymentsManual, history, sources, alerts, adminUsers, meetings] = await Promise.all([
+  const [signals, docs, paymentsManual, history, sources, alerts, adminUsers, meetings, brandEmails] = await Promise.all([
     safe(query<Brand360["signals"][number]>(
       "SELECT source, metric, value_num, value_text, confidence, collected_at FROM brand_signals WHERE brand_id=$1 ORDER BY collected_at DESC",
       [id],
@@ -78,6 +78,11 @@ export async function brand360(id: string): Promise<Brand360 | null> {
     // 미팅캘린더 맵핑(타임라인 반영) — 위 조회들과 병렬로(순차 왕복 제거).
     safe(query<{ id: string; topic: string; status: string; scheduled_at: string | null; summary: string | null; created_at: string }>(
       "SELECT id, topic, status, scheduled_at, left(coalesce(summary_md,''), 300) AS summary, created_at FROM meetings WHERE brand_id=$1 ORDER BY coalesce(scheduled_at, created_at) DESC LIMIT 20",
+      [id],
+    )),
+    // 공식 이메일 커뮤 히스토리(brand_emails) — 타임라인에 반영, 클릭 시 메일로 이동.
+    safe(query<{ id: string; direction: string; subject: string | null; snippet: string | null; occurred_at: string }>(
+      "SELECT id, direction, subject, left(coalesce(snippet,''), 160) AS snippet, occurred_at FROM brand_emails WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 40",
       [id],
     )),
   ]);
@@ -139,6 +144,14 @@ export async function brand360(id: string): Promise<Brand360 | null> {
       at: m.scheduled_at ?? m.created_at,
       actor: "meeting",
       link: { tab: "mm", anchor: `mtg-${m.id}` },
+    })),
+    // 공식 이메일 커뮤 히스토리 — 제목(키워드) 표기, 클릭 시 미팅·메일 탭의 해당 메일로 이동.
+    ...brandEmails.map((e) => ({
+      kind: "email",
+      text: `📧 메일 ${e.direction === "in" ? "수신" : e.direction === "out" ? "발신" : ""}: ${e.subject || "(제목 없음)"}${e.snippet ? ` — ${e.snippet}` : ""}`,
+      at: e.occurred_at,
+      actor: "email",
+      link: { tab: "mm", anchor: `eml-${e.id}` },
     })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 

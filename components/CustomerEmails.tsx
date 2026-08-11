@@ -58,7 +58,7 @@ export default function CustomerEmails({ brandId, emails }: { brandId: string; e
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {emails.length === 0 && <div className="text-sm text-muted">연결된 이메일 없음</div>}
         {emails.map((m) => (
-          <div key={m.id} className="border-b border-[#f6eef4] pb-2">
+          <div key={m.id} id={`eml-${m.id}`} className="border-b border-[#f6eef4] pb-2">
             <div className="flex items-center gap-2 text-sm">
               <span className={`pill ${m.direction === "out" ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700"}`}>
                 {m.direction === "out" ? "발신" : m.direction === "in" ? "수신" : "메일"}
