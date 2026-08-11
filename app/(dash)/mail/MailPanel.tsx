@@ -38,6 +38,7 @@ export type MailThread = {
   snippet: string | null;
   sent_at: string;
   msg_count: number;
+  owner_email?: string | null; // 수신 공용 메일함
 };
 
 const NO_REPLY_MS = 48 * 60 * 60 * 1000;
@@ -73,9 +74,11 @@ function senderName(addr: string | null): string {
 export default function MailPanel({
   threads,
   messages,
+  mailboxes = [],
 }: {
   threads: MailThread[];
   messages: Record<string, MailMessage[]>;
+  mailboxes?: string[];
 }) {
   // .bar 담당 필터 — 실데이터(owner_sales) 기반. 전체 / 미배정 / 담당자별
   const owners = useMemo(
@@ -83,12 +86,15 @@ export default function MailPanel({
     [threads]
   );
   const [ownerFilter, setOwnerFilter] = useState<string>("__all");
+  const [mailbox, setMailbox] = useState<string>("__all"); // 공용 메일함(owner_email) 필터
 
   const visible = useMemo(() => {
-    if (ownerFilter === "__all") return threads;
-    if (ownerFilter === "__none") return threads.filter((t) => !t.owner_sales);
-    return threads.filter((t) => t.owner_sales === ownerFilter);
-  }, [threads, ownerFilter]);
+    let list = threads;
+    if (mailbox !== "__all") list = list.filter((t) => (t.owner_email ?? "") === mailbox);
+    if (ownerFilter === "__all") return list;
+    if (ownerFilter === "__none") return list.filter((t) => !t.owner_sales);
+    return list.filter((t) => t.owner_sales === ownerFilter);
+  }, [threads, ownerFilter, mailbox]);
 
   const [selectedId, setSelectedId] = useState<string>(threads[0]?.thread_id ?? "");
 
@@ -100,6 +106,14 @@ export default function MailPanel({
     <div>
       {/* 필터 바 (.bar) */}
       <div className="bar">
+        {mailboxes.length > 0 && (
+          <select value={mailbox} onChange={(e) => setMailbox(e.target.value)}>
+            <option value="__all">메일함: 전체 ({mailboxes.length})</option>
+            {mailboxes.map((mb) => (
+              <option key={mb} value={mb}>📬 {mb}</option>
+            ))}
+          </select>
+        )}
         <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
           <option value="__all">담당: 전체</option>
           <option value="__none">미배정 스레드</option>
@@ -160,7 +174,8 @@ export default function MailPanel({
             <>
               <b style={{ fontSize: 14 }}>{sel.subject || "(제목 없음)"}</b>
               <div style={{ color: "var(--ink3)", fontSize: 11.5, margin: "2px 0 12px" }}>
-                {senderName(sel.from_addr) || sel.from_addr || "발신자 미상"} · {whenLabel(sel.sent_at)} · 스레드 {sel.msg_count}건 ·{" "}
+                {senderName(sel.from_addr) || sel.from_addr || "발신자 미상"} · {whenLabel(sel.sent_at)} · 스레드 {sel.msg_count}건
+                {sel.owner_email ? <> · <span className="chip" style={{ fontSize: 10 }}>📬 {sel.owner_email}</span></> : null} ·{" "}
                 {sel.brand_id ? (
                   <Link href={`/brand/${sel.brand_id}`} className="chip" style={{ fontSize: 10 }}>
                     {sel.brand_name ?? "브랜드"} 카드에 자동 기록됨
@@ -217,7 +232,7 @@ export default function MailPanel({
                           </span>
                           <span>{kstDateTime(m.sent_at)}</span>
                         </div>
-                        <div style={{ whiteSpace: "pre-wrap" }}>{m.body_text || m.snippet || "본문이 수집되지 않았습니다."}</div>
+                        <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere" }}>{m.body_text || m.snippet || "본문이 수집되지 않았습니다."}</div>
                       </div>
                     );
                   })}

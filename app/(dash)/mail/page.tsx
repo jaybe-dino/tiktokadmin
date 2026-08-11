@@ -25,7 +25,7 @@ async function loadPrimaryThreads(): Promise<MailThread[]> {
     `SELECT x.* FROM (
        SELECT DISTINCT ON (m.thread_id)
          m.thread_id, m.brand_id, m.direction, m.from_addr, m.subject,
-         m.snippet, m.sent_at,
+         m.snippet, m.sent_at, m.owner_email,
          (SELECT count(*)::int FROM email_messages m2 WHERE m2.thread_id = m.thread_id) AS msg_count,
          ${BRAND_COLS}
        FROM email_messages m
@@ -33,8 +33,16 @@ async function loadPrimaryThreads(): Promise<MailThread[]> {
        ORDER BY m.thread_id, m.sent_at DESC
      ) x
      ORDER BY x.sent_at DESC
-     LIMIT 40`
+     LIMIT 200`
   ).catch(() => [] as MailThread[]);
+}
+
+// 수집된 공용 메일함(owner_email) 목록 — 메일함 선택 필터용.
+async function loadMailboxes(): Promise<string[]> {
+  const rows = await query<{ owner_email: string }>(
+    "SELECT DISTINCT owner_email FROM email_messages WHERE owner_email IS NOT NULL AND owner_email<>'' ORDER BY owner_email",
+  ).catch(() => [] as { owner_email: string }[]);
+  return rows.map((r) => r.owner_email);
 }
 
 // email_messages 기반: 주어진 thread_id들의 모든 메시지(오래된순)
@@ -127,7 +135,7 @@ async function loadMail(): Promise<{ threads: MailThread[]; messages: Record<str
 }
 
 export default async function MailPage() {
-  const { threads, messages } = await loadMail();
+  const [{ threads, messages }, mailboxes] = await Promise.all([loadMail(), loadMailboxes()]);
 
   const noReplyCount = threads.filter(
     (t) => t.direction === "in" && elapsedMs(t.sent_at) >= NO_REPLY_MS
@@ -157,7 +165,7 @@ export default async function MailPage() {
           </p>
         </div>
       ) : (
-        <MailPanel threads={threads} messages={messages} />
+        <MailPanel threads={threads} messages={messages} mailboxes={mailboxes} />
       )}
     </div>
   );

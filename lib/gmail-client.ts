@@ -114,13 +114,13 @@ function extractBody(payload: GmailPart | undefined): string {
 }
 
 /** 한 사서함(owner) 최근 메일 전체 수집 → 매칭분은 브랜드 연결, 미매칭은 brand_id=null 로 적재. 반환 저장 건수. */
-export async function syncMailbox(ownerEmail: string, maxResults = 30): Promise<number> {
+export async function syncMailbox(ownerEmail: string, maxResults = 100): Promise<number> {
   const token = await getAccessToken(ownerEmail);
   if (!token) return 0;
   const auth = { authorization: `Bearer ${token}` };
 
   const listRes = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent("newer_than:14d -in:spam -in:trash")}`,
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent("newer_than:30d -in:spam -in:trash")}`,
     { headers: auth });
   if (!listRes.ok) return 0;
   const list = await listRes.json();
