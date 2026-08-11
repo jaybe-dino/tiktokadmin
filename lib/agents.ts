@@ -184,7 +184,16 @@ export const AGENTS: AgentDef[] = [
     desc: "브리프 없는 브랜드 진단(AI 브리프)", run: preAnalysis },
   { key: "inbound_reply", label: "인바운드 자동 회신", schedule: "매시(메일 수집 직후)", kind: "ai",
     desc: "미답 고객 메일 요약 + 우리 데이터 근거 회신 초안(초안함) — 담당 승인 후 발송", run: inboundReply },
+  { key: "daily_todo", label: "내 할 일 다이제스트", schedule: "매일 12:00", kind: "ai",
+    desc: "담당자별 오늘 할 일(회신·SLA·마감·초안·미팅)을 모아 요약정리 → 홈 '내 담당만'에 표시", run: dailyTodo },
 ];
+
+// 담당자별 "오늘 내 할 일" 다이제스트 생성(매일 12:00 KST).
+async function dailyTodo(): Promise<AgentResult> {
+  const { runDailyTodos } = await import("./daily-todos");
+  const r = await runDailyTodos();
+  return { summary: `담당자 ${r.users}명 · 할 일 ${r.items}건 정리(홈 '내 담당만' 표시)`, actions: r.items, detail: { ...r } };
+}
 
 export function getAgent(key: string): AgentDef | undefined {
   return AGENTS.find((a) => a.key === key);

@@ -92,6 +92,12 @@ export async function ingestEmailMessage(brandId: string | null, m: IncomingEmai
       "UPDATE alerts SET resolved_at=now() WHERE brand_id=$1 AND kind='no_reply' AND resolved_at IS NULL",
       [brandId]);
   }
+  // 우리가 회신(out) → '회신 필요'(수신 메일 전달) 알림 해제.
+  if (m.direction === "out") {
+    await query(
+      "UPDATE alerts SET resolved_at=now(), resolved_by='email' WHERE brand_id=$1 AND kind IN ('inbound_fwd','reply_needed') AND resolved_at IS NULL",
+      [brandId]);
+  }
   return true;
 }
 

@@ -5,6 +5,7 @@
     { "path": "/api/cron/escalate?digest=1", "schedule": "0 0 * * *" },
     { "path": "/api/cron/escalate", "schedule": "0 5 * * *" },
     { "path": "/api/cron/agents", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/agents?key=daily_todo", "schedule": "0 3 * * *" },
     { "path": "/api/cron/meeting-process", "schedule": "0 * * * *" },
     { "path": "/api/cron/gmail-sync", "schedule": "0 * * * *" },
     { "path": "/api/cron/bulk-send", "schedule": "*/10 * * * *" },

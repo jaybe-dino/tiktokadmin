@@ -167,6 +167,10 @@ export async function approveAndSend(
        VALUES ($1,'admin','contact_logged',$2,now())`,
       [d.brand_id, JSON.stringify({ channel: "email", direction: "out", kind: d.kind, via })]);
     await query("UPDATE brands SET last_contact_at=now() WHERE id=$1", [d.brand_id]);
+    // 회신 발송 완료 → '회신 필요'(수신 메일 전달) 알림 해제.
+    await query(
+      "UPDATE alerts SET resolved_at=now(), resolved_by='draft' WHERE brand_id=$1 AND kind IN ('inbound_fwd','reply_needed') AND resolved_at IS NULL",
+      [d.brand_id]).catch(() => {});
     return { ok: true, sent: true };
   } catch (e) {
     await revert();

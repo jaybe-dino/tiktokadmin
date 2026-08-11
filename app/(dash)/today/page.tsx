@@ -9,6 +9,7 @@ import { findDuplicateGroups } from "@/lib/repo/queries";
 import type { Grade } from "@/lib/types";
 import { AcceptLeadButton, ApproveSendButton, DiscardDraftButton, DeleteApprovalButton } from "./TodayButtons";
 import { onboardingPipeline, ONB_STAGES } from "@/lib/onboarding-pipeline";
+import { getMyTodos } from "@/lib/daily-todos";
 
 export const dynamic = "force-dynamic";
 
@@ -159,6 +160,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const draftRows = drafts.slice(0, 4);
   const approvalRows = approvals.slice(0, 3);
 
+  // ── 내 할 일 (AI 일일 다이제스트 — '내 담당만'일 때만) ─────────
+  const myTodos = mine && user ? await getMyTodos(user.id).catch(() => null) : null;
+
   // ── 오늘 미팅 (scope 반영) ────────────────────────────────────
   const meetings = mine
     ? meetingsAll.filter((m) => (m.brand_id && myBrandIds.has(m.brand_id as string)) || m.host_email === user?.id)
@@ -192,6 +196,48 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <div className="grid g31 gap-3.5" style={{ display: "grid" }}>
         {/* 좌측 */}
         <div style={{ display: "grid", gap: 14 }}>
+          {/* 내 할 일 — AI 일일 다이제스트(매일 12:00 갱신, '내 담당만'일 때) */}
+          {mine && (
+            <div className="card" style={{ borderTop: "3px solid var(--acc)" }}>
+              <div className="hd">
+                <b>🧭 내 할 일 (오늘)</b>
+                {myTodos && <span className="chip">{myTodos.items.length}건</span>}
+                <span className="rt" style={{ color: "var(--ink3)", fontSize: 11 }}>
+                  {myTodos?.generated_by === "agent" ? "AI 요약" : "매일 12:00 갱신"}
+                </span>
+              </div>
+              <div className="bd" style={{ paddingTop: 8 }}>
+                {!myTodos ? (
+                  <p style={{ color: "var(--ink3)", fontSize: 12.5 }}>
+                    아직 오늘 다이제스트가 생성되지 않았습니다. 매일 12:00에 어제까지 쌓인 내 할 일을 요약해 드립니다.
+                  </p>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12.8, lineHeight: 1.7, color: "var(--ink2)", marginBottom: myTodos.items.length ? 10 : 0, whiteSpace: "pre-wrap" }}>
+                      {myTodos.summary}
+                    </div>
+                    {myTodos.items.map((it, i) => (
+                      <div className="row" key={i}>
+                        <span className={`ico ${it.priority === 0 ? "i-red" : it.priority === 1 ? "i-amb" : "i-blu"}`}>
+                          {it.priority === 0 ? "🔴" : it.priority === 1 ? "🟠" : "🔵"}
+                        </span>
+                        <div>
+                          <div className="tt">
+                            {it.brand_id
+                              ? <Link href={`/brand/${it.brand_id}`} className="hover:underline">{it.brand_name}</Link>
+                              : it.brand_name}
+                            {" · "}{it.task}
+                          </div>
+                          <div className="ss">{it.reason}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* 퍼널 현황 — 영업 · 온보딩 · 마케팅 3개 파이프라인 */}
           <div className="card">
             <div className="hd"><b>퍼널 현황</b><span style={{ color: "var(--ink3)", fontSize: 11.5 }}>파이프라인별 단계 수</span></div>

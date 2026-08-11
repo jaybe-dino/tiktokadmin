@@ -22,6 +22,7 @@ export interface QueueRow {
   sla: boolean;
   approve: boolean;
   docs: boolean;
+  replyNeeded: boolean;
 }
 
 type TypeFilter = "all" | "sla" | "approve" | "docs";
@@ -116,8 +117,13 @@ export default function QueueBoard({
                   <span className="sub">{c.owners ? c.owners : "미배정"}</span>
                 </td>
                 <td>
+                  {c.replyNeeded && (
+                    <span className="pill" style={{ background: "#fef3c7", color: "#92400e", marginRight: 6 }}>📩 회신 필요</span>
+                  )}
                   {c.next_action ? (
                     c.next_action
+                  ) : c.replyNeeded ? (
+                    <span>수신 메일 회신 필요 — 초안함에서 검토·발송</span>
                   ) : (
                     <span style={{ color: "var(--ink3)" }}>다음 액션 미설정 — 지정 필요</span>
                   )}

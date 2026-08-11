@@ -8,8 +8,13 @@ import { STATE_LABELS, type Brand, type State } from "../types";
 
 export interface BoardCard extends Brand {
   has_breach: boolean;
+  has_reply_needed?: boolean; // 수신 메일 회신 필요(inbound_fwd/reply_needed 알림) — 워크큐 우선.
   owners_display: string | null;
 }
+
+// 회신 필요 알림(수신 메일 → 담당자 전달) EXISTS 절 — 워크큐에서 우선순위 상향.
+const REPLY_NEEDED_EXISTS =
+  "EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind IN ('inbound_fwd','reply_needed') AND a.resolved_at IS NULL)";
 
 export async function boardCards(): Promise<BoardCard[]> {
   // 종료(dropped/churned)·테스트(is_test) 브랜드는 SQL 에서 제외 —
@@ -216,17 +221,19 @@ export async function queueBrands(ownerField: string | null, ownerId: string): P
     // lead/exec/settle → 전체 진행 브랜드
     return query<BoardCard>(
       `SELECT b.*, EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind='sla_breach' AND a.resolved_at IS NULL) AS has_breach,
+              ${REPLY_NEEDED_EXISTS} AS has_reply_needed,
               NULLIF(concat_ws(', ', b.owner_intake, b.owner_sales, b.owner_onboard, b.owner_ads),'') AS owners_display
          FROM brands b WHERE b.state NOT IN ('dropped','churned')
-        ORDER BY has_breach DESC, b.due_date ASC NULLS LAST, b.next_action ASC LIMIT 100`,
+        ORDER BY has_breach DESC, has_reply_needed DESC, b.due_date ASC NULLS LAST, b.next_action ASC LIMIT 100`,
     );
   }
   return query<BoardCard>(
     `SELECT b.*, EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind='sla_breach' AND a.resolved_at IS NULL) AS has_breach,
+            ${REPLY_NEEDED_EXISTS} AS has_reply_needed,
             NULLIF(concat_ws(', ', b.owner_intake, b.owner_sales, b.owner_onboard, b.owner_ads),'') AS owners_display
        FROM brands b
       WHERE b.${ownerField} = $1 AND b.state NOT IN ('dropped','churned')
-      ORDER BY has_breach DESC, b.due_date ASC NULLS LAST, b.next_action ASC LIMIT 100`,
+      ORDER BY has_breach DESC, has_reply_needed DESC, b.due_date ASC NULLS LAST, b.next_action ASC LIMIT 100`,
     [ownerId],
   );
 }

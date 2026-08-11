@@ -20,6 +20,7 @@ export interface BrandEmail {
   linked_by: string | null;
   created_at: string;
   source?: "linked" | "sync"; // linked=수기 태깅(brand_emails), sync=공식 메일함 자동수집(email_messages)
+  body_text?: string | null;  // 전문(sync=email_messages.body_text). 없으면 snippet 사용.
 }
 
 export async function listBrandEmails(brandId: string): Promise<BrandEmail[]> {
@@ -40,8 +41,8 @@ export async function listBrandComms(brandId: string): Promise<BrandEmail[]> {
       "SELECT * FROM brand_emails WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 100",
       [brandId],
     ).catch(() => [] as BrandEmail[]),
-    query<{ id: string; direction: string; from_addr: string | null; to_addrs: string[] | null; subject: string | null; snippet: string | null; gmail_msg_id: string | null; sent_at: string }>(
-      `SELECT id, direction, from_addr, to_addrs, subject, snippet, gmail_msg_id, sent_at
+    query<{ id: string; direction: string; from_addr: string | null; to_addrs: string[] | null; subject: string | null; snippet: string | null; body_text: string | null; gmail_msg_id: string | null; sent_at: string }>(
+      `SELECT id, direction, from_addr, to_addrs, subject, snippet, body_text, gmail_msg_id, sent_at
          FROM email_messages WHERE brand_id=$1 ORDER BY sent_at DESC LIMIT 100`,
       [brandId],
     ).catch(() => []),
@@ -65,9 +66,10 @@ export async function listBrandComms(brandId: string): Promise<BrandEmail[]> {
       linked_by: null,
       created_at: m.sent_at,
       source: "sync" as const,
+      body_text: m.body_text,
     }));
 
-  const linkedRows: BrandEmail[] = linked.map((l) => ({ ...l, source: "linked" as const }));
+  const linkedRows: BrandEmail[] = linked.map((l) => ({ ...l, source: "linked" as const, body_text: l.snippet }));
   return [...linkedRows, ...syncRows]
     .sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1))
     .slice(0, 120);

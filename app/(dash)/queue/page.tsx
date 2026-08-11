@@ -15,12 +15,13 @@ function daysSince(iso: string | null): number | null {
   return Math.floor((Date.now() - t) / DAY);
 }
 
-/** 우선순위: 위반 → 오늘마감/초과 → 액션없음 → 그 외 */
+/** 우선순위: 위반 → 회신 필요 → 오늘마감/초과 → 액션없음 → 그 외 */
 function priorityRank(c: BoardCard, today: string): number {
   if (c.has_breach) return 0;
-  if (c.due_date && c.due_date <= today) return 1;
-  if (!c.next_action) return 2;
-  return 3;
+  if (c.has_reply_needed) return 1;
+  if (c.due_date && c.due_date <= today) return 2;
+  if (!c.next_action) return 3;
+  return 4;
 }
 
 export default async function QueuePage() {
@@ -60,6 +61,7 @@ export default async function QueuePage() {
 
     let tier: { label: string; cls: string };
     if (c.has_breach) tier = { label: "T3", cls: "sla t3" };
+    else if (c.has_reply_needed) tier = { label: "회신", cls: "sla t2" };
     else if (overdue || isDueToday) tier = { label: "T2", cls: "sla t2" };
     else if (!c.next_action) tier = { label: "T1", cls: "sla t1" };
     else tier = { label: "T0", cls: "sla ok" };
@@ -84,6 +86,7 @@ export default async function QueuePage() {
       sla: c.has_breach || overdue || isDueToday,
       approve: c.state === "contract_review" || c.state === "contract_done",
       docs: c.state === "docs" || c.state === "setup",
+      replyNeeded: !!c.has_reply_needed,
     };
   });
 
