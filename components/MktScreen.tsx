@@ -15,6 +15,7 @@ import {
   pullRfpFromSurveyAction,
   generateDirectionDraftAction,
   regenerateDirectionAction,
+  updateMktProposalMetaAction,
 } from "@/app/(dash)/mkt/actions";
 
 // 마케팅 프로젝트 화면 — 프로토타입 s-mkt 3탭 구성(파이프라인 / 루틴 운영대행 / 브랜드사별 매핑).
@@ -479,6 +480,7 @@ function Proposals({
   const [rfpFile, setRfpFile] = useState("");
   const [aiDir, setAiDir] = useState("");
   const [busyAi, setBusyAi] = useState(false);
+  const [editRow, setEditRow] = useState<MktProposalRow | null>(null);
   const [regOpen, setRegOpen] = useState(false);
   const [regName, setRegName] = useState("");
   const [regEmail, setRegEmail] = useState("");
@@ -778,6 +780,9 @@ function Proposals({
                         </button>
                       </>
                     )}
+                    <div style={{ marginTop: 4 }}>
+                      <button className="btn sm" disabled={pending} onClick={() => setEditRow(p)} title="제안 일정·금액·RFP·AI방향 편집">✏️ 편집</button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -787,6 +792,82 @@ function Proposals({
         <div style={{ padding: "10px 16px" }} className="note">
           📌 발송은 초안함(담당 승인·수신동의 게이트) 경유 — 승인·발송 후 이 목록에서 「발송 확인」으로 기록 확정 ·
           열람·회신은 브랜드360 미팅·메일 탭의 연동 메일에서 확인
+        </div>
+      </div>
+
+      {editRow && <ProposalEditModal p={editRow} onClose={() => setEditRow(null)} />}
+    </div>
+  );
+}
+
+// 마케팅 제안서 주요 항목 편집 모달 — 제안 예정일·최종 일정·금액·RFP·AI 제안방향.
+function ProposalEditModal({ p, onClose }: { p: MktProposalRow; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [proposeDate, setProposeDate] = useState(p.propose_date ?? "");
+  const [finalDue, setFinalDue] = useState(p.final_due_date ?? "");
+  const [amount, setAmount] = useState(p.amount != null ? String(p.amount) : "");
+  const [rfp, setRfp] = useState(p.rfp_text ?? "");
+  const [rfpFile, setRfpFile] = useState(p.rfp_file_url ?? "");
+  const [aiDir, setAiDir] = useState(p.ai_direction ?? "");
+  const [busyAi, setBusyAi] = useState(false);
+  const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null);
+
+  function pullRfp() {
+    start(async () => {
+      const r = await pullRfpFromSurveyAction(p.brand_id);
+      if (r.ok && r.rfp) { setRfp(r.rfp); setMsg({ t: "설문에서 RFP 를 불러왔습니다.", ok: true }); }
+      else setMsg({ t: r.error ?? "RFP 불러오기 실패", ok: false });
+    });
+  }
+  async function genDir() {
+    setBusyAi(true);
+    const r = await generateDirectionDraftAction({ brand_id: p.brand_id, amount, rfp });
+    setBusyAi(false);
+    if (r.ok && r.direction) { setAiDir(r.direction); setMsg({ t: "AI 제안방향을 생성했습니다.", ok: true }); }
+    else setMsg({ t: r.error ?? "생성 실패", ok: false });
+  }
+  function save() {
+    start(async () => {
+      const r = await updateMktProposalMetaAction({
+        id: p.id, propose_date: proposeDate, final_due_date: finalDue, amount,
+        rfp_text: rfp, rfp_file_url: rfpFile, ai_direction: aiDir,
+      });
+      if (r.ok) { setMsg({ t: "저장되었습니다.", ok: true }); router.refresh(); setTimeout(onClose, 500); }
+      else setMsg({ t: r.error ?? "저장 실패", ok: false });
+    });
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 100, display: "grid", placeItems: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "min(600px, 96vw)", maxHeight: "92vh", overflow: "auto", padding: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <b style={{ fontSize: 15 }}>제안서 편집</b>
+          <span className="chip" style={{ fontSize: 11 }}>{p.brand_name}</span>
+          <span style={{ color: "var(--ink3)", fontSize: 12 }}>{p.title}</span>
+          <button className="btn sm" style={{ marginLeft: "auto" }} onClick={onClose}>닫기 ✕</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div><label className="f">제안 예정일</label><input className="f" type="date" value={proposeDate} onChange={(e) => setProposeDate(e.target.value)} /></div>
+          <div><label className="f">최종 제안 예정 일정</label><input className="f" type="date" value={finalDue} onChange={(e) => setFinalDue(e.target.value)} /></div>
+          <div><label className="f">금액(원)</label><input className="f" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: 130 }} /></div>
+        </div>
+
+        <label className="f" style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          사전 RFP <button type="button" className="btn sm" disabled={pending} onClick={pullRfp}>설문에서 불러오기</button>
+        </label>
+        <textarea className="f" value={rfp} onChange={(e) => setRfp(e.target.value)} rows={3} style={{ width: "100%", boxSizing: "border-box", resize: "vertical" }} placeholder="예산·목표국·일정·니즈 등" />
+        <input className="f" value={rfpFile} onChange={(e) => setRfpFile(e.target.value)} placeholder="RFP 파일 링크(선택)" style={{ width: "100%", boxSizing: "border-box", marginTop: 6 }} />
+
+        <label className="f" style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          AI 제안 방향 <button type="button" className="btn sm pri" disabled={busyAi || pending} onClick={genDir}>{busyAi ? "생성 중…" : "🤖 재생성"}</button>
+        </label>
+        <textarea className="f" value={aiDir} onChange={(e) => setAiDir(e.target.value)} rows={6} style={{ width: "100%", boxSizing: "border-box", resize: "vertical" }} placeholder="AI 제안방향(직접 수정 가능)" />
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
+          <button className="btn pri" disabled={pending} onClick={save}>{pending ? "저장 중…" : "저장"}</button>
+          {msg && <span className="chip" style={{ fontSize: 11, color: msg.ok ? "var(--ok)" : "var(--danger)" }}>{msg.t}</span>}
         </div>
       </div>
     </div>
