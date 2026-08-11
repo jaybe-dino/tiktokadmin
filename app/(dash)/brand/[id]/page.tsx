@@ -136,6 +136,20 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const curStep = STEP_DEFS.findIndex((s) => s.states.includes(brand.state));
   const isTerminal = brand.state === "dropped" || brand.state === "churned";
 
+  // 회사정보(사업자·세금·대표·온보딩 담당) 파생 담당자 — '브랜드측 담당자' 카드에 읽기전용으로 함께 표기.
+  //   brand_contacts 에 이미 있는 이름은 중복 제외.
+  const co = deep?.company;
+  const existingNames = new Set((deep?.contacts ?? []).map((c) => c.name?.trim()).filter(Boolean));
+  const companyContacts = ([
+    co?.contact_name ? { label: "온보딩 담당", name: co.contact_name, email: co.contact_email ?? null, phone: co.contact_phone ?? null } : null,
+    co?.rep_name ? { label: "대표자", name: co.rep_name, email: null, phone: null } : null,
+    co?.tax_contact_name ? { label: "세금 담당", name: co.tax_contact_name, email: co.tax_email ?? null, phone: co.tax_contact_phone ?? null } : null,
+    brand.contact_name ? { label: "기본 담당", name: brand.contact_name, email: brand.email ?? null, phone: brand.phone ?? null } : null,
+  ].filter(Boolean) as { label: string; name: string; email: string | null; phone: string | null }[])
+    .filter((c) => c.name.trim() && !existingNames.has(c.name.trim()))
+    // 파생 목록 내 동일 이름 중복 제거(첫 항목 유지)
+    .filter((c, i, arr) => arr.findIndex((x) => x.name.trim() === c.name.trim()) === i);
+
   const sourceLabel = SOURCE_LABELS[brand.source] ?? brand.source;
   const nextDday = dday(brand.due_date);
   const latestSurvey = deep?.surveys[0] ?? null;
@@ -169,7 +183,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
         <Brand360SurveyCard brandId={brand.id} survey={latestSurvey} state={brand.state} />
 
-        <Brand360Contacts brandId={brand.id} contacts={deep?.contacts ?? []} />
+        <Brand360Contacts brandId={brand.id} contacts={deep?.contacts ?? []} companyContacts={companyContacts} />
       </div>
 
       <div style={{ display: "grid", gap: 14, alignContent: "start" }}>

@@ -36,7 +36,8 @@ const hasEmailOrPhone: Rule = {
 const hasSource: Rule = {
   key: "hasSource",
   label: "유입경로 없음",
-  test: (c) => Boolean(c.brand.source && c.brand.source !== "etc"),
+  // 유입 소스가 기록돼 있으면 통과 — '기타(etc)'도 담당자가 선택한 유효한 유입경로로 인정.
+  test: (c) => Boolean(c.brand.source && c.brand.source.trim()),
 };
 const hasContractType: Rule = {
   key: "hasContractType",

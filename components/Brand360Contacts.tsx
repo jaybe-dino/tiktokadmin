@@ -12,7 +12,10 @@ const ROLE_LABEL: Record<string, string> = {
 };
 const AV_COLORS = ["#f472b6", "#fb923c", "#60a5fa", "#34d399", "#a78bfa"];
 
-export default function Brand360Contacts({ brandId, contacts }: { brandId: string; contacts: BrandContact[] }) {
+// 회사정보(사업자·세금·대표)에서 파생된 담당자(읽기전용). 편집은 회사정보 탭에서.
+export interface CompanyContact { label: string; name: string; email: string | null; phone: string | null }
+
+export default function Brand360Contacts({ brandId, contacts, companyContacts = [] }: { brandId: string; contacts: BrandContact[]; companyContacts?: CompanyContact[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [open, setOpen] = useState(false);
@@ -63,9 +66,23 @@ export default function Brand360Contacts({ brandId, contacts }: { brandId: strin
             <button className="btn sm pri" style={{ gridColumn: "1 / -1" }} disabled={pending} type="submit">추가</button>
           </form>
         )}
-        {contacts.length === 0 && !open && (
+        {contacts.length === 0 && companyContacts.length === 0 && !open && (
           <p className="note">등록된 인물이 없습니다 — 미팅 참석자·메일 담당자를 추가해 두면 발송·정산 연락에 쓰입니다.</p>
         )}
+
+        {/* 회사정보 파생 담당자(읽기전용) — 대표자·세금·정산 담당 등. 편집은 회사정보 탭에서. */}
+        {companyContacts.map((c, i) => (
+          <div className="row" key={`co-${i}`} style={{ opacity: 0.95 }}>
+            <span className="av" style={{ background: "#94a3b8" }}>{c.name.slice(0, 1)}</span>
+            <div>
+              <div className="tt">
+                {c.name} <span className="chip" style={{ fontSize: 10 }}>{c.label}</span>
+                <span className="chip" style={{ fontSize: 10, marginLeft: 4, background: "#eef2ff", color: "#4338ca" }}>회사정보</span>
+              </div>
+              <div className="ss">{[c.email, c.phone].filter(Boolean).join(" · ") || "연락처 미입력"}</div>
+            </div>
+          </div>
+        ))}
         {contacts.map((c, i) => (
           <div className="row" key={c.id}>
             <span className="av" style={{ background: AV_COLORS[i % AV_COLORS.length] }}>{c.name.slice(0, 1)}</span>
