@@ -35,6 +35,7 @@ export interface CsvImportSummary {
 async function runInitialBriefs(
   brandIds: string[],
   limit = 5,
+  opts: { ruleOnly?: boolean } = {},
 ): Promise<{ analyzed: number; pending: number; ai: boolean }> {
   if (!brandIds.length) return { analyzed: 0, pending: 0, ai: false };
   const { aiEnabled, aiText } = await import("@/lib/ai");
@@ -51,7 +52,9 @@ async function runInitialBriefs(
 
   const targets = rows.slice(0, limit);
   const pending = rows.length - targets.length;
-  const useAi = aiEnabled();
+  // ruleOnly: 동기 경로에서 AI 호출(수초 지연) 없이 즉시 규칙기반 브리프만 — 등록 응답 속도 개선.
+  //   심층 AI 브리프는 브랜드360 'AI 분석' 버튼 또는 pre_analysis 에이전트로 생성.
+  const useAi = aiEnabled() && !opts.ruleOnly;
   let analyzed = 0;
 
   for (const b of targets) {
@@ -169,6 +172,8 @@ export async function registerLeadAction(input: {
   source: string;
   lead_group?: string;
   memo?: string;
+  brand_url?: string;   // 사이트 주소(선택)
+  category?: string;    // 카테고리(선택)
   state?: string;
   grade?: string;
   plan?: string;
@@ -195,6 +200,8 @@ export async function registerLeadAction(input: {
     contact_name: input.contact_name || undefined,
     source: input.source || "etc",
     memo: input.memo || undefined,
+    brand_url: (input.brand_url ?? "").trim() || undefined,
+    category: (input.category ?? "").trim() || undefined,
     state: input.state || undefined,
     grade: input.grade || undefined,
     plan: input.plan || undefined,
@@ -210,8 +217,8 @@ export async function registerLeadAction(input: {
     ).catch(() => {});
   }
 
-  // 1차 분석 — brief_md 미생성 시 AI(키 있으면) 또는 규칙기반 브리프 생성
-  const brief = await runInitialBriefs([res.brand_id], 1);
+  // 1차 분석 — 등록 응답을 빠르게: 규칙기반 브리프만 즉시(심층 AI 분석은 브랜드360 'AI 분석' 버튼).
+  const brief = await runInitialBriefs([res.brand_id], 1, { ruleOnly: true });
 
   revalidatePath("/");
   revalidatePath("/import");

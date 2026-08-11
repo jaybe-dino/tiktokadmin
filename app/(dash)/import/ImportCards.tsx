@@ -70,7 +70,7 @@ export function CsvUploadCard({ today, groups }: { today: string; groups: GroupO
         </summary>
         <textarea
           className="f" rows={5} style={{ marginTop: 6, fontFamily: "monospace", fontSize: 11 }}
-          placeholder={"brand_name,email,phone,category\n오가닉힐,hello@organic.kr,01011112222,뷰티"}
+          placeholder={"brand_name,email,phone,category,brand_url\n오가닉힐,hello@organic.kr,01011112222,뷰티,https://organic.kr"}
           value={csv}
           onChange={(e) => { setCsv(e.target.value); setFileName(""); setResult(null); }}
         />
@@ -181,6 +181,8 @@ export function ManualRegisterCard({ today, groups }: { today: string; groups: G
           source: String(f.get("source") ?? "etc"),
           lead_group: group === NEW_GROUP ? newGroup : group,
           memo: String(f.get("memo") ?? "") || undefined,
+          brand_url: String(f.get("brand_url") ?? "") || undefined,
+          category: String(f.get("category") ?? "") || undefined,
           state: String(f.get("state") ?? "") || undefined,
           grade: String(f.get("grade") ?? "") || undefined,
           plan: String(f.get("plan") ?? "") || undefined,
@@ -215,6 +217,12 @@ export function ManualRegisterCard({ today, groups }: { today: string; groups: G
 
       <label className="label" style={{ marginTop: 8 }}>담당자명</label>
       <input name="contact_name" className="f" placeholder="홍길동 매니저" />
+
+      <label className="label" style={{ marginTop: 8 }}>사이트 주소 · 카테고리 (선택)</label>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+        <input name="brand_url" className="f" placeholder="https://brand.com" />
+        <input name="category" className="f" placeholder="예: 뷰티 / 식품" />
+      </div>
 
       <label className="label" style={{ marginTop: 8 }}>유입 경로 *</label>
       <select name="source" className="f" defaultValue="expo" required>
@@ -271,7 +279,7 @@ export function ManualRegisterCard({ today, groups }: { today: string; groups: G
 
       <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
         <button className="btn pri" style={{ flex: 1 }} type="submit" disabled={busy}>
-          {busy ? "등록 중…" : "등록 → 사전분석 실행"}
+          {busy ? "등록 중…" : "등록"}
         </button>
       </div>
 
