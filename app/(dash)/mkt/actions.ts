@@ -395,6 +395,74 @@ export async function updateMktProposalMetaAction(input: {
   return { ok: true };
 }
 
+// ─── 루틴 운영대행 — 계약 기간 + 매월 되돌이 회차(칸반) ───────────
+/** 루틴 계약 기간 설정. */
+export async function setRoutineContractAction(projectId: string, start: string, end: string): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const s = (start ?? "").trim(), e = (end ?? "").trim();
+  if (s && !isYmd(s)) return { ok: false, error: "계약 시작일 형식(YYYY-MM-DD)을 확인하세요." };
+  if (e && !isYmd(e)) return { ok: false, error: "계약 종료일 형식(YYYY-MM-DD)을 확인하세요." };
+  if (s && e && s > e) return { ok: false, error: "계약 시작일이 종료일보다 늦습니다." };
+  const ok = await query(
+    "UPDATE mkt_projects SET contract_start=$2::date, contract_end=$3::date, updated_at=now() WHERE id=$1 AND kind='routine'",
+    [projectId, s || null, e || null],
+  ).then(() => true).catch(() => false);
+  if (!ok) return { ok: false, error: "마이그레이션(0065) 적용이 필요합니다(관리자)." };
+  revalidatePath("/mkt");
+  return { ok: true };
+}
+
+/** 특정 월(YYYY-MM) 회차 개설(멱등). */
+export async function addRoutineCycleAction(projectId: string, ym: string): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!/^\d{4}-\d{2}$/.test((ym ?? "").trim())) return { ok: false, error: "연월 형식(YYYY-MM)을 확인하세요." };
+  const ok = await query(
+    `INSERT INTO mkt_routine_cycles (project_id, ym, stage) VALUES ($1,$2,'plan')
+     ON CONFLICT (project_id, ym) DO NOTHING`,
+    [projectId, ym.trim()],
+  ).then(() => true).catch(() => false);
+  if (!ok) return { ok: false, error: "마이그레이션(0065) 적용이 필요합니다(관리자)." };
+  revalidatePath("/mkt");
+  return { ok: true };
+}
+
+/** 회차 단계 이동(칸반). done → 다음 달 자동 개설. */
+export async function setRoutineCycleStageAction(cycleId: string, stage: string): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!["plan", "running", "report", "done"].includes(stage)) return { ok: false, error: "잘못된 단계값" };
+  try {
+    const { setCycleStage } = await import("@/lib/mkt-routine");
+    await setCycleStage(cycleId, stage as "plan" | "running" | "report" | "done");
+  } catch { return { ok: false, error: "마이그레이션(0065) 적용이 필요합니다(관리자)." }; }
+  revalidatePath("/mkt");
+  return { ok: true };
+}
+
+/** 회차 메모·리포트 링크 수정. */
+export async function updateRoutineCycleAction(cycleId: string, note: string, reportUrl: string): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const ok = await query(
+    "UPDATE mkt_routine_cycles SET note=$2, report_url=$3, updated_at=now() WHERE id=$1",
+    [cycleId, (note ?? "").trim(), (reportUrl ?? "").trim() || null],
+  ).then(() => true).catch(() => false);
+  if (!ok) return { ok: false, error: "저장 실패" };
+  revalidatePath("/mkt");
+  return { ok: true };
+}
+
+/** 회차 삭제. */
+export async function deleteRoutineCycleAction(cycleId: string): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  await query("DELETE FROM mkt_routine_cycles WHERE id=$1", [cycleId]).catch(() => {});
+  revalidatePath("/mkt");
+  return { ok: true };
+}
+
 /** 설정 — 마케팅 제안 AI 참고용 '우리 서비스 소개' 저장(파트장/대표). */
 export async function saveMktServicesAction(md: string): Promise<MktResult> {
   const u = await currentUser();

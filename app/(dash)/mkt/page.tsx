@@ -100,13 +100,17 @@ export default async function MktPage() {
     contract_type: b.contract_type,
   }));
 
+  // 루틴 운영대행 — 계약 기간 + 월별 회차(0065 미적용 시 빈 배열).
+  const { listRoutineProjects } = await import("@/lib/mkt-routine");
+  const routineData = await listRoutineProjects().catch(() => []);
+
   return (
     <div>
       <ScreenHeader
         title="마케팅 파이프라인"
         desc="2가지 트랙 — ① 개별 프로젝트(RFP→제안→수주) 파이프라인 · ② 루틴 운영대행(회차 캠페인 반복·지속관리) + 마케팅 제안서(작성→초안함 승인 발송)"
       />
-      <MktScreen rows={rows} proposals={proposals} brands={brands} />
+      <MktScreen rows={rows} proposals={proposals} brands={brands} routineData={routineData} />
     </div>
   );
 }

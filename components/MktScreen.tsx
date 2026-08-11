@@ -16,7 +16,13 @@ import {
   generateDirectionDraftAction,
   regenerateDirectionAction,
   updateMktProposalMetaAction,
+  setRoutineContractAction,
+  addRoutineCycleAction,
+  setRoutineCycleStageAction,
+  updateRoutineCycleAction,
+  deleteRoutineCycleAction,
 } from "@/app/(dash)/mkt/actions";
+import { ROUTINE_STAGES, type RoutineProject, type RoutineCycle } from "@/lib/mkt-routine-types";
 
 // 마케팅 프로젝트 화면 — 프로토타입 s-mkt 3탭 구성(파이프라인 / 루틴 운영대행 / 브랜드사별 매핑).
 // 데이터는 서버(allMktProjects)에서 내려온 실데이터만 사용한다.
@@ -100,14 +106,15 @@ export default function MktScreen({
   rows,
   proposals = [],
   brands = [],
+  routineData = [],
 }: {
   rows: MktRow[];
   proposals?: MktProposalRow[];
   brands?: MktBrandOpt[];
+  routineData?: RoutineProject[];
 }) {
   const [tab, setTab] = useState<Tab>("pipe");
   const projects = rows.filter((r) => r.kind !== "routine");
-  const routines = rows.filter((r) => r.kind === "routine");
 
   return (
     <div>
@@ -127,7 +134,7 @@ export default function MktScreen({
       </div>
 
       {tab === "pipe" && <Pipeline projects={projects} onGoProposals={() => setTab("prop")} />}
-      {tab === "routine" && <Routine routines={routines} />}
+      {tab === "routine" && <Routine projects={routineData} brands={brands} />}
       {tab === "prop" && <Proposals proposals={proposals} brands={brands} projects={rows} />}
       {tab === "map" && <BrandMap rows={rows} />}
     </div>
@@ -367,93 +374,147 @@ function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
   );
 }
 
-// ── 탭 2: 루틴 운영대행 ───────────────────────────────────────
-function Routine({ routines }: { routines: MktRow[] }) {
-  // 브랜드별로 루틴 프로젝트를 묶는다.
-  const byBrand = new Map<string, MktRow[]>();
-  for (const r of routines) {
-    const arr = byBrand.get(r.brand_id) ?? [];
-    arr.push(r);
-    byBrand.set(r.brand_id, arr);
+// ── 탭 2: 루틴 운영대행 — 계약 기간 + 매월 되돌이 회차(칸반) ─────
+function thisYm(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function Routine({ projects, brands }: { projects: RoutineProject[]; brands: MktBrandOpt[] }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [brandId, setBrandId] = useState(brands[0]?.id ?? "");
+  const [title, setTitle] = useState("");
+  const [cs, setCs] = useState("");
+  const [ce, setCe] = useState("");
+  const [msg, setMsg] = useState("");
+
+  function createRoutine() {
+    setMsg("");
+    start(async () => {
+      const r = await createMktProjectAction({ brand_id: brandId, title: title.trim() || "마케팅 운영대행", kind: "routine" });
+      if (!r.ok || !r.id) { setMsg(r.error ?? "등록 실패"); return; }
+      if (cs || ce) await setRoutineContractAction(r.id, cs, ce);
+      setOpen(false); setTitle(""); setCs(""); setCe(""); router.refresh();
+    });
   }
-  const groups = [...byBrand.values()];
+
   return (
     <div>
       <div className="bar">
-        <span className="chip grn">운영대행 계약 {groups.length}건</span>
-        <span className="chip">루틴 캠페인 {routines.length}개</span>
+        <span className="chip grn">운영대행 계약 {projects.length}건</span>
+        <button className="btn sm pri" onClick={() => setOpen((o) => !o)}>{open ? "취소" : "+ 루틴 운영대행 등록"}</button>
         <span style={{ marginLeft: "auto", color: "var(--ink3)", fontSize: "11.5px" }}>
-          회차가 끝나면 리포트 → 승인 → 다음 회차 자동 개설 (지속관리)
+          계약 기간 · 매월 회차(기획→진행→리포트→완료·정산) · 완료 시 다음 달 자동 개설(되돌이표)
         </span>
       </div>
-      {groups.length === 0 ? (
-        <div className="note">루틴 운영대행(월 회차 반복) 프로젝트가 없습니다. 계약이 등록되면 브랜드별 회차 카드가 여기에 표시됩니다.</div>
-      ) : (
-        <div style={{ display: "grid", gap: 14 }}>
-          {groups.map((g) => (
-            <div key={g[0].brand_id} className="card">
-              <div className="hd">
-                <b>
-                  <Link href={`/brand/${g[0].brand_id}`} className="hover:underline">
-                    {g[0].brand_name}
-                  </Link>{" "}
-                  — 마케팅 운영대행
-                </b>
-                <span className="chip grn">루틴 {g.length}건</span>
-              </div>
-              <table className="t">
-                <tbody>
-                  <tr>
-                    <th>캠페인</th>
-                    <th>메모</th>
-                    <th>상태</th>
-                  </tr>
-                  {g.map((r) => (
-                    <tr key={r.id}>
-                      <td>
-                        <b>{r.title}</b>
-                      </td>
-                      <td>{r.note || "—"}</td>
-                      <td>
-                        <span className={`cellchip ${ST[r.proposal_status]?.cc ?? "cc-no"}`}>
-                          {ST[r.proposal_status]?.ko ?? r.proposal_status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {open && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="bd" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+            <div><label className="f">브랜드</label>
+              <select className="f" value={brandId} onChange={(e) => setBrandId(e.target.value)} style={{ minWidth: 160 }}>
+                {brands.length === 0 && <option value="">브랜드 없음</option>}
+                {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
             </div>
-          ))}
+            <div style={{ flex: 1, minWidth: 180 }}><label className="f">계약명</label>
+              <input className="f" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="예: 시딩·라방 월 운영대행" style={{ width: "100%", boxSizing: "border-box" }} />
+            </div>
+            <div><label className="f">계약 시작</label><input className="f" type="date" value={cs} onChange={(e) => setCs(e.target.value)} /></div>
+            <div><label className="f">계약 종료</label><input className="f" type="date" value={ce} onChange={(e) => setCe(e.target.value)} /></div>
+            <button className="btn pri" disabled={pending || !brandId} onClick={createRoutine}>{pending ? "등록 중…" : "등록"}</button>
+            {msg && <span className="chip red" style={{ fontSize: 11 }}>{msg}</span>}
+          </div>
         </div>
       )}
-      <div className="grid g2" style={{ marginTop: 14 }}>
-        <div className="card">
-          <div className="hd">
-            <b>회차 사이클 규칙 (지속관리)</b>
-          </div>
-          <div className="bd" style={{ fontSize: "12.5px", lineHeight: 1.8 }}>
-            ① 회차(월) 시작 시 계약 범위대로 캠페인 자동 개설(시딩·라이브·소재)
-            <br />② 정해진 기간 내 마무리 — 마감 D-3부터 지연 알림
-            <br />③ 회차 종료 → <b>AI 결과 리포트 초안</b> → 담당 승인 → 브랜드 발송·포털 게시
-            <br />④ <b>다음 회차 자동 개설</b> + 전 회차 학습(잘된 크리에이터·시간대 반영)
-          </div>
+      {projects.length === 0 ? (
+        <div className="note">루틴 운영대행 프로젝트가 없습니다. 「개별 프로젝트/제안서」에서 루틴(운영대행) 계약을 등록하면 여기에 표시됩니다.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 14 }}>
+          {projects.map((p) => <RoutineCard key={p.id} p={p} />)}
         </div>
-        <div className="card">
-          <div className="hd">
-            <b>루틴 운영 요약</b>
-          </div>
-          <div className="bd" style={{ fontSize: "12px" }}>
-            <div className="row">
-              <span className="ico i-grn">🔁</span>
-              <div>
-                <div className="tt">운영대행 브랜드 {groups.length}곳</div>
-                <div className="ss">루틴 캠페인 총 {routines.length}건 지속관리 중</div>
-              </div>
-            </div>
-          </div>
+      )}
+    </div>
+  );
+}
+
+function RoutineCard({ p }: { p: RoutineProject }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [cs, setCs] = useState(p.contract_start ?? "");
+  const [ce, setCe] = useState(p.contract_end ?? "");
+  const [msg, setMsg] = useState("");
+  const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(""), 2500); };
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) =>
+    start(async () => { const r = await fn(); if (r.ok) { flash(ok); router.refresh(); } else flash(r.error ?? "실패"); });
+
+  const cur = thisYm();
+  const hasCur = p.cycles.some((c) => c.ym === cur);
+
+  return (
+    <div className="card">
+      <div className="hd" style={{ flexWrap: "wrap", gap: 8 }}>
+        <b><Link href={`/brand/${p.brand_id}`} className="hover:underline">{p.brand_name}</Link> — {p.title}</b>
+        <span className="chip grn">회차 {p.cycles.length}</span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: "var(--ink3)" }}>계약기간</span>
+          <input className="f" type="date" value={cs} onChange={(e) => setCs(e.target.value)} style={{ fontSize: 12 }} />
+          <span>~</span>
+          <input className="f" type="date" value={ce} onChange={(e) => setCe(e.target.value)} style={{ fontSize: 12 }} />
+          <button className="btn sm" disabled={pending} onClick={() => run(() => setRoutineContractAction(p.id, cs, ce), "계약기간 저장됨")}>저장</button>
+          {!hasCur && <button className="btn sm pri" disabled={pending} onClick={() => run(() => addRoutineCycleAction(p.id, cur), `${cur} 회차 개설됨`)}>+ 이번 달({cur}) 회차</button>}
         </div>
       </div>
+      <div className="bd">
+        {/* 월별 회차 칸반 */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+          {ROUTINE_STAGES.map((stg) => {
+            const list = p.cycles.filter((c) => c.stage === stg.key).sort((a, b) => (a.ym < b.ym ? 1 : -1));
+            return (
+              <div key={stg.key} style={{ background: "#f8fafc", borderRadius: 8, padding: 6, minHeight: 60 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink2)", marginBottom: 6, textAlign: "center" }}>{stg.label} · {list.length}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {list.map((c) => <RoutineCycleCard key={c.id} c={c} pending={pending} run={run} />)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {p.cycles.length === 0 && <div className="note" style={{ marginTop: 8 }}>회차가 없습니다 — 「+ 이번 달 회차」로 시작하세요. 완료 처리 시 다음 달 회차가 자동 개설됩니다.</div>}
+        {msg && <div className="note" style={{ marginTop: 8, color: "var(--ok)" }}>{msg}</div>}
+      </div>
+    </div>
+  );
+}
+
+const STAGE_ORDER: RoutineCycle["stage"][] = ["plan", "running", "report", "done"];
+function RoutineCycleCard({ c, pending, run }: { c: RoutineCycle; pending: boolean; run: (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState(c.note ?? "");
+  const [report, setReport] = useState(c.report_url ?? "");
+  const idx = STAGE_ORDER.indexOf(c.stage);
+  return (
+    <div style={{ background: "#fff", border: "1px solid var(--line)", borderRadius: 7, padding: "6px 8px", fontSize: 11.5 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <b>{c.ym}</b>
+        <button className="btn sm" style={{ marginLeft: "auto", padding: "0 5px" }} disabled={pending || idx <= 0} title="이전 단계"
+          onClick={() => run(() => setRoutineCycleStageAction(c.id, STAGE_ORDER[idx - 1]), "단계 이동됨")}>◀</button>
+        <button className="btn sm" style={{ padding: "0 5px" }} disabled={pending || idx >= STAGE_ORDER.length - 1} title="다음 단계(완료 시 다음 달 자동 개설)"
+          onClick={() => run(() => setRoutineCycleStageAction(c.id, STAGE_ORDER[idx + 1]), idx + 1 === STAGE_ORDER.length - 1 ? "완료 — 다음 달 회차 개설됨" : "단계 이동됨")}>▶</button>
+      </div>
+      {c.note && !open && <div style={{ color: "var(--ink3)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.note}</div>}
+      {c.report_url && !open && <a href={c.report_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)", fontSize: 10.5 }}>📎 리포트</a>}
+      <button style={{ border: "none", background: "none", color: "var(--acc)", fontSize: 10.5, cursor: "pointer", padding: 0, marginTop: 2 }} onClick={() => setOpen((o) => !o)}>{open ? "접기" : "편집"}</button>
+      {open && (
+        <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
+          <textarea className="f" value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="회차 메모(시딩/라방 내역 등)" style={{ fontSize: 11 }} />
+          <input className="f" value={report} onChange={(e) => setReport(e.target.value)} placeholder="리포트 링크" style={{ fontSize: 11 }} />
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className="btn sm pri" disabled={pending} onClick={() => { run(() => updateRoutineCycleAction(c.id, note, report), "저장됨"); setOpen(false); }}>저장</button>
+            <button className="btn sm" style={{ color: "var(--bad)" }} disabled={pending} onClick={() => { if (confirm(`${c.ym} 회차를 삭제할까요?`)) run(() => deleteRoutineCycleAction(c.id), "삭제됨"); }}>삭제</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
