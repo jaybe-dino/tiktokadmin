@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import SideNav from "@/components/SideNav";
+import BugReportButton from "@/components/BugReportButton";
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
   let user;
@@ -57,6 +58,8 @@ export default async function DashLayout({ children }: { children: React.ReactNo
         </header>
         <main className="flex-1 min-w-0 px-[22px] py-5 pb-16" style={{ maxWidth: 1440 }}>{children}</main>
       </div>
+      {/* 우하단 플로팅 — 기능오류 제보 */}
+      <BugReportButton />
     </div>
   );
 }

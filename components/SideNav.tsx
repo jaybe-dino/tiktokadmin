@@ -55,6 +55,7 @@ const GROUPS: Group[] = [
     { href: "/accounts", label: "계정·권한", ic: "👤" },
     { href: "/settings", label: "설정·조직", ic: "⚙️" },
     { href: "/settings/survey", label: "설문 문항 관리", ic: "📝" },
+    { href: "/bugs", label: "기능오류 제보", ic: "🐞" },
     { href: "/guide", label: "사용 가이드", ic: "📖" },
   ]},
 ];
