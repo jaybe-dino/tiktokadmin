@@ -66,7 +66,12 @@ export default function AccountManager({ accounts, meId, canEdit }: { accounts: 
                       onChange={(v) => run(() => saveAccountAction({ id: u.id, name: u.name, role: v, zoom_email: u.zoom_email ?? "" }), "권한 변경됨")} />
                   ) : ROLE_LABEL[u.role] ?? u.role}
                 </td>
-                <td style={{ fontSize: 12, color: "var(--ink3)" }}>{u.zoom_email || "—"}</td>
+                <td style={{ fontSize: 12, color: "var(--ink3)" }}>
+                  {canEdit ? (
+                    <ZoomEmailCell u={u} disabled={pending}
+                      onSave={(val) => run(() => saveAccountAction({ id: u.id, name: u.name, role: u.role, zoom_email: val }), "Zoom 이메일 저장됨")} />
+                  ) : (u.zoom_email || "—")}
+                </td>
                 <td>{u.has_password ? <span className="pill grn" style={{ fontSize: 10 }}>설정됨</span> : <span className="pill" style={{ fontSize: 10, background: "#fee2e2", color: "#b91c1c" }}>미설정</span>}</td>
                 <td>{u.active ? <span className="pill grn" style={{ fontSize: 10 }}>활성</span> : <span className="pill" style={{ fontSize: 10 }}>비활성</span>}</td>
                 {canEdit && (
@@ -97,6 +102,25 @@ export default function AccountManager({ accounts, meId, canEdit }: { accounts: 
         본인 계정·마지막 대표는 비활성/삭제할 수 없습니다.
       </div>
     </div>
+  );
+}
+
+// Zoom 이메일 인라인 편집 — 줌 호스트(미팅 녹화/캘린더) → 담당자 귀속 매핑.
+function ZoomEmailCell({ u, disabled, onSave }: { u: AccountRow; disabled?: boolean; onSave: (val: string) => void }) {
+  const [val, setVal] = useState(u.zoom_email ?? "");
+  const dirty = (val.trim() || "") !== (u.zoom_email ?? "");
+  return (
+    <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+      <input
+        className="input" value={val} disabled={disabled} placeholder="zoom 로그인 이메일"
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && dirty) onSave(val.trim()); }}
+        style={{ width: 170, fontSize: 12, padding: "2px 6px" }}
+      />
+      {dirty && (
+        <button className="btn btn-sm btn-primary" disabled={disabled} onClick={() => onSave(val.trim())} title="저장">저장</button>
+      )}
+    </span>
   );
 }
 
