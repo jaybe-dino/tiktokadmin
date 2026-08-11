@@ -26,6 +26,7 @@ import { aggregateProgressCountries } from "@/lib/progress-countries";
 import { currentUser } from "@/lib/auth";
 import { listMeetingNotes } from "@/lib/meeting-notes";
 import Brand360MeetingNotes from "@/components/Brand360MeetingNotes";
+import Brand360Danger from "@/components/Brand360Danger";
 import TimelineAddEntry from "./TimelineAddEntry";
 import TimelineJump from "./TimelineJump";
 import { stageChecklist } from "@/lib/requirements";
@@ -405,6 +406,9 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
       {/* ===== 상단 탭 (v3.1 s-b360 구성) ===== */}
       <Brand360Tabs tabs={tabs} />
+
+      {/* ===== 위험 구역 — 완전 삭제(파트장/대표 전용) ===== */}
+      {canForce && <Brand360Danger brandId={brand.id} brandName={brand.brand_name} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { buildGateContext, evaluateGate, failedLabels } from "./gates";
 import { checkStageRequirements } from "./requirements";
 import { getBrand, recordStageHistory } from "./repo/brands";
-import { resolveAlertsForBrand } from "./repo/alerts";
+import { resolveAlertsForBrand, resolveAllAlertsForBrand } from "./repo/alerts";
 import { ensureDocTemplate } from "./docs";
 import { query } from "./db";
 import { isTransitionAllowed } from "./states";
@@ -97,8 +97,13 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
     await ensureDocTemplate(brand.id, brand.contract_type);
   }
 
-  // 관련 알림 해제
-  await resolveAlertsForBrand(brand.id, ["sla_breach", "gate_violation", "stale"]);
+  // 관련 알림 해제 — 종료 전이(드랍/해지)는 모든 활성 알림 해제(잔여 Slack 에스컬레이션 방지),
+  //   그 외 전이는 단계 무결성 관련 알림만 해제.
+  if (terminal) {
+    await resolveAllAlertsForBrand(brand.id);
+  } else {
+    await resolveAlertsForBrand(brand.id, ["sla_breach", "gate_violation", "stale"]);
+  }
 
   const updated = await getBrand(brand.id);
   return { ok: true, brand: updated ?? undefined };

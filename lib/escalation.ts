@@ -35,6 +35,7 @@ async function activeAlertsWithBrand(): Promise<AlertRow[]> {
        FROM alerts a JOIN brands b ON b.id=a.brand_id
       WHERE a.resolved_at IS NULL
         AND (a.snoozed_until IS NULL OR a.snoozed_until < now())
+        AND b.state NOT IN ('dropped','churned')
       ORDER BY a.tier DESC, a.created_at ASC`,
   );
   return rows.map((r) => ({ ...r, brand: r.brand as Brand }));

@@ -389,9 +389,11 @@ export async function setCountriesAction(brandId: string, countries: string[], c
 export async function deleteBrandAction(brandId: string): Promise<ActionResult> {
   const a = await requireLead();
   if (!a) return { ok: false, error: "권한 없음 (삭제는 파트장/대표만)" };
+  if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
   const { query } = await import("@/lib/db");
   await query("DELETE FROM brands WHERE id=$1", [brandId]); // 연관 테이블 CASCADE
   revalidatePath("/");
+  revalidatePath("/customers");
   return { ok: true };
 }
 

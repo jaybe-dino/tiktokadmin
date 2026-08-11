@@ -85,6 +85,15 @@ export async function resolveAlertsForBrand(brandId: string, kinds: AlertKind[])
   );
 }
 
+/** 브랜드의 모든 활성 알림 해제(드랍/해지 등 종료 전이 — 잔여 to-do·Slack 에스컬레이션 중단). */
+export async function resolveAllAlertsForBrand(brandId: string, by = "system"): Promise<void> {
+  await query(
+    `UPDATE alerts SET resolved_at=now(), resolved_by=$2
+       WHERE brand_id=$1 AND resolved_at IS NULL`,
+    [brandId, by],
+  );
+}
+
 export async function activeAlerts(brandId: string): Promise<Alert[]> {
   return query<Alert>(
     "SELECT * FROM alerts WHERE brand_id=$1 AND resolved_at IS NULL ORDER BY tier DESC, created_at ASC",
