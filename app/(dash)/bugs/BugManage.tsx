@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateBugReportAction, deleteBugReportAction } from "./actions";
-import { BUG_STATUS } from "@/lib/bug-reports";
+import { BUG_STATUS } from "@/lib/bug-status";
 
 export default function BugManage({ id, status, devNote }: { id: string; status: string; devNote: string }) {
   const router = useRouter();

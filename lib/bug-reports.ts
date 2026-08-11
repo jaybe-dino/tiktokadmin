@@ -1,13 +1,6 @@
 // 기능오류 제보 저장·조회. 이미지(스크린샷)는 bytea, 스트리밍은 /api/bug-report/[id]/image.
 import { query, queryOne } from "./db";
-
-export const BUG_STATUS: { key: string; label: string; cls: string }[] = [
-  { key: "open", label: "신규", cls: "cc-warn" },
-  { key: "triaged", label: "확인", cls: "cc-ing" },
-  { key: "in_progress", label: "진행중", cls: "cc-ing" },
-  { key: "resolved", label: "해결", cls: "cc-ok" },
-  { key: "wontfix", label: "보류/제외", cls: "cc-no" },
-];
+export { BUG_STATUS } from "./bug-status";
 
 export interface BugReportRow {
   id: string; url: string | null; description: string; reporter: string | null;

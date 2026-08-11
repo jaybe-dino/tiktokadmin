@@ -49,31 +49,63 @@ function shortWhen(s: unknown): string {
   return `${slot.ymd.slice(5)} ${String(slot.hour).padStart(2, "0")}:${slot.min}`;
 }
 
-// 이번 주 월~금 (서버에서 계산)
-function weekDays(): { ymd: string; label: string; isToday: boolean }[] {
-  // KST 기준 '오늘' 달력날짜를 UTC 자정 Date 로 표현(요일·날짜 산술은 UTC 로).
-  const [ty, tm, td] = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" })
-    .format(new Date()).split("-").map(Number);
-  const today = new Date(Date.UTC(ty, tm - 1, td));
-  const dow = today.getUTCDay(); // 0=일 .. 6=토
-  const diffToMon = dow === 0 ? -6 : 1 - dow;
-  const mon = new Date(today);
-  mon.setUTCDate(today.getUTCDate() + diffToMon);
-  const todayYmd = fmt(today);
+// KST '오늘' 달력날짜(YYYY-MM-DD).
+function todayYmdKST(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+// YYYY-MM-DD → UTC 자정 Date. 유효하지 않으면 오늘.
+function ymdToDate(ymd: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || "");
+  if (!m) { const [y, mo, d] = todayYmdKST().split("-").map(Number); return new Date(Date.UTC(y, mo - 1, d)); }
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+function addDays(d: Date, n: number): Date { const x = new Date(d); x.setUTCDate(d.getUTCDate() + n); return x; }
+
+// 앵커 날짜가 속한 주의 월~금.
+function weekDays(anchorYmd: string): { ymd: string; label: string; isToday: boolean }[] {
+  const anchor = ymdToDate(anchorYmd);
+  const dow = anchor.getUTCDay(); // 0=일 .. 6=토
+  const mon = addDays(anchor, dow === 0 ? -6 : 1 - dow);
+  const todayYmd = todayYmdKST();
   const names = ["월", "화", "수", "목", "금"];
   const out: { ymd: string; label: string; isToday: boolean }[] = [];
   for (let i = 0; i < 5; i++) {
-    const d = new Date(mon);
-    d.setUTCDate(mon.getUTCDate() + i);
+    const d = addDays(mon, i);
     const ymd = fmt(d);
     out.push({ ymd, label: `${names[i]} ${d.getUTCDate()}${ymd === todayYmd ? " (오늘)" : ""}`, isToday: ymd === todayYmd });
   }
   return out;
 }
 
+// 앵커 월의 달력 그리드(월요일 시작, 주 단위). 이전/다음 달 날짜 포함.
+function monthGrid(anchorYmd: string): { weeks: { ymd: string; day: number; inMonth: boolean; isToday: boolean }[][]; year: number; month: number } {
+  const anchor = ymdToDate(anchorYmd);
+  const year = anchor.getUTCFullYear(), month = anchor.getUTCMonth();
+  const first = new Date(Date.UTC(year, month, 1));
+  const fdow = first.getUTCDay();
+  const gridStart = addDays(first, fdow === 0 ? -6 : 1 - fdow); // 그 주 월요일
+  const todayYmd = todayYmdKST();
+  const weeks: { ymd: string; day: number; inMonth: boolean; isToday: boolean }[][] = [];
+  const cur = new Date(gridStart);
+  for (let w = 0; w < 6; w++) {
+    const row: { ymd: string; day: number; inMonth: boolean; isToday: boolean }[] = [];
+    for (let i = 0; i < 7; i++) {
+      const ymd = fmt(cur);
+      row.push({ ymd, day: cur.getUTCDate(), inMonth: cur.getUTCMonth() === month, isToday: ymd === todayYmd });
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    weeks.push(row);
+    if (cur.getUTCMonth() !== month && w >= 3 && cur.getUTCDate() > 7) break; // 다음달로 넘어갔고 충분하면 종료
+  }
+  return { weeks, year, month: month + 1 };
+}
+
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 9); // 09~19시
 
-export default async function MeetingsPage() {
+export default async function MeetingsPage({ searchParams }: { searchParams: Promise<{ view?: string; d?: string }> }) {
+  const sp = await searchParams;
+  const view = sp.view === "month" ? "month" : "week";
+  const anchor = sp.d && /^\d{4}-\d{2}-\d{2}$/.test(sp.d) ? sp.d : todayYmdKST();
   // 지정인(호스트) 이름 + 참석자·줌링크(0019)까지 조회 — 캘린더 블록·수정 레이어에 사용.
   const rows = (await query(
     `SELECT m.id, m.topic, m.status, m.followup_status, m.scheduled_at, m.started_at,
@@ -97,15 +129,45 @@ export default async function MeetingsPage() {
   ).catch(() => [])) as { id: string; brand_name: string }[];
   const brandList = brandOptions.map((b) => ({ id: b.id, name: b.brand_name || "(이름 없음)" }));
 
-  const days = weekDays();
+  const days = weekDays(anchor);
   const weekYmds = days.map((d) => d.ymd);
-  const rangeLabel = weekYmds.length ? `${weekYmds[0].slice(5)} – ${weekYmds[4].slice(5)}` : "";
+  const month = monthGrid(anchor);
+
+  // 보이는 범위 계산 → 그 범위 미팅만 별도 조회(다른 주/달 이동 시 200건 제한 밖 누락 방지).
+  const rangeStartYmd = view === "month" ? month.weeks[0][0].ymd : weekYmds[0];
+  const rangeEndExcl = view === "month"
+    ? fmt(addDays(ymdToDate(month.weeks[month.weeks.length - 1][6].ymd), 1))
+    : fmt(addDays(ymdToDate(weekYmds[0]), 7));
+  const calRows = (await query(
+    `SELECT m.id, m.topic, m.status, m.scheduled_at, m.host_email, m.zoom_join_url, m.attendees,
+            b.brand_name, b.id AS brand_id
+       FROM meetings m LEFT JOIN brands b ON b.id=m.brand_id
+      WHERE COALESCE(m.scheduled_at, m.started_at) >= (($1::date) AT TIME ZONE 'Asia/Seoul')
+        AND COALESCE(m.scheduled_at, m.started_at) <  (($2::date) AT TIME ZONE 'Asia/Seoul')
+      ORDER BY m.scheduled_at ASC LIMIT 800`,
+    [rangeStartYmd, rangeEndExcl],
+  ).catch(() => [])) as Record<string, unknown>[];
+
+  const rangeLabel = view === "month"
+    ? `${month.year}년 ${month.month}월`
+    : (weekYmds.length ? `${weekYmds[0].slice(5)} – ${weekYmds[4].slice(5)}` : "");
+
+  // 월간 셀: ymd → 미팅 목록
+  const monthCells = new Map<string, Record<string, unknown>[]>();
+  if (view === "month") {
+    for (const m of calRows) {
+      const slot = parseSlot(m.scheduled_at);
+      if (!slot) continue;
+      const arr = monthCells.get(slot.ymd) ?? [];
+      arr.push(m); monthCells.set(slot.ymd, arr);
+    }
+  }
 
   // 셀 버킷: key = `${dayIdx}-${hour}`
   const cells = new Map<string, Record<string, unknown>[]>();
   // 그리드(월~금·09~19시) 밖이라 셀에 안 들어가는 예약 미팅 — 사라지지 않게 별도 목록으로. (sales#9)
   const offGrid: { m: Record<string, unknown>; slot: { ymd: string; hour: number; min: string } }[] = [];
-  for (const m of rows) {
+  for (const m of calRows) {
     const slot = parseSlot(m.scheduled_at);
     if (!slot) continue;
     const dayIdx = weekYmds.indexOf(slot.ymd);
@@ -123,7 +185,14 @@ export default async function MeetingsPage() {
     cells.set(key, arr);
   }
   const weekCount = [...cells.values()].reduce((n, a) => n + a.length, 0);
+  const visibleCount = view === "month" ? calRows.length : weekCount;
   offGrid.sort((a, b) => String(a.m.scheduled_at).localeCompare(String(b.m.scheduled_at)));
+
+  // 이전/다음/오늘 이동 링크(주간=±7일, 월간=±1개월).
+  const anchorD = ymdToDate(anchor);
+  const prevD = view === "month" ? fmt(new Date(Date.UTC(anchorD.getUTCFullYear(), anchorD.getUTCMonth() - 1, 1))) : fmt(addDays(anchorD, -7));
+  const nextD = view === "month" ? fmt(new Date(Date.UTC(anchorD.getUTCFullYear(), anchorD.getUTCMonth() + 1, 1))) : fmt(addDays(anchorD, 7));
+  const navUrl = (v: string, d: string) => `/meetings?view=${v}&d=${d}`;
 
   // 하단 3분할 카드용 파생 목록 (실데이터 기반)
   const pipeline = rows
@@ -152,7 +221,7 @@ export default async function MeetingsPage() {
         right={
           <div className="bar" style={{ margin: 0 }}>
             <b style={{ fontSize: 13 }}>{rangeLabel}</b>
-            <span style={{ color: "var(--ink3)", fontSize: 12 }}>이번 주 {weekCount}건 · 총 {rows.length}건</span>
+            <span style={{ color: "var(--ink3)", fontSize: 12 }}>{view === "month" ? "이번 달" : "이번 주"} {visibleCount}건</span>
           </div>
         }
       />
@@ -163,7 +232,62 @@ export default async function MeetingsPage() {
         <span style={{ color: "var(--ink3)", fontSize: 12, marginLeft: 8 }}>줌 자동수집과 별개로 수동 일정을 캘린더에 추가합니다.</span>
       </div>
 
+      {/* 캘린더 이동·보기 전환 */}
+      <div className="bar" style={{ marginBottom: 10, alignItems: "center" }}>
+        <Link href={navUrl(view, prevD)} className="btn sm">‹ 이전</Link>
+        <Link href={navUrl(view, todayYmdKST())} className="btn sm">오늘</Link>
+        <Link href={navUrl(view, nextD)} className="btn sm">다음 ›</Link>
+        <b style={{ fontSize: 13, margin: "0 6px" }}>{rangeLabel}</b>
+        <span style={{ marginLeft: "auto", display: "inline-flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+          <Link href={navUrl("week", anchor)} className="btn sm" style={{ borderRadius: 0, border: "none", background: view === "week" ? "var(--acc)" : undefined, color: view === "week" ? "#fff" : undefined }}>주간</Link>
+          <Link href={navUrl("month", anchor)} className="btn sm" style={{ borderRadius: 0, border: "none", borderLeft: "1px solid var(--line)", background: view === "month" ? "var(--acc)" : undefined, color: view === "month" ? "#fff" : undefined }}>월간</Link>
+        </span>
+      </div>
+
+      {/* 월간 캘린더 그리드 */}
+      {view === "month" && (
+        <div className="card overflow-x-auto" style={{ padding: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", minWidth: 700 }}>
+            {["월", "화", "수", "목", "금", "토", "일"].map((n) => (
+              <div key={n} style={{ padding: "8px 10px", fontSize: 11.5, fontWeight: 700, color: "var(--ink2)", textAlign: "center", background: "#f8fafc", borderBottom: "1px solid var(--line)" }}>{n}</div>
+            ))}
+            {month.weeks.flatMap((wk, wi) => wk.map((c, di) => {
+              const items = monthCells.get(c.ymd) ?? [];
+              return (
+                <div key={`${wi}-${di}`} style={{ minHeight: 96, borderLeft: di === 0 ? "none" : "1px solid var(--line)", borderTop: wi === 0 ? "none" : "1px solid var(--line)", padding: 6, background: c.inMonth ? "var(--card)" : "#fafbfc", opacity: c.inMonth ? 1 : 0.6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: c.isToday ? "var(--acc)" : (di >= 5 ? "var(--ink3)" : "var(--ink2)"), marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+                    <span>{c.day}{c.isToday ? " ·오늘" : ""}</span>
+                    {items.length > 0 && <span className="pill" style={{ fontSize: 9, padding: "0 5px" }}>{items.length}</span>}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {items.slice(0, 4).map((m) => {
+                      const slot = parseSlot(m.scheduled_at);
+                      return (
+                        <MeetingEditor key={m.id as string}
+                          meeting={{
+                            id: m.id as string, topic: (m.topic as string) || "", status: m.status as string,
+                            brand_id: (m.brand_id as string) ?? null, brand_name: (m.brand_name as string) ?? null,
+                            scheduled_at: (m.scheduled_at as string) ?? null, host_email: (m.host_email as string) ?? null,
+                            host_name: null, zoom_join_url: (m.zoom_join_url as string) ?? null,
+                            attendees: (m.attendees as { name?: string; email: string }[]) ?? [],
+                          }}
+                          cls={`mtg ${mtgClass(m.status as string)}`}
+                          label={`${slot ? String(slot.hour).padStart(2, "0") + ":" + slot.min + " " : ""}${(m.brand_name as string) || (m.topic as string) || "미팅"}`}
+                        />
+                      );
+                    })}
+                    {items.length > 4 && <span style={{ fontSize: 10, color: "var(--ink3)" }}>+{items.length - 4}건</span>}
+                  </div>
+                </div>
+              );
+            }))}
+          </div>
+        </div>
+      )}
+
       {/* 주간 캘린더 그리드 */}
+      {view === "week" && (
+      <>
       <div className="cal">
         <div className="h" style={{ borderLeft: "none" }}></div>
         {days.map((d) => (
@@ -223,6 +347,8 @@ export default async function MeetingsPage() {
             ))}
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* 하단 3분할: 처리 파이프라인 · 매칭 필요 · 노쇼·취소 */}

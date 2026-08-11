@@ -33,7 +33,7 @@ function toKstLocalInput(s: string | null): string {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function MeetingEditor({ meeting, cls }: { meeting: CalendarMeeting; cls: string }) {
+export default function MeetingEditor({ meeting, cls, label: labelProp }: { meeting: CalendarMeeting; cls: string; label?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
@@ -96,10 +96,10 @@ export default function MeetingEditor({ meeting, cls }: { meeting: CalendarMeeti
       <button
         className={cls}
         title={label}
-        style={{ display: "block", width: "100%", textAlign: "left", cursor: "pointer", border: "none", fontFamily: "inherit" }}
+        style={{ display: "block", width: "100%", textAlign: "left", cursor: "pointer", border: "none", fontFamily: "inherit", ...(labelProp ? { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 10.5, padding: "2px 5px" } : null) }}
         onClick={() => setOpen(true)}
       >
-        {label}
+        {labelProp ?? label}
       </button>
 
       {open && (
