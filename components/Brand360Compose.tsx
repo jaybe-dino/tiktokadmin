@@ -8,6 +8,55 @@ import { previewComposeAction, createManualDraftAction } from "@/app/(dash)/bran
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// 수신자 영역 박스(받는사람/참조 공용) — 테두리·헤더로 구분.
+function RecipientBox({
+  title, badge, accent, items, onRemove, pickable, onPick, pickLabel, addValue, setAddValue, onAdd, placeholder, emptyText,
+}: {
+  title: string; badge: string; accent: string;
+  items: string[]; onRemove: (e: string) => void;
+  pickable: { name: string; email: string }[]; onPick: (email: string) => void; pickLabel: string;
+  addValue: string; setAddValue: (v: string) => void; onAdd: (v: string) => void;
+  placeholder: string; emptyText: string;
+}) {
+  return (
+    <div style={{ border: "1px solid var(--line)", borderLeft: `3px solid ${accent}`, borderRadius: 10, padding: 10, display: "grid", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <b style={{ fontSize: 12.5 }}>{title}</b>
+        <span className="chip" style={{ fontSize: 10, background: accent, color: "#fff", borderColor: accent }}>{badge}</span>
+        {items.length > 0 && <span style={{ color: "var(--ink3)", fontSize: 11.5 }}>{items.length}명</span>}
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {items.length === 0 && <span className="note" style={{ margin: 0 }}>{emptyText}</span>}
+        {items.map((e) => (
+          <span key={e} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            {e}
+            <button style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink3)", fontSize: 12 }} title="제외" onClick={() => onRemove(e)}>✕</button>
+          </span>
+        ))}
+      </div>
+      {pickable.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <span className="note" style={{ margin: 0, alignSelf: "center" }}>{pickLabel}</span>
+          {pickable.map((c) => (
+            <button key={c.email} className="btn sm" onClick={() => onPick(c.email)} title={c.email}>+ {c.name}</button>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <input
+          className="input"
+          style={{ flex: 1, minWidth: 180 }}
+          value={addValue}
+          onChange={(e) => setAddValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onAdd(addValue); setAddValue(""); } }}
+          placeholder={placeholder}
+        />
+        <button className="btn sm" onClick={() => { onAdd(addValue); setAddValue(""); }}>+ 추가</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Brand360Compose({
   brandId,
   brandEmail,
@@ -24,7 +73,6 @@ export default function Brand360Compose({
   const [addEmail, setAddEmail] = useState("");
   const [cc, setCc] = useState<string[]>([]);
   const [addCc, setAddCc] = useState("");
-  const [ccOpen, setCcOpen] = useState(false);
   const [intent, setIntent] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -57,7 +105,7 @@ export default function Brand360Compose({
 
   function reset() {
     setRecipients(brandEmail ? [brandEmail] : []); setAddEmail("");
-    setCc([]); setAddCc(""); setCcOpen(false);
+    setCc([]); setAddCc("");
     setIntent(""); setSubject(""); setBody(""); setMsg(null);
   }
 
@@ -105,82 +153,25 @@ export default function Brand360Compose({
       {open && (
         <div className="bd" style={{ display: "grid", gap: 8 }}>
           {/* 받는사람 — 다중 수신, 담당자 선택 + 직접 추가·수정 */}
-          <div>
-            <label className="label">받는사람 {recipients.length > 0 && <span style={{ color: "var(--ink3)", fontWeight: 400 }}>({recipients.length}명)</span>}</label>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-              {recipients.length === 0 && <span className="note" style={{ margin: 0 }}>수신자가 없습니다 — 아래에서 담당자를 추가하세요.</span>}
-              {recipients.map((e) => (
-                <span key={e} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                  {e}
-                  <button style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink3)", fontSize: 12 }} title="제외" onClick={() => removeRecipient(e)}>✕</button>
-                </span>
-              ))}
-            </div>
-            {pickable.length > 0 && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                <span className="note" style={{ margin: 0, alignSelf: "center" }}>브랜드 담당자 추가:</span>
-                {pickable.map((c) => (
-                  <button key={c.email} className="btn sm" onClick={() => addRecipient(c.email)} title={c.email}>
-                    + {c.name}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <input
-                className="input"
-                style={{ flex: 1, minWidth: 180 }}
-                value={addEmail}
-                onChange={(e) => setAddEmail(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addRecipient(addEmail); setAddEmail(""); } }}
-                placeholder="직접 이메일 추가 (예: contact@brand.com)"
-              />
-              <button className="btn sm" onClick={() => { addRecipient(addEmail); setAddEmail(""); }}>+ 추가</button>
-            </div>
-          </div>
+          {/* 받는사람(To) — 별도 박스 */}
+          <RecipientBox
+            title="받는사람" badge="To" accent="#2563eb"
+            items={recipients} onRemove={removeRecipient}
+            pickable={pickable} onPick={addRecipient} pickLabel="브랜드 담당자 추가:"
+            addValue={addEmail} setAddValue={setAddEmail} onAdd={addRecipient}
+            placeholder="직접 이메일 추가 (예: contact@brand.com)"
+            emptyText="수신자가 없습니다 — 담당자를 추가하세요."
+          />
 
-          {/* 참조(CC) — 접었다 펼치기, 담당자 선택 + 직접 추가 */}
-          <div>
-            <button
-              className="btn sm"
-              onClick={() => setCcOpen((v) => !v)}
-              style={{ marginBottom: ccOpen || cc.length > 0 ? 6 : 0 }}
-            >
-              {ccOpen ? "참조(CC) 닫기" : `＋ 참조(CC)${cc.length > 0 ? ` ${cc.length}명` : ""}`}
-            </button>
-            {(ccOpen || cc.length > 0) && (
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {cc.length === 0 && <span className="note" style={{ margin: 0 }}>참조 수신자 없음 — 담당자를 추가하세요.</span>}
-                  {cc.map((e) => (
-                    <span key={e} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                      {e}
-                      <button style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink3)", fontSize: 12 }} title="제외" onClick={() => removeCc(e)}>✕</button>
-                    </span>
-                  ))}
-                </div>
-                {ccPickable.length > 0 && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <span className="note" style={{ margin: 0, alignSelf: "center" }}>브랜드 담당자 참조:</span>
-                    {ccPickable.map((c) => (
-                      <button key={c.email} className="btn sm" onClick={() => addCcRecipient(c.email)} title={c.email}>+ {c.name}</button>
-                    ))}
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <input
-                    className="input"
-                    style={{ flex: 1, minWidth: 180 }}
-                    value={addCc}
-                    onChange={(e) => setAddCc(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCcRecipient(addCc); setAddCc(""); } }}
-                    placeholder="참조 이메일 직접 추가"
-                  />
-                  <button className="btn sm" onClick={() => { addCcRecipient(addCc); setAddCc(""); }}>+ 추가</button>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* 참조(CC) — 별도 박스 */}
+          <RecipientBox
+            title="참조" badge="CC" accent="#94a3b8"
+            items={cc} onRemove={removeCc}
+            pickable={ccPickable} onPick={addCcRecipient} pickLabel="브랜드 담당자 참조:"
+            addValue={addCc} setAddValue={setAddCc} onAdd={addCcRecipient}
+            placeholder="참조 이메일 직접 추가 (선택)"
+            emptyText="참조 수신자 없음 (선택) — 필요 시 담당자를 추가하세요."
+          />
 
           <div style={{ background: "#f6f7fb", border: "1px solid var(--line)", borderRadius: 10, padding: 10, display: "grid", gap: 6 }}>
             <label className="label" style={{ margin: 0 }}>🤖 AI로 초안 생성 (선택) — 지시사항을 적고 생성</label>
