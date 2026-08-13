@@ -8,7 +8,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createSurveyAction } from "@/app/actions";
 import { sendPreSurveyAction } from "@/app/(dash)/brand360/survey-actions";
-import { PRE_MEETING_QUESTIONS, surveyKindLabel } from "@/lib/survey";
+import { PRE_MEETING_QUESTIONS, surveyKindLabel, questionsForKind, missingRequired } from "@/lib/survey";
 
 interface SurveyLite {
   token: string;
@@ -36,6 +36,8 @@ export default function Brand360SurveyCard({ brandId, survey, state }: { brandId
   const kindLabel = surveyKindLabel(survey?.kind);
   const ans = (survey?.answers ?? {}) as Record<string, unknown>;
   const consent = ans.marketing_consent;
+  // 응답이 들어왔지만 필수 항목이 비어 있는 경우(구버전 링크 등) — 재설문 유도 배너.
+  const missingAnswered = answered ? missingRequired(questionsForKind(survey?.kind ?? ""), ans) : [];
 
   const sendPre = () =>
     start(async () => {
@@ -92,6 +94,11 @@ export default function Brand360SurveyCard({ brandId, survey, state }: { brandId
         {needSurvey && (
           <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", color: "#c2410c", borderRadius: 8, padding: "8px 11px", fontSize: 12.5, marginBottom: 10, fontWeight: 600 }}>
             ⚠️ 1:1 미팅·제안서 발송 전 <b>사전 설문</b>을 먼저 보내주세요. (미응답 상태)
+          </div>
+        )}
+        {missingAnswered.length > 0 && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 8, padding: "8px 11px", fontSize: 12.5, marginBottom: 10, fontWeight: 600 }}>
+            ⚠️ 필수 항목 {missingAnswered.length}개 미응답: {missingAnswered.map((q) => q.label.replace(/\(.*\)$/, "")).join(", ")} — <b>재설문</b>을 보내 보완하세요.
           </div>
         )}
         {answered && isPre ? (

@@ -1,12 +1,16 @@
 "use client";
 import { useState } from "react";
-import type { SurveyQuestion } from "@/lib/survey";
+import { type SurveyQuestion, missingRequired } from "@/lib/survey";
 
 export default function SurveyForm({ token, questions }: { token: string; questions: SurveyQuestion[] }) {
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState("");
+  const [tried, setTried] = useState(false); // 제출 시도 후에만 미응답 강조
+
+  const missing = missingRequired(questions, answers);
+  const missingKeys = new Set(missing.map((q) => q.key));
 
   function set(key: string, value: unknown) {
     setAnswers((a) => ({ ...a, [key]: value }));
@@ -19,6 +23,13 @@ export default function SurveyForm({ token, questions }: { token: string; questi
   }
 
   async function submit() {
+    setTried(true);
+    if (missing.length > 0) {
+      setErr(`필수 항목 ${missing.length}개가 비어 있습니다: ${missing.map((q) => q.label.replace(/\(.*\)$/, "")).join(", ")}`);
+      // 첫 미응답 문항으로 스크롤.
+      document.getElementById(`q-${missing[0].key}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     setBusy(true);
     setErr("");
     try {
@@ -56,9 +67,14 @@ export default function SurveyForm({ token, questions }: { token: string; questi
       {sections.map((sec) => (
         <div key={sec || "_"} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           {sec && <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".04em", color: "#c0326a", borderBottom: "1px solid #f2dbe6", paddingBottom: 6 }}>{sec}</div>}
-          {questions.filter((q) => (q.section ?? "") === sec).map((q) => (
-        <div key={q.key}>
-          <label style={{ display: "block", fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{q.label}</label>
+          {questions.filter((q) => (q.section ?? "") === sec).map((q) => {
+          const isMissing = tried && missingKeys.has(q.key);
+          return (
+        <div key={q.key} id={`q-${q.key}`} style={isMissing ? { padding: 10, margin: -10, borderRadius: 10, background: "#fff5f7", border: "1px solid #f6c6d5" } : undefined}>
+          <label style={{ display: "block", fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
+            {q.label}
+            {!q.optional && <span style={{ color: "#e11", marginLeft: 4 }}>*</span>}
+          </label>
 
           {q.type === "select" && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -103,7 +119,8 @@ export default function SurveyForm({ token, questions }: { token: string; questi
             </label>
           )}
         </div>
-          ))}
+          );
+          })}
         </div>
       ))}
 

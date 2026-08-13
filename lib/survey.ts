@@ -7,6 +7,7 @@ export interface SurveyQuestion {
   options?: string[];
   placeholder?: string;
   section?: string; // 주제 구획(DB 문항 뱅크에서 채워짐)
+  optional?: boolean; // 미지정 시 필수. 자유서술·수신동의만 선택.
 }
 
 export const POST_MEETING_QUESTIONS: SurveyQuestion[] = [
@@ -18,8 +19,8 @@ export const POST_MEETING_QUESTIONS: SurveyQuestion[] = [
     options: ["미국", "베트남", "태국", "싱가포르", "필리핀", "말레이시아"] },
   { key: "timeline", label: "희망 시작 시기", type: "select",
     options: ["즉시", "1개월 내", "3개월 내", "미정"] },
-  { key: "concerns", label: "우려사항·질문", type: "text" },
-  { key: "marketing_consent", label: "정기 마케팅 정보 수신 동의", type: "consent" },
+  { key: "concerns", label: "우려사항·질문", type: "text", optional: true },
+  { key: "marketing_consent", label: "정기 마케팅 정보 수신 동의", type: "consent", optional: true },
 ];
 
 // ── 1:1 미팅 사전 설문 (기획확정 8절) ──────────────────────────
@@ -50,6 +51,21 @@ export function questionsForKind(kind: string): SurveyQuestion[] {
 /** surveys.kind → 화면 라벨. */
 export function surveyKindLabel(kind: string | null | undefined): string {
   return kind === "pre_meeting" ? "사전 설문" : "미팅 후 설문";
+}
+
+/** 한 문항이 응답되었는지 판정. multi 는 1개 이상, consent 는 항상 응답으로 간주, 그 외는 비어있지 않은 문자열. */
+export function isAnswered(q: SurveyQuestion, v: unknown): boolean {
+  if (q.type === "multi") return Array.isArray(v) && v.length > 0;
+  if (q.type === "consent") return true; // 체크 여부 자체가 응답 — 선택 항목
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+/** 필수(optional 아님) 문항 중 미응답 목록 반환. 클라이언트·서버 공통 검증. */
+export function missingRequired(
+  questions: SurveyQuestion[],
+  answers: Record<string, unknown>,
+): SurveyQuestion[] {
+  return questions.filter((q) => !q.optional && !isAnswered(q, answers[q.key]));
 }
 
 /** 목표국 라벨(한글) → 국가코드. brands.countries 는 한글 라벨 사용(COUNTRY_OPTIONS). */
