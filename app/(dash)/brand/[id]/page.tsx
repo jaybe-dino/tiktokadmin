@@ -152,7 +152,6 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
   const sourceLabel = SOURCE_LABELS[brand.source] ?? brand.source;
   const nextDday = dday(brand.due_date);
-  const latestSurvey = deep?.surveys[0] ?? null;
 
   // 헤더 메타 (v3.1: 카테고리 · URL · 사업자 · 유입 · 접촉)
   const metaBits = [
@@ -181,7 +180,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
 
-        <Brand360SurveyCard brandId={brand.id} survey={latestSurvey} state={brand.state} />
+        <Brand360SurveyCard brandId={brand.id} surveys={deep?.surveys ?? []} state={brand.state} />
 
         <Brand360Contacts brandId={brand.id} contacts={deep?.contacts ?? []} companyContacts={companyContacts} />
       </div>
