@@ -119,7 +119,7 @@ export const GATES: Record<string, Rule[]> = {
   "lead_new→seminar": [assigned("owner_intake", "유입담당 미지정")],
   "lead_new→meeting": [hasContact, hasEmailOrPhone, hasSource, assigned("owner_intake", "유입담당 미지정")],
   "seminar→meeting": [hasContact, assigned("owner_intake", "유입담당 미지정")],
-  "meeting→contact": [hasMeetingNote, assigned("owner_sales", "영업담당 미지정"), hasDiagnosis, hasPreSurvey],
+  "meeting→contact": [assigned("owner_sales", "영업담당 미지정"), hasDiagnosis, hasPreSurvey],
   "contact→contract_review": [hasContractType, gradeChecksComplete, assigned("owner_contract", "계약담당 미지정")],
   "contact→contract_done": [hasContractType, hasPlan, hasSentProposal, paymentConfirmed, gradeChecksComplete],
   "contract_review→contract_done": [paymentConfirmed],

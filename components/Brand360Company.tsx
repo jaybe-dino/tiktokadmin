@@ -13,8 +13,8 @@ import { kstDateTime } from "@/lib/time";
 
 const D = (v: string | null | undefined): string => (v && v.trim() ? v : "—");
 
-export default function Brand360Company({ brand, company, assets }: {
-  brand: Brand; company: BrandCompany | null; assets: Asset[];
+export default function Brand360Company({ brand, company, assets, categories = [] }: {
+  brand: Brand; company: BrandCompany | null; assets: Asset[]; categories?: string[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -305,7 +305,12 @@ export default function Brand360Company({ brand, company, assets }: {
                 }}
               >
                 <input name="brand_name" className="f" defaultValue={bv.brand_name} placeholder="브랜드명 (국문)" />
-                <input name="category" className="f" defaultValue={bv.category} placeholder="카테고리" />
+                <select name="category" className="f" defaultValue={bv.category ?? ""}>
+                  <option value="">카테고리 선택…</option>
+                  {(categories.includes(bv.category) || !bv.category ? categories : [bv.category, ...categories]).map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
                 <input name="brand_url" className="f" defaultValue={bv.brand_url} placeholder="대표 판매채널 URL" />
                 <input name="contact_name" className="f" defaultValue={bv.contact_name} placeholder="담당자명" />
                 <input name="email" className="f" defaultValue={bv.email ?? ""} placeholder="이메일" />

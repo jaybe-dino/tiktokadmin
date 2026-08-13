@@ -19,6 +19,8 @@ import { listTemplates } from "@/lib/templates";
 import TemplateManager from "@/components/TemplateManager";
 import { mcpRoleAllowed, mcpTokenStatus } from "@/lib/mcp-auth";
 import McpConnect from "@/components/McpConnect";
+import { listBrandCategories } from "@/lib/brand-categories";
+import BrandCategoryConfig from "@/components/BrandCategoryConfig";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +52,7 @@ export default async function SettingsPage() {
   const mcpAllowed = mcpRoleAllowed(user.role);
   const mcpStatus = mcpAllowed ? await mcpTokenStatus(user.id).catch(() => ({ set: false, hint: null, at: null })) : null;
   const mcpEndpoint = `${env.adminUrl.replace(/\/$/, "")}/api/mcp`;
+  const brandCategories = await listBrandCategories().catch(() => []);
   const welcomeSourceOpts = intakeSources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label }));
   const templates = await listTemplates();
 
@@ -99,6 +102,7 @@ export default async function SettingsPage() {
               setAt={mcpStatus.at}
             />
           )}
+          <BrandCategoryConfig categories={brandCategories} canEdit={canEdit} />
           {/* 담당자 목록 */}
           <div className="card">
             <div className="card-hd">

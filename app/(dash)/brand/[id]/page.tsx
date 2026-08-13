@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Brand360AiButton from "@/components/Brand360AiButton";
 import Brand360Comments, { type CommentRow, type HistoryRow } from "@/components/Brand360Comments";
 import Brand360Company from "@/components/Brand360Company";
+import { listCategoryNames } from "@/lib/brand-categories";
 import Brand360Onboarding from "@/components/Brand360Onboarding";
 import Brand360TiktokAccount from "@/components/Brand360TiktokAccount";
 import Brand360Contacts from "@/components/Brand360Contacts";
@@ -161,6 +162,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     getQuestions("post_meeting").catch(() => []),
   ]);
   const questionSets = { pre_meeting: preQ, post_meeting: postQ };
+  const categoryNames = await listCategoryNames().catch(() => ["스킨케어", "색조", "더마"]);
 
   // 메일 수신자 후보 — 브랜드측 담당자(연락처 카드) + 회사정보 담당자, 이메일 있는 항목만·중복 제거.
   const mailContacts = (() => {
@@ -273,7 +275,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   // 회사정보 — v3.1 심층 분석 + 사업자/세금계산서/정산 계좌/브랜드 정보 + 온보딩 KYC
   const panelCompany = (
     <>
-      <Brand360Company brand={brand} company={deep?.company ?? null} assets={deep?.assets ?? []} />
+      <Brand360Company brand={brand} company={deep?.company ?? null} assets={deep?.assets ?? []} categories={categoryNames} />
       <Brand360Onboarding brand={brand} company={deep?.company ?? null} />
       <Brand360TiktokAccount brand={brand} />
     </>
