@@ -39,9 +39,14 @@ export default function Brand360MeetingNotes({ brandId, meetings, notes }: {
     fd.set("brand_id", brandId);
     setMsg("");
     start(async () => {
-      const r = await addMeetingNoteAction(fd);
-      if (r.ok) { formRef.current?.reset(); setOpen(false); router.refresh(); }
-      else setMsg(r.error ?? "실패");
+      try {
+        const r = await addMeetingNoteAction(fd);
+        if (r.ok) { formRef.current?.reset(); setOpen(false); router.refresh(); }
+        else setMsg(r.error ?? "실패");
+      } catch {
+        // 업로드 실패(파일 과대·네트워크) — 미처리 예외 대신 안내.
+        setMsg("저장 중 오류가 발생했습니다. 파일 용량(녹음 25MB·첨부 15MB↓)과 네트워크를 확인해 주세요.");
+      }
     });
   }
   function del(id: string) {

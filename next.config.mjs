@@ -5,6 +5,8 @@ const nextConfig = {
   // 메뉴 재방문·뒤로가기가 서버 왕복 없이 즉시 표시(30초 후 재검증).
   experimental: {
     staleTimes: { dynamic: 30, static: 180 },
+    // 회의록 녹음 업로드(최대 25MB)를 Server Action 으로 처리 — 기본 1MB 한도를 상향(멀티파트 오버헤드 여유).
+    serverActions: { bodySizeLimit: "32mb" },
   },
   // 어드민은 내부 전용 툴. 서버 액션/route가 pg를 직접 쓰므로 외부 패키지로 표시.
   serverExternalPackages: ["pg"],

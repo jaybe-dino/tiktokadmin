@@ -94,11 +94,20 @@ export async function addTimelineEntryAction(brandId: string, text: string): Pro
   const t = (text ?? "").trim();
   if (!t) return { ok: false, error: "내용을 입력하세요." };
   if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
-  await query(
-    `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
-     VALUES ($1,'admin','note',$2,now())`,
-    [brandId, JSON.stringify({ text: t, by: u.id })],
-  ).catch((e) => { throw e; });
+  try {
+    await query(
+      `INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at)
+       VALUES ($1,'admin','note',$2,now())`,
+      [brandId, JSON.stringify({ text: t, by: u.id })],
+    );
+  } catch (e) {
+    // brand_sources.site CHECK(0067 미적용) 위반 등 — 서버 크래시 대신 명확한 메시지.
+    const msg = (e as Error).message ?? "";
+    if (/brand_sources_site_check|check constraint/i.test(msg)) {
+      return { ok: false, error: "타임라인 저장 제약 오류 — 마이그레이션(0067) 적용이 필요합니다(관리자)." };
+    }
+    return { ok: false, error: "타임라인 기록에 실패했습니다. 잠시 후 다시 시도하세요." };
+  }
   revalidatePath(`/brand/${brandId}`);
   return { ok: true };
 }
