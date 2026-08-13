@@ -17,6 +17,8 @@ import TestNotify from "@/components/TestNotify";
 import { env } from "@/lib/env";
 import { listTemplates } from "@/lib/templates";
 import TemplateManager from "@/components/TemplateManager";
+import { mcpRoleAllowed, mcpTokenStatus } from "@/lib/mcp-auth";
+import McpConnect from "@/components/McpConnect";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +46,10 @@ export default async function SettingsPage() {
   ]);
   const introCfg = await getIntroConfig();
   const mktServices = await getMktServices().catch(() => "");
+  // MCP 오퍼레이터 커넥터 — 대표·파트장만. 0066 미적용 시 미발급 상태로 안전 표시.
+  const mcpAllowed = mcpRoleAllowed(user.role);
+  const mcpStatus = mcpAllowed ? await mcpTokenStatus(user.id).catch(() => ({ set: false, hint: null, at: null })) : null;
+  const mcpEndpoint = `${env.adminUrl.replace(/\/$/, "")}/api/mcp`;
   const welcomeSourceOpts = intakeSources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label }));
   const templates = await listTemplates();
 
@@ -85,6 +91,14 @@ export default async function SettingsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5 items-start">
         {/* 좌측 컬럼 */}
         <div className="grid gap-3.5 content-start">
+          {mcpAllowed && mcpStatus && (
+            <McpConnect
+              endpoint={mcpEndpoint}
+              initialSet={mcpStatus.set}
+              hint={mcpStatus.hint}
+              setAt={mcpStatus.at}
+            />
+          )}
           {/* 담당자 목록 */}
           <div className="card">
             <div className="card-hd">
