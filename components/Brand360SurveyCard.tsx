@@ -104,6 +104,28 @@ function jumpToSurveyTab() {
   window.dispatchEvent(new CustomEvent("b360:tab", { detail: "sv" }));
 }
 
+// 공개 설문 링크(/s/{token}) 복사 버튼 — 재권유·재발송용. 언제든 복사 가능.
+function CopyLinkButton({ token, label = "🔗 설문 링크 복사" }: { token: string; label?: string }) {
+  const [done, setDone] = useState(false);
+  const copy = () => {
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/s/${token}`;
+    const finish = () => { setDone(true); setTimeout(() => setDone(false), 1500); };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(finish).catch(finish);
+    else {
+      // 클립보드 API 미지원 폴백.
+      const ta = document.createElement("textarea");
+      ta.value = url; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch { /* noop */ }
+      document.body.removeChild(ta); finish();
+    }
+  };
+  return (
+    <button className="btn sm" onClick={copy} title="공개 설문 링크 복사(재권유·재발송용)">
+      {done ? "✓ 복사됨" : label}
+    </button>
+  );
+}
+
 // ── 개요 카드(슬림) — 상태·발송·요약 + 설문 탭 이동 ──────────────
 export default function Brand360SurveyCard({
   brandId,
@@ -158,7 +180,8 @@ export default function Brand360SurveyCard({
           <span className="chip">미발송</span>
         )}
         {list.length > 1 && <span className="chip" style={{ marginLeft: 4 }}>총 {list.length}건</span>}
-        <div className="rt" style={{ display: "flex", gap: 6 }}>
+        <div className="rt" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {primary && <CopyLinkButton token={primary.token} />}
           {!(isPre && answered) && (
             <button className="btn sm" disabled={pending} onClick={sendPre}>사전 설문 보내기</button>
           )}
@@ -253,6 +276,7 @@ export function Brand360SurveyPanel({
             <div className="hd">
               <b>{surveyKindLabel(kind)}</b>
               <span className="chip grn">응답 완료 {ymd(s.responded_at)}</span>
+              <span className="rt"><CopyLinkButton token={s.token} label="🔗 링크 복사(재권유)" /></span>
             </div>
             <div className="bd">
               {missing.length > 0 && (
@@ -268,10 +292,15 @@ export function Brand360SurveyPanel({
 
       {pendingSurveys.length > 0 && (
         <div className="card">
-          <div className="bd">
-            <p className="note">
-              응답 대기 중 설문 {pendingSurveys.length}건 — {pendingSurveys.map((s) => `${surveyKindLabel(s.kind)}(${s.sent_at ? ymd(s.sent_at) : "발송일 미기록"})`).join(", ")}
-            </p>
+          <div className="hd"><b>응답 대기 중 설문 {pendingSurveys.length}건</b></div>
+          <div className="bd" style={{ display: "grid", gap: 8 }}>
+            {pendingSurveys.map((s) => (
+              <div key={s.id ?? s.token} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span className="chip amb">{surveyKindLabel(s.kind)}</span>
+                <span className="note" style={{ margin: 0 }}>발송 {s.sent_at ? ymd(s.sent_at) : "미기록"}</span>
+                <span style={{ marginLeft: "auto" }}><CopyLinkButton token={s.token} label="🔗 링크 복사(재권유)" /></span>
+              </div>
+            ))}
           </div>
         </div>
       )}
