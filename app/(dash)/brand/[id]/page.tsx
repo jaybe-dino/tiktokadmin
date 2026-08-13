@@ -14,6 +14,7 @@ import Brand360Header from "@/components/Brand360Header";
 import Brand360Meetings, { type DraftRow, type MeetingRow } from "@/components/Brand360Meetings";
 import Brand360Products from "@/components/Brand360Products";
 import Brand360SurveyCard, { Brand360SurveyPanel } from "@/components/Brand360SurveyCard";
+import Brand360Compose from "@/components/Brand360Compose";
 import { getQuestions } from "@/lib/survey-db";
 import CustomerEmails from "@/components/CustomerEmails";
 import { listBrandComms } from "@/lib/email-link";
@@ -307,6 +308,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   // 미팅·메일 — 미팅(회의록·다음 액션 반영) + 팔로업 초안(승인·발송) + 연동 메일(기존 기능 유지)
   const panelMail = (
     <div style={{ display: "grid", gap: 14 }}>
+      <Brand360Compose brandId={brand.id} brandEmail={brand.email} />
       <Brand360Meetings brandId={brand.id} meetings={meetings} drafts={drafts} />
       <CustomerEmails brandId={brand.id} emails={emails} />
     </div>

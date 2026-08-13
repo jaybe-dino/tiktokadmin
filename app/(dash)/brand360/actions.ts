@@ -6,6 +6,62 @@ import { query, queryOne } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
 import { aiText, aiEnabled } from "@/lib/ai";
 import { STATE_LABELS, type State } from "@/lib/types";
+import { generateEmailPreview } from "@/lib/email-compose";
+
+// ── 미팅 상태 수동 변경(노쇼 오기 정정 등) ──
+const MEETING_STATUS_SET = ["held", "no_show", "canceled", "scheduled", "ready"];
+export async function setMeetingStatusAction(meetingId: string, status: string): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!/^[0-9a-f-]{36}$/i.test(meetingId)) return { ok: false, error: "잘못된 미팅" };
+  if (!MEETING_STATUS_SET.includes(status)) return { ok: false, error: "잘못된 상태값" };
+  const row = await queryOne<{ brand_id: string | null }>(
+    "UPDATE meetings SET status=$2 WHERE id=$1 RETURNING brand_id", [meetingId, status],
+  ).catch(() => null);
+  if (!row) return { ok: false, error: "미팅을 찾을 수 없습니다." };
+  if (row.brand_id) revalidatePath(`/brand/${row.brand_id}`);
+  return { ok: true };
+}
+
+// ── 메일 작성 — AI 미리보기(저장 안 함) ──
+export async function previewComposeAction(
+  brandId: string, intent?: string,
+): Promise<{ ok: boolean; subject?: string; body?: string; toEmail?: string; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
+  try {
+    return await generateEmailPreview(brandId, (intent ?? "").trim() || undefined);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message || "AI 생성 실패" };
+  }
+}
+
+// ── 메일 작성 — 수동 초안 저장(초안함으로) ──
+export async function createManualDraftAction(
+  brandId: string, to: string, subject: string, body: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
+  const s = (subject ?? "").trim();
+  const b = (body ?? "").trim();
+  if (!b) return { ok: false, error: "본문을 입력하세요." };
+  // 받는사람 미입력 시 브랜드 원장 이메일로 기본.
+  let toEmail = (to ?? "").trim();
+  if (!toEmail) {
+    const br = await queryOne<{ email: string | null }>("SELECT email FROM brands WHERE id=$1", [brandId]).catch(() => null);
+    toEmail = (br?.email ?? "").trim();
+  }
+  await query(
+    `INSERT INTO email_drafts (brand_id, kind, to_email, subject, body_md, status)
+     VALUES ($1,'manual',$2,$3,$4,'draft')`,
+    [brandId, toEmail, s || "(제목 없음)", b],
+  );
+  revalidatePath(`/brand/${brandId}`);
+  revalidatePath("/drafts");
+  return { ok: true };
+}
 
 // ── 회의록(직접 입력) — 텍스트 + 파일(DB 저장). 브랜드360 회의록 탭 ──
 export async function addMeetingNoteAction(formData: FormData): Promise<{ ok: boolean; error?: string }> {

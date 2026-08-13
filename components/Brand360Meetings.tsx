@@ -8,6 +8,7 @@ import { approveDraftAction, discardDraftAction, editDraftAction, setNextActionA
 import {
   getMeetingInviteOptionsAction, scheduleMeetingAction,
 } from "@/app/(dash)/brand360/meeting-actions";
+import { setMeetingStatusAction } from "@/app/(dash)/brand360/actions";
 
 export interface MeetingRow {
   id: string; topic: string; status: string; started_at: string | null; scheduled_at: string | null;
@@ -23,6 +24,7 @@ export interface DraftRow {
 
 const MEETING_STATUS: Record<string, { label: string; cls: string }> = {
   ready: { label: "회의록 완료", cls: "grn" },
+  held: { label: "진행됨", cls: "grn" },
   summarizing: { label: "요약 중", cls: "amb" },
   transcribing: { label: "전사 중", cls: "amb" },
   received: { label: "수신됨", cls: "" },
@@ -32,6 +34,14 @@ const MEETING_STATUS: Record<string, { label: string; cls: string }> = {
   unmatched: { label: "매칭 필요", cls: "red" },
   error: { label: "오류", cls: "red" },
 };
+
+// 수동 변경 가능한 상태(노쇼 오기 정정 등).
+const MANUAL_STATUS: { key: string; label: string }[] = [
+  { key: "held", label: "진행됨" },
+  { key: "scheduled", label: "예정" },
+  { key: "no_show", label: "노쇼" },
+  { key: "canceled", label: "취소" },
+];
 
 export default function Brand360Meetings({ brandId, meetings, drafts }: {
   brandId: string; meetings: MeetingRow[]; drafts: DraftRow[];
@@ -46,6 +56,7 @@ export default function Brand360Meetings({ brandId, meetings, drafts }: {
   const [subj, setSubj] = useState("");
   const [body, setBody] = useState("");
   const [msg, setMsg] = useState("");
+  const [stEdit, setStEdit] = useState<string | null>(null); // 상태 편집 중인 미팅 id
 
   // ── 1:1 미팅 잡기 (줌링크 발송 + 캘린더 등록 + ICS 초대) ──
   const [schedOpen, setSchedOpen] = useState(false);
@@ -166,7 +177,33 @@ export default function Brand360Meetings({ brandId, meetings, drafts }: {
                   <b style={{ fontSize: 12.5 }}>
                     {when} · {m.topic || "1:1 상담"}{m.duration_min ? ` (${m.duration_min}분)` : ""}
                   </b>
-                  <span className={`chip ${st.cls}`}>{st.label}</span>
+                  {stEdit === m.id ? (
+                    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                      {MANUAL_STATUS.map((s) => (
+                        <button
+                          key={s.key}
+                          className={`btn sm ${s.key === m.status ? "pri" : ""}`}
+                          disabled={pending}
+                          onClick={() =>
+                            start(async () => {
+                              const r = await setMeetingStatusAction(m.id, s.key);
+                              setMsg(r.ok ? "미팅 상태 변경됨" : r.error ?? "실패");
+                              setStEdit(null);
+                              if (r.ok) router.refresh();
+                            })
+                          }
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                      <button className="btn sm" onClick={() => setStEdit(null)}>취소</button>
+                    </div>
+                  ) : (
+                    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                      <span className={`chip ${st.cls}`}>{st.label}</span>
+                      <button className="btn sm" title="미팅 상태 수정(노쇼/진행됨 등)" onClick={() => setStEdit(m.id)}>수정</button>
+                    </span>
+                  )}
                 </div>
                 {m.summary_md ? (
                   <div className="aiw" style={{ marginTop: 10 }}>

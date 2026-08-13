@@ -10,11 +10,10 @@ const MODEL = AI_MODEL;
 
 export interface ComposeResult { ok: boolean; draftId?: string; subject?: string; body?: string; error?: string }
 
-/**
- * 브랜드 카드·최근 메일 스레드·미팅 요약·QnA 를 맥락으로 메일 초안 생성 → email_drafts 저장.
- *   intent: 자유 지시(예: "제안 팔로업", "서류 재요청", "정산 안내"). 없으면 상황 자동 판단.
- */
-export async function draftContextualEmail(brandId: string, intent?: string): Promise<ComposeResult> {
+interface ComposeCore { ok: boolean; subject?: string; body?: string; brandEmail?: string; kind?: string; error?: string }
+
+// AI 생성 코어 — 맥락 수집 + 초안 본문 생성(저장 안 함). draftContextualEmail/미리보기가 공유.
+async function composeAi(brandId: string, intent?: string): Promise<ComposeCore> {
   const brand = await queryOne<Brand>("SELECT * FROM brands WHERE id=$1", [brandId]);
   if (!brand) return { ok: false, error: "브랜드 없음" };
   if (!env.anthropicKey) return { ok: false, error: "ANTHROPIC_API_KEY 미설정" };
@@ -64,10 +63,28 @@ export async function draftContextualEmail(brandId: string, intent?: string): Pr
   const body = text.replace(/^제목:\s*.+$/m, "").trim();
 
   const kind = thread.some((t) => t.direction === "in") ? "reply" : "followup";
+  return { ok: true, subject, body, brandEmail: brand.email ?? "", kind };
+}
+
+/**
+ * 브랜드 카드·최근 메일 스레드·미팅 요약·QnA 를 맥락으로 메일 초안 생성 → email_drafts 저장.
+ *   intent: 자유 지시(예: "제안 팔로업", "서류 재요청", "정산 안내"). 없으면 상황 자동 판단.
+ */
+export async function draftContextualEmail(brandId: string, intent?: string): Promise<ComposeResult> {
+  const c = await composeAi(brandId, intent);
+  if (!c.ok) return { ok: false, error: c.error };
   const row = await queryOne<{ id: string }>(
     `INSERT INTO email_drafts (brand_id, kind, to_email, subject, body_md, status)
      VALUES ($1,$2,$3,$4,$5,'draft') RETURNING id`,
-    [brandId, kind, brand.email ?? "", subject, body]);
+    [brandId, c.kind ?? "followup", c.brandEmail ?? "", c.subject ?? "", c.body ?? ""]);
+  return { ok: true, draftId: row?.id, subject: c.subject, body: c.body };
+}
 
-  return { ok: true, draftId: row?.id, subject, body };
+/** AI 메일 미리보기 — 저장하지 않고 제목·본문만 반환(작성 창에서 편집용). */
+export async function generateEmailPreview(
+  brandId: string, intent?: string,
+): Promise<{ ok: boolean; subject?: string; body?: string; toEmail?: string; error?: string }> {
+  const c = await composeAi(brandId, intent);
+  if (!c.ok) return { ok: false, error: c.error };
+  return { ok: true, subject: c.subject, body: c.body, toEmail: c.brandEmail };
 }
