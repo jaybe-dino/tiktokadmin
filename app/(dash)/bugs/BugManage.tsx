@@ -9,17 +9,31 @@ export default function BugManage({ id, status, devNote }: { id: string; status:
   const router = useRouter();
   const [pending, start] = useTransition();
   const [note, setNote] = useState(devNote);
+  const [st, setSt] = useState(status);
   const [msg, setMsg] = useState("");
+
+  const setStatus = (value: string, okMsg: string) =>
+    start(async () => { await updateBugReportAction(id, { status: value }); setSt(value); setMsg(okMsg); router.refresh(); });
 
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap", marginTop: 8 }}>
       <select
-        className="f" style={{ width: "auto", padding: "3px 6px", fontSize: 12 }} defaultValue={status}
+        className="f" style={{ width: "auto", padding: "3px 6px", fontSize: 12 }} value={st}
         disabled={pending}
-        onChange={(e) => start(async () => { await updateBugReportAction(id, { status: e.target.value }); setMsg("상태 변경됨"); router.refresh(); })}
+        onChange={(e) => setStatus(e.target.value, "상태 변경됨")}
       >
         {BUG_STATUS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
       </select>
+      {st === "resolved" ? (
+        <button className="btn sm" disabled={pending} onClick={() => setStatus("open", "다시 열림")}>
+          ↩ 해결 취소
+        </button>
+      ) : (
+        <button className="btn sm pri" style={{ background: "var(--ok, #16a34a)", borderColor: "var(--ok, #16a34a)" }} disabled={pending}
+          onClick={() => setStatus("resolved", "해결완료 처리됨")}>
+          ✓ 해결완료
+        </button>
+      )}
       <textarea
         value={note} onChange={(e) => setNote(e.target.value)} rows={2}
         placeholder="개발 추가할 사항 정리(원인·수정 방향 등)"
