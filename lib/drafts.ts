@@ -37,7 +37,7 @@ async function shortenDriveLinks(bodyMd: string, brandId: string, createdBy: str
 
 export interface EmailDraft {
   id: string; brand_id: string; brand_name: string; meeting_id: string | null;
-  kind: string; to_email: string; subject: string; body_md: string; status: string;
+  kind: string; to_email: string; cc_email?: string | null; subject: string; body_md: string; status: string;
   in_reply_to: string | null; context_summary: string | null; source: string | null;
   from_mailbox: string | null; gmail_draft_id: string | null; sent_via: string | null;
   created_at: string;
@@ -136,7 +136,7 @@ export async function approveAndSend(
       const { sendGmailMessage } = await import("./gmail-client");
       const threadId = await resolveThread(d.in_reply_to);
       const r = await sendGmailMessage({
-        from: sendFrom!, to: d.to_email, subject: d.subject, bodyText: bodyToSend, threadId,
+        from: sendFrom!, to: d.to_email, cc: d.cc_email ?? null, subject: d.subject, bodyText: bodyToSend, threadId,
       });
       if (!r.ok) { await revert(); return { ok: false, error: r.error ?? "Gmail 발송 실패", sent: false }; }
       sentId = r.id ?? null;
@@ -144,10 +144,16 @@ export async function approveAndSend(
     } else {
       // 다중 수신자(콤마·세미콜론 구분)를 배열로 — Resend 는 문자열 하나만 단일수신 처리.
       const toList = d.to_email.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+      const ccList = (d.cc_email ?? "").split(/[,;]/).map((s) => s.trim()).filter(Boolean);
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { authorization: `Bearer ${env.resend.apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ from: env.resend.from, to: toList.length > 1 ? toList : (toList[0] ?? d.to_email), subject: d.subject, text: bodyToSend }),
+        body: JSON.stringify({
+          from: env.resend.from,
+          to: toList.length > 1 ? toList : (toList[0] ?? d.to_email),
+          ...(ccList.length ? { cc: ccList } : {}),
+          subject: d.subject, text: bodyToSend,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { await revert(); return { ok: false, error: data.message ?? "발송 실패", sent: false }; }

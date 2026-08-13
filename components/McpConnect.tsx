@@ -142,6 +142,8 @@ export default function McpConnect({
 }
 
 const codeBox: React.CSSProperties = {
-  flex: 1, background: "var(--bg2, #f6f7f9)", border: "1px solid var(--line, #e5e7eb)",
+  flex: 1, minWidth: 0, maxWidth: "100%", boxSizing: "border-box",
+  background: "var(--bg2, #f6f7f9)", border: "1px solid var(--line, #e5e7eb)",
   borderRadius: 8, padding: "7px 10px", fontSize: 12, fontFamily: "ui-monospace, monospace",
+  overflowWrap: "anywhere", wordBreak: "break-word",
 };

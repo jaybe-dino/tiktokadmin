@@ -37,9 +37,9 @@ export async function previewComposeAction(
   }
 }
 
-// ── 메일 작성 — 수동 초안 저장(초안함으로) ──
+// ── 메일 작성 — 수동 초안 저장(초안함으로). cc = 참조(콤마 구분) ──
 export async function createManualDraftAction(
-  brandId: string, to: string, subject: string, body: string,
+  brandId: string, to: string, subject: string, body: string, cc?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
@@ -53,11 +53,23 @@ export async function createManualDraftAction(
     const br = await queryOne<{ email: string | null }>("SELECT email FROM brands WHERE id=$1", [brandId]).catch(() => null);
     toEmail = (br?.email ?? "").trim();
   }
-  await query(
-    `INSERT INTO email_drafts (brand_id, kind, to_email, subject, body_md, status)
-     VALUES ($1,'manual',$2,$3,$4,'draft')`,
-    [brandId, toEmail, s || "(제목 없음)", b],
-  );
+  const ccEmail = (cc ?? "").trim();
+  try {
+    await query(
+      `INSERT INTO email_drafts (brand_id, kind, to_email, cc_email, subject, body_md, status)
+       VALUES ($1,'manual',$2,$3,$4,$5,'draft')`,
+      [brandId, toEmail, ccEmail || null, s || "(제목 없음)", b],
+    );
+  } catch (e) {
+    // cc_email 컬럼 미적용(0068) 시 CC 없이라도 저장되게 폴백.
+    if (/cc_email/.test((e as Error).message)) {
+      await query(
+        `INSERT INTO email_drafts (brand_id, kind, to_email, subject, body_md, status)
+         VALUES ($1,'manual',$2,$3,$4,'draft')`,
+        [brandId, toEmail, s || "(제목 없음)", b],
+      );
+    } else throw e;
+  }
   revalidatePath(`/brand/${brandId}`);
   revalidatePath("/drafts");
   return { ok: true };

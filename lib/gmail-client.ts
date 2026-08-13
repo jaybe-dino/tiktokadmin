@@ -188,6 +188,7 @@ export interface OutAttachment { filename: string; content: string; mimeType?: s
 export interface OutMail {
   from: string;              // 발신 공용 메일함(예: cs@glovek.space) = impersonate 대상
   to: string;
+  cc?: string | null;        // 참조(콤마 구분, 선택)
   subject: string;
   bodyText: string;
   threadId?: string | null;  // Gmail 스레드에 이어붙이기(회신) — 있으면 같은 대화에 묶임
@@ -200,7 +201,9 @@ const b64wrap = (s: string) => s.replace(/(.{76})/g, "$1\r\n");
 /** RFC 2822 MIME(UTF-8 base64) 생성 → Gmail API raw 필드용 base64url 문자열. */
 function buildRawMessage(m: OutMail): string {
   const encWord = (s: string) => `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
-  const top: string[] = [`From: ${m.from}`, `To: ${m.to}`, `Subject: ${encWord(m.subject)}`, "MIME-Version: 1.0"];
+  const top: string[] = [`From: ${m.from}`, `To: ${m.to}`];
+  if (m.cc && m.cc.trim()) top.push(`Cc: ${m.cc.trim()}`);
+  top.push(`Subject: ${encWord(m.subject)}`, "MIME-Version: 1.0");
   if (m.inReplyTo) top.push(`In-Reply-To: ${m.inReplyTo}`, `References: ${m.inReplyTo}`);
 
   const textPart = [

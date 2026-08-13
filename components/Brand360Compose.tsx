@@ -22,12 +22,16 @@ export default function Brand360Compose({
   const [open, setOpen] = useState(false);
   const [recipients, setRecipients] = useState<string[]>(brandEmail ? [brandEmail] : []);
   const [addEmail, setAddEmail] = useState("");
+  const [cc, setCc] = useState<string[]>([]);
+  const [addCc, setAddCc] = useState("");
+  const [ccOpen, setCcOpen] = useState(false);
   const [intent, setIntent] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const has = (e: string) => recipients.some((r) => r.toLowerCase() === e.toLowerCase());
+  const hasCc = (e: string) => cc.some((r) => r.toLowerCase() === e.toLowerCase());
   function addRecipient(e: string) {
     const v = e.trim();
     if (!v) return;
@@ -39,9 +43,21 @@ export default function Brand360Compose({
   function removeRecipient(e: string) {
     setRecipients((rs) => rs.filter((r) => r !== e));
   }
+  function addCcRecipient(e: string) {
+    const v = e.trim();
+    if (!v) return;
+    if (!EMAIL_RE.test(v)) { setMsg({ ok: false, text: "이메일 형식을 확인하세요." }); return; }
+    if (hasCc(v)) return;
+    setCc((rs) => [...rs, v]);
+    setMsg(null);
+  }
+  function removeCc(e: string) {
+    setCc((rs) => rs.filter((r) => r !== e));
+  }
 
   function reset() {
     setRecipients(brandEmail ? [brandEmail] : []); setAddEmail("");
+    setCc([]); setAddCc(""); setCcOpen(false);
     setIntent(""); setSubject(""); setBody(""); setMsg(null);
   }
 
@@ -63,7 +79,7 @@ export default function Brand360Compose({
     if (!body.trim()) { setMsg({ ok: false, text: "본문을 입력하거나 AI로 생성하세요." }); return; }
     setMsg(null);
     start(async () => {
-      const r = await createManualDraftAction(brandId, recipients.join(", "), subject, body);
+      const r = await createManualDraftAction(brandId, recipients.join(", "), subject, body, cc.join(", "));
       if (r.ok) {
         setMsg({ ok: true, text: "초안함에 저장했습니다. 아래 '메일 초안'에서 검토·발송하세요." });
         setIntent(""); setSubject(""); setBody("");
@@ -75,6 +91,7 @@ export default function Brand360Compose({
 
   // 아직 추가되지 않은 브랜드 담당자(이메일 기준).
   const pickable = contacts.filter((c) => !has(c.email));
+  const ccPickable = contacts.filter((c) => !hasCc(c.email) && !has(c.email));
 
   return (
     <div className="card">
@@ -120,6 +137,49 @@ export default function Brand360Compose({
               />
               <button className="btn sm" onClick={() => { addRecipient(addEmail); setAddEmail(""); }}>+ 추가</button>
             </div>
+          </div>
+
+          {/* 참조(CC) — 접었다 펼치기, 담당자 선택 + 직접 추가 */}
+          <div>
+            <button
+              className="btn sm"
+              onClick={() => setCcOpen((v) => !v)}
+              style={{ marginBottom: ccOpen || cc.length > 0 ? 6 : 0 }}
+            >
+              {ccOpen ? "참조(CC) 닫기" : `＋ 참조(CC)${cc.length > 0 ? ` ${cc.length}명` : ""}`}
+            </button>
+            {(ccOpen || cc.length > 0) && (
+              <div style={{ display: "grid", gap: 6 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {cc.length === 0 && <span className="note" style={{ margin: 0 }}>참조 수신자 없음 — 담당자를 추가하세요.</span>}
+                  {cc.map((e) => (
+                    <span key={e} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      {e}
+                      <button style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink3)", fontSize: 12 }} title="제외" onClick={() => removeCc(e)}>✕</button>
+                    </span>
+                  ))}
+                </div>
+                {ccPickable.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <span className="note" style={{ margin: 0, alignSelf: "center" }}>브랜드 담당자 참조:</span>
+                    {ccPickable.map((c) => (
+                      <button key={c.email} className="btn sm" onClick={() => addCcRecipient(c.email)} title={c.email}>+ {c.name}</button>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <input
+                    className="input"
+                    style={{ flex: 1, minWidth: 180 }}
+                    value={addCc}
+                    onChange={(e) => setAddCc(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCcRecipient(addCc); setAddCc(""); } }}
+                    placeholder="참조 이메일 직접 추가"
+                  />
+                  <button className="btn sm" onClick={() => { addCcRecipient(addCc); setAddCc(""); }}>+ 추가</button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ background: "#f6f7fb", border: "1px solid var(--line)", borderRadius: 10, padding: 10, display: "grid", gap: 6 }}>
