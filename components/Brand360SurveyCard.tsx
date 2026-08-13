@@ -181,10 +181,10 @@ export default function Brand360SurveyCard({
         )}
         {list.length > 1 && <span className="chip" style={{ marginLeft: 4 }}>총 {list.length}건</span>}
         <div className="rt" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {primary && <CopyLinkButton token={primary.token} />}
           {!(isPre && answered) && (
             <button className="btn sm" disabled={pending} onClick={sendPre}>사전 설문 보내기</button>
           )}
+          {primary && <CopyLinkButton token={primary.token} label="🔗 설문지 링크 복사" />}
           {!answered && (
             <button
               className="btn sm"

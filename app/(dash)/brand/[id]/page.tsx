@@ -249,7 +249,6 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <Brand360AiButton brandId={brand.id} />
-          <Brand360IntroSend brandId={brand.id} />
         </div>
       </div>
     </div>
@@ -415,6 +414,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
             <div style={{ color: "var(--ink3)", fontSize: 12, marginTop: 2 }}>{metaBits.join(" · ")}</div>
           </div>
           <Brand360Header brand={brand} adminUsers={adminUsers} ddayLabel={nextDday} />
+          <Brand360IntroSend brandId={brand.id} />
         </div>
 
         {/* 진행 스텝퍼 */}
