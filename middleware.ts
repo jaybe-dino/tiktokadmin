@@ -32,6 +32,7 @@ export function middleware(req: NextRequest) {
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/") ||
+    pathname.startsWith("/.well-known/") || // OAuth 디스커버리(MCP 커넥터) — 쿠키 없이 공개 접근
     pathname.startsWith("/s/") ||       // 공개 설문 응답(로그인 불필요, 14-A)
     pathname.startsWith("/f/") ||       // 쇼트링크 리다이렉트(수신자 클릭, 로그인 불필요)
     pathname.startsWith("/proposal/") || // 공개 제안서 열람(고객 링크, 로그인 불필요)

@@ -22,8 +22,6 @@ export default function McpConnect({
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
 
-  const authedUrl = token ? `${endpoint}?token=${token}` : `${endpoint}?token=<발급된-토큰>`;
-
   const copy = (text: string, what: string) => {
     navigator.clipboard?.writeText(text).then(() => {
       setCopied(what);
@@ -106,19 +104,29 @@ export default function McpConnect({
         )}
 
         {/* 연결 방법 */}
-        <details>
+        <details open>
           <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: 12.5 }}>연결 방법 (클라이언트별)</summary>
-          <div style={{ marginTop: 8, display: "grid", gap: 10, fontSize: 12.5 }}>
-            <div>
-              <b>Claude Code (터미널)</b> — 헤더로 토큰 전달:
-              <code style={{ ...codeBox, display: "block", marginTop: 4, whiteSpace: "pre-wrap" }}>
-                {`claude mcp add --transport http glovek ${endpoint} \\\n  --header "Authorization: Bearer <토큰>"`}
-              </code>
+          <div style={{ marginTop: 8, display: "grid", gap: 12, fontSize: 12.5 }}>
+            <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: 10 }}>
+              <b>claude.ai (웹) · Claude 데스크톱 — 로그인(OAuth) 방식 · 토큰 불필요</b>
+              <ol style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.7 }}>
+                <li>설정 → 커넥터 → <b>사용자 지정 커넥터 추가</b></li>
+                <li>이름 <code>glovek</code>, URL에 <b>엔드포인트만</b> 입력(토큰 X):<br />
+                  <code style={{ ...codeBox, display: "inline-block", marginTop: 3 }}>{endpoint}</code></li>
+                <li>연결 시 뜨는 로그인 창에서 <b>어드민 계정(대표·파트장)</b>으로 로그인 → 승인</li>
+              </ol>
+              <span className="note">※ 유료 플랜(Pro/Max/Team)에서 커스텀 커넥터가 활성화됩니다.</span>
             </div>
             <div>
-              <b>Claude 데스크톱 / claude.ai 커넥터</b> — 커스텀 커넥터 URL에 토큰 포함(헤더 미지원 클라이언트용):
-              <code style={{ ...codeBox, display: "block", marginTop: 4, wordBreak: "break-all" }}>{authedUrl}</code>
-              <span className="note">설정 → 커넥터 → 사용자 지정 커넥터 추가에서 위 URL을 입력하세요.</span>
+              <b>Claude Code (터미널)</b> — OAuth 자동:
+              <code style={{ ...codeBox, display: "block", marginTop: 4, whiteSpace: "pre-wrap" }}>
+                {`claude mcp add --transport http glovek ${endpoint}`}
+              </code>
+              <span className="note">실행 후 브라우저 로그인으로 승인. 헤더 토큰을 쓰려면 아래 “토큰 발급” 후:
+                <code style={{ ...codeBox, display: "block", marginTop: 4, whiteSpace: "pre-wrap" }}>
+                  {`claude mcp add --transport http glovek ${endpoint} \\\n  --header "Authorization: Bearer <토큰>"`}
+                </code>
+              </span>
             </div>
             <div className="note">
               연결 후 예: “<b>본토닉 인증 상태 점검하고 충족되면 다음 단계로 넘겨줘(반영 전 요약 먼저)</b>”,

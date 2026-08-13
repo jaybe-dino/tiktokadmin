@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TOOLS } from "@/lib/mcp-tools";
-import { verifyMcpToken } from "@/lib/mcp-auth";
+import { verifyMcpToken, type McpPrincipal } from "@/lib/mcp-auth";
+import { verifyAccess, externalOrigin } from "@/lib/mcp-oauth";
 
 // MCP 오퍼레이터 서버(Streamable HTTP · JSON-RPC 2.0).
 //   claude.ai 커넥터 / Claude 데스크톱 / Claude Code 에서 이 URL 을 붙여 자연어로 운영 조작.
@@ -23,6 +24,15 @@ function tokenFrom(req: NextRequest): string | null {
   if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
   const q = req.nextUrl.searchParams.get("token");
   return q ? q.trim() : null;
+}
+
+// 두 가지 자격 수용: ① OAuth 액세스 토큰(claude.ai/데스크톱) ② 수동 mcp_ 토큰(Claude Code).
+async function resolvePrincipal(req: NextRequest): Promise<McpPrincipal | null> {
+  const token = tokenFrom(req);
+  if (!token) return null;
+  const oauth = verifyAccess(token);
+  if (oauth) return oauth;
+  return verifyMcpToken(token);
 }
 
 function toolList() {
@@ -77,11 +87,13 @@ async function handleRpc(msg: Json, actorName: string): Promise<Json | null> {
 }
 
 export async function POST(req: NextRequest) {
-  const principal = await verifyMcpToken(tokenFrom(req));
+  const principal = await resolvePrincipal(req);
   if (!principal) {
+    // RFC 9728: 401 + WWW-Authenticate 로 리소스 메타데이터 위치 안내 → 클라이언트가 OAuth 시작.
+    const rm = `${externalOrigin(req)}/.well-known/oauth-protected-resource`;
     return NextResponse.json(
-      rpcError(null, -32001, "인증 실패 — 유효한 MCP 토큰이 필요합니다(대표·파트장 전용)."),
-      { status: 401, headers: { "WWW-Authenticate": "Bearer" } },
+      rpcError(null, -32001, "인증 필요 — 대표·파트장 계정으로 연결하세요."),
+      { status: 401, headers: { "WWW-Authenticate": `Bearer resource_metadata="${rm}"` } },
     );
   }
   const actorName = `mcp:${principal.email}`;
