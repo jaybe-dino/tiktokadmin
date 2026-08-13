@@ -142,10 +142,12 @@ export async function approveAndSend(
       sentId = r.id ?? null;
       via = "gmail";
     } else {
+      // 다중 수신자(콤마·세미콜론 구분)를 배열로 — Resend 는 문자열 하나만 단일수신 처리.
+      const toList = d.to_email.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { authorization: `Bearer ${env.resend.apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ from: env.resend.from, to: d.to_email, subject: d.subject, text: bodyToSend }),
+        body: JSON.stringify({ from: env.resend.from, to: toList.length > 1 ? toList : (toList[0] ?? d.to_email), subject: d.subject, text: bodyToSend }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { await revert(); return { ok: false, error: data.message ?? "발송 실패", sent: false }; }

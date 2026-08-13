@@ -1,29 +1,48 @@
 "use client";
 
 // 브랜드360 미팅·메일 탭 — 메일 직접 작성 창. 직접 쓰거나 AI로 초안 생성 후 편집 → 초안함 저장.
-//   저장된 초안은 아래 '팔로업 메일 초안' 카드에서 검토·발송(승인 게이트 경유).
+//   수신자: 브랜드 담당자 목록에서 선택 추가 + 직접 입력·수정(다중 수신). 저장은 초안함 경유.
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { previewComposeAction, createManualDraftAction } from "@/app/(dash)/brand360/actions";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function Brand360Compose({
   brandId,
   brandEmail,
+  contacts = [],
 }: {
   brandId: string;
   brandEmail?: string | null;
+  contacts?: { name: string; email: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [open, setOpen] = useState(false);
-  const [to, setTo] = useState(brandEmail ?? "");
+  const [recipients, setRecipients] = useState<string[]>(brandEmail ? [brandEmail] : []);
+  const [addEmail, setAddEmail] = useState("");
   const [intent, setIntent] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const has = (e: string) => recipients.some((r) => r.toLowerCase() === e.toLowerCase());
+  function addRecipient(e: string) {
+    const v = e.trim();
+    if (!v) return;
+    if (!EMAIL_RE.test(v)) { setMsg({ ok: false, text: "이메일 형식을 확인하세요." }); return; }
+    if (has(v)) return;
+    setRecipients((rs) => [...rs, v]);
+    setMsg(null);
+  }
+  function removeRecipient(e: string) {
+    setRecipients((rs) => rs.filter((r) => r !== e));
+  }
+
   function reset() {
-    setTo(brandEmail ?? ""); setIntent(""); setSubject(""); setBody(""); setMsg(null);
+    setRecipients(brandEmail ? [brandEmail] : []); setAddEmail("");
+    setIntent(""); setSubject(""); setBody(""); setMsg(null);
   }
 
   function genAi() {
@@ -33,17 +52,18 @@ export default function Brand360Compose({
       if (r.ok) {
         if (r.subject) setSubject(r.subject);
         if (r.body) setBody(r.body);
-        if (!to && r.toEmail) setTo(r.toEmail);
+        if (recipients.length === 0 && r.toEmail) setRecipients([r.toEmail]);
         setMsg({ ok: true, text: "AI 초안을 생성했습니다. 내용을 확인·수정한 뒤 저장하세요." });
       } else setMsg({ ok: false, text: r.error ?? "AI 생성 실패" });
     });
   }
 
   function save() {
+    if (recipients.length === 0) { setMsg({ ok: false, text: "받는사람을 1명 이상 추가하세요." }); return; }
     if (!body.trim()) { setMsg({ ok: false, text: "본문을 입력하거나 AI로 생성하세요." }); return; }
     setMsg(null);
     start(async () => {
-      const r = await createManualDraftAction(brandId, to, subject, body);
+      const r = await createManualDraftAction(brandId, recipients.join(", "), subject, body);
       if (r.ok) {
         setMsg({ ok: true, text: "초안함에 저장했습니다. 아래 '메일 초안'에서 검토·발송하세요." });
         setIntent(""); setSubject(""); setBody("");
@@ -52,6 +72,9 @@ export default function Brand360Compose({
       } else setMsg({ ok: false, text: r.error ?? "저장 실패" });
     });
   }
+
+  // 아직 추가되지 않은 브랜드 담당자(이메일 기준).
+  const pickable = contacts.filter((c) => !has(c.email));
 
   return (
     <div className="card">
@@ -64,9 +87,39 @@ export default function Brand360Compose({
 
       {open && (
         <div className="bd" style={{ display: "grid", gap: 8 }}>
+          {/* 받는사람 — 다중 수신, 담당자 선택 + 직접 추가·수정 */}
           <div>
-            <label className="label">받는사람</label>
-            <input className="input" style={{ width: "100%" }} value={to} onChange={(e) => setTo(e.target.value)} placeholder="받는사람 이메일 (비우면 원장 이메일)" />
+            <label className="label">받는사람 {recipients.length > 0 && <span style={{ color: "var(--ink3)", fontWeight: 400 }}>({recipients.length}명)</span>}</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+              {recipients.length === 0 && <span className="note" style={{ margin: 0 }}>수신자가 없습니다 — 아래에서 담당자를 추가하세요.</span>}
+              {recipients.map((e) => (
+                <span key={e} className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  {e}
+                  <button style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink3)", fontSize: 12 }} title="제외" onClick={() => removeRecipient(e)}>✕</button>
+                </span>
+              ))}
+            </div>
+            {pickable.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                <span className="note" style={{ margin: 0, alignSelf: "center" }}>브랜드 담당자 추가:</span>
+                {pickable.map((c) => (
+                  <button key={c.email} className="btn sm" onClick={() => addRecipient(c.email)} title={c.email}>
+                    + {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <input
+                className="input"
+                style={{ flex: 1, minWidth: 180 }}
+                value={addEmail}
+                onChange={(e) => setAddEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addRecipient(addEmail); setAddEmail(""); } }}
+                placeholder="직접 이메일 추가 (예: contact@brand.com)"
+              />
+              <button className="btn sm" onClick={() => { addRecipient(addEmail); setAddEmail(""); }}>+ 추가</button>
+            </div>
           </div>
 
           <div style={{ background: "#f6f7fb", border: "1px solid var(--line)", borderRadius: 10, padding: 10, display: "grid", gap: 6 }}>

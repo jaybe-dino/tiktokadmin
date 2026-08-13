@@ -162,6 +162,22 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   ]);
   const questionSets = { pre_meeting: preQ, post_meeting: postQ };
 
+  // 메일 수신자 후보 — 브랜드측 담당자(연락처 카드) + 회사정보 담당자, 이메일 있는 항목만·중복 제거.
+  const mailContacts = (() => {
+    const out: { name: string; email: string }[] = [];
+    const seen = new Set<string>();
+    const push = (name: string, email: string | null | undefined) => {
+      const e = (email ?? "").trim().toLowerCase();
+      if (!e || seen.has(e)) return;
+      seen.add(e);
+      out.push({ name: (name ?? "").trim() || e, email: e });
+    };
+    push(brand.contact_name ?? brand.brand_name, brand.email);
+    for (const c of deep?.contacts ?? []) push(c.name, c.email);
+    for (const c of companyContacts) push(`${c.label} ${c.name}`, c.email);
+    return out;
+  })();
+
   // 헤더 메타 (v3.1: 카테고리 · URL · 사업자 · 유입 · 접촉)
   const metaBits = [
     brand.category || "카테고리 미상",
@@ -307,7 +323,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   // 미팅·메일 — 미팅(회의록·다음 액션 반영) + 팔로업 초안(승인·발송) + 연동 메일(기존 기능 유지)
   const panelMail = (
     <div style={{ display: "grid", gap: 14 }}>
-      <Brand360Compose brandId={brand.id} brandEmail={brand.email} />
+      <Brand360Compose brandId={brand.id} brandEmail={brand.email} contacts={mailContacts} />
       <Brand360Meetings brandId={brand.id} meetings={meetings} drafts={drafts} />
       <CustomerEmails brandId={brand.id} emails={emails} />
     </div>
