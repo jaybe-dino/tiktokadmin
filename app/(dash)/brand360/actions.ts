@@ -23,6 +23,31 @@ export async function setMeetingStatusAction(meetingId: string, status: string):
   return { ok: true };
 }
 
+// ── 브랜드측 담당자 — 기본 담당자 변경 지정 ──
+//   선택한 담당자의 정보를 원장(brands.contact_name/email/phone)에 반영 → '기본 담당'.
+export async function setPrimaryContactAction(brandId: string, contactId: string): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!/^[0-9a-f-]{36}$/i.test(brandId) || !/^[0-9a-f-]{36}$/i.test(contactId)) return { ok: false, error: "잘못된 요청" };
+  const c = await queryOne<{ name: string; email: string | null; phone: string | null }>(
+    "SELECT name, email, phone FROM brand_contacts WHERE id=$1 AND brand_id=$2", [contactId, brandId],
+  ).catch(() => null);
+  if (!c) return { ok: false, error: "담당자를 찾을 수 없습니다." };
+  // 이름은 항상, 이메일·전화는 있을 때만 반영(빈 값으로 원장 지우지 않음).
+  await query(
+    `UPDATE brands SET contact_name=$2,
+        email=COALESCE(NULLIF($3,''), email),
+        phone=COALESCE(NULLIF($4,''), phone),
+        updated_at=now()
+      WHERE id=$1`,
+    [brandId, c.name, c.email ?? "", c.phone ?? ""],
+  );
+  // 대표(기본) 플래그를 이 담당자로 단일 지정.
+  await query("UPDATE brand_contacts SET is_primary = (id=$2) WHERE brand_id=$1", [brandId, contactId]).catch(() => {});
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 // ── 메일 작성 — AI 미리보기(저장 안 함) ──
 export async function previewComposeAction(
   brandId: string, intent?: string,

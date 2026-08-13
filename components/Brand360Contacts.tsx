@@ -5,6 +5,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addContactAction, deleteContactAction, setContactConsentAction } from "@/app/actions";
+import { setPrimaryContactAction } from "@/app/(dash)/brand360/actions";
 import type { BrandContact } from "@/lib/repo/card";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -90,11 +91,28 @@ export default function Brand360Contacts({ brandId, contacts, companyContacts = 
               <div className="tt">
                 {c.name} {c.title && `${c.title} `}
                 <span className="chip" style={{ fontSize: 10 }}>{ROLE_LABEL[c.role] ?? c.role}</span>
-                {c.is_primary && <span className="chip grn" style={{ fontSize: 10, marginLeft: 4 }}>대표</span>}
+                {c.is_primary && <span className="chip grn" style={{ fontSize: 10, marginLeft: 4 }}>기본 담당</span>}
               </div>
               <div className="ss">{[c.email, c.phone, c.note].filter(Boolean).join(" · ") || "연락처 미입력"}</div>
             </div>
-            <div className="rt" style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <div className="rt" style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+              {!c.is_primary && (
+                <button
+                  className="chip"
+                  title="이 담당자를 기본 담당(원장 대표 연락처)으로 지정"
+                  style={{ fontSize: 10, cursor: "pointer", background: "#eff6ff", color: "#1d4ed8" }}
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      const r = await setPrimaryContactAction(brandId, c.id);
+                      setMsg(r.ok ? `${c.name} 기본 담당으로 지정됨` : r.error ?? "실패");
+                      router.refresh();
+                    })
+                  }
+                >
+                  ☆ 기본 담당 지정
+                </button>
+              )}
               <button
                 className="chip"
                 title="광고성 대량발송 수신동의 — 개별 컨택은 동의 없이도 발송됩니다"
