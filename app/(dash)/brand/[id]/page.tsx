@@ -13,7 +13,8 @@ import GradeChecksCard from "@/components/GradeChecksCard";
 import Brand360Header from "@/components/Brand360Header";
 import Brand360Meetings, { type DraftRow, type MeetingRow } from "@/components/Brand360Meetings";
 import Brand360Products from "@/components/Brand360Products";
-import Brand360SurveyCard from "@/components/Brand360SurveyCard";
+import Brand360SurveyCard, { Brand360SurveyPanel } from "@/components/Brand360SurveyCard";
+import { getQuestions } from "@/lib/survey-db";
 import CustomerEmails from "@/components/CustomerEmails";
 import { listBrandComms } from "@/lib/email-link";
 import Brand360Tabs, { type Brand360Tab } from "@/components/Brand360Tabs";
@@ -152,6 +153,13 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
   const sourceLabel = SOURCE_LABELS[brand.source] ?? brand.source;
   const nextDday = dday(brand.due_date);
+
+  // 설문 문항 라벨(DB 문항뱅크) — 응답 키를 한글 라벨·섹션으로 표시(원본 키 노출 방지). 실패 시 상수 폴백.
+  const [preQ, postQ] = await Promise.all([
+    getQuestions("pre_meeting").catch(() => []),
+    getQuestions("post_meeting").catch(() => []),
+  ]);
+  const questionSets = { pre_meeting: preQ, post_meeting: postQ };
 
   // 헤더 메타 (v3.1: 카테고리 · URL · 사업자 · 유입 · 접촉)
   const metaBits = [
@@ -359,8 +367,14 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     />
   );
 
+  // 설문 — 전체 응답 상세(섹션별·겹침 없음). 문항 라벨은 DB 문항뱅크 사용.
+  const panelSurvey = (
+    <Brand360SurveyPanel surveys={deep?.surveys ?? []} questionSets={questionSets} />
+  );
+
   const tabs: Brand360Tab[] = [
     { key: "ov", label: "개요", node: panelOverview },
+    { key: "sv", label: "설문", node: panelSurvey },
     { key: "co", label: "회사정보", node: panelCompany },
     { key: "tl", label: "타임라인", node: panelTimeline },
     { key: "mm", label: "미팅·메일", node: panelMail },
