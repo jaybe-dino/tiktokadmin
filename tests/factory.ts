@@ -39,6 +39,7 @@ export function makeBrand(over: Partial<Brand> = {}): Brand {
     referral_code: null,
     memo: "",
     is_test: false,
+    importance: 0,
     version: 1,
     owner_backup: null,
     notion_page_url: null,

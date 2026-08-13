@@ -7,6 +7,7 @@ import { transitionAction } from "@/app/actions";
 import { STATES, STATE_LABELS, SOURCE_LABELS, PLAN_LABELS, GRADES, type State } from "@/lib/types";
 import type { BoardCard } from "@/lib/repo/queries";
 import BoardCardLayer, { TRACK_LABELS, TRACK_COLORS } from "@/components/BoardCardLayer";
+import ImportanceStars from "@/components/ImportanceStars";
 
 // v3.1 s-kanban → 기획 8절: 8컬럼 (계약완료→계약 검토에 합류, 정산중→운영 중에 통합 표시).
 // 상태 자체는 canonical enum 유지 — 표시만 병합.
@@ -197,9 +198,10 @@ export default function Board({
                       className="kcard"
                       style={c.has_breach ? { borderColor: "#fca5a5" } : undefined}
                     >
-                      <div className="nm">
+                      <div className="nm" style={{ display: "flex", alignItems: "center", gap: 4 }}>
                         {c.grade && <span className={`gr ${c.grade}`}>{c.grade}</span>}
-                        <span className="truncate">{c.brand_name}</span>
+                        <span className="truncate" style={{ flex: 1, minWidth: 0 }}>{c.brand_name}</span>
+                        <ImportanceStars brandId={c.id} value={c.importance ?? 0} size={13} />
                       </div>
                       {mt && <div className="mt truncate">{mt}</div>}
                       {/* 기획 확정: 카드에 플랜·금액 + 기한 + 트랙(계약완료 이후) + 정산중 표시 */}

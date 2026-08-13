@@ -23,6 +23,21 @@ export async function setMeetingStatusAction(meetingId: string, status: string):
   return { ok: true };
 }
 
+// ── 고객 카드 중요도(별 0~3) — 누구나 지정 ──
+export async function setBrandImportanceAction(brandId: string, importance: number): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
+  const v = Math.max(0, Math.min(3, Math.round(Number(importance) || 0)));
+  const ok = await query("UPDATE brands SET importance=$2, updated_at=now() WHERE id=$1", [brandId, v])
+    .then(() => true).catch(() => false);
+  if (!ok) return { ok: false, error: "마이그레이션(0070) 적용이 필요합니다(관리자)." };
+  revalidatePath("/");
+  revalidatePath(`/brand/${brandId}`);
+  revalidatePath("/customers");
+  return { ok: true };
+}
+
 // ── 브랜드측 담당자 — 기본 담당자 변경 지정 ──
 //   선택한 담당자의 정보를 원장(brands.contact_name/email/phone)에 반영 → '기본 담당'.
 export async function setPrimaryContactAction(brandId: string, contactId: string): Promise<{ ok: boolean; error?: string }> {

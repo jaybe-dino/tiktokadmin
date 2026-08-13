@@ -127,6 +127,7 @@ export interface Brand {
   memo: string;
   // v3
   is_test: boolean;
+  importance: number; // 중요도 0~3(별). 0=일반.
   version: number;
   owner_backup: string | null;
   notion_page_url: string | null;

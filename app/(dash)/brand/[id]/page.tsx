@@ -4,6 +4,7 @@ import Brand360AiButton from "@/components/Brand360AiButton";
 import Brand360Comments, { type CommentRow, type HistoryRow } from "@/components/Brand360Comments";
 import Brand360Company from "@/components/Brand360Company";
 import { listCategoryNames } from "@/lib/brand-categories";
+import ImportanceStars from "@/components/ImportanceStars";
 import Brand360Onboarding from "@/components/Brand360Onboarding";
 import Brand360TiktokAccount from "@/components/Brand360TiktokAccount";
 import Brand360Contacts from "@/components/Brand360Contacts";
@@ -424,6 +425,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           <div style={{ flex: 1, minWidth: 240 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <h1 style={{ fontSize: 18, fontWeight: 800 }}>{brand.brand_name}</h1>
+              <ImportanceStars brandId={brand.id} value={brand.importance ?? 0} size={17} />
               <GradeBadge grade={brand.grade} />
               <StateBadge state={brand.state} />
               {brand.rec_track && <span className="chip">{brand.rec_track === "onboarding" ? "온보딩 추천" : "라이브 추천"}</span>}
