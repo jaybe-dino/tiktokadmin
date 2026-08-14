@@ -78,7 +78,23 @@ export default function BugReportButton() {
 
               <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", display: "block", marginTop: 12 }}>스크린샷(선택)</label>
               <input ref={fileRef} type="file" accept="image/*" onChange={(e) => pickFile(e.target.files?.[0] ?? null)} style={{ marginTop: 4, fontSize: 12 }} />
-              {preview && <img src={preview} alt="미리보기" style={{ marginTop: 8, maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: "1px solid #e5e7eb" }} />}
+              {preview && (
+                <div style={{ marginTop: 8, position: "relative", display: "inline-block" }}>
+                  <img src={preview} alt="미리보기" style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: "1px solid #e5e7eb", display: "block" }} />
+                  <button
+                    type="button"
+                    title="이미지 제거"
+                    onClick={() => { pickFile(null); if (fileRef.current) fileRef.current.value = ""; }}
+                    style={{ position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: 999, border: "none", background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 14, cursor: "pointer", lineHeight: 1 }}
+                  >×</button>
+                </div>
+              )}
+              {preview && (
+                <button type="button" onClick={() => { pickFile(null); if (fileRef.current) fileRef.current.value = ""; }}
+                  style={{ display: "block", marginTop: 6, background: "#f1f5f9", color: "#334155", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>
+                  이미지 삭제 후 다시 올리기
+                </button>
+              )}
 
               <div style={{ marginTop: 12, fontSize: 11, color: "#94a3b8", background: "#f8fafc", borderRadius: 8, padding: "8px 10px" }}>
                 제출 시 현재 <b>URL·브라우저·화면크기</b> 등 디버깅 정보가 함께 수집됩니다.

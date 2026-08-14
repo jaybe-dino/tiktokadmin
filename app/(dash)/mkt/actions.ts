@@ -195,43 +195,48 @@ export async function createMktProposalAction(input: {
   if (pd && !isYmd(pd)) return { ok: false, error: "제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
   if (fd && !isYmd(fd)) return { ok: false, error: "최종 제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
 
-  const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]);
+  const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]).catch(() => null);
   if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
 
-  // 신규 컬럼(0064) 포함 INSERT 시도 → 컬럼 미존재(마이그레이션 미적용) 시 기본 컬럼으로 폴백.
-  let prow: { id: string } | null = null;
+  // 전 구간 방어 — 어떤 DB 오류에도 서버 액션이 throw 하지 않도록(클라이언트 전체 크래시 방지).
   try {
-    prow = await queryOne<{ id: string }>(
-      `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url,
-                              propose_date, final_due_date, rfp_text, rfp_file_url, ai_direction, status, created_by)
-       VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',$14) RETURNING id`,
-      [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(),
-       pd || null, fd || null, (input.rfp_text ?? "").trim() || null, (input.rfp_file_url ?? "").trim() || null,
-       (input.ai_direction ?? "").trim() || null, `admin:${u.id}`],
-    );
-  } catch (e) {
-    if (/column .* does not exist|propose_date|final_due_date|rfp_text|rfp_file_url|ai_direction/i.test((e as Error).message)) {
+    // 신규 컬럼(0064) 포함 INSERT 시도 → 컬럼 미존재(마이그레이션 미적용) 시 기본 컬럼으로 폴백.
+    let prow: { id: string } | null = null;
+    try {
+      prow = await queryOne<{ id: string }>(
+        `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url,
+                                propose_date, final_due_date, rfp_text, rfp_file_url, ai_direction, status, created_by)
+         VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',$14) RETURNING id`,
+        [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(),
+         pd || null, fd || null, (input.rfp_text ?? "").trim() || null, (input.rfp_file_url ?? "").trim() || null,
+         (input.ai_direction ?? "").trim() || null, `admin:${u.id}`],
+      );
+    } catch {
+      // 신규 컬럼 미적용 등 → 기본 컬럼만으로 재시도(항상 존재하는 컬럼).
       prow = await queryOne<{ id: string }>(
         `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url, status, created_by)
          VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,'draft',$8) RETURNING id`,
         [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(), `admin:${u.id}`],
       );
-    } else throw e;
-  }
-  if (!prow) return { ok: false, error: "제안서 저장 실패" };
+    }
+    if (!prow) return { ok: false, error: "제안서 저장 실패" };
 
-  // 파이프라인 개별 프로젝트 자동 생성·연결(기본 동작). 실패해도 제안서 저장은 유지.
-  if (input.link_project !== false) {
-    await query(
-      `INSERT INTO mkt_projects (brand_id, kind, title, note, proposal_status, proposal_id)
-       VALUES ($1,'project',$2,$3,'draft',$4)`,
-      [input.brand_id, title, (input.note ?? "").trim(), prow.id],
-    ).catch((e) => console.error("[mkt] 프로젝트 자동연결 실패:", (e as Error).message));
-  }
+    // 파이프라인 개별 프로젝트 자동 생성·연결(기본 동작). 실패해도 제안서 저장은 유지.
+    if (input.link_project !== false) {
+      await query(
+        `INSERT INTO mkt_projects (brand_id, kind, title, note, proposal_status, proposal_id)
+         VALUES ($1,'project',$2,$3,'draft',$4)`,
+        [input.brand_id, title, (input.note ?? "").trim(), prow.id],
+      ).catch((e) => console.error("[mkt] 프로젝트 자동연결 실패:", (e as Error).message));
+    }
 
-  revalidatePath("/mkt");
-  revalidatePath(`/brand/${input.brand_id}`);
-  return { ok: true };
+    revalidatePath("/mkt");
+    revalidatePath(`/brand/${input.brand_id}`);
+    return { ok: true };
+  } catch (e) {
+    console.error("[mkt] createMktProposal 실패:", (e as Error).message);
+    return { ok: false, error: `저장 실패: ${(e as Error).message}` };
+  }
 }
 
 /**

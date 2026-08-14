@@ -581,26 +581,30 @@ function Proposals({
     setErr("");
     setOk("");
     start(async () => {
-      const r = await createMktProposalAction({
-        brand_id: brandId,
-        title,
-        amount,
-        period_start: ps,
-        period_end: pe,
-        note,
-        file_url: fileUrl,
-        propose_date: proposeDate,
-        rfp_text: rfp,
-        rfp_file_url: rfpFile,
-        ai_direction: aiDir,
-        link_project: linkProject,
-      });
-      if (r.ok) {
-        setTitle(""); setAmount(""); setPs(""); setPe(""); setNote(""); setFileUrl("");
-        setProposeDate(""); setRfp(""); setRfpFile(""); setAiDir("");
-        setOk("제안서가 저장되었습니다 — 발송 준비 후 초안함에서 승인·발송하세요.");
-        router.refresh();
-      } else setErr(r.error ?? "저장 실패");
+      try {
+        const r = await createMktProposalAction({
+          brand_id: brandId,
+          title,
+          amount,
+          period_start: ps,
+          period_end: pe,
+          note,
+          file_url: fileUrl,
+          propose_date: proposeDate,
+          rfp_text: rfp,
+          rfp_file_url: rfpFile,
+          ai_direction: aiDir,
+          link_project: linkProject,
+        });
+        if (r.ok) {
+          setTitle(""); setAmount(""); setPs(""); setPe(""); setNote(""); setFileUrl("");
+          setProposeDate(""); setRfp(""); setRfpFile(""); setAiDir("");
+          setOk("제안서가 저장되었습니다 — 발송 준비 후 초안함에서 승인·발송하세요.");
+          router.refresh();
+        } else setErr(r.error ?? "저장 실패");
+      } catch (e) {
+        setErr(`저장 중 오류: ${(e as Error).message ?? "알 수 없는 오류"}`);
+      }
     });
   }
 
@@ -637,11 +641,15 @@ function Proposals({
     setErr("");
     setOk("");
     start(async () => {
-      const r = await fn();
-      if (r.ok) {
-        setOk(okMsg);
-        router.refresh();
-      } else setErr(r.error ?? "실패");
+      try {
+        const r = await fn();
+        if (r.ok) {
+          setOk(okMsg);
+          router.refresh();
+        } else setErr(r.error ?? "실패");
+      } catch (e) {
+        setErr(`오류: ${(e as Error).message ?? "알 수 없는 오류"}`);
+      }
     });
   }
 
