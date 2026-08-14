@@ -21,16 +21,19 @@ export default function ImportanceStars({
   const [pending, start] = useTransition();
   const [val, setVal] = useState(Math.max(0, Math.min(3, value || 0)));
   const [hover, setHover] = useState(0);
+  const [err, setErr] = useState("");
 
   function set(n: number, e: React.MouseEvent) {
     e.stopPropagation();
     e.preventDefault();
     if (!editable) return;
+    const prev = val;
     const next = val === n ? n - 1 : n; // 현재 값과 같은 별 다시 누르면 1 감소(해제)
     setVal(next);
+    setErr("");
     start(async () => {
       const r = await setBrandImportanceAction(brandId, next);
-      if (!r.ok) { setVal(val); } // 실패 시 롤백
+      if (!r.ok) { setVal(prev); setErr(r.error ?? "저장 실패"); return; } // 실패 시 롤백 + 사유
       router.refresh();
     });
   }
@@ -39,9 +42,9 @@ export default function ImportanceStars({
 
   return (
     <span
-      style={{ display: "inline-flex", gap: 1, lineHeight: 1, opacity: pending ? 0.6 : 1 }}
+      style={{ display: "inline-flex", gap: 1, lineHeight: 1, alignItems: "center", opacity: pending ? 0.6 : 1 }}
       onClick={(e) => e.stopPropagation()}
-      title={val > 0 ? `중요도 ${val}/3` : "중요 표시 (별 클릭)"}
+      title={err || (val > 0 ? `중요도 ${val}/3` : "중요 표시 (별 클릭)")}
     >
       {[1, 2, 3].map((n) => (
         <button
@@ -60,6 +63,7 @@ export default function ImportanceStars({
           {n <= shown ? "★" : "☆"}
         </button>
       ))}
+      {err && <span style={{ color: "#dc2626", fontSize: Math.max(10, size - 3), marginLeft: 2 }} title={err}>⚠</span>}
     </span>
   );
 }
