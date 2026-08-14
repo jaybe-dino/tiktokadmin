@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSurveyByToken, submitSurveyResponse } from "@/lib/repo/card";
 import { query } from "@/lib/db";
-import { questionsForKind, missingRequired } from "@/lib/survey";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,15 +34,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     const survey = await getSurveyByToken(token);
     if (!survey) return NextResponse.json({ error: "설문을 찾을 수 없습니다" }, { status: 404 });
 
-    // 필수 항목 검증 — 미입력 제출 차단(클라이언트 우회 방지). kind 별 문항 세트 기준.
-    const missing = missingRequired(questionsForKind(survey.kind), answers as Record<string, unknown>);
-    if (missing.length > 0) {
-      return NextResponse.json(
-        { error: `필수 항목이 비어 있습니다: ${missing.map((q) => q.label.replace(/\(.*\)$/, "")).join(", ")}` },
-        { status: 400 },
-      );
-    }
-
+    // 필수 항목 허들 없음 — 미입력 상태로도 제출 허용.
     const ok = await submitSurveyResponse(token, answers);
     if (!ok) return NextResponse.json({ error: "설문을 찾을 수 없습니다" }, { status: 404 });
 

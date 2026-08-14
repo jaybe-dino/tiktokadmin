@@ -12,7 +12,6 @@ import {
   type SurveyQuestion,
   questionsForKind,
   surveyKindLabel,
-  missingRequired,
 } from "@/lib/survey";
 
 export interface SurveyLite {
@@ -152,9 +151,6 @@ export default function Brand360SurveyCard({
   const needSurvey = !!state && preProposalStages.includes(state) && !anyAnswered;
 
   const answeredCount = list.filter((s) => s.responded_at).length;
-  const missingAnswered = primary?.responded_at
-    ? missingRequired(questionsForKind(primary.kind ?? ""), primary.answers ?? {})
-    : [];
 
   const sendPre = () =>
     start(async () => {
@@ -210,12 +206,6 @@ export default function Brand360SurveyCard({
             ⚠️ 1:1 미팅·제안서 발송 전 <b>사전 설문</b>을 먼저 보내주세요. (미응답 상태)
           </div>
         )}
-        {missingAnswered.length > 0 && (
-          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 8, padding: "8px 11px", fontSize: 12.5, marginBottom: 10, fontWeight: 600 }}>
-            ⚠️ 필수 항목 {missingAnswered.length}개 미응답: {missingAnswered.map((q) => q.label.replace(/\(.*\)$/, "")).join(", ")} — <b>재설문</b> 권장.
-          </div>
-        )}
-
         {answeredCount > 0 ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="chip grn">응답 {answeredCount}건</span>
@@ -270,7 +260,6 @@ export function Brand360SurveyPanel({
       {answeredSurveys.map((s) => {
         const kind = s.kind ?? "";
         const qs = questionsFor(kind, questionSets);
-        const missing = missingRequired(questionsForKind(kind), s.answers ?? {});
         return (
           <div className="card" key={s.id ?? s.token}>
             <div className="hd">
@@ -279,11 +268,6 @@ export function Brand360SurveyPanel({
               <span className="rt"><CopyLinkButton token={s.token} label="🔗 링크 복사(재권유)" /></span>
             </div>
             <div className="bd">
-              {missing.length > 0 && (
-                <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 8, padding: "8px 11px", fontSize: 12.5, marginBottom: 12, fontWeight: 600 }}>
-                  ⚠️ 필수 항목 {missing.length}개 미응답: {missing.map((q) => q.label.replace(/\(.*\)$/, "")).join(", ")} — 재설문 권장.
-                </div>
-              )}
               <DetailRows questions={qs} answers={s.answers ?? {}} />
             </div>
           </div>
