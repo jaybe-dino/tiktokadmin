@@ -3,33 +3,57 @@ import { query, queryOne } from "./db";
 export { BUG_STATUS } from "./bug-status";
 
 export interface BugReportRow {
-  id: string; url: string | null; description: string; reporter: string | null;
+  id: string; ticket_no: number | null; url: string | null; description: string; reporter: string | null;
   user_agent: string | null; viewport: string | null; meta: Record<string, unknown>;
   has_image: boolean; status: string; dev_note: string; created_at: string;
+}
+
+/** 티켓 코드(사람이 읽는 오류번호). 번호 없으면 uuid 앞 6자 폴백. */
+export function ticketCode(r: { ticket_no?: number | null; id: string }): string {
+  return r.ticket_no != null ? `BUG-${r.ticket_no}` : `BUG-${r.id.slice(0, 6)}`;
 }
 
 export async function createBugReport(input: {
   url?: string; description: string; reporter?: string | null;
   userAgent?: string; viewport?: string; meta?: Record<string, unknown>;
   image?: { bytes: Buffer; mime: string } | null;
-}): Promise<string> {
-  const row = await queryOne<{ id: string }>(
-    `INSERT INTO bug_reports (url, description, reporter, user_agent, viewport, meta, image, image_mime)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-    [
-      input.url ?? null, input.description, input.reporter ?? null,
-      input.userAgent ?? null, input.viewport ?? null, JSON.stringify(input.meta ?? {}),
-      input.image?.bytes ?? null, input.image?.mime ?? null,
-    ],
-  );
-  return row!.id;
+}): Promise<{ id: string; ticketNo: number | null }> {
+  const args = [
+    input.url ?? null, input.description, input.reporter ?? null,
+    input.userAgent ?? null, input.viewport ?? null, JSON.stringify(input.meta ?? {}),
+    input.image?.bytes ?? null, input.image?.mime ?? null,
+  ];
+  try {
+    const row = await queryOne<{ id: string; ticket_no: number | null }>(
+      `INSERT INTO bug_reports (url, description, reporter, user_agent, viewport, meta, image, image_mime)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, ticket_no`,
+      args,
+    );
+    return { id: row!.id, ticketNo: row?.ticket_no ?? null };
+  } catch {
+    // ticket_no 컬럼 미적용(0071) — 번호 없이 저장.
+    const row = await queryOne<{ id: string }>(
+      `INSERT INTO bug_reports (url, description, reporter, user_agent, viewport, meta, image, image_mime)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      args,
+    );
+    return { id: row!.id, ticketNo: null };
+  }
 }
 
 export async function listBugReports(status?: string): Promise<BugReportRow[]> {
   const where = status && status !== "all" ? "WHERE status=$1" : "";
   const params = status && status !== "all" ? [status] : [];
+  // ticket_no 포함 조회 → 0071 미적용 시 컬럼 없이 재조회(목록이 비지 않도록).
+  const withTicket = await query<BugReportRow>(
+    `SELECT id, ticket_no, url, description, reporter, user_agent, viewport, meta,
+            (image IS NOT NULL) AS has_image, status, dev_note, created_at
+       FROM bug_reports ${where} ORDER BY created_at DESC LIMIT 500`,
+    params,
+  ).catch(() => null);
+  if (withTicket) return withTicket;
   return query<BugReportRow>(
-    `SELECT id, url, description, reporter, user_agent, viewport, meta,
+    `SELECT id, NULL::bigint AS ticket_no, url, description, reporter, user_agent, viewport, meta,
             (image IS NOT NULL) AS has_image, status, dev_note, created_at
        FROM bug_reports ${where} ORDER BY created_at DESC LIMIT 500`,
     params,

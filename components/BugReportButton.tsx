@@ -38,7 +38,7 @@ export default function BugReportButton() {
       if (file) fd.set("image", file);
       const r = await submitBugReportAction(fd);
       if (r.ok) {
-        setMsg({ ok: true, text: "제보가 접수되었습니다. 감사합니다!" });
+        setMsg({ ok: true, text: r.ticket ? `제보 접수 완료 · 오류번호 ${r.ticket} (개발 요청 시 이 번호로 지정하세요)` : "제보가 접수되었습니다. 감사합니다!" });
         setDesc(""); pickFile(null); if (fileRef.current) fileRef.current.value = "";
         setTimeout(() => { setOpen(false); setMsg(null); }, 1400);
       } else setMsg({ ok: false, text: r.error ?? "제출 실패" });

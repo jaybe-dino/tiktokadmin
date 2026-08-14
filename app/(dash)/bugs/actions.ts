@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import { createBugReport, updateBugReport, deleteBugReport } from "@/lib/bug-reports";
 
-export async function submitBugReportAction(fd: FormData): Promise<{ ok: boolean; error?: string }> {
+export async function submitBugReportAction(fd: FormData): Promise<{ ok: boolean; error?: string; ticket?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   const description = String(fd.get("description") ?? "").trim();
@@ -28,15 +28,17 @@ export async function submitBugReportAction(fd: FormData): Promise<{ ok: boolean
     }
   }
 
+  let ticketNo: number | null = null;
   try {
-    await createBugReport({ url, description, reporter: u.id, userAgent, viewport, meta, image });
+    const r = await createBugReport({ url, description, reporter: u.id, userAgent, viewport, meta, image });
+    ticketNo = r.ticketNo;
   } catch (e) {
     const msg = (e as Error).message ?? "";
     if (/bug_reports|does not exist/i.test(msg)) return { ok: false, error: "제보 테이블이 없습니다 — 마이그레이션(0058) 적용 필요." };
     return { ok: false, error: "제보 저장 실패" };
   }
   revalidatePath("/bugs");
-  return { ok: true };
+  return { ok: true, ticket: ticketNo != null ? `BUG-${ticketNo}` : undefined };
 }
 
 export async function updateBugReportAction(id: string, patch: { status?: string; dev_note?: string }): Promise<{ ok: boolean; error?: string }> {

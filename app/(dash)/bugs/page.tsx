@@ -1,6 +1,6 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
-import { listBugReports, BUG_STATUS } from "@/lib/bug-reports";
+import { listBugReports, BUG_STATUS, ticketCode } from "@/lib/bug-reports";
 import BugManage from "./BugManage";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +45,7 @@ export default async function BugsPage({ searchParams }: { searchParams: Promise
             return (
               <div key={r.id} className="card" style={{ padding: 14 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, fontFamily: "ui-monospace, monospace", background: "#eef2ff", color: "#3730a3", borderRadius: 6, padding: "2px 8px" }}>{ticketCode(r)}</span>
                   <span className={`cellchip ${st.cls}`}>{st.label}</span>
                   <span style={{ fontSize: 11, color: "var(--ink3)" }}>{fmt(r.created_at)} · {r.reporter ?? "익명"}</span>
                   {r.url && <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline" style={{ fontSize: 11.5, color: "var(--acc)", wordBreak: "break-all" }}>{r.url}</a>}
