@@ -433,11 +433,74 @@ export const TOOLS: Record<string, ToolDef> = {
       return { ok: true };
     },
   },
+
+  list_bug_reports: {
+    description: "기능오류 제보(개발 이슈) 목록. status 기본은 미해결(신규·확인·진행중). status='all' 전체, 'resolved' 해결됨 등. 각 항목에 티켓번호(BUG-N)·설명·URL·개발메모 포함.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", description: "open|triaged|in_progress|resolved|wontfix|open_all(미해결 전체)|all" },
+        limit: { type: "number" },
+      },
+    },
+    async handler(a) {
+      const status = String(a.status ?? "open_all");
+      const limit = Math.min(200, Math.max(1, Number(a.limit) || 100));
+      let where = "status NOT IN ('resolved','wontfix')"; // 기본: 미해결
+      const params: unknown[] = [];
+      if (status === "all") where = "1=1";
+      else if (status !== "open_all") { params.push(status); where = "status=$1"; }
+      const rows = await query(
+        `SELECT id, ticket_no, status, description, url, reporter, dev_note, created_at
+           FROM bug_reports WHERE ${where} ORDER BY created_at DESC LIMIT ${limit}`,
+        params,
+      ).catch(() => [] as Record<string, unknown>[]);
+      return {
+        count: rows.length,
+        reports: (rows as Record<string, unknown>[]).map((r) => ({
+          ticket: r.ticket_no != null ? `BUG-${r.ticket_no}` : `BUG-${String(r.id).slice(0, 6)}`,
+          id: r.id, status: r.status, description: r.description, url: r.url,
+          reporter: r.reporter, dev_note: r.dev_note, created_at: r.created_at,
+        })),
+      };
+    },
+  },
+
+  resolve_bug_report: {
+    description: "기능오류 제보 상태 변경(해결 처리 등). ticket(BUG-N) 또는 id 로 지정. status 미지정 시 'resolved'. dev_note 로 처리 메모 추가.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ticket: { type: "string", description: "BUG-12 형태" },
+        id: { type: "string", description: "uuid (ticket 대신)" },
+        status: { type: "string", description: "open|triaged|in_progress|resolved|wontfix (기본 resolved)" },
+        dev_note: { type: "string" },
+      },
+    },
+    async handler(a) {
+      const status = String(a.status ?? "resolved");
+      if (!["open", "triaged", "in_progress", "resolved", "wontfix"].includes(status)) return { ok: false, error: "잘못된 상태값" };
+      let id = a.id ? String(a.id) : "";
+      const ticket = a.ticket ? String(a.ticket).replace(/^BUG-/i, "").trim() : "";
+      if (!id && /^\d+$/.test(ticket)) {
+        const row = await queryOne<{ id: string }>("SELECT id FROM bug_reports WHERE ticket_no=$1", [Number(ticket)]).catch(() => null);
+        if (!row) return { ok: false, error: `티켓 BUG-${ticket} 을 찾을 수 없습니다.` };
+        id = row.id;
+      }
+      if (!id) return { ok: false, error: "ticket(BUG-N) 또는 id 가 필요합니다." };
+      const dev = a.dev_note != null ? String(a.dev_note) : null;
+      await query(
+        "UPDATE bug_reports SET status=$2, dev_note=COALESCE($3, dev_note), updated_at=now() WHERE id=$1",
+        [id, status, dev],
+      );
+      return { ok: true, id, status };
+    },
+  },
 };
 
 export const READ_ONLY_TOOLS = new Set([
   "list_brands", "get_brand_360", "find_sla_breaches", "find_gate_violations",
   "find_missing_docs", "draft_reminder", "compute_funnel_metrics",
   "get_customer_card", "list_products", "find_cert_risks", "list_meetings",
-  "suggest_assignee", "list_no_reply",
+  "suggest_assignee", "list_no_reply", "list_bug_reports",
 ]);
