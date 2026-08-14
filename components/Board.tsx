@@ -51,10 +51,12 @@ export default function Board({
   cards: propCards,
   sla,
   me,
+  canForce = false,
 }: {
   cards: BoardCard[];
   sla: Record<string, number>;
   me: string | null;
+  canForce?: boolean;
 }) {
   const router = useRouter();
   const [cards, setCards] = useState(propCards);
@@ -100,6 +102,20 @@ export default function Board({
       const reason = window.prompt(`'${STATE_LABELS[card.state]}' → '${STATE_LABELS[to]}' 단계 변경 사유를 입력하세요:`, "");
       if (reason && reason.trim()) {
         res = await transitionAction(id, to, reason.trim());
+      } else {
+        setCards(prev); // 취소 → 원위치
+        return;
+      }
+    }
+    // 파트장·대표: 게이트 미충족으로 막혀도 사유 입력 → 한 번에 강제 이동.
+    if (!res.ok && !res.needReason && canForce) {
+      const detail = res.failed?.map((f) => f.label).join(" · ") || res.error || "이동 조건 미충족";
+      const reason = window.prompt(
+        `이동 조건 미충족: ${detail}\n\n'${STATE_LABELS[card.state]}' → '${STATE_LABELS[to]}' 강제 이동 사유를 입력하세요(파트장/대표):`,
+        "",
+      );
+      if (reason && reason.trim()) {
+        res = await transitionAction(id, to, reason.trim(), true);
       } else {
         setCards(prev); // 취소 → 원위치
         return;

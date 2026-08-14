@@ -9,6 +9,7 @@ export default async function BoardPage() {
   let cards;
   let sla: Record<string, number> = {};
   let me: string | null = null;
+  let canForce = false;
   try {
     const [c, s, u] = await Promise.all([
       boardCards(),
@@ -18,6 +19,7 @@ export default async function BoardPage() {
     cards = c;
     sla = s;
     me = u?.id ?? null;
+    canForce = u?.role === "lead" || u?.role === "exec";
   } catch (e) {
     return (
       <div className="max-w-2xl">
@@ -29,5 +31,5 @@ export default async function BoardPage() {
   }
   const active = cards.filter((c) => c.state !== "dropped" && c.state !== "churned");
 
-  return <Board cards={active} sla={sla} me={me} />;
+  return <Board cards={active} sla={sla} me={me} canForce={canForce} />;
 }
