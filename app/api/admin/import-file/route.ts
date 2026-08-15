@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { env } from "@/lib/env";
+import { currentUser } from "@/lib/auth";
 import { storeImportFile } from "@/lib/tpartners-import";
 
 // apply.tpartners.live 업로드 파일 1개 이관. 토큰 보호. multipart: file (+ 선택 sha256).
@@ -10,16 +11,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-function authorized(req: NextRequest): boolean {
+async function authorized(req: NextRequest): Promise<boolean> {
   const secret = env.cronSecret;
-  if (!secret) return false;
-  if (req.headers.get("authorization") === `Bearer ${secret}`) return true;
-  if (req.nextUrl.searchParams.get("token") === secret) return true;
-  return false;
+  if (secret && (req.headers.get("authorization") === `Bearer ${secret}` || req.nextUrl.searchParams.get("token") === secret)) return true;
+  const u = await currentUser().catch(() => null);
+  return !!u && (u.role === "exec" || u.role === "lead");
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await authorized(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let form: FormData;
   try { form = await req.formData(); } catch { return NextResponse.json({ error: "multipart 필요" }, { status: 400 }); }

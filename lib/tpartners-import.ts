@@ -44,6 +44,88 @@ const FILE_FIELDS: { src: string; urlCol: string }[] = [
   { src: "rep_address_proof_path", urlCol: "rep_address_proof_url" },
 ];
 
+// ── SQL 덤프(schema_and_data.sql) 파서 — sqlite 없이 서버에서 직접 읽기 ──
+function splitTopLevel(str: string): string[] {
+  const out: string[] = [];
+  let cur = "", depth = 0, q = false;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (q) {
+      cur += c;
+      if (c === "'") { if (str[i + 1] === "'") { cur += "'"; i++; } else q = false; }
+      continue;
+    }
+    if (c === "'") { q = true; cur += c; continue; }
+    if (c === "(") { depth++; cur += c; continue; }
+    if (c === ")") { depth--; cur += c; continue; }
+    if (c === "," && depth === 0) { out.push(cur); cur = ""; continue; }
+    cur += c;
+  }
+  if (cur.trim() !== "") out.push(cur);
+  return out;
+}
+
+function parseLiteral(raw: string): string | null {
+  const t = raw.trim();
+  if (t === "NULL" || t === "") return null;
+  if (t.startsWith("'")) return t.slice(1, -1).replace(/''/g, "'");
+  return t; // 숫자 등은 문자열로
+}
+
+function dumpColumns(sql: string, table: string): string[] {
+  const re = new RegExp(`CREATE TABLE ["']?${table}["']?\\s*\\(([\\s\\S]*?)\\);`, "i");
+  const m = re.exec(sql);
+  if (!m) return [];
+  const body = m[1].replace(/\r?\n/g, " ");
+  const cols: string[] = [];
+  for (const part of splitTopLevel(body)) {
+    const line = part.trim();
+    if (!line || /^(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT)\b/i.test(line)) continue;
+    const name = line.split(/\s+/)[0].replace(/["'`]/g, "");
+    if (name) cols.push(name);
+  }
+  return cols;
+}
+
+function readParen(sql: string, openIdx: number): { inner: string; end: number } {
+  let depth = 0, q = false, inner = "";
+  for (let i = openIdx; i < sql.length; i++) {
+    const c = sql[i];
+    if (q) {
+      if (c === "'") { if (sql[i + 1] === "'") { inner += "''"; i++; } else { q = false; inner += c; } }
+      else inner += c;
+      continue;
+    }
+    if (c === "'") { q = true; inner += c; continue; }
+    if (c === "(") { depth++; if (depth > 1) inner += c; continue; }
+    if (c === ")") { depth--; if (depth === 0) return { inner, end: i + 1 }; inner += c; continue; }
+    inner += c;
+  }
+  return { inner, end: sql.length };
+}
+
+/** schema_and_data.sql 에서 특정 테이블의 INSERT 행들을 파싱 → Row[] */
+export function parseDumpRows(sql: string, table: string): Row[] {
+  const cols = dumpColumns(sql, table);
+  if (cols.length === 0) return [];
+  const rows: Row[] = [];
+  const marker = `INSERT INTO "${table}" VALUES`;
+  let i = 0;
+  while (true) {
+    const at = sql.indexOf(marker, i);
+    if (at < 0) break;
+    const open = sql.indexOf("(", at + marker.length);
+    if (open < 0) break;
+    const { inner, end } = readParen(sql, open);
+    const vals = splitTopLevel(inner).map(parseLiteral);
+    const row: Row = {};
+    cols.forEach((c, idx) => { row[c] = vals[idx] ?? null; });
+    rows.push(row);
+    i = end;
+  }
+  return rows;
+}
+
 async function tableColumns(table: string): Promise<Set<string>> {
   const rows = await query<{ column_name: string }>(
     "SELECT column_name FROM information_schema.columns WHERE table_name=$1", [table],
