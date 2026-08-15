@@ -17,6 +17,7 @@ const nextConfig = {
   // 마이그레이션 SQL 을 /api/admin/migrate 서버리스 번들에 포함(런타임 fs 읽기용).
   outputFileTracingIncludes: {
     "/api/admin/migrate": ["./migrations/**"],
+    "/api/admin/import-drive": ["./data/**"],
   },
 };
 

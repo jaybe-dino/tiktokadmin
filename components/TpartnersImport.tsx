@@ -30,6 +30,53 @@ export default function TpartnersImport() {
   const [prog, setProg] = useState({ total: 0, done: 0, matched: 0, skipped: 0, failed: 0 });
   const [failList, setFailList] = useState<string[]>([]);
 
+  // Drive 자동 이관(서버가 공개 Drive에서 직접 내려받음)
+  const [driveBusy, setDriveBusy] = useState(false);
+  const [driveReport, setDriveReport] = useState<Report | null>(null);
+  const [driveMsg, setDriveMsg] = useState("");
+  const [driveProg, setDriveProg] = useState({ total: 0, done: 0, matched: 0, skipped: 0, failed: 0 });
+  const [driveFails, setDriveFails] = useState<string[]>([]);
+
+  async function runDriveRows(dryRun: boolean) {
+    if (!dryRun && !confirm("Drive의 신청 데이터를 실제로 브랜드 원장에 반영합니다. 진행할까요?")) return;
+    setDriveBusy(true); setDriveMsg(""); setDriveReport(null);
+    try {
+      const r = await fetch(`/api/admin/import-drive?mode=rows&dry_run=${dryRun ? 1 : 0}`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.ok) { setDriveMsg(j.error ?? "실패"); return; }
+      setDriveReport(j.report);
+      setDriveMsg(dryRun ? "드라이런 완료 — 확인 후 '실제 이관'." : "신청행 이관 완료. 이제 아래 '서류 파일 자동 이관'.");
+    } catch (e) { setDriveMsg((e as Error).message); }
+    finally { setDriveBusy(false); }
+  }
+
+  async function runDriveFiles() {
+    if (!confirm("Drive의 서류 파일(약 187개)을 서버가 순차로 내려받아 저장합니다. 진행할까요?")) return;
+    setDriveBusy(true); setDriveFails([]);
+    let offset = 0, matched = 0, skipped = 0, failed = 0, total = 0;
+    const fails: string[] = [];
+    setDriveProg({ total: 0, done: 0, matched: 0, skipped: 0, failed: 0 });
+    try {
+      // next_offset 이 null 이 될 때까지 배치 반복.
+      for (let guard = 0; guard < 100; guard++) {
+        const r = await fetch(`/api/admin/import-drive?mode=files&offset=${offset}`, { method: "POST" });
+        const j = await r.json();
+        if (!r.ok || !j.ok) { fails.push(`offset ${offset}: ${j.error ?? "실패"}`); break; }
+        total = j.total;
+        matched += j.matched; skipped += j.skipped; failed += j.failed;
+        for (const it of j.results as { name: string; error?: string }[]) {
+          if (it.error) fails.push(`${it.name}: ${it.error}`);
+        }
+        const done = Math.min(offset + j.count, total);
+        setDriveProg({ total, done, matched, skipped, failed });
+        setDriveFails([...fails]);
+        if (j.next_offset == null) break;
+        offset = j.next_offset;
+      }
+    } catch (e) { fails.push((e as Error).message); setDriveFails([...fails]); }
+    finally { setDriveBusy(false); }
+  }
+
   async function runSql(dryRun: boolean) {
     if (!sqlFile) { setMsg("schema_and_data.sql 파일을 먼저 선택하세요."); return; }
     if (!dryRun && !confirm("실제로 브랜드 원장에 반영합니다. 진행할까요? (드라이런으로 먼저 확인 권장)")) return;
@@ -74,7 +121,62 @@ export default function TpartnersImport() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* ① 데이터 */}
+      {/* ⭐ Drive 자동 이관 — 권장(파일 업로드 불필요) */}
+      <div className="card" style={{ borderColor: "var(--acc, #2563eb)" }}>
+        <div className="card-hd"><b>⭐ Drive 자동 이관 (권장 · 업로드 불필요)</b></div>
+        <div className="card-bd" style={{ display: "grid", gap: 12 }}>
+          <p className="note" style={{ margin: 0 }}>공개된 Drive 폴더에서 <b>서버가 직접</b> 신청 데이터·서류 파일을 내려받아 이관합니다. 아래 ①②처럼 파일을 직접 업로드할 필요가 없습니다. AI 토큰 비용은 발생하지 않습니다(단순 데이터 이관).</p>
+
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>1단계 · 신청 데이터</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="btn btn-sm" disabled={driveBusy} onClick={() => runDriveRows(true)}>{driveBusy ? "처리 중…" : "🔍 드라이런(미리보기)"}</button>
+              <button className="btn btn-sm pri" disabled={driveBusy || !driveReport} onClick={() => runDriveRows(false)}>✅ 신청행 실제 이관</button>
+              {driveMsg && <span className="note" style={{ alignSelf: "center" }}>{driveMsg}</span>}
+            </div>
+            {driveReport && (
+              <div style={{ display: "grid", gap: 6, fontSize: 12.5 }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <span className="chip grn">신규 {driveReport.created.length}</span>
+                  <span className="chip amb">병합 {driveReport.merged.length}</span>
+                  <span className="chip">스킵 {driveReport.skipped.length}</span>
+                  <span className="chip">예상 파일 {driveReport.files_expected}</span>
+                  {driveReport.errors.length > 0 && <span className="chip red">오류 {driveReport.errors.length}</span>}
+                  <span className="note">{driveReport.dryRun ? "미리보기(쓰기 없음)" : "실제 반영됨"}</span>
+                </div>
+                {driveReport.created.length > 0 && <div><b>신규</b>: {driveReport.created.map((c) => c.brand).join(", ")}</div>}
+                {driveReport.merged.length > 0 && <div><b>병합</b>: {driveReport.merged.map((c) => `${c.brand}(${c.matched_by})`).join(", ")}</div>}
+                {driveReport.skipped.length > 0 && <div className="note"><b>스킵</b>: {driveReport.skipped.map((c) => `${c.brand}(${c.reason})`).join(", ")}</div>}
+                {driveReport.errors.length > 0 && <div style={{ color: "var(--bad)" }}><b>오류</b>: {driveReport.errors.map((e) => `app${e.ext_app_id}: ${e.error}`).join(" · ")}</div>}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: "grid", gap: 8, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>2단계 · 서류 파일 (신청행 이관 후)</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="btn btn-sm pri" disabled={driveBusy} onClick={runDriveFiles}>{driveBusy ? "내려받는 중…" : "📥 서류 파일 자동 이관 시작"}</button>
+            </div>
+            {(driveBusy || driveProg.done > 0) && (
+              <div style={{ display: "grid", gap: 6 }}>
+                <div style={{ height: 10, background: "var(--line)", borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${driveProg.total ? (driveProg.done / driveProg.total) * 100 : 0}%`, background: "var(--acc, #2563eb)", transition: "width .2s" }} />
+                </div>
+                <div style={{ fontSize: 12.5 }}>
+                  {driveProg.done}/{driveProg.total} · 저장 {driveProg.matched} · 미매칭 {driveProg.skipped} · 실패 {driveProg.failed} {driveBusy ? "· 진행 중…" : "· 완료"}
+                </div>
+                {driveFails.length > 0 && (
+                  <details><summary style={{ cursor: "pointer", color: "var(--bad)", fontSize: 12 }}>실패 {driveFails.length}건</summary>
+                    <div style={{ fontSize: 11.5, marginTop: 4 }}>{driveFails.map((f, i) => <div key={i}>{f}</div>)}</div>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ① 데이터 (수동 업로드 대안) */}
       <div className="card">
         <div className="card-hd"><b>① 데이터 이관 (schema_and_data.sql)</b></div>
         <div className="card-bd" style={{ display: "grid", gap: 10 }}>
