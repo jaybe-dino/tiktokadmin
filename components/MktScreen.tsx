@@ -87,6 +87,7 @@ const ST: Record<string, { ko: string; cc: string }> = {
   draft: { ko: "작성 중", cc: "cc-ing" },
   sent: { ko: "발송", cc: "cc-warn" },
   negotiating: { ko: "협의 중", cc: "cc-warn" },
+  meeting_scheduled: { ko: "미팅 예정", cc: "cc-warn" },
   won: { ko: "수주", cc: "cc-ok" },
   dropped: { ko: "드랍", cc: "cc-no" },
 };
@@ -96,6 +97,7 @@ const PIPE: { key: string; label: string; dot: string }[] = [
   { key: "draft", label: "제안 작성 중", dot: "var(--sales)" },
   { key: "sent", label: "발송·협의", dot: "var(--warn)" },
   { key: "negotiating", label: "협의 중", dot: "var(--warn)" },
+  { key: "meeting_scheduled", label: "미팅 예정", dot: "var(--warn)" },
   { key: "won", label: "수주·계약", dot: "var(--ok)" },
   { key: "dropped", label: "완료·드랍", dot: "#64748b" },
 ];
@@ -133,7 +135,7 @@ export default function MktScreen({
         </button>
       </div>
 
-      {tab === "pipe" && <Pipeline projects={projects} onGoProposals={() => setTab("prop")} />}
+      {tab === "pipe" && <Pipeline projects={projects} brands={brands} onGoProposals={() => setTab("prop")} />}
       {tab === "routine" && <Routine projects={routineData} brands={brands} />}
       {tab === "prop" && <Proposals proposals={proposals} brands={brands} projects={rows} />}
       {tab === "map" && <BrandMap rows={rows} />}
@@ -142,7 +144,7 @@ export default function MktScreen({
 }
 
 // ── 탭 1: 파이프라인 보드 ─────────────────────────────────────
-function Pipeline({ projects, onGoProposals }: { projects: MktRow[]; onGoProposals: () => void }) {
+function Pipeline({ projects, brands = [], onGoProposals }: { projects: MktRow[]; brands?: MktBrandOpt[]; onGoProposals: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
@@ -215,7 +217,7 @@ function Pipeline({ projects, onGoProposals }: { projects: MktRow[]; onGoProposa
                   {col.label} <span className="c">{list.length}</span>
                 </h4>
                 {list.map((m) => (
-                  <KCard key={m.id} m={m} onDragStart={() => setDragId(m.id)} onDragEnd={() => { setDragId(null); setOverCol(null); }} dragging={dragId === m.id} />
+                  <KCard key={m.id} m={m} brands={brands} onDragStart={() => setDragId(m.id)} onDragEnd={() => { setDragId(null); setOverCol(null); }} dragging={dragId === m.id} />
                 ))}
                 {list.length === 0 && <div className="mt" style={{ padding: "2px 4px" }}>—</div>}
               </div>
@@ -232,7 +234,7 @@ function Pipeline({ projects, onGoProposals }: { projects: MktRow[]; onGoProposa
 }
 
 // 파이프라인 카드 — 드래그로 단계 이동, 클릭하면 상세 편집·제안서 연결 관리 모달.
-function KCard({ m, onDragStart, onDragEnd, dragging }: { m: MktRow; onDragStart?: () => void; onDragEnd?: () => void; dragging?: boolean }) {
+function KCard({ m, brands = [], onDragStart, onDragEnd, dragging }: { m: MktRow; brands?: MktBrandOpt[]; onDragStart?: () => void; onDragEnd?: () => void; dragging?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -260,13 +262,13 @@ function KCard({ m, onDragStart, onDragEnd, dragging }: { m: MktRow; onDragStart
             : <span className="cellchip cc-no" title="연결된 제안서 없음">제안서 미연결</span>}
         </div>
       </div>
-      {open && <MktProjectDetail m={m} onClose={() => setOpen(false)} />}
+      {open && <MktProjectDetail m={m} brands={brands} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
 // 프로젝트 상세 모달 — 제목·메모 편집, 상태 이동(게이트), 연결된 마케팅 제안서 관리.
-function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
+function MktProjectDetail({ m, brands = [], onClose }: { m: MktRow; brands?: MktBrandOpt[]; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [title, setTitle] = useState(m.title);
@@ -367,6 +369,7 @@ function MktProjectDetail({ m, onClose }: { m: MktRow; onClose: () => void }) {
             period_start: m.prop_period_start ?? null, period_end: m.prop_period_end ?? null,
             rfp_text: m.prop_rfp_text ?? null, rfp_file_url: m.prop_rfp_file_url ?? null, ai_direction: m.prop_ai_direction ?? null,
           }}
+          brands={brands}
           onClose={() => setEditProp(false)}
         />
       )}
@@ -894,9 +897,10 @@ export interface ProposalEditData {
   period_start?: string | null; period_end?: string | null;
   rfp_text?: string | null; rfp_file_url?: string | null; ai_direction?: string | null;
 }
-function ProposalEditModal({ p, onClose }: { p: ProposalEditData; onClose: () => void }) {
+function ProposalEditModal({ p, brands = [], onClose }: { p: ProposalEditData; brands?: MktBrandOpt[]; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [brandId, setBrandId] = useState(p.brand_id);
   const [proposeDate, setProposeDate] = useState(p.propose_date ?? "");
   const [ps, setPs] = useState(p.period_start ?? "");
   const [pe, setPe] = useState(p.period_end ?? "");
@@ -925,7 +929,7 @@ function ProposalEditModal({ p, onClose }: { p: ProposalEditData; onClose: () =>
     start(async () => {
       const r = await updateMktProposalMetaAction({
         id: p.id, propose_date: proposeDate, period_start: ps, period_end: pe, amount,
-        rfp_text: rfp, rfp_file_url: rfpFile, ai_direction: aiDir,
+        rfp_text: rfp, rfp_file_url: rfpFile, ai_direction: aiDir, brand_id: brandId,
       });
       if (r.ok) { setMsg({ t: "저장되었습니다.", ok: true }); router.refresh(); setTimeout(onClose, 500); }
       else setMsg({ t: r.error ?? "저장 실패", ok: false });
@@ -937,9 +941,22 @@ function ProposalEditModal({ p, onClose }: { p: ProposalEditData; onClose: () =>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "min(600px, 96vw)", maxHeight: "92vh", overflow: "auto", padding: 18 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <b style={{ fontSize: 15 }}>제안서 항목 편집</b>
-          <span className="chip" style={{ fontSize: 11 }}>{p.brand_name}</span>
           <span style={{ color: "var(--ink3)", fontSize: 12 }}>{p.title}</span>
           <button className="btn sm" style={{ marginLeft: "auto" }} onClick={onClose}>닫기 ✕</button>
+        </div>
+
+        {/* 브랜드 연결(맵핑) 수정 — 다른 브랜드로 재연결 시 연결된 파이프라인 프로젝트도 함께 이동. */}
+        <div style={{ marginBottom: 10 }}>
+          <label className="f">연결 브랜드</label>
+          {brands.length > 0 ? (
+            <select className="f" value={brandId} onChange={(e) => setBrandId(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }}>
+              {brands.some((b) => b.id === p.brand_id) ? null : <option value={p.brand_id}>{p.brand_name}(현재)</option>}
+              {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          ) : (
+            <span className="chip" style={{ fontSize: 11 }}>{p.brand_name}</span>
+          )}
+          {brandId !== p.brand_id && <div className="note" style={{ marginTop: 4, fontSize: 11, color: "var(--warn, #b45309)" }}>⚠ 저장 시 「{p.brand_name}」 → 선택 브랜드로 제안서·연결 프로젝트가 함께 이동합니다.</div>}
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>

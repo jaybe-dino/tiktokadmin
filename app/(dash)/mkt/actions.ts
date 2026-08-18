@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 
-const STATUSES = ["draft", "sent", "negotiating", "won", "dropped"] as const;
+const STATUSES = ["draft", "sent", "negotiating", "meeting_scheduled", "won", "dropped"] as const;
 type MktStatus = (typeof STATUSES)[number];
 
 export interface MktResult {
@@ -356,11 +356,23 @@ export async function regenerateDirectionAction(proposalId: string): Promise<Mkt
 export async function updateMktProposalMetaAction(input: {
   id: string; propose_date?: string; period_start?: string; period_end?: string;
   rfp_text?: string; rfp_file_url?: string; ai_direction?: string; amount?: string;
+  brand_id?: string;
 }): Promise<MktResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   const cur = await queryOne<{ brand_id: string }>("SELECT brand_id FROM proposals WHERE id=$1 AND kind='marketing'", [input.id]).catch(() => null);
   if (!cur) return { ok: false, error: "마케팅 제안서를 찾을 수 없습니다." };
+
+  // 브랜드 재연결(맵핑 수정) — 제안서 + 연결된 파이프라인 프로젝트를 함께 이동.
+  const newBrand = (input.brand_id ?? "").trim();
+  if (newBrand && newBrand !== cur.brand_id) {
+    const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [newBrand]).catch(() => null);
+    if (!b) return { ok: false, error: "선택한 브랜드를 찾을 수 없습니다." };
+    await query("UPDATE proposals SET brand_id=$2 WHERE id=$1", [input.id, newBrand]);
+    await query("UPDATE mkt_projects SET brand_id=$2, updated_at=now() WHERE proposal_id=$1", [input.id, newBrand]).catch(() => {});
+    revalidatePath(`/brand/${newBrand}`);
+    cur.brand_id = newBrand; // 이하 revalidate 대상도 새 브랜드로.
+  }
   const pd = (input.propose_date ?? "").trim();
   const ps = (input.period_start ?? "").trim();
   const pe = (input.period_end ?? "").trim();

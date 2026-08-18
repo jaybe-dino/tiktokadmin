@@ -162,6 +162,25 @@ export default function Brand360Company({ brand, company, assets, categories = [
               </div>
             )}
             <hr className="hr" />
+            <label className="row" style={{ padding: "6px 0", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={Boolean(cv.export_voucher_interest)}
+                disabled={pending}
+                onChange={(e) => saveCompany({ export_voucher_interest: e.target.checked })}
+                style={{ width: 16, height: 16 }}
+              />
+              <div>
+                <div className="tt">수출바우처 희망</div>
+                <div className="ss">담당자 수기 체크 — 체크 즉시 저장</div>
+              </div>
+              <span className="rt">
+                <span className={`cellchip ${cv.export_voucher_interest ? "cc-ok" : "cc-no"}`} style={{ fontSize: 10 }}>
+                  {cv.export_voucher_interest ? "희망 ✓" : "미체크"}
+                </span>
+              </span>
+            </label>
+            <hr className="hr" />
             <div className="row" style={{ padding: "6px 0" }}>
               <span className="ico i-blu" style={{ background: "#dbeafe" }}>📄</span>
               <div>

@@ -61,6 +61,7 @@ export interface BrandCompany {
   payoneer_status: string | null; payoneer_email: string | null; payoneer_note: string | null;
   directors_json: { name?: string; is_ubo?: boolean; country?: string; birth?: string; id_type?: string; id_number?: string }[] | null;
   onb_application_id: string | null; onb_synced_at: string | null;
+  export_voucher_interest: boolean | null; // 수출바우처 희망여부(담당 수기 체크)
 }
 export function getCompany(brandId: string): Promise<BrandCompany | null> {
   return queryOne<BrandCompany>("SELECT * FROM brand_company WHERE brand_id=$1", [brandId]);
@@ -81,6 +82,7 @@ export async function upsertCompany(brandId: string, patch: Partial<BrandCompany
     "auth_type","auth_name","auth_birth","auth_country","auth_id_type","auth_id_number","auth_email",
     "auth_id_front_url","auth_id_back_url","auth_address_proof_url","auth_loa_url",
     "pep_q1","pep_q2","payoneer_status","payoneer_email","payoneer_note",
+    "export_voucher_interest", // 수출바우처 희망여부(담당 수기 체크)
   ] as const;
   const set = cols.filter((c) => c in patch);
   if (set.length === 0) {
