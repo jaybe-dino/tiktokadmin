@@ -23,7 +23,7 @@ const METRIC_LABEL: Record<string, string> = {
 };
 
 const ACTIVE: State[] = STATES.filter(
-  (s) => s !== "dropped" && s !== "churned",
+  (s) => s !== "dropped" && s !== "churned" && s !== "hold",
 ) as State[];
 
 export default async function InsightsPage() {

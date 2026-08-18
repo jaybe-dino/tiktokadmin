@@ -87,6 +87,28 @@ describe("state machine", () => {
     expect(ownerFieldForState("docs")).toBe("owner_onboard");
     expect(ownerFieldForState("live_mall")).toBe("owner_ads");
   });
+  it("보류(hold): 어느 단계에서든 언제든 진입(사유 불필요)", () => {
+    for (const from of ["lead_new", "meeting", "contact", "contract_review", "setup", "live_mall"] as const) {
+      const r = isTransitionAllowed(from, "hold");
+      expect(r.allowed).toBe(true);
+      expect(r.requiresReason).toBe(false);
+    }
+    // 종료 상태에서는 보류 불가
+    expect(isTransitionAllowed("dropped", "hold").allowed).toBe(false);
+    expect(isTransitionAllowed("churned", "hold").allowed).toBe(false);
+  });
+  it("보류 해제: 파이프라인 어느 단계로든 복귀(사유 불필요), 드랍 가능", () => {
+    expect(isTransitionAllowed("hold", "lead_new").allowed).toBe(true);
+    expect(isTransitionAllowed("hold", "contract_review").allowed).toBe(true);
+    expect(isTransitionAllowed("hold", "setup").requiresReason).toBe(false);
+    expect(isTransitionAllowed("hold", "dropped").allowed).toBe(true); // 사유 필수
+    expect(isTransitionAllowed("hold", "dropped").requiresReason).toBe(true);
+    expect(isTransitionAllowed("hold", "hold").allowed).toBe(false); // 동일 상태
+  });
+  it("보류는 퍼널 서열 밖 — isAhead 로 앞서지 않음", () => {
+    expect(isAhead("lead_new", "hold")).toBe(true);
+    expect(isAhead("hold", "lead_new")).toBe(false);
+  });
 });
 
 // ── 게이트 평가 (순수) ───────────────────────────────────────

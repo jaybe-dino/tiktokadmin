@@ -257,7 +257,7 @@ export function ManualRegisterCard({ today, groups }: { today: string; groups: G
         <div className="grid g2" style={{ gap: 6, marginTop: 6 }}>
           <select name="state" className="f" defaultValue="">
             <option value="">단계: 리드확보(기본)</option>
-            {STATES.filter((s) => s !== "dropped" && s !== "churned").map((s) => (
+            {STATES.filter((s) => s !== "dropped" && s !== "churned" && s !== "hold").map((s) => (
               <option key={s} value={s}>{STATE_LABELS[s]}</option>
             ))}
           </select>

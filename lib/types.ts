@@ -4,10 +4,12 @@ export const STATES = [
   "lead_new", "seminar", "meeting", "contact", "contract_review",
   "contract_done", "docs", "setup", "live_mall", "live_onboarding",
   "settling", "dropped", "churned",
+  "hold", // 보류(파킹) — 어떤 단계에서든 진입, SLA 3일. 파이프라인 서열 밖.
 ] as const;
 export type State = (typeof STATES)[number];
 
 export const STATE_LABELS: Record<State, string> = {
+  hold: "보류",
   lead_new: "리드확보",
   seminar: "담당자배정",
   meeting: "1:1미팅",

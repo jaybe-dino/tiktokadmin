@@ -75,7 +75,9 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
 
   // 종료 전이(dropped/churned)는 게이트 없이 사유만 필수.
   const terminal = to === "dropped" || to === "churned";
-  if (!terminal) {
+  // 보류(hold) 진입/해제는 파킹 단계 — 게이트·필수항목을 검사하지 않는다(언제든 이동).
+  const skipGates = terminal || to === "hold" || from === "hold";
+  if (!skipGates) {
     // 1) 코드 게이트(핵심 무결성 규칙)
     const ctx = await buildGateContext(brand);
     const gate = evaluateGate(from, to, ctx);

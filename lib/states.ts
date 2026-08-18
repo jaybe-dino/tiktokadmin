@@ -2,7 +2,7 @@ import type { OwnerField, Role, State } from "./types";
 
 // 상태 머신 (03-GATES-SLA §1). 허용 전이·퍼널 순서·담당 매핑.
 
-/** 허용 전이(전진). dropped/churned 는 별도 규칙. */
+/** 허용 전이(전진). dropped/churned/hold 는 별도 규칙. */
 export const FORWARD_TRANSITIONS: Record<State, State[]> = {
   lead_new: ["seminar", "meeting", "contact"],
   seminar: ["meeting", "contact"],
@@ -17,9 +17,11 @@ export const FORWARD_TRANSITIONS: Record<State, State[]> = {
   settling: [],
   dropped: [],
   churned: [],
+  // 보류 해제는 isTransitionAllowed 에서 명시 처리(어느 단계로든 복귀). 표는 참고용.
+  hold: ["lead_new", "seminar", "meeting", "contact", "contract_review", "contract_done", "docs", "setup", "live_mall", "live_onboarding", "settling"],
 };
 
-/** 퍼널 서열 (전진 판정용). 종료 상태는 -1. */
+/** 퍼널 서열 (전진 판정용). 종료 상태·보류는 -1(서열 밖). */
 const ORDINAL: Record<State, number> = {
   lead_new: 0,
   seminar: 1,
@@ -34,6 +36,7 @@ const ORDINAL: Record<State, number> = {
   settling: 9,
   dropped: -1,
   churned: -1,
+  hold: -1, // 파이프라인 서열 밖 — 진입/해제는 isTransitionAllowed 명시 처리.
 };
 
 export function ordinal(s: State): number {
@@ -66,6 +69,16 @@ export function isTransitionAllowed(
       requiresReason: true,
       reason: ok ? undefined : `${from}에서 ${to} 불가`,
     };
+  }
+
+  // 보류 진입: 종료 상태를 제외한 어느 단계에서든 언제든 가능(사유 불필요).
+  if (to === "hold") {
+    const ok = from !== "dropped" && from !== "churned";
+    return { allowed: ok, requiresReason: false, reason: ok ? undefined : `${from}에서 보류 불가` };
+  }
+  // 보류 해제: 파이프라인 어느 단계로든 복귀(사유 불필요). dropped/churned 는 위에서 처리됨.
+  if (from === "hold") {
+    return { allowed: true, requiresReason: false };
   }
 
   // 전진: 허용 전이표

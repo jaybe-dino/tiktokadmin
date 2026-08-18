@@ -14,6 +14,7 @@ import ImportanceStars from "@/components/ImportanceStars";
 type ColDef = { key: string; label: string; part: string; dot: string; states: State[]; drop: State };
 
 const COLS: ColDef[] = [
+  { key: "hold", label: "보류", part: "hold", dot: "#f59e0b", states: ["hold"], drop: "hold" },
   { key: "lead_new", label: "리드 확보", part: "mkt", dot: "var(--mkt)", states: ["lead_new"], drop: "lead_new" },
   { key: "seminar", label: "담당자배정", part: "mkt", dot: "var(--mkt)", states: ["seminar"], drop: "seminar" },
   { key: "meeting", label: "1:1 미팅", part: "sales", dot: "var(--sales)", states: ["meeting"], drop: "meeting" },
@@ -35,7 +36,7 @@ const PARTS: { value: string; label: string }[] = [
 
 // 계약완료 이후 상태부터 트랙 배지 노출
 const CONTRACT_DONE_IDX = STATES.indexOf("contract_done");
-const showTrack = (s: State) => STATES.indexOf(s) >= CONTRACT_DONE_IDX && s !== "dropped" && s !== "churned";
+const showTrack = (s: State) => STATES.indexOf(s) >= CONTRACT_DONE_IDX && s !== "dropped" && s !== "churned" && s !== "hold";
 
 function ageOf(iso: string): { hours: number; days: number; label: string } {
   const ms = Math.max(0, Date.now() - new Date(iso).getTime());
@@ -78,7 +79,8 @@ export default function Board({
   const visible = cards.filter(
     (c) => (gradeF === "" || c.grade === gradeF) && (ownerF !== "mine" || isMine(c)),
   );
-  const shownCols = COLS.filter((col) => part === "" || col.part === part);
+  // 보류 컬럼은 파트 필터와 무관하게 항상 맨 앞에 노출(어느 파트에서든 넣을 수 있어야 함).
+  const shownCols = COLS.filter((col) => col.key === "hold" || part === "" || col.part === part);
   const inCol = (col: ColDef) => visible.filter((c) => col.states.includes(c.state));
   const selected = selectedId ? (cards.find((c) => c.id === selectedId) ?? null) : null;
 
