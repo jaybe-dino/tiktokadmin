@@ -16,6 +16,7 @@ const GROUPS: Group[] = [
   { title: "고객", items: [
     { href: "/customers", label: "브랜드 (원장)", ic: "🏷️" },
     { href: "/import", label: "리드 가져오기", ic: "📥" },
+    { href: "/import-tpartners", label: "tpartners 이관", ic: "🔄" },
     { href: "/duplicates", label: "중복 정리", ic: "🧹" },
   ]},
   { title: "영업", items: [
