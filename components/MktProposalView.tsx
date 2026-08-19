@@ -25,6 +25,12 @@ const PHASE_ORDER: Phase[] = ["BUILD", "GROWTH", "PEAK", "MEGA"];
 export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
   const accent = safeHex(doc.accent);
   const countries = (doc.countries?.length ? doc.countries : ["US"]).filter((c) => c in COUNTRY_CALENDAR) as MktCountry[];
+  // 페이즈 비율: 기본값 위에 제안서별 오버라이드 병합.
+  const ratios = { ...PHASE_RATIO } as typeof PHASE_RATIO;
+  for (const p of PHASE_ORDER) {
+    const o = doc.phase_ratios_json?.[p];
+    if (o && Number.isFinite(o.organic) && Number.isFinite(o.paid)) ratios[p] = { organic: o.organic, paid: o.paid };
+  }
   const plans = countries.map((c) => ({
     country: c,
     plan: computeBudgetPlan({
@@ -36,6 +42,8 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
       gmvReserveMin: doc.gmv_reserve_min,
       gmvReserveMax: doc.gmv_reserve_max,
       firstMonthSeedingOnly: doc.first_month_seeding,
+      phaseRatios: ratios,
+      overrides: doc.month_overrides_json ?? [],
     }),
   }));
 

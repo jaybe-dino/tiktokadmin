@@ -1,7 +1,7 @@
 // 마케팅 제안서 문서 저장/조회 (mkt_proposal_docs). 예산 입력값 저장 → 렌더 시 엔진 재계산.
 import { randomUUID } from "node:crypto";
 import { query, queryOne } from "./db";
-import type { MktCountry } from "./mkt-proposal-engine";
+import type { MktCountry, PhaseRatios, MonthOverride } from "./mkt-proposal-engine";
 
 export interface MktProductItem { name: string; name_en?: string; volume?: string; image_url?: string; features?: string[] }
 export interface MktReferenceItem {
@@ -33,6 +33,8 @@ export interface MktProposalDocRow {
   references_json: MktReferenceItem[];
   intro_note: string;
   accent: string;
+  phase_ratios_json: Partial<PhaseRatios>;
+  month_overrides_json: (MonthOverride | null)[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -42,7 +44,8 @@ export interface MktProposalDocRow {
 const COLS =
   "d.id, d.brand_id, d.mkt_project_id, d.token, d.title, d.subtitle, d.status, d.products_json, d.track, d.goal_first, d.goal_final, " +
   "d.countries, d.start_month, d.months, d.monthly_budget, d.operation_fee, d.gmv_reserve_min, d.gmv_reserve_max, " +
-  "d.first_month_seeding, d.commission_pct, d.references_json, d.intro_note, d.accent, d.created_by, d.created_at, d.updated_at";
+  "d.first_month_seeding, d.commission_pct, d.references_json, d.intro_note, d.accent, " +
+  "d.phase_ratios_json, d.month_overrides_json, d.created_by, d.created_at, d.updated_at";
 
 export async function listMktProposals(brandId?: string): Promise<MktProposalDocRow[]> {
   const where = brandId ? "WHERE d.brand_id=$1" : "";
@@ -88,6 +91,8 @@ export interface MktProposalInput {
   references_json?: MktReferenceItem[];
   intro_note?: string;
   accent?: string;
+  phase_ratios_json?: Partial<PhaseRatios>;
+  month_overrides_json?: (MonthOverride | null)[];
 }
 
 const VALID_COUNTRIES: MktCountry[] = ["US", "TH", "VN"];
@@ -108,7 +113,8 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
          products_json=$7, track=$8, goal_first=$9, goal_final=$10,
          countries=$11, start_month=$12, months=$13, monthly_budget=$14, operation_fee=$15,
          gmv_reserve_min=$16, gmv_reserve_max=$17, first_month_seeding=$18, commission_pct=$19,
-         references_json=$20, intro_note=$21, accent=$22, updated_at=now()
+         references_json=$20, intro_note=$21, accent=$22,
+         phase_ratios_json=$23, month_overrides_json=$24, updated_at=now()
        WHERE id=$1 RETURNING token`,
       [
         input.id, input.brand_id, input.mkt_project_id ?? null, input.title, input.subtitle ?? "", input.status ?? "draft",
@@ -117,6 +123,7 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
         Math.round(Number(input.gmv_reserve_min ?? 1000000)), Math.round(Number(input.gmv_reserve_max ?? 3000000)),
         input.first_month_seeding ?? true, Number(input.commission_pct ?? 10),
         JSON.stringify(input.references_json ?? []), input.intro_note ?? "", input.accent ?? "#111111",
+        JSON.stringify(input.phase_ratios_json ?? {}), JSON.stringify(input.month_overrides_json ?? []),
       ],
     );
     return { id: input.id, token: row!.token };
@@ -127,8 +134,8 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
     `INSERT INTO mkt_proposal_docs
        (brand_id, mkt_project_id, token, title, subtitle, status, products_json, track, goal_first, goal_final,
         countries, start_month, months, monthly_budget, operation_fee, gmv_reserve_min, gmv_reserve_max,
-        first_month_seeding, commission_pct, references_json, intro_note, accent, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+        first_month_seeding, commission_pct, references_json, intro_note, accent, phase_ratios_json, month_overrides_json, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
      RETURNING id, token`,
     [
       input.brand_id, input.mkt_project_id ?? null, token, input.title, input.subtitle ?? "", input.status ?? "draft",
@@ -136,7 +143,8 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
       countries, startMonth, months, Math.round(Number(input.monthly_budget ?? 5000000)), Math.round(Number(input.operation_fee ?? 1500000)),
       Math.round(Number(input.gmv_reserve_min ?? 1000000)), Math.round(Number(input.gmv_reserve_max ?? 3000000)),
       input.first_month_seeding ?? true, Number(input.commission_pct ?? 10),
-      JSON.stringify(input.references_json ?? []), input.intro_note ?? "", input.accent ?? "#111111", by,
+      JSON.stringify(input.references_json ?? []), input.intro_note ?? "", input.accent ?? "#111111",
+      JSON.stringify(input.phase_ratios_json ?? {}), JSON.stringify(input.month_overrides_json ?? []), by,
     ],
   );
   return { id: row!.id, token: row!.token };

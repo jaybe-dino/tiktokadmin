@@ -73,6 +73,11 @@ export const COUNTRY_CALENDAR: Record<MktCountry, Record<number, MonthSeason>> =
 
 export const COUNTRY_LABEL: Record<MktCountry, string> = { US: "🇺🇸 미국", TH: "🇹🇭 태국", VN: "🇻🇳 베트남" };
 
+export type PhaseRatios = Record<Phase, { organic: number; paid: number }>;
+
+/** 월별 수동 오버라이드 — 지정 시 자동계산을 덮어씀(그때그때 조정). index 기준. */
+export interface MonthOverride { organic?: number; paid?: number; event?: string; note?: string }
+
 export interface MktBudgetInput {
   monthlyBudget: number;      // RFP 월 캠페인 예산(무가+유가), 원
   country: MktCountry;
@@ -82,6 +87,8 @@ export interface MktBudgetInput {
   gmvReserveMin?: number;     // GMV 광고 예비비 최소, 원 (기본 100만)
   gmvReserveMax?: number;     // GMV 광고 예비비 최대, 원 (기본 300만)
   firstMonthSeedingOnly?: boolean; // 첫 달 100% 무가 시딩 (기본 true)
+  phaseRatios?: PhaseRatios;  // 페이즈별 무가:유가 오버라이드(기본 PHASE_RATIO)
+  overrides?: (MonthOverride | null)[]; // 월별 수동 오버라이드(index 정렬)
 }
 
 export interface MktMonthPlan {
@@ -98,8 +105,14 @@ export interface MktMonthPlan {
   note: string;               // 카드 하단 요약 문구
 }
 
+export interface ResolvedBudgetInput {
+  monthlyBudget: number; country: MktCountry; startMonth: number; months: number;
+  operationFee: number; gmvReserveMin: number; gmvReserveMax: number; firstMonthSeedingOnly: boolean;
+  phaseRatios: PhaseRatios;
+}
+
 export interface MktBudgetPlan {
-  input: Required<MktBudgetInput>;
+  input: ResolvedBudgetInput;
   months: MktMonthPlan[];
   totalOrganic: number;
   totalPaid: number;
@@ -116,35 +129,46 @@ const roundMan = (won: number) => Math.round(won / MAN) * MAN; // 만원 단위 
 
 const MONTH_KR = (m: number) => `${m}월`;
 
-/** RFP 월 예산 → 월별 무가/유가 배분 + 6개월 합계. 순수 함수. */
+/** RFP 월 예산 → 월별 무가/유가 배분 + 6개월 합계. 순수 함수.
+ *   · phaseRatios: 페이즈별 무가:유가를 제안서마다 조정 가능(기본 9:1~6:4).
+ *   · overrides[i]: 특정 월의 무가/유가/이벤트/문구를 수동으로 덮어씀(그때그때 다르게). */
 export function computeBudgetPlan(inputRaw: MktBudgetInput): MktBudgetPlan {
-  const input: Required<MktBudgetInput> = {
-    months: 6,
-    operationFee: 150 * MAN,
-    gmvReserveMin: 100 * MAN,
-    gmvReserveMax: 300 * MAN,
-    firstMonthSeedingOnly: true,
-    ...inputRaw,
+  const input: ResolvedBudgetInput = {
+    monthlyBudget: inputRaw.monthlyBudget,
+    country: inputRaw.country,
+    startMonth: inputRaw.startMonth,
+    months: inputRaw.months ?? 6,
+    operationFee: inputRaw.operationFee ?? 150 * MAN,
+    gmvReserveMin: inputRaw.gmvReserveMin ?? 100 * MAN,
+    gmvReserveMax: inputRaw.gmvReserveMax ?? 300 * MAN,
+    firstMonthSeedingOnly: inputRaw.firstMonthSeedingOnly ?? true,
+    phaseRatios: inputRaw.phaseRatios ?? PHASE_RATIO,
   };
+  const overrides = inputRaw.overrides ?? [];
   const cal = COUNTRY_CALENDAR[input.country];
   const months: MktMonthPlan[] = [];
 
   for (let i = 0; i < input.months; i++) {
     const calendarMonth = ((input.startMonth - 1 + i) % 12) + 1;
     const ms = cal[calendarMonth];
-    const ratio = PHASE_RATIO[ms.phase];
+    const ratio = input.phaseRatios[ms.phase] ?? PHASE_RATIO[ms.phase];
+    const denom = (ratio.organic + ratio.paid) || 1;
+    const ov = overrides[i] ?? null;
 
     let organic: number, paid: number;
-    if (i === 0 && input.firstMonthSeedingOnly) {
-      organic = input.monthlyBudget; // 첫 달 100% 무가 시딩
+    if (i === 0 && input.firstMonthSeedingOnly && ov?.organic == null && ov?.paid == null) {
+      organic = input.monthlyBudget; // 첫 달 100% 무가 시딩(오버라이드 없을 때)
       paid = 0;
     } else {
-      organic = roundMan((input.monthlyBudget * ratio.organic) / 10);
+      organic = roundMan((input.monthlyBudget * ratio.organic) / denom);
       paid = input.monthlyBudget - organic; // 합이 정확히 월 예산이 되도록 나머지를 유가로
       if (paid < 0) { paid = 0; organic = input.monthlyBudget; }
     }
+    // 월별 수동 오버라이드(있으면 우선).
+    if (ov?.organic != null) organic = ov.organic;
+    if (ov?.paid != null) paid = ov.paid;
 
-    const note =
+    const autoNote =
       i === 0 && input.firstMonthSeedingOnly
         ? "온보딩 · 시딩 시작 · 무가 시딩 집중"
         : ms.phase === "MEGA"
@@ -157,12 +181,12 @@ export function computeBudgetPlan(inputRaw: MktBudgetInput): MktBudgetPlan {
       phase: ms.phase,
       ratioLabel: `${ratio.organic}:${ratio.paid}`,
       season: ms.season,
-      event: ms.event,
+      event: ov?.event ?? ms.event,
       organic,
       paid,
       monthTotal: organic + paid,
       gmvNote: "소재 발굴 시 집행",
-      note,
+      note: ov?.note?.trim() ? ov.note : autoNote,
     });
   }
 

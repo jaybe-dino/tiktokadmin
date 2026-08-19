@@ -68,6 +68,25 @@ describe("mkt-proposal budget engine", () => {
     expect(wonMan(10000 * MAN)).toBe("1억원");
   });
 
+  it("페이즈 비율 오버라이드 적용", () => {
+    // GROWTH 를 6:4 로 바꾸면 US 시작 3월(GROWTH) 이 6:4 로.
+    const ratios = { BUILD: { organic: 9, paid: 1 }, GROWTH: { organic: 6, paid: 4 }, PEAK: { organic: 7, paid: 3 }, MEGA: { organic: 6, paid: 4 } };
+    const p = computeBudgetPlan({ monthlyBudget: 500 * MAN, country: "US", startMonth: 3, firstMonthSeedingOnly: false, phaseRatios: ratios });
+    expect(p.months[0].organic).toBe(300 * MAN);
+    expect(p.months[0].paid).toBe(200 * MAN);
+  });
+
+  it("월별 수동 오버라이드가 우선", () => {
+    const p = computeBudgetPlan({
+      monthlyBudget: 500 * MAN, country: "US", startMonth: 9,
+      overrides: [{ organic: 400 * MAN, paid: 100 * MAN, event: "LAUNCH" }],
+    });
+    expect(p.months[0].organic).toBe(400 * MAN); // 첫 달 시딩100% 대신 오버라이드
+    expect(p.months[0].paid).toBe(100 * MAN);
+    expect(p.months[0].event).toBe("LAUNCH");
+    expect(p.months[0].monthTotal).toBe(500 * MAN);
+  });
+
   it("페이즈 비율표 합 10", () => {
     for (const k of Object.keys(PHASE_RATIO) as (keyof typeof PHASE_RATIO)[]) {
       expect(PHASE_RATIO[k].organic + PHASE_RATIO[k].paid).toBe(10);

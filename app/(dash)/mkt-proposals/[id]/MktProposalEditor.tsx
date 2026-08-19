@@ -3,13 +3,14 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import MktProposalView from "@/components/MktProposalView";
-import { COUNTRY_LABEL, type MktCountry } from "@/lib/mkt-proposal-engine";
+import { COUNTRY_LABEL, computeBudgetPlan, PHASE_RATIO, type MktCountry, type Phase, type PhaseRatios, type MonthOverride } from "@/lib/mkt-proposal-engine";
 import type { MktProposalDocRow, MktProductItem, MktReferenceItem } from "@/lib/mkt-proposal-doc";
 import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction } from "../actions";
 
 const MAN = 10000;
 const toMan = (won: number) => Math.round((won || 0) / MAN);
 const COUNTRIES: MktCountry[] = ["US", "TH", "VN"];
+const PHASES: Phase[] = ["BUILD", "GROWTH", "PEAK", "MEGA"];
 
 export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDocRow; brands: { id: string; brand_name: string }[] }) {
   const router = useRouter();
@@ -35,10 +36,40 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
   const [intro, setIntro] = useState(doc.intro_note);
   const [products, setProducts] = useState<MktProductItem[]>(doc.products_json ?? []);
   const [refs, setRefs] = useState<MktReferenceItem[]>(doc.references_json ?? []);
+  // 페이즈 비율 오버라이드(기본값 위 병합) + 월별 수동 오버라이드.
+  const [ratios, setRatios] = useState<PhaseRatios>(() => {
+    const r = { ...PHASE_RATIO } as PhaseRatios;
+    for (const p of PHASES) { const o = doc.phase_ratios_json?.[p]; if (o) r[p] = { organic: o.organic, paid: o.paid }; }
+    return r;
+  });
+  const [overrides, setOverrides] = useState<(MonthOverride | null)[]>(doc.month_overrides_json ?? []);
 
   function toggleCountry(c: string) {
     setCountries((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]));
   }
+  function setRatio(p: Phase, organic: number) {
+    const org = Math.max(0, Math.min(10, organic));
+    setRatios((r) => ({ ...r, [p]: { organic: org, paid: 10 - org } }));
+  }
+  function setOv(i: number, patch: Partial<MonthOverride>) {
+    setOverrides((arr) => {
+      const next = arr.slice();
+      while (next.length <= i) next.push(null);
+      const cur = next[i] ?? {};
+      const merged = { ...cur, ...patch };
+      // 모든 필드가 비면 null 로(자동 복귀).
+      const empty = merged.organic == null && merged.paid == null && !merged.event && !merged.note;
+      next[i] = empty ? null : merged;
+      return next;
+    });
+  }
+
+  // 오버라이드 표용 자동 베이스라인(오버라이드 제외, 첫 국가 기준).
+  const baseCountry = (countries[0] ?? "US") as MktCountry;
+  const basePlan = computeBudgetPlan({
+    monthlyBudget: monthlyMan * MAN, country: baseCountry, startMonth, months,
+    firstMonthSeedingOnly: firstSeed, phaseRatios: ratios,
+  });
 
   // 미리보기용 doc 재조립(만원 → 원).
   const preview: MktProposalDocRow = {
@@ -49,6 +80,7 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
     first_month_seeding: firstSeed, commission_pct: commission,
     goal_first: goalFirst, goal_final: goalFinal, intro_note: intro,
     products_json: products, references_json: refs,
+    phase_ratios_json: ratios, month_overrides_json: overrides,
     brand_name: brands.find((b) => b.id === brandId)?.brand_name ?? doc.brand_name,
   };
 
@@ -63,6 +95,7 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
         first_month_seeding: firstSeed, commission_pct: commission,
         goal_first: goalFirst, goal_final: goalFinal, intro_note: intro,
         products_json: products, references_json: refs,
+        phase_ratios_json: ratios, month_overrides_json: overrides,
       });
       if (!r.ok) { setMsg(r.error ?? "저장 실패"); return; }
       if (after === "pipeline") {
@@ -142,6 +175,54 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 6 }}>
             <input type="checkbox" checked={firstSeed} onChange={(e) => setFirstSeed(e.target.checked)} /> 첫 달 100% 무가 시딩
           </label>
+        </Card>
+
+        <Card title="페이즈 비율 (무가:유가 · 제안서별 조정)">
+          <div style={{ fontSize: 11, color: "var(--ink3)" }}>각 시즌 페이즈의 무가:유가 기본 비율. 무가 값만 조정하면 유가는 자동(합 10).</div>
+          {PHASES.map((p) => (
+            <div key={p} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 66, fontSize: 12, fontWeight: 700 }}>{p}</span>
+              <input className="f" type="number" min={0} max={10} step={0.5} value={ratios[p].organic}
+                onChange={(e) => setRatio(p, Number(e.target.value))} style={{ width: 70 }} />
+              <span style={{ fontSize: 12, color: "var(--ink2)" }}>: {ratios[p].paid} (유가)</span>
+            </div>
+          ))}
+        </Card>
+
+        <Card title="월별 배분 (수동 조정 · 그때그때 다르게)">
+          <div style={{ fontSize: 11, color: "var(--ink3)" }}>빈칸이면 자동(placeholder=자동값, 만원). 값을 넣으면 그 달만 덮어씁니다. {COUNTRY_LABEL[baseCountry]} 기준 · 모든 국가에 적용.</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ color: "var(--ink3)" }}>
+                <th style={{ textAlign: "left", padding: 3 }}>월</th><th style={{ padding: 3 }}>무가</th><th style={{ padding: 3 }}>유가</th><th style={{ padding: 3 }}>이벤트딱지</th>
+              </tr></thead>
+              <tbody>
+                {basePlan.months.map((m) => {
+                  const ov = overrides[m.index] ?? null;
+                  return (
+                    <tr key={m.index}>
+                      <td style={{ padding: 3, fontWeight: 700 }}>{m.calendarMonth}월<span style={{ color: "var(--ink3)", fontWeight: 400 }}> {m.phase}</span></td>
+                      <td style={{ padding: 3 }}>
+                        <input className="f" type="number" style={{ width: 68 }} placeholder={String(toMan(m.organic))}
+                          value={ov?.organic != null ? toMan(ov.organic) : ""}
+                          onChange={(e) => setOv(m.index, { organic: e.target.value === "" ? undefined : Number(e.target.value) * MAN })} />
+                      </td>
+                      <td style={{ padding: 3 }}>
+                        <input className="f" type="number" style={{ width: 68 }} placeholder={String(toMan(m.paid))}
+                          value={ov?.paid != null ? toMan(ov.paid) : ""}
+                          onChange={(e) => setOv(m.index, { paid: e.target.value === "" ? undefined : Number(e.target.value) * MAN })} />
+                      </td>
+                      <td style={{ padding: 3 }}>
+                        <input className="f" style={{ width: 110 }} placeholder={m.event ?? "—"}
+                          value={ov?.event ?? ""} onChange={(e) => setOv(m.index, { event: e.target.value || undefined })} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn sm" onClick={() => setOverrides([])} style={{ justifySelf: "start" }}>전체 자동으로 초기화</button>
         </Card>
 
         <Card title="목표">
