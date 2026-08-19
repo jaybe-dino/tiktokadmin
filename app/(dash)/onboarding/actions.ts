@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import {
-  issueCustomer, setCustomerActive, setCustomerBrand, reviewStep, approveApplication,
+  issueCustomer, setCustomerActive, setCustomerBrand, reviewStep, approveApplication, setStepLock,
 } from "@/lib/onboarding";
 
 export async function issueCustomerAction(email: string, brandId: string | null, note: string, sendMail?: boolean): Promise<{ ok: boolean; code?: string; error?: string; mailed?: boolean }> {
@@ -48,6 +48,14 @@ export async function reviewStepAction(applicationId: string, stepNo: number, de
   if (!u) return { ok: false, error: "권한이 없습니다." };
   const r = await reviewStep(applicationId, stepNo, decision, feedback);
   if (r.ok) { revalidatePath("/onboarding"); revalidatePath(`/onboarding`); }
+  return r;
+}
+
+export async function setStepLockAction(applicationId: string, stepNo: number, lock: boolean) {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "권한이 없습니다." };
+  const r = await setStepLock(applicationId, stepNo, lock);
+  if (r.ok) revalidatePath("/onboarding");
   return r;
 }
 

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { reviewStepAction, approveApplicationAction } from "../actions";
+import { reviewStepAction, approveApplicationAction, setStepLockAction } from "../actions";
 
 interface Step { step_no: number; status: string; admin_feedback: string }
 interface Country { id: string; country_code: string; country_name: string; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string }
@@ -40,6 +40,13 @@ export default function ReviewClient(props: Props) {
     setBusy(false);
     if (r.ok) { flash(decision === "approve" ? "승인했습니다." : decision === "unapprove" ? "승인을 취소했습니다." : "반려했습니다."); router.refresh(); } else flash(r.error ?? "처리 실패");
   }
+  async function toggleLock(stepNo: number, lock: boolean) {
+    if (!lock && !confirm("이 단계의 잠금을 해제합니다. 브랜드사가 바로 작성할 수 있게 됩니다. 진행할까요?")) return;
+    setBusy(true);
+    const r = await setStepLockAction(props.applicationId, stepNo, lock);
+    setBusy(false);
+    if (r.ok) { flash(lock ? "다시 잠갔습니다." : "잠금을 해제했습니다 — 브랜드사 작성 가능."); router.refresh(); } else flash(r.error ?? "처리 실패");
+  }
   async function approveAll() {
     if (!props.hasBrand) { flash("먼저 목록에서 브랜드를 연결하세요."); return; }
     if (!confirm("신청서를 최종 승인하고 회사정보·제품·국가·물류를 브랜드 원장에 매핑합니다. 진행할까요?")) return;
@@ -70,10 +77,22 @@ export default function ReviewClient(props: Props) {
                   <button className="btn sm" disabled={busy} onClick={() => review(s.step_no, "unapprove")} style={{ color: "#c25400" }}>승인취소</button>
                 </div>
               )}
+              {s.status === "locked" && (
+                <div style={{ marginLeft: "auto" }}>
+                  <button className="btn sm primary" disabled={busy} onClick={() => toggleLock(s.step_no, false)}>🔓 잠금 해제</button>
+                </div>
+              )}
+              {s.status === "unlocked" && (
+                <div style={{ marginLeft: "auto" }}>
+                  <button className="btn sm" disabled={busy} onClick={() => toggleLock(s.step_no, true)} style={{ color: "#64748b" }} title="수동 잠금해제 되돌리기(미제출 단계만)">🔒 다시 잠금</button>
+                </div>
+              )}
             </div>
 
             {s.status === "locked" ? (
-              <div style={{ color: "var(--ink2)", fontSize: 13 }}>아직 고객이 도달하지 않은 단계입니다.</div>
+              <div style={{ color: "var(--ink2)", fontSize: 13 }}>
+                아직 고객이 도달하지 않은 단계입니다. 담당자가 <b>[🔓 잠금 해제]</b>를 누르면 이전 단계 승인 없이도 브랜드사가 바로 작성할 수 있습니다.
+              </div>
             ) : (
               <>
                 {view.length > 0 && (

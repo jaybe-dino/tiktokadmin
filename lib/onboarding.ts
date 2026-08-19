@@ -394,6 +394,24 @@ export async function reviewStep(applicationId: string, stepNo: number, decision
   return { ok: true };
 }
 
+/** 담당자 수동 잠금해제/재잠금 — 이전 단계 승인 없이도 특정 스텝을 열어 브랜드사 작성 허용.
+ *   · unlock: 'locked' → 'unlocked' (작성 가능). 이미 제출/승인된 단계는 건드리지 않음.
+ *   · relock: 아직 미제출인 'unlocked' → 'locked' (수동 해제 되돌리기). 제출/승인은 불가. */
+export async function setStepLock(applicationId: string, stepNo: number, lock: boolean): Promise<{ ok: boolean; error?: string }> {
+  const step = await queryOne<{ status: string }>("SELECT status FROM onb_steps WHERE application_id=$1 AND step_no=$2", [applicationId, stepNo]).catch(() => null);
+  if (!step) return { ok: false, error: "스텝을 찾을 수 없습니다." };
+  if (lock) {
+    if (step.status === "submitted" || step.status === "approved") return { ok: false, error: "제출/승인된 단계는 다시 잠글 수 없습니다." };
+    if (step.status === "locked") return { ok: true };
+    await query("UPDATE onb_steps SET status='locked', unlocked_at=NULL WHERE application_id=$1 AND step_no=$2 AND status IN ('unlocked','rejected')", [applicationId, stepNo]);
+    return { ok: true };
+  }
+  // unlock
+  if (step.status !== "locked") return { ok: true }; // 이미 열림/제출/승인 — 변화 없음
+  await query("UPDATE onb_steps SET status='unlocked', unlocked_at=now() WHERE application_id=$1 AND step_no=$2 AND status='locked'", [applicationId, stepNo]);
+  return { ok: true };
+}
+
 // 인증 상태 매핑: onb(none|preparing|ready) → product_certs(none|preparing|ready)
 function certStatus(s: string | undefined): string {
   return s === "ready" || s === "preparing" ? s : "none";
