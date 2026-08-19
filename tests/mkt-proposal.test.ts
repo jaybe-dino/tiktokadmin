@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeBudgetPlan, wonMan, COUNTRY_CALENDAR, PHASE_RATIO } from "../lib/mkt-proposal";
+import { computeBudgetPlan, wonMan, COUNTRY_CALENDAR, PHASE_RATIO } from "../lib/mkt-proposal-engine";
 
 const MAN = 10_000;
 

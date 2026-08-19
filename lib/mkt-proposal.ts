@@ -1,196 +1,73 @@
-// 마케팅 제안서 자동 예산 엔진 (운영 제안서와 별개).
-//   · BUILD→GROWTH→PEAK→MEGA 페이즈 모델 → 무가:유가 비율.
-//   · 국가별 월-시즌 캘린더(US·TH·VN) → 각 월의 페이즈 결정.
-//   · RFP 월 마케팅 예산(무가+유가) → 월별 무가/유가 배분 + 6개월 합계.
-//   · 첫 달은 100% 무가 시딩(USP·히어로 콘텐츠 발굴). GMV 광고는 별도 예비비(작성자 지정).
-//   순수 계산 — DB 의존 없음(단위테스트 가능).
+// 마케팅 제안서 고도화 — 사전 RFP(설문 요약) · 우리 서비스 소개(설정) · AI 제안 방향.
+import { query, queryOne } from "./db";
+import { aiEnabled, aiText } from "./ai";
 
-export type Phase = "BUILD" | "GROWTH" | "PEAK" | "MEGA";
-export type MktCountry = "US" | "TH" | "VN";
-
-// 페이즈 → 무가:유가 (합 10). BUILD 9:1 … MEGA 6:4.
-export const PHASE_RATIO: Record<Phase, { organic: number; paid: number }> = {
-  BUILD: { organic: 9, paid: 1 },
-  GROWTH: { organic: 8, paid: 2 },
-  PEAK: { organic: 7, paid: 3 },
-  MEGA: { organic: 6, paid: 4 },
-};
-
-export const PHASE_MEANING: Record<Phase, string> = {
-  BUILD: "콘텐츠 자산·크리에이터 풀 확보",
-  GROWTH: "콘텐츠 확대 + 성과 콘텐츠 증폭",
-  PEAK: "시즌 집중 공략",
-  MEGA: "최대 매출 시즌 · Paid 집중",
-};
-
-interface MonthSeason { phase: Phase; season: string; event?: string }
-
-// 국가별 12개월 시즌·페이즈 캘린더(기획 문서 기준). index 1..12 = 달.
-export const COUNTRY_CALENDAR: Record<MktCountry, Record<number, MonthSeason>> = {
-  US: {
-    1: { phase: "BUILD", season: "New Year / Winter Reset" },
-    2: { phase: "PEAK", season: "Valentine's Day" },
-    3: { phase: "GROWTH", season: "Spring" },
-    4: { phase: "GROWTH", season: "Spring / Easter" },
-    5: { phase: "PEAK", season: "Mother's Day" },
-    6: { phase: "GROWTH", season: "Summer / Father's Day" },
-    7: { phase: "PEAK", season: "Summer Sale" },
-    8: { phase: "PEAK", season: "Back to School" },
-    9: { phase: "GROWTH", season: "Fall" },
-    10: { phase: "PEAK", season: "Halloween" },
-    11: { phase: "MEGA", season: "Black Friday / Cyber Monday", event: "BLACK FRIDAY" },
-    12: { phase: "MEGA", season: "Holiday / Christmas", event: "HOLIDAY" },
-  },
-  TH: {
-    1: { phase: "BUILD", season: "1.1 / New Year", event: "NEW YEAR" },
-    2: { phase: "PEAK", season: "2.2 / Valentine's" },
-    3: { phase: "GROWTH", season: "3.3" },
-    4: { phase: "MEGA", season: "4.4 / Songkran", event: "SONGKRAN" },
-    5: { phase: "GROWTH", season: "5.5" },
-    6: { phase: "GROWTH", season: "6.6" },
-    7: { phase: "PEAK", season: "7.7" },
-    8: { phase: "GROWTH", season: "8.8" },
-    9: { phase: "PEAK", season: "9.9" },
-    10: { phase: "PEAK", season: "10.10" },
-    11: { phase: "MEGA", season: "11.11", event: "11.11" },
-    12: { phase: "MEGA", season: "12.12 / Year End", event: "12.12" },
-  },
-  VN: {
-    1: { phase: "PEAK", season: "Tết Pre-season" },
-    2: { phase: "MEGA", season: "Tết / 2.2", event: "TẾT" },
-    3: { phase: "PEAK", season: "3.3 / Women's Day" },
-    4: { phase: "GROWTH", season: "4.4" },
-    5: { phase: "GROWTH", season: "5.5" },
-    6: { phase: "GROWTH", season: "6.6" },
-    7: { phase: "PEAK", season: "7.7" },
-    8: { phase: "GROWTH", season: "8.8" },
-    9: { phase: "PEAK", season: "9.9" },
-    10: { phase: "PEAK", season: "10.10" },
-    11: { phase: "MEGA", season: "11.11", event: "11.11" },
-    12: { phase: "MEGA", season: "12.12 / Year End", event: "12.12" },
-  },
-};
-
-export const COUNTRY_LABEL: Record<MktCountry, string> = { US: "🇺🇸 미국", TH: "🇹🇭 태국", VN: "🇻🇳 베트남" };
-
-export interface MktBudgetInput {
-  monthlyBudget: number;      // RFP 월 캠페인 예산(무가+유가), 원
-  country: MktCountry;
-  startMonth: number;         // 1..12 (캠페인 시작 달)
-  months?: number;            // 기본 6
-  operationFee?: number;      // 월 운영대행비, 원 (기본 150만)
-  gmvReserveMin?: number;     // GMV 광고 예비비 최소, 원 (기본 100만)
-  gmvReserveMax?: number;     // GMV 광고 예비비 최대, 원 (기본 300만)
-  firstMonthSeedingOnly?: boolean; // 첫 달 100% 무가 시딩 (기본 true)
+// ── 우리 서비스 소개(AI 참고 컨텍스트) — 설정에서 계속 업데이트 ──
+export async function getMktServices(): Promise<string> {
+  const r = await queryOne<{ services_md: string }>("SELECT services_md FROM mkt_services_config WHERE id=1").catch(() => null);
+  return r?.services_md ?? "";
+}
+export async function saveMktServices(md: string): Promise<void> {
+  await query(
+    `INSERT INTO mkt_services_config (id, services_md) VALUES (1,$1)
+     ON CONFLICT (id) DO UPDATE SET services_md=EXCLUDED.services_md, updated_at=now()`,
+    [md]).catch(() => {});
 }
 
-export interface MktMonthPlan {
-  index: number;              // 0-based 순번
-  calendarMonth: number;      // 1..12
-  phase: Phase;
-  ratioLabel: string;         // "8:2"
-  season: string;
-  event?: string;
-  organic: number;            // 무가 콘텐츠 발행, 원
-  paid: number;               // 유가 콘텐츠, 원
-  monthTotal: number;         // organic+paid (= 월 캠페인 예산)
-  gmvNote: string;            // "소재 발굴 시 집행"
-  note: string;               // 카드 하단 요약 문구
-}
+// ── 브랜드 설문 → 사전 RFP 요약 ────────────────────────────────
+const A_LABEL: Record<string, string> = {
+  budget_band: "예산대", monthly_budget: "월 예산", target_countries: "목표 국가", timeline: "일정",
+  seeding_capacity: "시딩 여력", concerns: "고민/니즈", goal: "목표", channels: "희망 채널",
+  category: "카테고리", product: "제품", current_status: "현황", competitor: "경쟁사",
+};
 
-export interface MktBudgetPlan {
-  input: Required<MktBudgetInput>;
-  months: MktMonthPlan[];
-  totalOrganic: number;
-  totalPaid: number;
-  totalCampaign: number;      // organic+paid 합
-  totalOperationFee: number;  // 운영대행비 합
-  gmvReserveMin: number;
-  gmvReserveMax: number;
-  grandMin: number;           // 캠페인 합 (GMV 미포함)
-  grandMax: number;           // 캠페인 합 + GMV 최대
-}
-
-const MAN = 10_000; // 만원 단위
-const roundMan = (won: number) => Math.round(won / MAN) * MAN; // 만원 단위 반올림
-
-const MONTH_KR = (m: number) => `${m}월`;
-
-/** RFP 월 예산 → 월별 무가/유가 배분 + 6개월 합계. 순수 함수. */
-export function computeBudgetPlan(inputRaw: MktBudgetInput): MktBudgetPlan {
-  const input: Required<MktBudgetInput> = {
-    months: 6,
-    operationFee: 150 * MAN,
-    gmvReserveMin: 100 * MAN,
-    gmvReserveMax: 300 * MAN,
-    firstMonthSeedingOnly: true,
-    ...inputRaw,
-  };
-  const cal = COUNTRY_CALENDAR[input.country];
-  const months: MktMonthPlan[] = [];
-
-  for (let i = 0; i < input.months; i++) {
-    const calendarMonth = ((input.startMonth - 1 + i) % 12) + 1;
-    const ms = cal[calendarMonth];
-    const ratio = PHASE_RATIO[ms.phase];
-
-    let organic: number, paid: number;
-    if (i === 0 && input.firstMonthSeedingOnly) {
-      organic = input.monthlyBudget; // 첫 달 100% 무가 시딩
-      paid = 0;
-    } else {
-      organic = roundMan((input.monthlyBudget * ratio.organic) / 10);
-      paid = input.monthlyBudget - organic; // 합이 정확히 월 예산이 되도록 나머지를 유가로
-      if (paid < 0) { paid = 0; organic = input.monthlyBudget; }
-    }
-
-    const note =
-      i === 0 && input.firstMonthSeedingOnly
-        ? "온보딩 · 시딩 시작 · 무가 시딩 집중"
-        : ms.phase === "MEGA"
-          ? "검증된 소재를 중심으로 Mega 시즌에 맞춰 유가 비중을 확대합니다."
-          : `${MONTH_KR(calendarMonth)} ${ms.season}`;
-
-    months.push({
-      index: i,
-      calendarMonth,
-      phase: ms.phase,
-      ratioLabel: `${ratio.organic}:${ratio.paid}`,
-      season: ms.season,
-      event: ms.event,
-      organic,
-      paid,
-      monthTotal: organic + paid,
-      gmvNote: "소재 발굴 시 집행",
-      note,
-    });
+/** 브랜드의 최근 응답 설문에서 RFP 초안 텍스트를 구성. 없으면 빈 문자열. */
+export async function brandRfpFromSurvey(brandId: string): Promise<{ rfp: string; from: string | null }> {
+  const s = await queryOne<{ answers: Record<string, unknown>; kind: string; responded_at: string | null; created_at: string }>(
+    `SELECT answers, kind, responded_at, created_at FROM surveys
+      WHERE brand_id=$1 AND answers IS NOT NULL AND answers::text <> '{}'
+      ORDER BY (responded_at IS NOT NULL) DESC, COALESCE(responded_at, created_at) DESC LIMIT 1`,
+    [brandId]).catch(() => null);
+  if (!s || !s.answers) return { rfp: "", from: null };
+  const lines: string[] = [];
+  for (const [k, v] of Object.entries(s.answers)) {
+    if (v == null || v === "" || (Array.isArray(v) && v.length === 0)) continue;
+    const label = A_LABEL[k] ?? k;
+    const val = Array.isArray(v) ? v.join(", ") : String(v);
+    lines.push(`- ${label}: ${val}`);
   }
-
-  const totalOrganic = months.reduce((s, m) => s + m.organic, 0);
-  const totalPaid = months.reduce((s, m) => s + m.paid, 0);
-  const totalCampaign = totalOrganic + totalPaid;
-  const totalOperationFee = input.operationFee * input.months;
-
-  return {
-    input,
-    months,
-    totalOrganic,
-    totalPaid,
-    totalCampaign,
-    totalOperationFee,
-    gmvReserveMin: input.gmvReserveMin,
-    gmvReserveMax: input.gmvReserveMax,
-    grandMin: totalCampaign,
-    grandMax: totalCampaign + input.gmvReserveMax,
-  };
+  if (lines.length === 0) return { rfp: "", from: null };
+  return { rfp: `[설문 기반 RFP]\n${lines.join("\n")}`, from: s.kind };
 }
 
-// 원 → "3,300만원" / "1억 3,500만원"
-export function wonMan(won: number): string {
-  const man = Math.round(won / MAN);
-  if (man === 0) return "0원";
-  const eok = Math.floor(man / 10_000);
-  const rest = man % 10_000;
-  if (eok > 0) return rest > 0 ? `${eok}억 ${rest.toLocaleString("ko-KR")}만원` : `${eok}억원`;
-  return `${man.toLocaleString("ko-KR")}만원`;
+// ── AI 제안 방향(예산·RFP·우리 서비스 기반) ────────────────────
+export interface DirectionInput { brandName: string; category?: string | null; amount?: number | null; rfp?: string | null }
+
+/** 예산·RFP·우리 서비스 소개를 참고해 제안 방향을 AI 로 제안. 키 없으면 규칙기반 골격. */
+export async function generateProposalDirection(input: DirectionInput): Promise<string> {
+  const services = await getMktServices();
+  const budget = input.amount != null ? `${input.amount.toLocaleString("ko-KR")}원` : "미정";
+  if (aiEnabled()) {
+    const text = await aiText({
+      system: "너는 GloveK 마케팅 제안 전략가다. 아래 '우리 서비스', 브랜드 정보, 예산, RFP 를 참고해 " +
+        "실행 가능한 제안 방향을 한국어 마크다운으로 제안하라. 구성: ① 핵심 제안 요지 ② 우리 서비스 매칭(RFP·예산 대비) " +
+        "③ 추천 실행안 3가지(채널·산출물) ④ 예산 배분 가이드 ⑤ 예상 리스크/확인 필요. 과장 없이 근거 기반, 8~14줄.",
+      user: `[우리 서비스]\n${services || "(미설정)"}\n\n[브랜드]\n${input.brandName} · 카테고리 ${input.category || "미상"}\n[예산]\n${budget}\n\n[RFP]\n${input.rfp || "(없음 — 일반 제안)"}`,
+      maxTokens: 1100,
+    }).catch(() => null);
+    if (text) return text;
+  }
+  // 폴백(규칙기반 골격)
+  return [
+    `## 제안 방향 초안 — ${input.brandName}`,
+    `- 예산: ${budget}`,
+    input.rfp ? `- RFP 요지: ${input.rfp.replace(/\n/g, " ").slice(0, 200)}` : "- RFP: 미확보(설문/업로드 권장)",
+    "",
+    "### 추천 실행안",
+    "1. 크리에이터 시딩 + 라이브 커머스로 초기 인지·전환",
+    "2. 틱톡·메타 퍼포먼스 광고로 확장",
+    "3. 숏폼 콘텐츠·상세페이지 현지화",
+    "",
+    "※ AI 키(ANTHROPIC) 설정 시 예산·RFP 맞춤 제안이 자동 생성됩니다.",
+  ].join("\n");
 }
