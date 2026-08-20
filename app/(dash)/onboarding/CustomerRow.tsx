@@ -4,7 +4,7 @@ import Link from "next/link";
 import { setOnbCustomerActiveAction, setOnbCustomerBrandAction } from "./actions";
 import { kstDate } from "@/lib/time";
 
-interface Row { id: string; email: string; brand_id: string | null; note: string; active: boolean; last_login_at: string | null; app_id: string | null; app_status: string | null; submitted_steps: number }
+interface Row { id: string; email: string; brand_id: string | null; note: string; active: boolean; last_login_at: string | null; app_id: string | null; app_status: string | null; submitted_steps: number; countries: string | null }
 
 const STATUS: Record<string, [string, string]> = {
   draft: ["작성중", "#4dabf7"], submitted: ["검토대기", "#f0a02c"],
@@ -38,6 +38,13 @@ export default function CustomerRow({ c, brands }: { c: Row; brands: { id: strin
           <option value="">— 미연결 —</option>
           {brands.map((b) => <option key={b.id} value={b.id}>{b.brand_name}</option>)}
         </select>
+      </td>
+      <td style={td}>
+        {c.countries
+          ? c.countries.split(", ").map((cc) => (
+              <span key={cc} className="chip" style={{ fontSize: 11, marginRight: 4, background: "#eef2ff", color: "#3730a3" }}>{cc}</span>
+            ))
+          : <span style={{ fontSize: 12, color: "var(--ink3)" }}>—</span>}
       </td>
       <td style={td}><span style={{ color: st[1], fontWeight: 600 }}>{st[0]}</span></td>
       <td style={td}>{c.submitted_steps}/4</td>

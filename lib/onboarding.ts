@@ -344,12 +344,14 @@ export async function getOnbFile(id: string): Promise<{ filename: string; mime: 
 }
 
 // ── 관리자 뷰 ──
-export interface OnbCustomerRow extends OnbCustomer { last_login_at: string | null; created_at: string; app_id: string | null; app_status: string | null; submitted_steps: number }
+export interface OnbCustomerRow extends OnbCustomer { last_login_at: string | null; created_at: string; app_id: string | null; app_status: string | null; submitted_steps: number; countries: string | null }
 export async function listCustomers(): Promise<OnbCustomerRow[]> {
   return query<OnbCustomerRow>(
     `SELECT c.id, c.email, c.brand_id, c.note, c.active, c.last_login_at, c.created_at,
             a.id AS app_id, a.status AS app_status,
-            COALESCE((SELECT count(*) FROM onb_steps s WHERE s.application_id=a.id AND s.status IN ('submitted','approved')),0)::int AS submitted_steps
+            COALESCE((SELECT count(*) FROM onb_steps s WHERE s.application_id=a.id AND s.status IN ('submitted','approved')),0)::int AS submitted_steps,
+            (SELECT string_agg(DISTINCT oc.country_code, ', ' ORDER BY oc.country_code)
+               FROM onb_countries oc WHERE oc.application_id=a.id AND oc.country_code <> '') AS countries
        FROM onb_customers c
        LEFT JOIN onb_applications a ON a.customer_id=c.id
        ORDER BY c.created_at DESC`).catch(() => []);

@@ -42,7 +42,7 @@ export default async function OnboardingPage() {
           <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ textAlign: "left", color: "var(--ink2)", fontSize: 12 }}>
-                <th style={th}>이메일</th><th style={th}>연결 브랜드</th><th style={th}>신청서 상태</th>
+                <th style={th}>이메일</th><th style={th}>연결 브랜드</th><th style={th}>입점 국가</th><th style={th}>신청서 상태</th>
                 <th style={th}>제출 단계</th><th style={th}>최근 로그인</th><th style={th}></th>
               </tr>
             </thead>
