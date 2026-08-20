@@ -46,6 +46,7 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
       />
       <ReviewClient
         applicationId={appId}
+        customerId={customerId}
         appStatus={String(app?.status ?? "draft")}
         hasBrand={!!customer.brand_id}
         app={app ?? {}}

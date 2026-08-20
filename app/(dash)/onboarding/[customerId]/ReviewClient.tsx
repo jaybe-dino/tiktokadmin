@@ -8,7 +8,7 @@ interface Country { id: string; country_code: string; country_name: string; shop
 interface ProductCountry { id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string }
 interface Product { id: string; name: string; category: string; sku: string; description_kr: string }
 interface Props {
-  applicationId: string; appStatus: string; hasBrand: boolean;
+  applicationId: string; customerId: string; appStatus: string; hasBrand: boolean;
   app: Record<string, unknown>;
   steps: Step[]; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]>;
 }
@@ -125,9 +125,12 @@ export default function ReviewClient(props: Props) {
                 {/* Step2 서명 */}
                 {s.step_no === 2 && props.app.ubo_signature_data ? (
                   <div style={{ marginTop: 8 }}>
-                    <span style={{ color: "var(--ink2)", fontSize: 11 }}>전자서명 (LOA)</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ color: "var(--ink2)", fontSize: 11 }}>전자서명 (LOA)</span>
+                      <a className="btn sm primary" href={`/onboarding/${props.customerId}/loa`} target="_blank" rel="noreferrer">📄 LOA 수권서 PDF 문서 열기</a>
+                    </div>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={String(props.app.ubo_signature_data)} alt="서명" style={{ display: "block", width: 260, border: "1px solid var(--line)", borderRadius: 8, marginTop: 4, background: "#fff" }} />
+                    <img src={String(props.app.ubo_signature_data)} alt="서명" style={{ display: "block", width: 260, border: "1px solid var(--line)", borderRadius: 8, marginTop: 6, background: "#fff" }} />
                   </div>
                 ) : s.step_no === 2 ? <div style={{ fontSize: 13, color: "var(--ink2)" }}>아직 서명이 없습니다.</div> : null}
 
