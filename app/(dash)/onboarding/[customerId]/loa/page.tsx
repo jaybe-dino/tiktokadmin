@@ -21,5 +21,5 @@ export default async function LoaPage({ params }: { params: Promise<{ customerId
       </div>
     );
   }
-  return <LoaDocument app={app} backHref={back} />;
+  return <LoaDocument app={app} backHref={back} downloadHref={`/api/onboarding/loa/${customerId}`} />;
 }

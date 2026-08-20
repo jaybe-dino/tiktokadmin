@@ -4,7 +4,7 @@ import Link from "next/link";
 
 const S = (v: unknown) => (v == null ? "" : String(v)).trim();
 
-export default function LoaDocument({ app, backHref }: { app: Record<string, unknown>; backHref: string }) {
+export default function LoaDocument({ app, backHref, downloadHref }: { app: Record<string, unknown>; backHref: string; downloadHref: string }) {
   const f = (k: string) => S(app[k]) || "____________";
   const sig = S(app.ubo_signature_data);
   const signedAt = S(app.ubo_signed_at);
@@ -25,7 +25,8 @@ export default function LoaDocument({ app, backHref }: { app: Record<string, unk
       <div className="loa-noprint" style={{ display: "flex", gap: 8, alignItems: "center", padding: "12px 16px", position: "sticky", top: 0, background: "#fff", borderBottom: "1px solid #e5e7eb", zIndex: 10 }}>
         <Link href={backHref} className="btn sm">← 검토로</Link>
         <b style={{ fontSize: 14 }}>LOA 수권서 · 서명 문서</b>
-        <button onClick={() => window.print()} className="btn sm pri" style={{ marginLeft: "auto" }}>🖨️ PDF 저장 / 인쇄</button>
+        <a href={downloadHref} className="btn sm pri" style={{ marginLeft: "auto" }}>⬇️ PDF 다운로드</a>
+        <button onClick={() => window.print()} className="btn sm">🖨️ 인쇄</button>
       </div>
 
       <div style={{ maxWidth: 820, margin: "20px auto", padding: "0 16px" }}>

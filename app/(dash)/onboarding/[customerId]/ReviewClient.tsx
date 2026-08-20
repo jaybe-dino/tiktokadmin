@@ -127,7 +127,8 @@ export default function ReviewClient(props: Props) {
                   <div style={{ marginTop: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span style={{ color: "var(--ink2)", fontSize: 11 }}>전자서명 (LOA)</span>
-                      <a className="btn sm primary" href={`/onboarding/${props.customerId}/loa`} target="_blank" rel="noreferrer">📄 LOA 수권서 PDF 문서 열기</a>
+                      <a className="btn sm primary" href={`/api/onboarding/loa/${props.customerId}`}>⬇️ LOA 수권서 PDF 다운로드</a>
+                      <a className="btn sm" href={`/onboarding/${props.customerId}/loa`} target="_blank" rel="noreferrer">문서 보기 ↗</a>
                     </div>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={String(props.app.ubo_signature_data)} alt="서명" style={{ display: "block", width: 260, border: "1px solid var(--line)", borderRadius: 8, marginTop: 6, background: "#fff" }} />
