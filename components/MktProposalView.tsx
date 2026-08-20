@@ -19,11 +19,21 @@ const STEPS = [
   { k: "STEP 03", en: "Amplify", t: "증액", d: "성과가 검증된 콘텐츠에 광고비를 집중하고 유가 캠페인을 확대합니다." },
 ];
 const CONFIRM = ["6개월 예산 · 월별 시딩 · 라이브 운영 규모 확정", "GMV 광고 최소 집행 · 증액 기준 합의", "운영 대행 범위(물류 · CS · 발주) 확정"];
+const BUNDLE_TIERS = [
+  { no: "01", title: "단품 · 기본 판매 단위", desc: "베스트셀러 단품으로 진입 장벽을 낮추고 신규 고객을 확보합니다.", hi: false },
+  { no: "02", title: "시즌 · 프로모션 번들", desc: "블랙프라이데이 · 연말 · 연초 시즌 세트로 객단가를 극대화합니다.", hi: true },
+  { no: "03", title: "객단가별 라인업", desc: "구성별 가격 구조를 설계해 업셀·크로스셀 동선을 만듭니다.", hi: false },
+];
+const BUNDLE_STEPS = [
+  { title: "운영 구조 확정", items: ["세트·번들 구성과 객단가 라인업 확정", "프로모션 캘린더 · 재고 · 발주 일정 합의"] },
+  { title: "콘텐츠 기획 회의", items: ["번들별 USP·후킹 포인트 정의", "월별 히어로 소재·크리에이터 브리프 확정"] },
+];
 const PHASE_ORDER: Phase[] = ["BUILD", "GROWTH", "PEAK", "MEGA"];
 const PHASE_COLOR: Record<Phase, string> = { BUILD: "#64748b", GROWTH: "#0ea5e9", PEAK: "#f59e0b", MEGA: "#ef4444" };
 
 export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
   const accent = safeHex(doc.accent);
+  const accent2 = doc.accent2 && /^#[0-9a-fA-F]{3,8}$/.test(doc.accent2.trim()) ? doc.accent2.trim() : "#0b1220"; // 메인컬러2(어두운 배경)
   const brand = doc.brand_name ?? "";
   const countries = (doc.countries?.length ? doc.countries : ["US"]).filter((c) => c in COUNTRY_CALENDAR) as MktCountry[];
   const ratios = { ...PHASE_RATIO } as typeof PHASE_RATIO;
@@ -62,7 +72,7 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
 
         {/* 표지 */}
         <Slide>
-          <div style={{ position: "absolute", inset: 0, background: `radial-gradient(900px 340px at 88% -10%, ${accent}55, transparent), linear-gradient(135deg,#0b1220 0%,#111827 55%,${accent}22 100%)` }} />
+          <div style={{ position: "absolute", inset: 0, background: `radial-gradient(900px 340px at 88% -10%, ${accent}55, transparent), linear-gradient(135deg,${accent2} 0%,${accent2}dd 45%,${accent} 100%)` }} />
           <Pad style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", color: "#fff" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div style={{ fontSize: "1.1em", letterSpacing: 3, color: "#cbd5e1", fontWeight: 700 }}>TIKTOK SHOP · MARKETING PROPOSAL</div>
@@ -144,7 +154,7 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
                 <BigStat label="GMV 광고 (예비)" value={`${wonMan(plan.gmvReserveMin)}~${wonMan(plan.gmvReserveMax)}`} sub="필요 시 집행" />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 14, marginTop: 16 }}>
-                <div style={{ borderRadius: 16, padding: "24px 26px", color: "#fff", background: `linear-gradient(120deg,#0b1220,${accent})` }}>
+                <div style={{ borderRadius: 16, padding: "24px 26px", color: "#fff", background: `linear-gradient(120deg,${accent2},${accent})` }}>
                   <div style={{ fontSize: "1.05em", color: "#cbd5e1" }}>{plan.input.months}개월 총 캠페인비</div>
                   <div style={{ fontSize: "2.6em", fontWeight: 800, marginTop: 4, lineHeight: 1.1 }}>{wonMan(plan.grandMin)} ~ {wonMan(plan.grandMax)}</div>
                   <div style={{ fontSize: "0.95em", color: "#cbd5e1", marginTop: 6 }}>무가+유가 {wonMan(plan.totalCampaign)} · GMV 광고 최대 {wonMan(plan.gmvReserveMax)} 포함</div>
@@ -161,7 +171,7 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
             <Pad>
               <Head accent={accent} kicker={`${COUNTRY_LABEL[country]} · MONTHLY PLAN`} title="월별 마케팅 비용" />
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "1.02em", marginTop: 14 }}>
-                <thead><tr style={{ background: "#0b1220", color: "#fff" }}>
+                <thead><tr style={{ background: accent2, color: "#fff" }}>
                   {["월", "무가 시딩", "유가 콘텐츠", "월 합계", "GMV 광고", "시즌"].map((h, i) => <th key={h} style={{ padding: "9px 12px", textAlign: i === 0 || i === 5 ? "left" : "right", fontWeight: 700, whiteSpace: "nowrap" }}>{h}</th>)}
                 </tr></thead>
                 <tbody>
@@ -197,7 +207,7 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
             <div style={{ marginTop: 16 }}>
               <div style={{ fontSize: "0.95em", color: "#64748b", fontWeight: 700, marginBottom: 8 }}>TikTok Shop 시딩 벤치마크 (Beauty · 30일)</div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "1em", textAlign: "center" }}>
-                <thead><tr style={{ background: "#0b1220", color: "#fff" }}><th style={{ padding: "8px 12px", textAlign: "left" }} />{BENCH.cols.map((c) => <th key={c} style={{ padding: "8px 12px", fontWeight: 800 }}>{c}</th>)}</tr></thead>
+                <thead><tr style={{ background: accent2, color: "#fff" }}><th style={{ padding: "8px 12px", textAlign: "left" }} />{BENCH.cols.map((c) => <th key={c} style={{ padding: "8px 12px", fontWeight: 800 }}>{c}</th>)}</tr></thead>
                 <tbody>
                   <tr style={{ borderBottom: "1px solid #eef2f6" }}><td style={{ padding: "8px 12px", textAlign: "left", fontWeight: 700 }}>크리에이터 콘텐츠</td>{BENCH.content.map((v, i) => <td key={i} style={{ padding: "8px 12px", fontWeight: 700 }}>{v}</td>)}</tr>
                   <tr><td style={{ padding: "8px 12px", textAlign: "left", fontWeight: 700 }}>샵 광고비 (USD)</td>{BENCH.adspend.map((v, i) => <td key={i} style={{ padding: "8px 12px", color: accent, fontWeight: 800 }}>{v}</td>)}</tr>
@@ -217,6 +227,50 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
             </div>
           </Pad>
         </Slide>
+
+        {/* 세트·번들 구성 + 진행 프로세스 (토글) */}
+        {doc.show_bundle_slide && (
+          <Slide accent={accent}>
+            <Pad>
+              <Head accent={accent} kicker="PRODUCT STRATEGY · PROCESS" title="세트 · 번들 구성과 콘텐츠 기획 진행 프로세스" />
+              <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 20, marginTop: 18, height: "calc(100% - 130px)" }}>
+                {/* 좌: 상품 구성 (객단가 상승 →) */}
+                <div>
+                  <div style={{ fontSize: "0.95em", color: "#64748b", fontWeight: 800, marginBottom: 10 }}>상품 구성 <span style={{ color: accent }}>(객단가 상승 →)</span></div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {BUNDLE_TIERS.map((b, i) => (
+                      <div key={i} style={{ border: `1px solid ${b.hi ? accent : "#e5e7eb"}`, borderRadius: 12, padding: "13px 16px", background: b.hi ? `${accent}0d` : "#fff", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                        <span style={{ fontSize: "1.1em", fontWeight: 900, color: b.hi ? accent : "#94a3b8", flexShrink: 0, minWidth: "1.6em" }}>{b.no}</span>
+                        <div>
+                          <div style={{ fontSize: "1.02em", fontWeight: 800, color: "#111827" }}>{b.title}{b.hi && <span style={{ fontSize: "0.72em", fontWeight: 800, color: "#fff", background: accent, borderRadius: 6, padding: "2px 7px", marginLeft: 8 }}>추천</span>}</div>
+                          <div style={{ fontSize: "0.9em", color: "#64748b", marginTop: 3, lineHeight: 1.45 }}>{b.desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* 우: 진행 프로세스 */}
+                <div>
+                  <div style={{ fontSize: "0.95em", color: "#64748b", fontWeight: 800, marginBottom: 10 }}>진행 프로세스</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {BUNDLE_STEPS.map((s, i) => (
+                      <div key={i} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: "14px 16px", background: "#fff" }}>
+                        <div style={{ fontSize: "0.82em", fontWeight: 900, letterSpacing: 1, color: accent }}>STEP {String(i + 1).padStart(2, "0")}</div>
+                        <div style={{ fontSize: "1.05em", fontWeight: 800, color: "#111827", margin: "3px 0 5px" }}>{s.title}</div>
+                        <ul style={{ margin: 0, paddingLeft: "1.1em", fontSize: "0.9em", color: "#475569", lineHeight: 1.5 }}>
+                          {s.items.map((it, j) => <li key={j}>{it}</li>)}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 14, background: `linear-gradient(120deg, ${accent2}, ${accent})`, color: "#fff", borderRadius: 12, padding: "12px 18px", fontSize: "0.95em", fontWeight: 700, textAlign: "center" }}>
+                시즌·프로모션 번들로 객단가를 끌어올리고, 콘텐츠 기획 회의를 통해 매월 히어로 소재를 확정합니다.
+              </div>
+            </Pad>
+          </Slide>
+        )}
 
         {/* 레퍼런스 (8개/슬라이드 = 4×2) */}
         {chunk(refs, 8).map((grp, gi) => (

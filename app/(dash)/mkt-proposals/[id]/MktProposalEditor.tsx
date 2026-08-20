@@ -4,15 +4,17 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import MktProposalView from "@/components/MktProposalView";
 import { COUNTRY_LABEL, computeBudgetPlan, PHASE_RATIO, type MktCountry, type Phase, type PhaseRatios, type MonthOverride } from "@/lib/mkt-proposal-engine";
-import type { MktProposalDocRow, MktProductItem, MktReferenceItem } from "@/lib/mkt-proposal-doc";
-import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction } from "../actions";
+import type { MktProposalDocRow, MktProductItem, MktReferenceItem, MktTemplateConfig } from "@/lib/mkt-proposal-doc";
+import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction, saveMktTemplateAction, loadMktTemplateAction, deleteMktTemplateAction } from "../actions";
 
 const MAN = 10000;
 const toMan = (won: number) => Math.round((won || 0) / MAN);
-const COUNTRIES: MktCountry[] = ["US", "TH", "VN"];
+const COUNTRIES: MktCountry[] = ["US", "VN", "TH", "PH", "MY", "SG"];
 const PHASES: Phase[] = ["BUILD", "GROWTH", "PEAK", "MEGA"];
 
-export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDocRow; brands: { id: string; brand_name: string }[] }) {
+type TplItem = { id: string; name: string };
+
+export default function MktProposalEditor({ doc, brands, templates = [] }: { doc: MktProposalDocRow; brands: { id: string; brand_name: string }[]; templates?: TplItem[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState("");
@@ -22,6 +24,8 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
   const [subtitle, setSubtitle] = useState(doc.subtitle);
   const [status, setStatus] = useState(doc.status);
   const [accent, setAccent] = useState(doc.accent || "#111111");
+  const [accent2, setAccent2] = useState(doc.accent2 || "#0b1220");
+  const [showBundle, setShowBundle] = useState(doc.show_bundle_slide ?? true);
   const [countries, setCountries] = useState<string[]>(doc.countries?.length ? doc.countries : ["US"]);
   const [startMonth, setStartMonth] = useState(doc.start_month);
   const [months, setMonths] = useState(doc.months);
@@ -43,6 +47,8 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
     return r;
   });
   const [overrides, setOverrides] = useState<(MonthOverride | null)[]>(doc.month_overrides_json ?? []);
+  const [tpls, setTpls] = useState<TplItem[]>(templates);
+  const [tplSel, setTplSel] = useState("");
 
   function toggleCountry(c: string) {
     setCountries((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]));
@@ -58,9 +64,73 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
       const cur = next[i] ?? {};
       const merged = { ...cur, ...patch };
       // 모든 필드가 비면 null 로(자동 복귀).
-      const empty = merged.organic == null && merged.paid == null && !merged.event && !merged.note;
+      const empty = merged.organic == null && merged.paid == null && !merged.event && !merged.note && !merged.phase;
       next[i] = empty ? null : merged;
       return next;
+    });
+  }
+
+  // ── 템플릿: 현재 설정 저장 / 불러오기 / 삭제 ──
+  function currentConfig(): MktTemplateConfig {
+    return {
+      subtitle, accent, accent2, show_bundle_slide: showBundle,
+      countries, start_month: startMonth, months,
+      monthly_budget: monthlyMan * MAN, operation_fee: opFeeMan * MAN,
+      gmv_reserve_min: gmvMinMan * MAN, gmv_reserve_max: gmvMaxMan * MAN,
+      first_month_seeding: firstSeed, commission_pct: commission,
+      goal_first: goalFirst, goal_final: goalFinal, phase_ratios_json: ratios, intro_note: intro,
+    };
+  }
+  function applyConfig(c: MktTemplateConfig) {
+    if (c.subtitle != null) setSubtitle(c.subtitle);
+    if (c.accent) setAccent(c.accent);
+    if (c.accent2) setAccent2(c.accent2);
+    if (c.show_bundle_slide != null) setShowBundle(c.show_bundle_slide);
+    if (c.countries?.length) setCountries(c.countries);
+    if (c.start_month) setStartMonth(c.start_month);
+    if (c.months) setMonths(c.months);
+    if (c.monthly_budget != null) setMonthlyMan(toMan(c.monthly_budget));
+    if (c.operation_fee != null) setOpFeeMan(toMan(c.operation_fee));
+    if (c.gmv_reserve_min != null) setGmvMinMan(toMan(c.gmv_reserve_min));
+    if (c.gmv_reserve_max != null) setGmvMaxMan(toMan(c.gmv_reserve_max));
+    if (c.first_month_seeding != null) setFirstSeed(c.first_month_seeding);
+    if (c.commission_pct != null) setCommission(c.commission_pct);
+    if (c.goal_first != null) setGoalFirst(c.goal_first);
+    if (c.goal_final != null) setGoalFinal(c.goal_final);
+    if (c.intro_note != null) setIntro(c.intro_note);
+    if (c.phase_ratios_json) {
+      const r = { ...PHASE_RATIO } as PhaseRatios;
+      for (const p of PHASES) { const o = c.phase_ratios_json[p]; if (o) r[p] = { organic: o.organic, paid: o.paid }; }
+      setRatios(r);
+    }
+  }
+  function saveTpl() {
+    const name = prompt("템플릿 이름을 입력하세요.", subtitle || "제안서 템플릿");
+    if (!name) return;
+    setMsg("");
+    start(async () => {
+      const r = await saveMktTemplateAction(name, currentConfig());
+      if (!r.ok) { setMsg(r.error ?? "템플릿 저장 실패"); return; }
+      setTpls((t) => [{ id: r.id!, name }, ...t]);
+      setMsg(`템플릿 "${name}" 저장됨.`);
+    });
+  }
+  function loadTpl() {
+    if (!tplSel) { setMsg("불러올 템플릿을 선택하세요."); return; }
+    setMsg("");
+    start(async () => {
+      const r = await loadMktTemplateAction(tplSel);
+      if (!r.ok || !r.config) { setMsg(r.error ?? "불러오기 실패"); return; }
+      applyConfig(r.config);
+      setMsg(`템플릿 "${r.name}" 을(를) 적용했습니다. (저장 눌러 반영)`);
+    });
+  }
+  function delTpl() {
+    if (!tplSel || !confirm("이 템플릿을 삭제할까요?")) return;
+    start(async () => {
+      const r = await deleteMktTemplateAction(tplSel);
+      if (r.ok) { setTpls((t) => t.filter((x) => x.id !== tplSel)); setTplSel(""); setMsg("템플릿 삭제됨."); }
+      else setMsg(r.error ?? "삭제 실패");
     });
   }
 
@@ -73,7 +143,7 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
 
   // 미리보기용 doc 재조립(만원 → 원).
   const preview: MktProposalDocRow = {
-    ...doc, brand_id: brandId || null, title, subtitle, status, accent,
+    ...doc, brand_id: brandId || null, title, subtitle, status, accent, accent2, show_bundle_slide: showBundle,
     countries: countries.length ? countries : ["US"], start_month: startMonth, months,
     monthly_budget: monthlyMan * MAN, operation_fee: opFeeMan * MAN,
     gmv_reserve_min: gmvMinMan * MAN, gmv_reserve_max: gmvMaxMan * MAN,
@@ -88,7 +158,7 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
     setMsg("");
     start(async () => {
       const r = await saveMktProposalDocAction({
-        id: doc.id, brand_id: brandId || null, title, subtitle, status, accent,
+        id: doc.id, brand_id: brandId || null, title, subtitle, status, accent, accent2, show_bundle_slide: showBundle,
         countries, start_month: startMonth, months,
         monthly_budget: monthlyMan * MAN, operation_fee: opFeeMan * MAN,
         gmv_reserve_min: gmvMinMan * MAN, gmv_reserve_max: gmvMaxMan * MAN,
@@ -141,7 +211,25 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
               </select>
             </div>
             <div><L>강조색</L><input type="color" value={accent} onChange={(e) => setAccent(e.target.value)} style={{ width: 44, height: 34, border: "1px solid var(--line)", borderRadius: 6 }} /></div>
+            <div><L>배경색2</L><input type="color" value={accent2} onChange={(e) => setAccent2(e.target.value)} style={{ width: 44, height: 34, border: "1px solid var(--line)", borderRadius: 6 }} /></div>
           </div>
+          <div style={{ fontSize: 10.5, color: "var(--ink3)", marginTop: 2 }}>강조색·배경색2 두 가지가 표지·비용·번들 장표의 메인 그라디언트로 사용됩니다.</div>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 6 }}>
+            <input type="checkbox" checked={showBundle} onChange={(e) => setShowBundle(e.target.checked)} /> 세트·번들 구성 장표 포함
+          </label>
+        </Card>
+
+        <Card title="템플릿 (디자인·예산·비율 저장/불러오기)">
+          <div style={{ fontSize: 11, color: "var(--ink3)" }}>브랜드·제목·제품을 뺀 &lsquo;틀&rsquo;만 저장합니다. 불러온 뒤 저장을 눌러야 반영됩니다.</div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <select className="f" value={tplSel} onChange={(e) => setTplSel(e.target.value)} style={{ flex: 1, minWidth: 140 }}>
+              <option value="">템플릿 선택…</option>
+              {tpls.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <button className="btn sm" disabled={pending || !tplSel} onClick={loadTpl}>불러오기</button>
+            <button className="btn sm" disabled={pending || !tplSel} onClick={delTpl} style={{ color: "#e03131" }}>삭제</button>
+          </div>
+          <button className="btn sm pri" disabled={pending} onClick={saveTpl} style={{ justifySelf: "start" }}>현재 설정을 새 템플릿으로 저장</button>
         </Card>
 
         <Card title="예산 (엔진 자동계산)">
@@ -194,14 +282,22 @@ export default function MktProposalEditor({ doc, brands }: { doc: MktProposalDoc
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead><tr style={{ color: "var(--ink3)" }}>
-                <th style={{ textAlign: "left", padding: 3 }}>월</th><th style={{ padding: 3 }}>무가</th><th style={{ padding: 3 }}>유가</th><th style={{ padding: 3 }}>이벤트딱지</th>
+                <th style={{ textAlign: "left", padding: 3 }}>월</th><th style={{ padding: 3 }}>페이즈</th><th style={{ padding: 3 }}>무가</th><th style={{ padding: 3 }}>유가</th><th style={{ padding: 3 }}>이벤트딱지</th>
               </tr></thead>
               <tbody>
                 {basePlan.months.map((m) => {
                   const ov = overrides[m.index] ?? null;
                   return (
                     <tr key={m.index}>
-                      <td style={{ padding: 3, fontWeight: 700 }}>{m.calendarMonth}월<span style={{ color: "var(--ink3)", fontWeight: 400 }}> {m.phase}</span></td>
+                      <td style={{ padding: 3, fontWeight: 700 }}>{m.calendarMonth}월</td>
+                      <td style={{ padding: 3 }}>
+                        <select className="f" style={{ width: 92 }}
+                          value={ov?.phase ?? ""}
+                          onChange={(e) => setOv(m.index, { phase: e.target.value === "" ? undefined : (e.target.value as Phase) })}>
+                          <option value="">자동({m.phase})</option>
+                          {PHASES.map((p) => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </td>
                       <td style={{ padding: 3 }}>
                         <input className="f" type="number" style={{ width: 68 }} placeholder={String(toMan(m.organic))}
                           value={ov?.organic != null ? toMan(ov.organic) : ""}

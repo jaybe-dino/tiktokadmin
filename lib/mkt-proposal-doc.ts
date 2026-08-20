@@ -33,6 +33,8 @@ export interface MktProposalDocRow {
   references_json: MktReferenceItem[];
   intro_note: string;
   accent: string;
+  accent2: string;
+  show_bundle_slide: boolean;
   phase_ratios_json: Partial<PhaseRatios>;
   month_overrides_json: (MonthOverride | null)[];
   created_by: string | null;
@@ -44,7 +46,7 @@ export interface MktProposalDocRow {
 const COLS =
   "d.id, d.brand_id, d.mkt_project_id, d.token, d.title, d.subtitle, d.status, d.products_json, d.track, d.goal_first, d.goal_final, " +
   "d.countries, d.start_month, d.months, d.monthly_budget, d.operation_fee, d.gmv_reserve_min, d.gmv_reserve_max, " +
-  "d.first_month_seeding, d.commission_pct, d.references_json, d.intro_note, d.accent, " +
+  "d.first_month_seeding, d.commission_pct, d.references_json, d.intro_note, d.accent, d.accent2, d.show_bundle_slide, " +
   "d.phase_ratios_json, d.month_overrides_json, d.created_by, d.created_at, d.updated_at";
 
 export async function listMktProposals(brandId?: string): Promise<MktProposalDocRow[]> {
@@ -91,11 +93,13 @@ export interface MktProposalInput {
   references_json?: MktReferenceItem[];
   intro_note?: string;
   accent?: string;
+  accent2?: string;
+  show_bundle_slide?: boolean;
   phase_ratios_json?: Partial<PhaseRatios>;
   month_overrides_json?: (MonthOverride | null)[];
 }
 
-const VALID_COUNTRIES: MktCountry[] = ["US", "TH", "VN"];
+const VALID_COUNTRIES: MktCountry[] = ["US", "TH", "VN", "PH", "MY", "SG"];
 const cleanCountries = (arr?: string[]): string[] => {
   const out = (arr ?? []).filter((c): c is MktCountry => VALID_COUNTRIES.includes(c as MktCountry));
   return out.length ? out : ["US"];
@@ -114,7 +118,7 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
          countries=$11, start_month=$12, months=$13, monthly_budget=$14, operation_fee=$15,
          gmv_reserve_min=$16, gmv_reserve_max=$17, first_month_seeding=$18, commission_pct=$19,
          references_json=$20, intro_note=$21, accent=$22,
-         phase_ratios_json=$23, month_overrides_json=$24, updated_at=now()
+         phase_ratios_json=$23, month_overrides_json=$24, accent2=$25, show_bundle_slide=$26, updated_at=now()
        WHERE id=$1 RETURNING token`,
       [
         input.id, input.brand_id, input.mkt_project_id ?? null, input.title, input.subtitle ?? "", input.status ?? "draft",
@@ -124,6 +128,7 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
         input.first_month_seeding ?? true, Number(input.commission_pct ?? 10),
         JSON.stringify(input.references_json ?? []), input.intro_note ?? "", input.accent ?? "#111111",
         JSON.stringify(input.phase_ratios_json ?? {}), JSON.stringify(input.month_overrides_json ?? []),
+        input.accent2 ?? "#0b1220", input.show_bundle_slide ?? true,
       ],
     );
     return { id: input.id, token: row!.token };
@@ -134,8 +139,9 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
     `INSERT INTO mkt_proposal_docs
        (brand_id, mkt_project_id, token, title, subtitle, status, products_json, track, goal_first, goal_final,
         countries, start_month, months, monthly_budget, operation_fee, gmv_reserve_min, gmv_reserve_max,
-        first_month_seeding, commission_pct, references_json, intro_note, accent, phase_ratios_json, month_overrides_json, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+        first_month_seeding, commission_pct, references_json, intro_note, accent, phase_ratios_json, month_overrides_json,
+        accent2, show_bundle_slide, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
      RETURNING id, token`,
     [
       input.brand_id, input.mkt_project_id ?? null, token, input.title, input.subtitle ?? "", input.status ?? "draft",
@@ -144,7 +150,8 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
       Math.round(Number(input.gmv_reserve_min ?? 1000000)), Math.round(Number(input.gmv_reserve_max ?? 3000000)),
       input.first_month_seeding ?? true, Number(input.commission_pct ?? 10),
       JSON.stringify(input.references_json ?? []), input.intro_note ?? "", input.accent ?? "#111111",
-      JSON.stringify(input.phase_ratios_json ?? {}), JSON.stringify(input.month_overrides_json ?? []), by,
+      JSON.stringify(input.phase_ratios_json ?? {}), JSON.stringify(input.month_overrides_json ?? []),
+      input.accent2 ?? "#0b1220", input.show_bundle_slide ?? true, by,
     ],
   );
   return { id: row!.id, token: row!.token };
@@ -152,6 +159,45 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
 
 export async function deleteMktProposal(id: string): Promise<void> {
   await query("DELETE FROM mkt_proposal_docs WHERE id=$1", [id]);
+}
+
+// ── 제안서 템플릿 (디자인·예산·국가·비율 등 설정 저장/불러오기) ──
+// 브랜드·제목·제품·레퍼런스 등 개별값은 제외한 '틀'만 저장.
+export type MktTemplateConfig = Pick<MktProposalInput,
+  "subtitle" | "track" | "accent" | "accent2" | "show_bundle_slide" |
+  "countries" | "start_month" | "months" | "monthly_budget" | "operation_fee" |
+  "gmv_reserve_min" | "gmv_reserve_max" | "first_month_seeding" | "commission_pct" |
+  "goal_first" | "goal_final" | "phase_ratios_json" | "intro_note">;
+
+export interface MktTemplateRow { id: string; name: string; config: MktTemplateConfig; created_at: string }
+
+export async function listMktTemplates(): Promise<MktTemplateRow[]> {
+  return query<MktTemplateRow>(
+    "SELECT id, name, config, created_at FROM mkt_proposal_templates ORDER BY created_at DESC LIMIT 100",
+  ).catch(() => []);
+}
+export async function getMktTemplate(id: string): Promise<MktTemplateRow | null> {
+  return queryOne<MktTemplateRow>("SELECT id, name, config, created_at FROM mkt_proposal_templates WHERE id=$1", [id]).catch(() => null);
+}
+export async function saveMktTemplate(name: string, config: MktTemplateConfig, by: string): Promise<{ id: string }> {
+  const row = await queryOne<{ id: string }>(
+    "INSERT INTO mkt_proposal_templates (name, config, created_by) VALUES ($1,$2,$3) RETURNING id",
+    [name.trim() || "제안서 템플릿", JSON.stringify(config ?? {}), by],
+  );
+  return { id: row!.id };
+}
+export async function deleteMktTemplate(id: string): Promise<void> {
+  await query("DELETE FROM mkt_proposal_templates WHERE id=$1", [id]);
+}
+/** 현재 문서에서 템플릿 설정만 추출. */
+export function templateConfigFromDoc(d: MktProposalDocRow): MktTemplateConfig {
+  return {
+    subtitle: d.subtitle, track: d.track, accent: d.accent, accent2: d.accent2, show_bundle_slide: d.show_bundle_slide,
+    countries: d.countries, start_month: d.start_month, months: d.months, monthly_budget: d.monthly_budget,
+    operation_fee: d.operation_fee, gmv_reserve_min: d.gmv_reserve_min, gmv_reserve_max: d.gmv_reserve_max,
+    first_month_seeding: d.first_month_seeding, commission_pct: d.commission_pct,
+    goal_first: d.goal_first, goal_final: d.goal_final, phase_ratios_json: d.phase_ratios_json, intro_note: d.intro_note,
+  };
 }
 
 /** 브랜드로 프리필(제목·제품 등 기본값). */

@@ -6,7 +6,7 @@
 //   순수 계산 — DB 의존 없음(단위테스트 가능).
 
 export type Phase = "BUILD" | "GROWTH" | "PEAK" | "MEGA";
-export type MktCountry = "US" | "TH" | "VN";
+export type MktCountry = "US" | "TH" | "VN" | "PH" | "MY" | "SG";
 
 // 페이즈 → 무가:유가 (합 10). BUILD 9:1 … MEGA 6:4.
 export const PHASE_RATIO: Record<Phase, { organic: number; paid: number }> = {
@@ -69,14 +69,59 @@ export const COUNTRY_CALENDAR: Record<MktCountry, Record<number, MonthSeason>> =
     11: { phase: "MEGA", season: "11.11", event: "11.11" },
     12: { phase: "MEGA", season: "12.12 / Year End", event: "12.12" },
   },
+  PH: {
+    1: { phase: "BUILD", season: "New Year" },
+    2: { phase: "PEAK", season: "2.2 / Valentine's" },
+    3: { phase: "GROWTH", season: "3.3" },
+    4: { phase: "GROWTH", season: "Summer" },
+    5: { phase: "PEAK", season: "Mother's Day / 5.5" },
+    6: { phase: "GROWTH", season: "6.6 Mid-Year" },
+    7: { phase: "PEAK", season: "7.7" },
+    8: { phase: "GROWTH", season: "8.8" },
+    9: { phase: "PEAK", season: "9.9 · Ber months", event: "9.9" },
+    10: { phase: "PEAK", season: "10.10" },
+    11: { phase: "MEGA", season: "11.11", event: "11.11" },
+    12: { phase: "MEGA", season: "12.12 / Christmas", event: "12.12" },
+  },
+  MY: {
+    1: { phase: "BUILD", season: "New Year" },
+    2: { phase: "PEAK", season: "CNY / 2.2" },
+    3: { phase: "GROWTH", season: "3.3" },
+    4: { phase: "GROWTH", season: "Raya 준비" },
+    5: { phase: "PEAK", season: "Hari Raya / 5.5" },
+    6: { phase: "GROWTH", season: "6.6 Mid-Year" },
+    7: { phase: "PEAK", season: "7.7" },
+    8: { phase: "GROWTH", season: "Merdeka / 8.8" },
+    9: { phase: "PEAK", season: "9.9" },
+    10: { phase: "PEAK", season: "10.10" },
+    11: { phase: "MEGA", season: "11.11", event: "11.11" },
+    12: { phase: "MEGA", season: "12.12 / Year End", event: "12.12" },
+  },
+  SG: {
+    1: { phase: "BUILD", season: "New Year" },
+    2: { phase: "PEAK", season: "CNY / 2.2" },
+    3: { phase: "GROWTH", season: "3.3" },
+    4: { phase: "GROWTH", season: "4.4" },
+    5: { phase: "GROWTH", season: "5.5" },
+    6: { phase: "PEAK", season: "Great Singapore Sale / 6.6" },
+    7: { phase: "PEAK", season: "7.7" },
+    8: { phase: "GROWTH", season: "National Day / 8.8" },
+    9: { phase: "PEAK", season: "9.9" },
+    10: { phase: "PEAK", season: "10.10" },
+    11: { phase: "MEGA", season: "11.11", event: "11.11" },
+    12: { phase: "MEGA", season: "12.12 / Year End", event: "12.12" },
+  },
 };
 
-export const COUNTRY_LABEL: Record<MktCountry, string> = { US: "🇺🇸 미국", TH: "🇹🇭 태국", VN: "🇻🇳 베트남" };
+export const COUNTRY_LABEL: Record<MktCountry, string> = {
+  US: "🇺🇸 미국", TH: "🇹🇭 태국", VN: "🇻🇳 베트남", PH: "🇵🇭 필리핀", MY: "🇲🇾 말레이시아", SG: "🇸🇬 싱가포르",
+};
 
 export type PhaseRatios = Record<Phase, { organic: number; paid: number }>;
 
-/** 월별 수동 오버라이드 — 지정 시 자동계산을 덮어씀(그때그때 조정). index 기준. */
-export interface MonthOverride { organic?: number; paid?: number; event?: string; note?: string }
+/** 월별 수동 오버라이드 — 지정 시 자동계산을 덮어씀(그때그때 조정). index 기준.
+ *   phase: 그 달의 페이즈를 바꿈(GROWTH↔PEAK 등) → 비율도 그 페이즈로 재계산. */
+export interface MonthOverride { phase?: Phase; organic?: number; paid?: number; event?: string; note?: string }
 
 export interface MktBudgetInput {
   monthlyBudget: number;      // RFP 월 캠페인 예산(무가+유가), 원
@@ -155,9 +200,11 @@ export function computeBudgetPlan(inputRaw: MktBudgetInput): MktBudgetPlan {
   for (let i = 0; i < input.months; i++) {
     const calendarMonth = ((input.startMonth - 1 + i) % 12) + 1;
     const ms = cal[calendarMonth];
-    const ratio = input.phaseRatios[ms.phase] ?? PHASE_RATIO[ms.phase];
-    const denom = (ratio.organic + ratio.paid) || 1;
     const ov = overrides[i] ?? null;
+    // 월별 페이즈 오버라이드(GROWTH↔PEAK 등 매월 바뀔 수 있음) — 지정 시 그 페이즈 비율로.
+    const phase: Phase = ov?.phase ?? ms.phase;
+    const ratio = input.phaseRatios[phase] ?? PHASE_RATIO[phase];
+    const denom = (ratio.organic + ratio.paid) || 1;
 
     let organic: number, paid: number;
     if (i === 0 && input.firstMonthSeedingOnly && ov?.organic == null && ov?.paid == null) {
@@ -175,14 +222,14 @@ export function computeBudgetPlan(inputRaw: MktBudgetInput): MktBudgetPlan {
     const autoNote =
       i === 0 && input.firstMonthSeedingOnly
         ? "온보딩 · 시딩 시작 · 무가 시딩 집중"
-        : ms.phase === "MEGA"
+        : phase === "MEGA"
           ? "검증된 소재를 중심으로 Mega 시즌에 맞춰 유가 비중을 확대합니다."
           : `${MONTH_KR(calendarMonth)} ${ms.season}`;
 
     months.push({
       index: i,
       calendarMonth,
-      phase: ms.phase,
+      phase,
       ratioLabel: `${ratio.organic}:${ratio.paid}`,
       season: ms.season,
       event: ov?.event ?? ms.event,

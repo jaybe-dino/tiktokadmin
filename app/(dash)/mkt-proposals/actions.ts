@@ -5,7 +5,8 @@ import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import {
   saveMktProposal, deleteMktProposal, prefillMktProposal, getMktProposalById,
-  type MktProposalInput,
+  saveMktTemplate, getMktTemplate, deleteMktTemplate,
+  type MktProposalInput, type MktTemplateConfig,
 } from "@/lib/mkt-proposal-doc";
 
 type R = { ok: boolean; error?: string };
@@ -33,6 +34,28 @@ export async function saveMktProposalDocAction(input: MktProposalInput): Promise
     if (input.brand_id) revalidatePath(`/brand/${input.brand_id}`);
     return { ok: true, token };
   } catch (e) { return { ok: false, error: (e as Error).message }; }
+}
+
+// ── 템플릿: 저장 / 불러오기 / 삭제 ──
+export async function saveMktTemplateAction(name: string, config: MktTemplateConfig): Promise<R & { id?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!name?.trim()) return { ok: false, error: "템플릿 이름을 입력하세요." };
+  try { const { id } = await saveMktTemplate(name, config, u.name || u.id); revalidatePath("/mkt-proposals"); return { ok: true, id }; }
+  catch (e) { return { ok: false, error: (e as Error).message }; }
+}
+export async function loadMktTemplateAction(id: string): Promise<R & { config?: MktTemplateConfig; name?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const t = await getMktTemplate(id);
+  if (!t) return { ok: false, error: "템플릿을 찾을 수 없습니다." };
+  return { ok: true, config: t.config, name: t.name };
+}
+export async function deleteMktTemplateAction(id: string): Promise<R> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  try { await deleteMktTemplate(id); revalidatePath("/mkt-proposals"); return { ok: true }; }
+  catch (e) { return { ok: false, error: (e as Error).message }; }
 }
 
 export async function deleteMktProposalDocAction(id: string): Promise<R> {
