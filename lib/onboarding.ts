@@ -85,9 +85,10 @@ export const STEP_DEFS: [number, string, string][] = [
   [4, "제품 등록", "국가별 단가·인증·상세페이지 번역"],
   [5, "물류 계약서", "국가별 물류 계약서 (미국은 FBA 캡처 가능)"],
 ];
-const INITIAL_STATUS: Record<number, string> = { 1: "unlocked", 2: "unlocked", 3: "locked", 4: "locked", 5: "unlocked" };
+// BUG-15: 1~5 모두 열림 — 브랜드사가 모든 단계를 동시에 작성할 수 있게(순차 잠금 없음).
+const INITIAL_STATUS: Record<number, string> = { 1: "unlocked", 2: "unlocked", 3: "unlocked", 4: "unlocked", 5: "unlocked" };
 
-/** 고객의 신청서 확보(없으면 생성 + 5스텝 초기화). 1·2·5 열림, 3·4 잠금. */
+/** 고객의 신청서 확보(없으면 생성 + 5스텝 초기화). 1~5 모두 열림(동시 작성). */
 export async function getOrCreateApplication(customerId: string, brandId: string | null): Promise<{ id: string }> {
   const found = await queryOne<{ id: string }>("SELECT id FROM onb_applications WHERE customer_id=$1", [customerId]).catch(() => null);
   if (found) {
@@ -379,10 +380,7 @@ export async function reviewStep(applicationId: string, stepNo: number, decision
     // 승인취소 — 승인된 단계만. 재검토 가능하도록 'submitted' 로 되돌림.
     if (step.status !== "approved") return { ok: false, error: "승인된 단계만 취소할 수 있습니다." };
     await query("UPDATE onb_steps SET status='submitted', admin_feedback='', reviewed_at=NULL WHERE application_id=$1 AND step_no=$2", [applicationId, stepNo]);
-    // 다음 단계가 이 승인으로만 열려 있고(고객 미제출·미승인) 아직 'unlocked' 라면 다시 잠근다.
-    if (stepNo < 5) {
-      await query("UPDATE onb_steps SET status='locked', unlocked_at=NULL WHERE application_id=$1 AND step_no=$2 AND status='unlocked'", [applicationId, stepNo + 1]).catch(() => {});
-    }
+    // BUG-15: 승인취소해도 다음 단계를 다시 잠그지 않는다(모든 단계 동시 작성 유지).
     return { ok: true };
   }
   // approve
