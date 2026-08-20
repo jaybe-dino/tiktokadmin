@@ -133,14 +133,18 @@ const MONTH_KR = (m: number) => `${m}월`;
  *   · phaseRatios: 페이즈별 무가:유가를 제안서마다 조정 가능(기본 9:1~6:4).
  *   · overrides[i]: 특정 월의 무가/유가/이벤트/문구를 수동으로 덮어씀(그때그때 다르게). */
 export function computeBudgetPlan(inputRaw: MktBudgetInput): MktBudgetPlan {
+  // 빈 입력(NaN)·음수 방어 — 편집중 필드가 비어도 미리보기가 깨지지 않게.
+  const num = (v: unknown, d: number) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+  const clampMonth = (v: unknown) => Math.min(12, Math.max(1, Math.round(num(v, 1))));
+  const country = inputRaw.country in COUNTRY_CALENDAR ? inputRaw.country : "US";
   const input: ResolvedBudgetInput = {
-    monthlyBudget: inputRaw.monthlyBudget,
-    country: inputRaw.country,
-    startMonth: inputRaw.startMonth,
-    months: inputRaw.months ?? 6,
-    operationFee: inputRaw.operationFee ?? 150 * MAN,
-    gmvReserveMin: inputRaw.gmvReserveMin ?? 100 * MAN,
-    gmvReserveMax: inputRaw.gmvReserveMax ?? 300 * MAN,
+    monthlyBudget: Math.max(0, num(inputRaw.monthlyBudget, 0)),
+    country,
+    startMonth: clampMonth(inputRaw.startMonth),
+    months: Math.min(12, Math.max(1, Math.round(num(inputRaw.months, 6)))),
+    operationFee: Math.max(0, num(inputRaw.operationFee, 150 * MAN)),
+    gmvReserveMin: Math.max(0, num(inputRaw.gmvReserveMin, 100 * MAN)),
+    gmvReserveMax: Math.max(0, num(inputRaw.gmvReserveMax, 300 * MAN)),
     firstMonthSeedingOnly: inputRaw.firstMonthSeedingOnly ?? true,
     phaseRatios: inputRaw.phaseRatios ?? PHASE_RATIO,
   };

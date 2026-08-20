@@ -198,8 +198,13 @@ export async function generateProposalContentAction(proposalId: string): Promise
   if (!b) return { ok: false, error: "브랜드 정보를 찾을 수 없습니다." };
 
   const url = (b.brand_url || "").trim() || (b.sales_channel_url || "").trim() || firstUrl(b.channel_urls);
-  const category = (b.category || b.product_category || "").trim();
-  if (!url && !category) return { ok: false, error: "브랜드 URL·카테고리가 모두 비어 있어 참고할 정보가 없습니다. (회사정보에서 판매채널 URL을 입력하세요)" };
+  // 카테고리: 브랜드 레코드 → 제안서 자체 데이터(제품명·영문명·해시태그) 폴백.
+  //   브랜드 URL/카테고리가 비어 있어도 제안서에 제품 정보가 있으면 그걸로 진행(BUG — 알럿 개선).
+  let category = (b.category || b.product_category || "").trim();
+  if (!category) {
+    category = (doc.products?.[0]?.name || doc.product_en || (doc.product_tags ?? []).join(" ") || "").trim();
+  }
+  if (!url && !category) return { ok: false, error: "참고할 정보가 없습니다 — 회사정보에 판매채널 URL·카테고리를 입력하거나, 제안서에 핵심 제품명을 먼저 넣어주세요." };
 
   // 1) URL 크롤(있으면).
   const crawl = url ? await crawlUrl(url) : { ok: false as const, error: "URL 없음" };
