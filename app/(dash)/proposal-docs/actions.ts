@@ -179,7 +179,7 @@ const firstUrl = (v: unknown): string => {
 export async function generateProposalContentAction(proposalId: string): Promise<GenerateContentResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
-  if (!aiEnabled()) return { ok: false, error: "ANTHROPIC_API_KEY 미설정" };
+  // AI 키가 없어도 크롤·glovek 레퍼런스 채움은 동작하도록 하드 차단하지 않음(BUG-10).
   const doc = await getProposalById(proposalId);
   if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
   if (!doc.brand_id) return { ok: false, error: "브랜드가 연결되지 않은 제안서입니다." };
@@ -219,20 +219,28 @@ export async function generateProposalContentAction(proposalId: string): Promise
     `"product":{"name":"핵심 제품명(한글)","name_en":"영문명(모르면 \\"\\")","volume":"용량/규격(모르면 \\"\\")",` +
     `"features":[{"title":"특징 제목","desc":"1문장 설명"}],"tags":["해시태그(# 제외)"]}}`;
 
-  let parsed: {
+  type Parsed = {
     keywords?: string[]; subtitle?: string;
     product?: { name?: string; name_en?: string; volume?: string; features?: ProposalFeature[]; tags?: string[] };
-  } | null = null;
-  try {
-    const text = await aiText({ system, user, maxTokens: 900 });
-    parsed = text ? looseJson(text) : null;
-  } catch (e) {
-    return { ok: false, error: `AI 생성 실패: ${(e as Error).message}` };
+  };
+  let parsed: Parsed | null = null;
+  let aiNote = "";
+  if (aiEnabled()) {
+    try {
+      const text = await aiText({ system, user, maxTokens: 900 });
+      parsed = text ? looseJson(text) : null;
+      if (!parsed) aiNote = "AI 응답 파싱 실패 — 크롤·레퍼런스만 반영";
+    } catch (e) {
+      aiNote = `AI 생성 실패(${(e as Error).message}) — 크롤·레퍼런스만 반영`;
+      parsed = null;
+    }
+  } else {
+    aiNote = "AI 키 미설정 — 크롤·레퍼런스만 반영";
   }
-  if (!parsed) return { ok: false, error: "AI 응답 파싱 실패(JSON 형식 아님)." };
+  const P: Parsed = parsed ?? {};
 
   // AI 가 keywords 를 배열이 아닌 형태로 반환해도 안전하게(문자열이면 단일 원소로).
-  const kwRaw = Array.isArray(parsed.keywords) ? parsed.keywords : parsed.keywords ? [parsed.keywords] : [];
+  const kwRaw = Array.isArray(P.keywords) ? P.keywords : P.keywords ? [P.keywords] : [];
   const keywords = kwRaw.map((k) => String(k)).filter(Boolean);
   if (category) keywords.push(category);
 
@@ -249,25 +257,26 @@ export async function generateProposalContentAction(proposalId: string): Promise
       // 매출·ROAS·수수료율·참여율 등 성과 지표는 단위/통화를 확신할 수 없어 자동 채우지 않음(담당자 입력).
     }));
 
-  const feats = Array.isArray(parsed.product?.features)
-    ? parsed.product!.features.filter((f) => f && f.title).slice(0, 3)
+  const feats = Array.isArray(P.product?.features)
+    ? P.product!.features.filter((f) => f && f.title).slice(0, 3)
     : [];
-  const tags = Array.isArray(parsed.product?.tags)
-    ? parsed.product!.tags.map((t) => String(t).replace(/^#/, "")).filter(Boolean).slice(0, 4)
+  const tags = Array.isArray(P.product?.tags)
+    ? P.product!.tags.map((t) => String(t).replace(/^#/, "")).filter(Boolean).slice(0, 4)
     : [];
 
   const note =
+    (aiNote ? `${aiNote} · ` : "") +
     `${crawlNote} · glovek 유사 콘텐츠 ${glovek.length}건` +
     (glovek.length === 0 ? " (glovek 매칭 없음 — 콘텐츠 레퍼런스는 수동 입력 필요)" : "");
 
   return {
     ok: true,
-    subtitle: parsed.subtitle || undefined,
-    product_en: parsed.product?.name_en || undefined,
-    product_volume: parsed.product?.volume || undefined,
+    subtitle: P.subtitle || undefined,
+    product_en: P.product?.name_en || undefined,
+    product_volume: P.product?.volume || undefined,
     product_features: feats.length ? feats : undefined,
     product_tags: tags.length ? tags : undefined,
-    featured: { name: parsed.product?.name || undefined, image_url: crawl.ok ? crawl.ogImage : undefined },
+    featured: { name: P.product?.name || undefined, image_url: crawl.ok ? crawl.ogImage : undefined },
     creators: creators.length ? creators : undefined,
     note,
   };

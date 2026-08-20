@@ -384,6 +384,19 @@ function ProductCard({ idx, p, disabled, countries, rows, onChange, flash, onDel
       </Grid>
       <textarea value={pd.description_kr} disabled={disabled} onChange={(e) => setPd({ ...pd, description_kr: e.target.value })} rows={2} placeholder="제품 설명 (한글)" style={{ ...inputStyle, marginTop: 8, resize: "vertical" }} />
       <div style={{ marginTop: 12, fontSize: 13, fontWeight: 700, color: "#111" }}>국가별 단가 · 인증 · 상세페이지</div>
+      <details style={{ marginTop: 6, background: "#f0f6ff", border: "1px solid #cfe0ff", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, color: "#1e3a8a" }}>
+        <summary style={{ cursor: "pointer", fontWeight: 700 }}>📎 FDA 인증 첨부자료 예시 — 어떤 서류를 올리면 되나요?</summary>
+        <div style={{ marginTop: 8, lineHeight: 1.7 }}>
+          <b>미국(US)</b> 판매 시 「인증 첨부」에는 아래 중 <b>해당 제품의 FDA 등록을 확인할 수 있는 서류/화면 캡처</b>를 올려주세요.
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            <li>FDA <b>Establishment/Facility Registration</b> 확인 화면 (등록번호가 보이게 캡처)</li>
+            <li>식품·건강기능식품: <b>Food Facility Registration Number</b> 문서</li>
+            <li>화장품: <b>MoCRA(화장품 등록)</b> 확인 화면 또는 등록번호</li>
+            <li>의료기기·OTC: 해당 <b>FDA Product/Device Listing</b> 캡처</li>
+          </ul>
+          <div style={{ marginTop: 6, color: "#3b5ba5" }}>※ 제품마다 카테고리가 다르면 각 제품별로 알맞은 FDA 등록 서류를 첨부해 주세요. 아직 등록 전이라면 「인증」을 <b>준비중</b>으로 두고 메모에 진행 상황을 적어주세요.</div>
+        </div>
+      </details>
       <div style={{ overflowX: "auto", marginTop: 6 }}>
         <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", minWidth: 720 }}>
           <thead><tr style={{ color: "#8b93a1", textAlign: "left" }}>

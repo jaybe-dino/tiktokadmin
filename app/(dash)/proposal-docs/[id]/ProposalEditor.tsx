@@ -52,6 +52,14 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
     if (!confirm("이 제안서를 삭제할까요?")) return;
     await deleteProposalDocAction(d.id); router.push("/proposal-docs");
   }
+  // 미리보기 — 현재 편집중 값을 먼저 저장한 뒤 새 탭으로 연다(저장 안 하면 미리보기가 이전 값으로 보이는 문제 방지).
+  //  팝업차단 회피: 사용자 클릭 시점에 탭을 먼저 열고, 저장 후 이동.
+  async function openPreview() {
+    const w = window.open("", "_blank");
+    await save();
+    const url = `${publicUrl}?preview=1`;
+    if (w) w.location.href = url; else window.open(url, "_blank");
+  }
   // AI 기본내용 생성 — 브랜드 URL 크롤 + glovek 유사 콘텐츠로 초안 채움(저장은 별도).
   async function genAI() {
     if (!confirm("브랜드 제출 URL을 참고해 핵심 SKU 소개·부제·콘텐츠 레퍼런스를 AI로 생성합니다.\n(기존 특징/태그는 대체되고, 콘텐츠 레퍼런스는 추가됩니다. 저장 전까지 되돌릴 수 있어요.)")) return;
@@ -136,7 +144,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         <span style={{ fontSize: 12, color: d.status === "published" ? "#12b886" : "#f0a02c", fontWeight: 700 }}>
           {d.status === "published" ? "● 발행됨" : "○ 초안"}
         </span>
-        <a className="btn sm" href={`${publicUrl}?preview=1`} target="_blank">미리보기 ↗</a>
+        <button className="btn sm" disabled={busy} onClick={openPreview} title="현재 편집 내용을 저장하고 미리보기를 엽니다">미리보기 ↗</button>
         <button className="btn sm" onClick={() => { navigator.clipboard?.writeText(publicUrl); flash("공개 링크 복사됨"); }}>공개링크 복사</button>
         <button className="btn sm" disabled={busy} onClick={genAI} title="브랜드 URL 크롤 + glovek 유사 콘텐츠로 기본내용 생성">🤖 AI 기본내용 생성</button>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
