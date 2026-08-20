@@ -4,6 +4,7 @@ import { currentUser } from "@/lib/auth";
 import SideNav from "@/components/SideNav";
 import BugReportButton from "@/components/BugReportButton";
 import NotificationBell from "@/components/NotificationBell";
+import UpdatesButton from "@/components/UpdatesButton";
 import { myNotifications } from "@/lib/notifications";
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
@@ -59,6 +60,7 @@ export default async function DashLayout({ children }: { children: React.ReactNo
             <span className="text-[13px]">브랜드·담당자 검색 (고객 목록으로)</span>
           </Link>
           <div className="ml-auto flex items-center gap-2">
+            <UpdatesButton />
             <NotificationBell count={notif.count} items={notif.items} />
           </div>
         </header>
