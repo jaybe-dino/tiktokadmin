@@ -6,7 +6,7 @@ import { buildBriefMarkdown } from "./brief";
 import { opsTransition } from "./ops";
 import { assignOwner } from "./transition";
 import { touchLastContact, setFields } from "./repo/brands";
-import { slackPost } from "./slack";
+import { slackPost, slackPostDM } from "./slack";
 import { gradeFromChecks, recommendedTrack, type SelfChecks } from "./grade";
 import { businessDaysBetween } from "./time";
 import type { OpsActor } from "./ops-auth";
@@ -489,10 +489,27 @@ export const TOOLS: Record<string, ToolDef> = {
       }
       if (!id) return { ok: false, error: "ticket(BUG-N) 또는 id 가 필요합니다." };
       const dev = a.dev_note != null ? String(a.dev_note) : null;
+      // 해결완료로 전이할 때만 작성자 알림(중복 방지) — 이전 상태 확인.
+      const prev = status === "resolved"
+        ? await queryOne<{ status: string; reporter: string | null; ticket_no: number | null; description: string; url: string | null }>(
+            "SELECT status, reporter, ticket_no, description, url FROM bug_reports WHERE id=$1", [id]).catch(() => null)
+        : null;
       await query(
         "UPDATE bug_reports SET status=$2, dev_note=COALESCE($3, dev_note), updated_at=now() WHERE id=$1",
         [id, status, dev],
       );
+      if (status === "resolved" && prev && prev.status !== "resolved" && prev.reporter?.includes("@")) {
+        const code = prev.ticket_no != null ? `BUG-${prev.ticket_no}` : `BUG-${id.slice(0, 6)}`;
+        const desc = (prev.description || "").replace(/\s+/g, " ").slice(0, 300);
+        const msg = [
+          `✅ *[${code}] 개발 완료* — 제보하신 기능오류가 처리되었습니다.`,
+          `> ${desc}`,
+          dev ? `• 처리 내용: ${dev.slice(0, 500)}` : "",
+          prev.url ? `• 화면: ${prev.url}` : "",
+          `배포 반영 후 확인해 주세요. 이상 있으면 다시 제보해 주세요 🙏`,
+        ].filter(Boolean).join("\n");
+        await slackPostDM(prev.reporter!, { text: msg }).catch(() => {});
+      }
       return { ok: true, id, status };
     },
   },

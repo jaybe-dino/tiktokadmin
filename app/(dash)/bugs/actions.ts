@@ -3,6 +3,27 @@
 import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import { createBugReport, updateBugReport, deleteBugReport } from "@/lib/bug-reports";
+import { queryOne } from "@/lib/db";
+import { slackPostDM } from "@/lib/slack";
+
+// 해결완료로 전이 시 제보 작성자에게 슬랙 DM(작성자 id=이메일). 실패해도 무시(비차단).
+async function notifyReporterResolved(id: string, resolvedBy: string): Promise<void> {
+  const r = await queryOne<{ reporter: string | null; ticket_no: number | null; description: string; url: string | null; dev_note: string | null }>(
+    "SELECT reporter, ticket_no, description, url, dev_note FROM bug_reports WHERE id=$1", [id],
+  ).catch(() => null);
+  if (!r?.reporter || !r.reporter.includes("@")) return;
+  const ticket = r.ticket_no != null ? `BUG-${r.ticket_no}` : `BUG-${id.slice(0, 6)}`;
+  const desc = (r.description || "").replace(/\s+/g, " ").slice(0, 300);
+  const lines = [
+    `✅ *[${ticket}] 개발 완료* — 제보하신 기능오류가 처리되었습니다.`,
+    `> ${desc}`,
+    r.dev_note ? `• 처리 내용: ${r.dev_note.slice(0, 500)}` : "",
+    r.url ? `• 화면: ${r.url}` : "",
+    `• 처리: ${resolvedBy}`,
+    `배포 반영 후 확인해 주세요. 이상 있으면 다시 제보해 주세요 🙏`,
+  ].filter(Boolean);
+  await slackPostDM(r.reporter, { text: lines.join("\n") }).catch(() => {});
+}
 
 export async function submitBugReportAction(fd: FormData): Promise<{ ok: boolean; error?: string; ticket?: string }> {
   const u = await currentUser();
@@ -44,7 +65,14 @@ export async function submitBugReportAction(fd: FormData): Promise<{ ok: boolean
 export async function updateBugReportAction(id: string, patch: { status?: string; dev_note?: string }): Promise<{ ok: boolean; error?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
+  // 해결완료로 '전이'할 때만 알림(이미 해결 상태면 중복 알림 방지).
+  const before = patch.status === "resolved"
+    ? await queryOne<{ status: string }>("SELECT status FROM bug_reports WHERE id=$1", [id]).catch(() => null)
+    : null;
   await updateBugReport(id, patch);
+  if (patch.status === "resolved" && before?.status !== "resolved") {
+    await notifyReporterResolved(id, u.name || u.id);
+  }
   revalidatePath("/bugs");
   return { ok: true };
 }
