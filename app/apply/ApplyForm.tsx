@@ -5,6 +5,7 @@ import {
   saveStepAction, submitStepAction, saveCountriesAction, setCountryLogisticsAction, setCountryLogisticsOptionAction, setCountryLogisticsDetailAction,
   addProductAction, updateProductAction, deleteProductAction, upsertProductCountryAction,
 } from "./actions";
+import FdaListingExample from "@/components/FdaListingExample";
 
 // ── 상수(tpartners 정합) ──
 const COUNTRIES: [string, string][] = [["US", "미국"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"]];
@@ -395,6 +396,9 @@ function ProductCard({ idx, p, disabled, countries, rows, onChange, flash, onDel
             <li>의료기기·OTC: 해당 <b>FDA Product/Device Listing</b> 캡처</li>
           </ul>
           <div style={{ marginTop: 6, color: "#3b5ba5" }}>※ 제품마다 카테고리가 다르면 각 제품별로 알맞은 FDA 등록 서류를 첨부해 주세요. 아직 등록 전이라면 「인증」을 <b>준비중</b>으로 두고 메모에 진행 상황을 적어주세요.</div>
+          <div style={{ marginTop: 10, fontWeight: 700 }}>예시 화면 — FDA Direct · Cosmetic Product Listing</div>
+          <div style={{ fontSize: 11.5, color: "#3b5ba5", marginBottom: 6 }}>화장품은 아래 FDA Direct 등록 화면(제품·책임자·시설 정보)을 캡처해 첨부하시면 됩니다.</div>
+          <FdaListingExample />
         </div>
       </details>
       <div style={{ overflowX: "auto", marginTop: 6 }}>
