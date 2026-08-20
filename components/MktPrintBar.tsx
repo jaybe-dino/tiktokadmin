@@ -5,8 +5,8 @@ export default function MktPrintBar({ title }: { title: string }) {
     <div className="mp-noprint" style={{ position: "sticky", top: 0, zIndex: 20, background: "#0b1220", color: "#fff",
       display: "flex", alignItems: "center", gap: 10, padding: "10px 16px" }}>
       <b style={{ fontSize: 13, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</b>
-      <span style={{ fontSize: 11, color: "#94a3b8" }}>인쇄 대화상자에서 &lsquo;대상: PDF로 저장&rsquo; · 용지 A4 · 가로</span>
-      <button onClick={() => window.print()} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>⬇️ PDF로 저장 (A4 가로)</button>
+      <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>대상: PDF로 저장 · 배율 100% · 여백 없음 (색이 안 나오면 &lsquo;배경 그래픽&rsquo; 체크)</span>
+      <button onClick={() => window.print()} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>⬇️ PDF로 저장 (A4 가로)</button>
     </div>
   );
 }

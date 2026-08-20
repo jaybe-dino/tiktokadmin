@@ -38,18 +38,24 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
   const title = doc.title || `${brand} 마케팅 협업 제안서`;
 
   return (
-    <div style={{ background: "#e9ebef", padding: "16px 12px" }}>
+    <div className="mp-root" style={{ background: "#e9ebef", padding: "16px 12px" }}>
       <style>{`
         .mp-deck { --slide-w: 1000px; }
         .mp-slide { width: 100%; aspect-ratio: 297 / 210; overflow: hidden; position: relative;
-          background:#fff; border-radius:14px; box-shadow:0 6px 22px rgba(15,23,42,.10); }
+          background:#fff; border-radius:14px; box-shadow:0 6px 22px rgba(15,23,42,.10);
+          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         @media print {
+          /* 색상·배경이 '배경 그래픽' 설정 없이도 항상 인쇄되게 */
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           @page { size: A4 landscape; margin: 0; }
-          html, body { background:#fff !important; }
+          html, body { margin:0 !important; padding:0 !important; background:#fff !important; }
           .mp-noprint { display:none !important; }
-          .mp-deck { --slide-w: 297mm; gap: 0 !important; }
+          .mp-root { padding:0 !important; background:#fff !important; }
+          .mp-deck { --slide-w: 297mm; gap: 0 !important; max-width:none !important; margin:0 !important; }
+          /* 슬라이드가 A4 가로 한 페이지에 정확히 — 잘리거나 2페이지로 쪼개지지 않게 */
           .mp-slide { width: 297mm; height: 210mm; aspect-ratio: auto; border-radius: 0; box-shadow: none;
-            page-break-after: always; break-after: page; }
+            overflow: hidden; break-inside: avoid; page-break-inside: avoid; break-after: page; page-break-after: always; }
+          .mp-slide:last-child { break-after: auto; page-break-after: auto; }
         }
       `}</style>
       <div className="mp-deck" style={{ maxWidth: 1000, margin: "0 auto", display: "grid", gap: 16 }}>
