@@ -60,6 +60,29 @@ export default function TpartnersImport() {
     finally { setDiagBusy(false); }
   }
 
+  // 설문 CSV 이관
+  interface SvReport { dryRun: boolean; total: number; matched: { company: string; brand: string; by: string; answers: number }[]; unmatched: { company: string; email: string }[]; errors: { company: string; error: string }[] }
+  const [svFile, setSvFile] = useState<File | null>(null);
+  const [svBusy, setSvBusy] = useState(false);
+  const [svReport, setSvReport] = useState<SvReport | null>(null);
+  const [svMsg, setSvMsg] = useState("");
+
+  async function runSurvey(dryRun: boolean) {
+    if (!svFile) { setSvMsg("CSV 파일을 먼저 선택하세요."); return; }
+    if (!dryRun && !confirm("설문 응답을 각 브랜드에 실제로 저장합니다. 진행할까요?")) return;
+    setSvBusy(true); setSvMsg(""); if (dryRun) setSvReport(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", svFile);
+      const r = await fetch(`/api/admin/import-survey?dry_run=${dryRun ? 1 : 0}`, { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok || !j.ok) { setSvMsg(j.error ?? "실패"); return; }
+      setSvReport(j.report);
+      setSvMsg(dryRun ? "드라이런 완료 — 매칭 확인 후 '실제 이관'." : `설문 이관 완료 — ${j.report.matched.length}건 저장.`);
+    } catch (e) { setSvMsg((e as Error).message); }
+    finally { setSvBusy(false); }
+  }
+
   // Drive 자동 이관(서버가 공개 Drive에서 직접 내려받음)
   const [driveBusy, setDriveBusy] = useState(false);
   const [driveReport, setDriveReport] = useState<Report | null>(null);
@@ -184,6 +207,51 @@ export default function TpartnersImport() {
               파일 매핑이 0건입니다 — 위 1단계 &lsquo;신청행 실제 이관&rsquo;을 <b>한 번 더</b> 실행하면(멱등) 매핑이 생성됩니다. 그 후 2단계 파일 이관을 다시 실행하세요.
             </div>
           )}
+        </div>
+      </div>
+
+      {/* 📋 설문 CSV 이관 — 각 브랜드에 설문 응답 매칭 */}
+      <div className="card" style={{ borderColor: "#10b981" }}>
+        <div className="card-hd"><b>📋 설문 응답 CSV 이관</b><span className="note" style={{ marginLeft: "auto" }}>회사명·이메일로 브랜드 매칭</span></div>
+        <div className="card-bd" style={{ display: "grid", gap: 10 }}>
+          <p className="note" style={{ margin: 0 }}>
+            설문 응답 CSV(첫 열: 회사 · 담당자 · 이메일, 이후 문항)를 올리면 <b>각 응답을 브랜드에 매칭</b>해 저장합니다.
+            먼저 <b>드라이런</b>으로 매칭 결과를 확인하세요. 저장 후 브랜드360 &gt; 설문 탭에서 열람됩니다.
+          </p>
+          <input type="file" accept=".csv,text/csv" disabled={svBusy} onChange={(e) => { setSvFile(e.target.files?.[0] ?? null); setSvReport(null); }} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="btn btn-sm" disabled={svBusy || !svFile} onClick={() => runSurvey(true)}>{svBusy ? "처리 중…" : "🔍 드라이런(미리보기)"}</button>
+            <button className="btn btn-sm pri" disabled={svBusy || !svFile || !svReport} onClick={() => runSurvey(false)}>✅ 설문 실제 이관</button>
+            {svMsg && <span className="note" style={{ alignSelf: "center" }}>{svMsg}</span>}
+          </div>
+          {svReport ? (
+            <div style={{ display: "grid", gap: 6, fontSize: 12.5 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span className="chip">응답 {svReport.total}</span>
+                <span className="chip grn">매칭 {svReport.matched.length}</span>
+                <span className={svReport.unmatched.length ? "chip amb" : "chip"}>미매칭 {svReport.unmatched.length}</span>
+                {svReport.errors.length > 0 ? <span className="chip red">오류 {svReport.errors.length}</span> : null}
+                <span className="note">{svReport.dryRun ? "미리보기(쓰기 없음)" : "실제 반영됨"}</span>
+              </div>
+              {svReport.unmatched.length > 0 ? (
+                <details>
+                  <summary style={{ cursor: "pointer", color: "var(--bad)", fontSize: 12 }}>미매칭 {svReport.unmatched.length}건 (브랜드 원장에 없거나 회사명·이메일 불일치)</summary>
+                  <div style={{ fontSize: 11.5, marginTop: 4 }}>
+                    {svReport.unmatched.map((u, i) => (
+                      <div key={i}>{u.company || "(회사명 없음)"} · {u.email || "-"}</div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+              {svReport.errors.length > 0 ? (
+                <div style={{ color: "var(--bad)" }}>
+                  {svReport.errors.map((er, i) => (
+                    <div key={i}>{er.company} — {er.error}</div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
