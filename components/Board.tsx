@@ -214,7 +214,8 @@ export default function Board({
                       onDragStart={() => setDragId(c.id)}
                       onClick={() => setSelectedId(c.id)}
                       className="kcard"
-                      style={c.has_breach ? { borderColor: "#fca5a5" } : undefined}
+                      style={c.has_breach ? { borderColor: "#fca5a5", background: "#fff5f5" } : undefined}
+                      title={c.has_breach ? "SLA 초과 · 정체 카드" : undefined}
                     >
                       <div className="nm" style={{ display: "flex", alignItems: "center", gap: 4 }}>
                         {c.grade && <span className={`gr ${c.grade}`}>{c.grade}</span>}
@@ -255,7 +256,7 @@ export default function Board({
                           </>
                         )}
                         {c.has_breach ? (
-                          <span className="sla t2">{p != null && age.days > p ? `+${age.days - p}일` : "SLA 초과"}</span>
+                          <span className="sla t2">{p != null && age.days > p ? `정체 +${age.days - p}일` : "SLA 초과"}</span>
                         ) : p != null ? (
                           <span className={`sla ${age.days >= p - 1 ? "t1" : "ok"}`}>D{age.days}</span>
                         ) : null}
@@ -264,6 +265,11 @@ export default function Board({
                     </div>
                   );
                 })}
+                {list.length === 0 && (
+                  <div style={{ padding: "16px 8px", textAlign: "center", color: "var(--ink3)", fontSize: 11.5, lineHeight: 1.5 }}>
+                    {over ? "여기로 이동" : "이 단계에 카드가 없습니다"}
+                  </div>
+                )}
               </div>
             </div>
           );
