@@ -885,7 +885,7 @@ function Proposals({
         </div>
       </div>
 
-      {editRow && <ProposalEditModal p={editRow} onClose={() => setEditRow(null)} />}
+      {editRow && <ProposalEditModal p={editRow} brands={localBrands} onClose={() => setEditRow(null)} />}
     </div>
   );
 }

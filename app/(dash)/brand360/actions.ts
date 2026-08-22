@@ -516,6 +516,41 @@ export async function upsertCertFullAction(brandId: string, input: {
   return { ok: true };
 }
 
+// ── 회사소개서/제품소개서(intro_deck) — 회사정보 탭 첨부(BUG-16) ──
+//   원본 복제 없이 external_url 링크 참조로 저장(assets, kind='intro_deck').
+export async function addBrandIntroDeckAction(
+  brandId: string, filename: string, url: string,
+): Promise<{ ok: boolean; error?: string; id?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!UUID_RE.test(brandId)) return { ok: false, error: "잘못된 브랜드 ID" };
+  const name = (filename ?? "").trim();
+  const link = (url ?? "").trim();
+  if (!link) return { ok: false, error: "소개서 링크(드라이브/노션 등)를 입력하세요." };
+  if (!/^https?:\/\//i.test(link)) return { ok: false, error: "http(s) 로 시작하는 링크를 입력하세요." };
+  try {
+    const row = await queryOne<{ id: string }>(
+      `INSERT INTO assets (brand_id, kind, filename, external_url, source, uploaded_by)
+       VALUES ($1,'intro_deck',$2,$3,'admin',$4) RETURNING id`,
+      [brandId, name || "회사·제품 소개서", link, `admin:${u.id}`],
+    );
+    revalidatePath(`/brand/${brandId}`);
+    return { ok: true, id: row?.id };
+  } catch { return { ok: false, error: "소개서 저장 실패 — 잠시 후 다시 시도하세요." }; }
+}
+
+export async function removeBrandIntroDeckAction(
+  assetId: string, brandId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!UUID_RE.test(assetId) || !UUID_RE.test(brandId)) return { ok: false, error: "잘못된 요청" };
+  // kind 제한으로 다른 자산 오삭제 방지.
+  await query("DELETE FROM assets WHERE id=$1 AND brand_id=$2 AND kind='intro_deck'", [assetId, brandId]).catch(() => {});
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 /** 물류 계약 등록(전체 필드) — 시작일·계약서/서류 링크(note) 포함. */
 export async function upsertLogisticsFullAction(input: {
   brand_id: string; country: string; provider?: string; status?: string;

@@ -6,7 +6,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { saveCompanyAction, setCountriesAction, updateBrandAction } from "@/app/actions";
-import { deepAnalysisAction } from "@/app/(dash)/brand360/actions";
+import { deepAnalysisAction, addBrandIntroDeckAction, removeBrandIntroDeckAction } from "@/app/(dash)/brand360/actions";
 import type { Brand } from "@/lib/types";
 import type { Asset, BrandCompany } from "@/lib/repo/card";
 import { kstDateTime } from "@/lib/time";
@@ -47,6 +47,36 @@ export default function Brand360Company({ brand, company, assets, categories = [
   const bankAsset = assets.find((a) => a.kind === "bank_cert");
   const brandAssets = assets.filter((a) => a.kind === "logo" || a.kind === "brand_guide");
   const canAnalyze = Boolean(bv.biz_no) || Boolean(bv.brand_url);
+
+  // 회사소개서/제품소개서(intro_deck) — 추가/삭제 즉시 반영(낙관적).
+  const [decks, setDecks] = useState<Asset[]>(assets.filter((a) => a.kind === "intro_deck"));
+  const [deckName, setDeckName] = useState("");
+  const [deckUrl, setDeckUrl] = useState("");
+  function addDeck() {
+    const url = deckUrl.trim();
+    if (!url) { setMsg("소개서 링크를 입력하세요."); return; }
+    start(async () => {
+      const r = await addBrandIntroDeckAction(bv.id, deckName.trim(), url);
+      if (!r.ok) { setMsg(r.error ?? "저장 실패"); return; }
+      setDecks((d) => [{
+        id: r.id ?? `tmp-${Date.now()}`, brand_id: bv.id, kind: "intro_deck",
+        filename: deckName.trim() || "회사·제품 소개서", mime: null, size_bytes: null,
+        storage_url: null, external_url: url, source: "admin", source_ref: null,
+        uploaded_by: null, retention_until: null, created_at: new Date().toISOString(),
+      }, ...d]);
+      setDeckName(""); setDeckUrl(""); setMsg("소개서를 추가했습니다.");
+      router.refresh();
+    });
+  }
+  function removeDeck(id: string) {
+    if (!confirm("이 소개서 링크를 삭제할까요?")) return;
+    start(async () => {
+      const r = await removeBrandIntroDeckAction(id, bv.id);
+      if (!r.ok) { setMsg(r.error ?? "삭제 실패"); return; }
+      setDecks((d) => d.filter((x) => x.id !== id));
+      router.refresh();
+    });
+  }
 
   return (
     <div>
@@ -368,6 +398,31 @@ export default function Brand360Company({ brand, company, assets, categories = [
                 <div className="ss">{brandAssets.length ? brandAssets.map((a) => a.filename).join(" · ") : "미등록"} — 자산 저장소</div>
               </div>
               <div className="rt"><Link className="btn sm" href="/assets">열기</Link></div>
+            </div>
+            <hr className="hr" />
+            {/* 회사소개서/제품소개서(BUG-16) — 드라이브·노션 등 링크 첨부 */}
+            <div className="row" style={{ padding: "6px 0", alignItems: "flex-start" }}>
+              <span className="ico" style={{ background: "#fef3c7" }}>📘</span>
+              <div style={{ flex: 1 }}>
+                <div className="tt">회사소개서 · 제품소개서</div>
+                {decks.length ? (
+                  <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
+                    {decks.map((d) => (
+                      <div key={d.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5 }}>
+                        <a href={d.external_url ?? d.storage_url ?? "#"} target="_blank" rel="noreferrer" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {d.filename}</a>
+                        <button className="btn sm" onClick={() => removeDeck(d.id)} style={{ color: "#e03131" }}>삭제</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="ss">미등록 — 소개서(드라이브·노션 등) 링크를 추가하세요</div>
+                )}
+                <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                  <input className="f" style={{ flex: "1 1 120px", minWidth: 0 }} placeholder="이름(선택)" value={deckName} onChange={(e) => setDeckName(e.target.value)} />
+                  <input className="f" style={{ flex: "2 1 200px", minWidth: 0 }} placeholder="https:// 소개서 링크" value={deckUrl} onChange={(e) => setDeckUrl(e.target.value)} />
+                  <button className="btn sm pri" disabled={pending || !deckUrl.trim()} onClick={addDeck}>추가</button>
+                </div>
+              </div>
             </div>
             <div className="note" style={{ marginTop: 8 }}>여기 정보가 카드 상단 헤더(카테고리·URL·사업자번호)와 제안서·계약서·정산의 원천이 됩니다</div>
           </div>
