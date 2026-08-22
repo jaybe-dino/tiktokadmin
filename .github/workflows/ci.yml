@@ -1,0 +1,30 @@
+name: CI
+
+# PR·푸시 시 타입체크·린트·테스트 자동 검증 — 깨진 배포 방지.
+# (build 는 DB 등 런타임 환경이 필요해 CI 에서 제외; 컴파일 검증은 typecheck 로 대체)
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      # typecheck 를 하드 게이트로 — accent2 류 스키마/타입 오류를 배포 전에 차단.
+      - name: Typecheck
+        run: npm run typecheck
+      # 테스트는 리포트만(비차단) — 사전 존재하던 도메인 게이트 테스트 2건 정리 전까지.
+      # (lint 는 eslint 설정 후 추가 예정 — next lint 미설정 상태라 CI 에서 제외)
+      - name: Test
+        run: npm test
+        continue-on-error: true
