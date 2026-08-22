@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { env } from "@/lib/env";
 import { currentUser } from "@/lib/auth";
-import { importApplications, parseDumpRows, storeImportFile } from "@/lib/tpartners-import";
+import { importApplications, parseDumpRows, storeImportFile, importDiagnostics, relinkImportFiles } from "@/lib/tpartners-import";
 import manifest from "@/data/tpartners-drive-manifest.json";
 
 // apply.tpartners.live 자동 이관 — 서버가 공개 Drive 폴더에서 직접 내려받아 이관.
@@ -62,6 +62,18 @@ export async function POST(req: NextRequest) {
   const mode = sp.get("mode") ?? "rows";
   const dryRun = sp.get("dry_run") === "1" || sp.get("dry_run") === "true";
 
+  // ── 진단: 이관 상태 요약 ──
+  if (mode === "diag") {
+    try { return NextResponse.json({ ok: true, diag: await importDiagnostics() }); }
+    catch (e) { return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 }); }
+  }
+
+  // ── 복구: 저장된 파일을 brand_company URL 에 재연결(재다운로드 없이) ──
+  if (mode === "relink") {
+    try { return NextResponse.json({ ok: true, relink: await relinkImportFiles() }); }
+    catch (e) { return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 }); }
+  }
+
   // ── 신청행 이관 ──
   if (mode === "rows") {
     try {
@@ -106,7 +118,7 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ error: "mode 는 rows 또는 files" }, { status: 400 });
+  return NextResponse.json({ error: "mode 는 rows · files · diag · relink" }, { status: 400 });
 }
 
 // 진행 상황·매니페스트 요약(GET) — UI 초기 표시용.

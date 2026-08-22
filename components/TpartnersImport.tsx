@@ -30,6 +30,36 @@ export default function TpartnersImport() {
   const [prog, setProg] = useState({ total: 0, done: 0, matched: 0, skipped: 0, failed: 0 });
   const [failList, setFailList] = useState<string[]>([]);
 
+  // 진단·복구
+  interface Diag { apps: number; mappings: number; stored: number; mappingsWithFile: number; mappingsMissingFile: number; storedNoMapping: number; urlLinked: number; missingUrlColumns: string[] }
+  const [diag, setDiag] = useState<Diag | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const [diagMsg, setDiagMsg] = useState("");
+
+  async function runDiag() {
+    setDiagBusy(true); setDiagMsg("");
+    try {
+      const r = await fetch(`/api/admin/import-drive?mode=diag`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.ok) { setDiagMsg(j.error ?? "진단 실패"); return; }
+      setDiag(j.diag); setDiagMsg("진단 완료");
+    } catch (e) { setDiagMsg((e as Error).message); }
+    finally { setDiagBusy(false); }
+  }
+  async function runRelink() {
+    if (!confirm("저장된 파일을 브랜드 서류 URL에 다시 연결합니다(재다운로드 없음). 진행할까요?")) return;
+    setDiagBusy(true); setDiagMsg("");
+    try {
+      const r = await fetch(`/api/admin/import-drive?mode=relink`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.ok) { setDiagMsg(j.error ?? "복구 실패"); return; }
+      const rl = j.relink as { relinked: number; skippedNoColumn: number; missingColumns: string[] };
+      setDiagMsg(`재연결 ${rl.relinked}건${rl.skippedNoColumn ? ` · 컬럼없음 스킵 ${rl.skippedNoColumn}(${rl.missingColumns.join(",")})` : ""}. 브랜드 카드에서 확인하세요.`);
+      await runDiag();
+    } catch (e) { setDiagMsg((e as Error).message); }
+    finally { setDiagBusy(false); }
+  }
+
   // Drive 자동 이관(서버가 공개 Drive에서 직접 내려받음)
   const [driveBusy, setDriveBusy] = useState(false);
   const [driveReport, setDriveReport] = useState<Report | null>(null);
@@ -121,6 +151,42 @@ export default function TpartnersImport() {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
+      {/* 🩺 진단·복구 — 이관했는데 파일이 안 보일 때 */}
+      <div className="card" style={{ borderColor: "#f59e0b" }}>
+        <div className="card-hd"><b>🩺 이관 진단 · 복구</b><span className="note" style={{ marginLeft: "auto" }}>이관했는데 파일이 안 보이면 여기</span></div>
+        <div className="card-bd" style={{ display: "grid", gap: 10 }}>
+          <p className="note" style={{ margin: 0 }}>
+            <b>진단</b>: 신청·매핑·저장 파일 수와 브랜드 서류 URL 연결 상태를 확인합니다.
+            <b> 복구</b>: 이미 저장된 파일을 브랜드 카드(회사정보·온보딩·KYC)에 <b>재다운로드 없이 다시 연결</b>합니다.
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="btn btn-sm" disabled={diagBusy} onClick={runDiag}>{diagBusy ? "확인 중…" : "🔍 이관 상태 진단"}</button>
+            <button className="btn btn-sm pri" disabled={diagBusy} onClick={runRelink}>🔗 파일 브랜드에 재연결(복구)</button>
+            {diagMsg && <span className="note" style={{ alignSelf: "center" }}>{diagMsg}</span>}
+          </div>
+          {diag && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 12.5 }}>
+              <span className="chip">신청 {diag.apps}</span>
+              <span className="chip">파일매핑 {diag.mappings}</span>
+              <span className="chip grn">저장파일 {diag.stored}</span>
+              <span className={`chip ${diag.mappingsMissingFile > 0 ? "amb" : ""}`}>매핑O·파일X {diag.mappingsMissingFile}</span>
+              {diag.storedNoMapping > 0 && <span className="chip red">파일O·매핑X {diag.storedNoMapping}</span>}
+              {diag.missingUrlColumns.length > 0 && <span className="chip red">누락컬럼 {diag.missingUrlColumns.length}(마이그레이션 필요)</span>}
+            </div>
+          )}
+          {diag && diag.missingUrlColumns.length > 0 && (
+            <div className="note" style={{ color: "var(--bad)", fontSize: 11.5 }}>
+              brand_company 에 없는 서류 URL 컬럼: {diag.missingUrlColumns.join(", ")} — 설정 &gt; DB 마이그레이션에서 &lsquo;지금 적용&rsquo; 후 다시 복구하세요.
+            </div>
+          )}
+          {diag && diag.mappings === 0 && diag.apps > 0 && (
+            <div className="note" style={{ color: "var(--bad)", fontSize: 11.5 }}>
+              파일 매핑이 0건입니다 — 위 1단계 &lsquo;신청행 실제 이관&rsquo;을 <b>한 번 더</b> 실행하면(멱등) 매핑이 생성됩니다. 그 후 2단계 파일 이관을 다시 실행하세요.
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* ⭐ Drive 자동 이관 — 권장(파일 업로드 불필요) */}
       <div className="card" style={{ borderColor: "var(--acc, #2563eb)" }}>
         <div className="card-hd"><b>⭐ Drive 자동 이관 (권장 · 업로드 불필요)</b></div>

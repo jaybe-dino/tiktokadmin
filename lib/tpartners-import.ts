@@ -156,7 +156,7 @@ export async function importApplications(apps: Row[], opts: { dryRun: boolean })
     try {
       // 이미 이관됨?
       const prior = await queryOne<{ brand_id: string }>("SELECT brand_id FROM tp_import_apps WHERE ext_app_id=$1", [extId]).catch(() => null);
-      if (prior) { report.skipped.push({ ext_app_id: extId, brand: name, reason: "이미 이관됨(멱등)" }); recordFiles(app, prior.brand_id, opts.dryRun, report); continue; }
+      if (prior) { report.skipped.push({ ext_app_id: extId, brand: name, reason: "이미 이관됨(멱등)" }); await recordFiles(app, prior.brand_id, opts.dryRun, report); continue; }
 
       // 기존 브랜드 매칭: 사업자번호 → 이메일 순.
       const biz = digits(app.company_reg_number);
@@ -220,7 +220,7 @@ export async function importApplications(apps: Row[], opts: { dryRun: boolean })
       }
 
       // 파일 매핑 기록.
-      recordFiles(app, brandId, false, report);
+      await recordFiles(app, brandId, false, report);
 
       await query("INSERT INTO tp_import_apps (ext_app_id, brand_id, merged) VALUES ($1,$2,$3) ON CONFLICT (ext_app_id) DO NOTHING",
         [extId, brandId, Boolean(matchBy)]);
@@ -284,6 +284,61 @@ export async function storeImportFile(input: { filename: string; mime: string; b
     }
   }
   return { ok: true, matched: true, brand_id: map.brand_id, doc_field: map.doc_field };
+}
+
+// ── 진단: 이관 상태 요약(읽기 전용) ──
+export interface ImportDiagnostics {
+  apps: number;              // 이관된 신청(tp_import_apps)
+  mappings: number;          // 파일→브랜드 매핑(tp_import_files)
+  stored: number;            // 실제 저장된 파일 바이트(import_files)
+  mappingsWithFile: number;  // 매핑 중 바이트가 저장된 것
+  mappingsMissingFile: number; // 매핑은 있으나 파일 미저장(재다운로드 필요)
+  storedNoMapping: number;   // 바이트는 있으나 매핑 없음(비정상)
+  urlLinked: number;         // brand_company 서류 URL 이 설정된 파일 수
+  missingUrlColumns: string[]; // brand_company 에 없는 URL 컬럼(마이그레이션 필요)
+}
+
+const URL_COLS = Array.from(new Set(FILE_FIELDS.map((f) => f.urlCol)));
+
+export async function importDiagnostics(): Promise<ImportDiagnostics> {
+  const one = async (sql: string) => Number((await queryOne<{ n: number }>(sql).catch(() => null))?.n ?? 0);
+  const apps = await one("SELECT count(*)::int n FROM tp_import_apps");
+  const mappings = await one("SELECT count(*)::int n FROM tp_import_files");
+  const stored = await one("SELECT count(*)::int n FROM import_files");
+  const mappingsWithFile = await one(
+    "SELECT count(*)::int n FROM tp_import_files m JOIN import_files f ON f.brand_id=m.brand_id AND f.filename=m.filename");
+  const mappingsMissingFile = Math.max(0, mappings - mappingsWithFile);
+  const storedNoMapping = await one(
+    "SELECT count(*)::int n FROM import_files f LEFT JOIN tp_import_files m ON m.brand_id=f.brand_id AND m.filename=f.filename WHERE m.filename IS NULL");
+  const urlLinked = await one(
+    "SELECT count(*)::int n FROM import_files WHERE id::text <> ''"); // 저장된 파일 수(참고)
+  const cols = await tableColumns("brand_company");
+  const missingUrlColumns = URL_COLS.filter((c) => !cols.has(c));
+  return { apps, mappings, stored, mappingsWithFile, mappingsMissingFile, storedNoMapping, urlLinked, missingUrlColumns };
+}
+
+// ── 복구: 이미 저장된 파일(import_files)을 brand_company URL 컬럼에 다시 연결 ──
+//   (파일 재다운로드 없이, 저장된 바이트를 브랜드 카드에 노출되도록 링크만 재설정)
+export interface RelinkResult { relinked: number; skippedNoColumn: number; missingColumns: string[] }
+
+export async function relinkImportFiles(): Promise<RelinkResult> {
+  const cols = await tableColumns("brand_company");
+  const rows = await query<{ id: string; brand_id: string; doc_field: string }>(
+    "SELECT id, brand_id, doc_field FROM import_files WHERE brand_id IS NOT NULL",
+  ).catch(() => [] as { id: string; brand_id: string; doc_field: string }[]);
+  let relinked = 0, skippedNoColumn = 0;
+  const missing = new Set<string>();
+  for (const r of rows) {
+    const col = r.doc_field;
+    if (!/^[a-z_]+_url$/.test(col)) { continue; }
+    if (!cols.has(col)) { skippedNoColumn++; missing.add(col); continue; }
+    await query(
+      `INSERT INTO brand_company (brand_id, ${col}) VALUES ($1,$2)
+       ON CONFLICT (brand_id) DO UPDATE SET ${col}=EXCLUDED.${col}`,
+      [r.brand_id, `/api/brand/import-file/${r.id}`],
+    ).then(() => { relinked++; }).catch(() => { /* 컬럼/제약 문제 시 스킵 */ });
+  }
+  return { relinked, skippedNoColumn, missingColumns: Array.from(missing) };
 }
 
 export async function getImportFile(id: string): Promise<{ bytes: Buffer; mime: string | null; filename: string } | null> {
