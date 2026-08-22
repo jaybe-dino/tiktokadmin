@@ -11,6 +11,7 @@ import {
 } from "@/app/actions";
 import { FORWARD_TRANSITIONS } from "@/lib/states";
 import { STATE_LABELS, type Brand, type OwnerField, type State } from "@/lib/types";
+import CopyButton from "@/components/CopyButton";
 
 type AdminUser = { id: string; name: string; role: string };
 
@@ -107,6 +108,24 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
         </button>
         <button className="btn pri" disabled={pending} onClick={() => setOpen(open === "move" ? null : "move")}>상태 이동</button>
       </div>
+
+      {/* 연락처 퀵 액션 — 복사 + 메일/전화 바로 열기 */}
+      {(brand.email || brand.phone) && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          {brand.email && (
+            <>
+              <a className="btn sm" href={`mailto:${brand.email}`} title={`메일: ${brand.email}`}>✉️ {brand.email}</a>
+              <CopyButton text={brand.email} label="복사" small />
+            </>
+          )}
+          {brand.phone && (
+            <>
+              <a className="btn sm" href={`tel:${brand.phone}`} title={`전화: ${brand.phone}`}>📞 {brand.phone}</a>
+              <CopyButton text={brand.phone} label="복사" small />
+            </>
+          )}
+        </div>
+      )}
 
       {msg && (
         <span className={`chip ${msg.bad ? "red" : "grn"}`} style={{ fontSize: 11 }}>{msg.t}</span>

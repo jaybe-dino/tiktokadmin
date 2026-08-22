@@ -4,11 +4,26 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge } from "@/components/badges";
-import { SOURCE_LABELS } from "@/lib/types";
-import { deleteBrandsAction, dropBrandsAction, assignBrandOwnerAction } from "@/app/actions";
-import type { OwnerField } from "@/lib/types";
+import { SOURCE_LABELS, STATE_LABELS, STATES } from "@/lib/types";
+import { deleteBrandsAction, dropBrandsAction, assignBrandOwnerAction, transitionAction } from "@/app/actions";
+import type { OwnerField, State } from "@/lib/types";
+import CopyButton from "@/components/CopyButton";
 
 type Row = Record<string, unknown>;
+
+// 중복 후보 탐지(현재 페이지 내) — 이메일/전화/사업자번호 정규화 키가 겹치면 표시.
+function norm(v: unknown): string { return String(v ?? "").toLowerCase().replace(/[\s\-().]/g, "").trim(); }
+function dupKeys(rows: Row[]): Set<string> {
+  const seen = new Map<string, number>();
+  for (const r of rows) {
+    for (const k of [norm(r.email), norm(r.phone), norm(r.biz_no)]) {
+      if (k.length >= 5) seen.set(k, (seen.get(k) ?? 0) + 1);
+    }
+  }
+  const dup = new Set<string>();
+  for (const [k, n] of seen) if (n > 1) dup.add(k);
+  return dup;
+}
 
 // 일괄 배정 가능한 담당 역할.
 const ASSIGN_ROLES: { value: OwnerField; label: string }[] = [
@@ -58,6 +73,10 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
   // 일괄 배정 진행률(브랜드별 순차 처리) — {done, total} 표시.
   const [assigning, setAssigning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [moveState, setMoveState] = useState<State | "">("");
+
+  const dupSet = dupKeys(rows);
+  const isDup = (b: Row) => [norm(b.email), norm(b.phone), norm(b.biz_no)].some((k) => k.length >= 5 && dupSet.has(k));
 
   const ids = rows.map((r) => String(r.id));
   const allChecked = ids.length > 0 && ids.every((id) => sel.has(id));
@@ -107,6 +126,26 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
     setSel(new Set());
     router.refresh();
   };
+  // 일괄 단계 이동 — 게이트는 브랜드별로 그대로 적용(force 없음). 통과분만 이동, 실패는 집계.
+  const doMove = async () => {
+    if (sel.size === 0 || assigning || !moveState) return;
+    const label = STATE_LABELS[moveState as State] ?? moveState;
+    if (!confirm(`선택한 ${sel.size}개를 "${label}" 단계로 이동할까요? (단계 전환 조건을 통과한 건만 이동)`)) return;
+    const idList = [...sel];
+    setMsg(""); setAssigning(true); setProgress({ done: 0, total: idList.length });
+    let moved = 0, blocked = 0, failed = 0;
+    for (let i = 0; i < idList.length; i++) {
+      try {
+        const r = await transitionAction(idList[i], moveState as State);
+        if (r.ok) moved++; else blocked++;
+      } catch { failed++; }
+      setProgress({ done: i + 1, total: idList.length });
+    }
+    setAssigning(false); setProgress(null);
+    setMsg(`${moved}건 "${label}"로 이동${blocked ? ` · ${blocked}건 조건 미충족(스킵)` : ""}${failed ? ` · ${failed}건 실패` : ""}`);
+    setSel(new Set());
+    router.refresh();
+  };
 
   return (
     <div className="card" style={{ overflowX: "auto" }}>
@@ -127,6 +166,14 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
             </select>
             <button className="btn btn-sm btn-primary" disabled={pending || assigning || sel.size === 0 || !assignUser} onClick={doAssign} title="선택 브랜드에 담당자 일괄 배정">
               {assigning && progress ? `배정 중 ${progress.done}/${progress.total}` : `담당 배정${sel.size ? ` (${sel.size})` : ""}`}
+            </button>
+            {/* 일괄 단계 이동 — 게이트 통과분만 이동 */}
+            <select className="f" style={{ width: 130, padding: "3px 6px", fontSize: 12 }} value={moveState} onChange={(e) => setMoveState(e.target.value as State | "")} title="이동할 단계">
+              <option value="">단계 이동…</option>
+              {STATES.map((s) => <option key={s} value={s}>{STATE_LABELS[s]}</option>)}
+            </select>
+            <button className="btn btn-sm" disabled={pending || assigning || sel.size === 0 || !moveState} onClick={doMove} title="선택 브랜드를 선택 단계로 일괄 이동(조건 통과분만)">
+              단계 이동{sel.size ? ` (${sel.size})` : ""}
             </button>
           </div>
 
@@ -191,7 +238,13 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
               <tr key={id} style={{ background: checked ? "rgba(37,99,235,.08)" : breach ? "rgba(254,226,226,.35)" : undefined }}>
                 {canEdit && <td><input type="checkbox" checked={checked} onChange={() => toggle(id)} /></td>}
                 <td>
-                  <Link href={`/brand/${id}`} style={{ fontWeight: 700, color: "inherit" }}>{b.brand_name as string}</Link>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Link href={`/brand/${id}`} style={{ fontWeight: 700, color: "inherit" }}>{b.brand_name as string}</Link>
+                    {isDup(b) && (
+                      <Link href="/duplicates" title="이메일·전화·사업자번호가 겹치는 브랜드가 있습니다" className="chip chip-amb" style={{ fontSize: 10 }}>중복?</Link>
+                    )}
+                    {b.email ? <CopyButton text={String(b.email)} label="이메일" small title={`이메일 복사: ${b.email}`} /> : null}
+                  </div>
                   {sub && <span className="sub">{sub}</span>}
                 </td>
                 <td><StateBadge state={b.state as never} /></td>
