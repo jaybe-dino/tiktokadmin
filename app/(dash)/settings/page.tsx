@@ -21,6 +21,8 @@ import { mcpRoleAllowed, mcpTokenStatus } from "@/lib/mcp-auth";
 import McpConnect from "@/components/McpConnect";
 import { listBrandCategories } from "@/lib/brand-categories";
 import BrandCategoryConfig from "@/components/BrandCategoryConfig";
+import MigrationStatusCard from "@/components/MigrationStatusCard";
+import { getMigrationState } from "@/lib/migrate";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,8 @@ export default async function SettingsPage() {
   const mcpStatus = mcpAllowed ? await mcpTokenStatus(user.id).catch(() => ({ set: false, hint: null, at: null })) : null;
   const mcpEndpoint = `${env.adminUrl.replace(/\/$/, "")}/api/mcp`;
   const brandCategories = await listBrandCategories().catch(() => []);
+  // DB 마이그레이션 상태 — 대표만(DDL). 실패 시 카드가 새로고침으로 재시도.
+  const migrationState = user.role === "exec" ? await getMigrationState().catch(() => null) : null;
   const welcomeSourceOpts = intakeSources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label }));
   const templates = await listTemplates();
 
@@ -238,6 +242,9 @@ export default async function SettingsPage() {
 
         {/* 우측 컬럼 */}
         <div className="grid gap-3.5 content-start">
+          {/* DB 마이그레이션 상태 — 대표만 */}
+          {user.role === "exec" && <MigrationStatusCard initial={migrationState} />}
+
           {/* 단계별 필수항목 */}
           <div className="card">
             <div className="card-hd">
