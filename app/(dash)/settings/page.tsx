@@ -23,6 +23,7 @@ import { listBrandCategories } from "@/lib/brand-categories";
 import BrandCategoryConfig from "@/components/BrandCategoryConfig";
 import MigrationStatusCard from "@/components/MigrationStatusCard";
 import { getMigrationState } from "@/lib/migrate";
+import IntegrityCard from "@/components/IntegrityCard";
 
 export const dynamic = "force-dynamic";
 
@@ -244,6 +245,9 @@ export default async function SettingsPage() {
         <div className="grid gap-3.5 content-start">
           {/* DB 마이그레이션 상태 — 대표만 */}
           {user.role === "exec" && <MigrationStatusCard initial={migrationState} />}
+
+          {/* 데이터 정합성 점검 — 파트장·대표 */}
+          {canEdit && <IntegrityCard />}
 
           {/* 단계별 필수항목 */}
           <div className="card">
