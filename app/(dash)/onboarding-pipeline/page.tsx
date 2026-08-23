@@ -1,6 +1,8 @@
 import { onboardingPipeline, ONB_STAGES } from "@/lib/onboarding-pipeline";
 import { adminUserList } from "@/lib/repo/queries";
 import OnbBoard from "@/components/OnbBoard";
+import OnbTable from "@/components/OnbTable";
+import PipelineViewShell from "@/components/PipelineViewShell";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,7 @@ export default async function OnboardingPipelinePage() {
     adminUserList().catch(() => []),
   ]);
   const ownerNames = Object.fromEntries(admins.map((a) => [a.id, a.name]));
+  const owners = admins.filter((a) => a.name).map((a) => ({ id: a.id, name: a.name }));
 
   return (
     <div>
@@ -25,7 +28,11 @@ export default async function OnboardingPipelinePage() {
           온보딩 데이터를 불러오지 못했습니다 — 온보딩 마이그레이션(0036~0038) 적용이 필요할 수 있습니다.
         </div>
       ) : (
-        <OnbBoard stages={ONB_STAGES} groups={groups} ownerNames={ownerNames} />
+        <PipelineViewShell
+          storageKey="onb-pipeline-view"
+          board={<OnbBoard stages={ONB_STAGES} groups={groups} ownerNames={ownerNames} />}
+          table={<OnbTable stages={ONB_STAGES} groups={groups} owners={owners} />}
+        />
       )}
 
       <div className="note" style={{ marginTop: 8 }}>
