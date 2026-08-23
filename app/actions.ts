@@ -282,6 +282,30 @@ const EDITABLE_FIELDS = [
   "contact_name", "category", "brand_url", "memo", "next_action", "due_date",
 ] as const;
 
+// 일괄 편집용 — 등급/플랜만 안전하게 변경(값 화이트리스트: lib/types).
+export async function setBrandMetaAction(
+  brandId: string, patch: { grade?: string; plan?: string },
+): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { GRADES, PLANS } = await import("@/lib/types");
+  const okGrade = new Set<string>([...GRADES, ""]);
+  const okPlan = new Set<string>([...PLANS, ""]);
+  const { query } = await import("@/lib/db");
+  const sets: string[] = [];
+  const vals: unknown[] = [brandId];
+  if (patch.grade !== undefined && okGrade.has(patch.grade)) { vals.push(patch.grade || null); sets.push(`grade = $${vals.length}`); }
+  if (patch.plan !== undefined && okPlan.has(patch.plan)) { vals.push(patch.plan || null); sets.push(`plan = $${vals.length}`); }
+  if (sets.length === 0) return { ok: true };
+  try {
+    await query(`UPDATE brands SET ${sets.join(", ")}, updated_at=now() WHERE id=$1`, vals);
+  } catch (err) { return { ok: false, error: (err as Error).message }; }
+  revalidatePath("/");
+  revalidatePath("/customers");
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 export async function updateBrandAction(
   brandId: string,
   fields: Partial<Record<(typeof EDITABLE_FIELDS)[number], string>>,

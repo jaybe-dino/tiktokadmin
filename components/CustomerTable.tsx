@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge } from "@/components/badges";
 import { SOURCE_LABELS, STATE_LABELS, STATES } from "@/lib/types";
-import { deleteBrandsAction, dropBrandsAction, assignBrandOwnerAction, transitionAction } from "@/app/actions";
+import { deleteBrandsAction, dropBrandsAction, assignBrandOwnerAction, transitionAction, setBrandMetaAction } from "@/app/actions";
+import { GRADES, PLANS, PLAN_LABELS } from "@/lib/types";
 import type { OwnerField, State } from "@/lib/types";
 import CopyButton from "@/components/CopyButton";
 
@@ -74,6 +75,8 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
   const [assigning, setAssigning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [moveState, setMoveState] = useState<State | "">("");
+  const [bulkGrade, setBulkGrade] = useState("");
+  const [bulkPlan, setBulkPlan] = useState("");
 
   const dupSet = dupKeys(rows);
   const isDup = (b: Row) => [norm(b.email), norm(b.phone), norm(b.biz_no)].some((k) => k.length >= 5 && dupSet.has(k));
@@ -146,6 +149,20 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
     setSel(new Set());
     router.refresh();
   };
+  // 일괄 등급/플랜 변경.
+  const doMeta = async (patch: { grade?: string; plan?: string }, label: string) => {
+    if (sel.size === 0 || assigning) return;
+    const idList = [...sel];
+    setMsg(""); setAssigning(true); setProgress({ done: 0, total: idList.length });
+    let ok = 0, fail = 0;
+    for (let i = 0; i < idList.length; i++) {
+      try { const r = await setBrandMetaAction(idList[i], patch); r.ok ? ok++ : fail++; } catch { fail++; }
+      setProgress({ done: i + 1, total: idList.length });
+    }
+    setAssigning(false); setProgress(null);
+    setMsg(`${ok}건 ${label} 변경${fail ? ` · ${fail}건 실패` : ""}`);
+    setSel(new Set()); router.refresh();
+  };
 
   return (
     <div className="card" style={{ overflowX: "auto" }}>
@@ -175,6 +192,17 @@ export default function CustomerTable({ rows, canEdit, ownerNames = {}, owners =
             <button className="btn btn-sm" disabled={pending || assigning || sel.size === 0 || !moveState} onClick={doMove} title="선택 브랜드를 선택 단계로 일괄 이동(조건 통과분만)">
               단계 이동{sel.size ? ` (${sel.size})` : ""}
             </button>
+            {/* 일괄 등급/플랜 */}
+            <select className="f" style={{ width: 96, padding: "3px 6px", fontSize: 12 }} value={bulkGrade}
+              onChange={(e) => { const g = e.target.value; setBulkGrade(g); if (g) doMeta({ grade: g }, `등급 ${g}`); }} title="선택 브랜드 등급 일괄 변경">
+              <option value="">등급 일괄…</option>
+              {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+            <select className="f" style={{ width: 110, padding: "3px 6px", fontSize: 12 }} value={bulkPlan}
+              onChange={(e) => { const p = e.target.value; setBulkPlan(p); if (p) doMeta({ plan: p }, `플랜 ${(PLAN_LABELS as Record<string, string>)[p] ?? p}`); }} title="선택 브랜드 플랜 일괄 변경">
+              <option value="">플랜 일괄…</option>
+              {PLANS.map((p) => <option key={p} value={p}>{PLAN_LABELS[p] ?? p}</option>)}
+            </select>
           </div>
 
           <button className="btn btn-sm" disabled={pending || assigning || sel.size === 0}
