@@ -3,7 +3,54 @@
 import { queryOne } from "./db";
 import { env } from "./env";
 import { slackPost, type Block } from "./slack";
+import { STATE_LABELS, type Brand } from "./types";
 import type { WelcomeResult } from "./intake-channels";
+
+// 단계 → (Slack 채널, 책임 담당 필드 우선순위). intake 단계 위반은 intake 채널로.
+const STAGE_ROUTE: Record<string, { channel: string; owners: string[] }> = {
+  lead_new: { channel: "intake", owners: ["owner_intake", "owner_sales"] },
+  seminar: { channel: "intake", owners: ["owner_sales", "owner_intake"] },
+  meeting: { channel: "intake", owners: ["owner_sales", "owner_intake"] },
+  contact: { channel: "intake", owners: ["owner_sales", "owner_intake"] },
+  contract_review: { channel: "intake", owners: ["owner_contract", "owner_sales"] },
+  contract_done: { channel: "onboard", owners: ["owner_onboard", "owner_contract"] },
+  docs: { channel: "onboard", owners: ["owner_onboard"] },
+  setup: { channel: "onboard", owners: ["owner_onboard"] },
+  live_onboarding: { channel: "onboard", owners: ["owner_onboard", "owner_ads"] },
+  live_mall: { channel: "ads", owners: ["owner_ads"] },
+  settling: { channel: "pay", owners: ["owner_contract", "owner_sales"] },
+};
+
+/** SLA 초과 → 담당자 @태그 후 단계별 채널에 알림. 담당의 slack_user_id 로 멘션. */
+export async function notifySlaBreach(
+  brand: Brand,
+  breach: { elapsed: number; maxDays: number; daysOver: number; tier: number },
+): Promise<string | null> {
+  const route = STAGE_ROUTE[brand.state] ?? { channel: "intake", owners: ["owner_sales", "owner_intake"] };
+  // 책임 담당 id(admin_users.id=이메일) 결정 — 우선순위대로 첫 지정 담당.
+  let ownerId: string | null = null;
+  for (const f of route.owners) { const v = (brand as unknown as Record<string, unknown>)[f]; if (v) { ownerId = String(v); break; } }
+  // slack_user_id 조회 → 멘션 문자열.
+  let mention = "⚠️ *담당 미배정*";
+  if (ownerId) {
+    const u = await queryOne<{ name: string; slack_user_id: string | null }>(
+      "SELECT name, slack_user_id FROM admin_users WHERE id=$1", [ownerId]).catch(() => null);
+    if (u?.slack_user_id) mention = `담당 <@${u.slack_user_id}>`;
+    else if (u?.name) mention = `담당 ${u.name} _(Slack 미연동)_`;
+    else mention = `담당 ${ownerId}`;
+  }
+  const link = env.adminUrl ? `${env.adminUrl}/brand/${brand.id}` : `/brand/${brand.id}`;
+  const stageLabel = STATE_LABELS[brand.state] ?? brand.state;
+  const tierTag = breach.tier >= 3 ? " 🔴 심각" : breach.tier >= 2 ? " 🟠" : "";
+  const blocks: Block[] = [
+    { type: "header", text: { type: "plain_text", text: `⏰ SLA 초과${tierTag} — ${brand.brand_name}`, emoji: true } },
+    { type: "section", text: { type: "mrkdwn", text: `*${stageLabel}* 단계 ${breach.elapsed}영업일 경과 (SLA ${breach.maxDays}일 · +${breach.daysOver}일 초과)\n${mention}` } },
+    { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "브랜드 카드 열기", emoji: true }, url: link, style: "primary" }] },
+  ];
+  const summary = `⏰ SLA 초과: ${brand.brand_name} · ${stageLabel} +${breach.daysOver}일`;
+  const r = await slackPost({ channelKey: route.channel, text: summary, blocks }).catch(() => ({ ok: false } as { ok: boolean; ts?: string }));
+  return r.ok && r.ts ? r.ts : null;
+}
 
 interface LeadBrandRow {
   brand_name: string; contact_name: string | null;

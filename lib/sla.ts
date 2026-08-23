@@ -78,12 +78,18 @@ export async function runSlaCheck(now: Date = new Date()): Promise<{
     const breach = checkSlaBreach(b, policies, now);
     if (breach) {
       breaches++;
-      await upsertAlert(
+      const alert = await upsertAlert(
         b.id,
         "sla_breach",
         breach.tier,
         `${b.brand_name} · ${b.state} ${breach.elapsed}영업일 경과(SLA ${breach.maxDays}일)`,
       );
+      // 미발송(신규·재발) 알림만 Slack 에 1회 포스트 — 담당자 @태그 후 단계별 채널로.
+      if (!alert.slack_ts) {
+        const { notifySlaBreach } = await import("./lead-notify");
+        const ts = await notifySlaBreach(b, breach).catch(() => null);
+        if (ts) await query("UPDATE alerts SET slack_ts=$2 WHERE id=$1", [alert.id, ts]).catch(() => {});
+      }
     } else {
       await resolveAlert(b.id, "sla_breach");
     }
