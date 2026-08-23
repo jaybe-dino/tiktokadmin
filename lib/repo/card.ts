@@ -56,6 +56,9 @@ export interface BrandCompany {
   auth_type: string | null; auth_name: string | null; auth_birth: string | null; auth_country: string | null;
   auth_id_type: string | null; auth_id_number: string | null; auth_email: string | null;
   auth_id_front_url: string | null; auth_id_back_url: string | null; auth_address_proof_url: string | null; auth_loa_url: string | null;
+  // 대표(rep) 신분 서류(0038) — SELECT * 로 로드됨.
+  rep_passport_front_url: string | null; rep_passport_back_url: string | null;
+  rep_id_front_url: string | null; rep_id_back_url: string | null; rep_address_proof_url: string | null;
   pep_q1: string | null; pep_q2: string | null;
   ubo_signature_data: string | null; ubo_signed_at: string | null;
   payoneer_status: string | null; payoneer_email: string | null; payoneer_note: string | null;

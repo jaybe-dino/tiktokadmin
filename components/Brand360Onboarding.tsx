@@ -9,7 +9,8 @@ import type { BrandCompany } from "@/lib/repo/card";
 import { kstDateTime, kstDate } from "@/lib/time";
 
 const D = (v: string | null | undefined): string => (v && String(v).trim() ? String(v) : "—");
-const isUrl = (v: string | null | undefined) => !!v && /^https?:\/\//.test(v);
+// http(s) 외에 이관 파일 내부 경로(/api/brand/import-file/…)도 클릭 링크로 취급.
+const isUrl = (v: string | null | undefined) => !!v && /^(https?:\/\/|\/api\/)/.test(v);
 
 function UrlOrText({ v }: { v: string | null | undefined }) {
   if (!v) return <>—</>;
@@ -114,6 +115,39 @@ export default function Brand360Onboarding({ brand, company }: { brand: Brand; c
             <dt>물류계약</dt><dd><UrlOrText v={c?.doc_logistics_url} /></dd>
           </div>
         )}
+
+        {/* ── KYC 첨부 서류(신분증·여권·LOA·주소증빙) — 이관/제출 파일 열람 ── */}
+        {(() => {
+          const kyc: { label: string; v: string | null | undefined }[] = [
+            { label: "대표 여권(앞)", v: c?.rep_passport_front_url },
+            { label: "대표 여권(뒤)", v: c?.rep_passport_back_url },
+            { label: "대표 신분증(앞)", v: c?.rep_id_front_url },
+            { label: "대표 신분증(뒤)", v: c?.rep_id_back_url },
+            { label: "대표 주소증빙", v: c?.rep_address_proof_url },
+            { label: "UBO 신분증(앞)", v: c?.ubo_id_front_url },
+            { label: "UBO 신분증(뒤)", v: c?.ubo_id_back_url },
+            { label: "UBO 주소증빙", v: c?.ubo_address_proof_url },
+            { label: "대리인 신분증(앞)", v: c?.auth_id_front_url },
+            { label: "대리인 신분증(뒤)", v: c?.auth_id_back_url },
+            { label: "대리인 주소증빙", v: c?.auth_address_proof_url },
+            { label: "위임장(LOA)", v: c?.auth_loa_url },
+          ];
+          const shown = kyc.filter((k) => k.v && String(k.v).trim());
+          if (shown.length === 0) return null;
+          return (
+            <>
+              <hr className="hr" />
+              <b style={{ fontSize: 12.5 }}>KYC 첨부 서류 (신분증·여권·LOA·주소증빙) · {shown.length}건</b>
+              <div className="kv" style={{ marginTop: 6 }}>
+                {shown.map((k) => (
+                  <span key={k.label} style={{ display: "contents" }}>
+                    <dt>{k.label}</dt><dd><UrlOrText v={k.v} /></dd>
+                  </span>
+                ))}
+              </div>
+            </>
+          );
+        })()}
 
         <hr className="hr" />
         {/* ── UBO · 대리인 · PEP · 핑퐁페이먼트 ── */}
