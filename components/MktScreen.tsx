@@ -1,6 +1,7 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { assignBrandOwnerAction } from "@/app/actions";
 import Link from "next/link";
 import {
   createMktProjectAction,
@@ -109,11 +110,13 @@ export default function MktScreen({
   proposals = [],
   brands = [],
   routineData = [],
+  owners = [],
 }: {
   rows: MktRow[];
   proposals?: MktProposalRow[];
   brands?: MktBrandOpt[];
   routineData?: RoutineProject[];
+  owners?: { id: string; name: string }[];
 }) {
   const [tab, setTab] = useState<Tab>("pipe");
   const projects = rows.filter((r) => r.kind !== "routine");
@@ -135,7 +138,7 @@ export default function MktScreen({
         </button>
       </div>
 
-      {tab === "pipe" && <Pipeline projects={projects} brands={brands} onGoProposals={() => setTab("prop")} />}
+      {tab === "pipe" && <Pipeline projects={projects} brands={brands} owners={owners} onGoProposals={() => setTab("prop")} />}
       {tab === "routine" && <Routine projects={routineData} brands={brands} />}
       {tab === "prop" && <Proposals proposals={proposals} brands={brands} projects={rows} />}
       {tab === "map" && <BrandMap rows={rows} />}
@@ -144,7 +147,7 @@ export default function MktScreen({
 }
 
 // ── 탭 1: 파이프라인 보드 ─────────────────────────────────────
-function Pipeline({ projects, brands = [], onGoProposals }: { projects: MktRow[]; brands?: MktBrandOpt[]; onGoProposals: () => void }) {
+function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { projects: MktRow[]; brands?: MktBrandOpt[]; owners?: { id: string; name: string }[]; onGoProposals: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
@@ -152,6 +155,15 @@ function Pipeline({ projects, brands = [], onGoProposals }: { projects: MktRow[]
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
   const [moveMsg, setMoveMsg] = useState("");
+  // 뷰 전환(파이프라인/표) + 표 일괄편집 상태
+  const [view, setView] = useState<"board" | "table">("board");
+  useEffect(() => { try { const v = localStorage.getItem("mkt-pipeline-view"); if (v === "table" || v === "board") setView(v); } catch { /* noop */ } }, []);
+  const pickView = (v: "board" | "table") => { setView(v); try { localStorage.setItem("mkt-pipeline-view", v); } catch { /* noop */ } };
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [bulkStage, setBulkStage] = useState("");
+  const [bulkOwner, setBulkOwner] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProg, setBulkProg] = useState<{ done: number; total: number } | null>(null);
   const kw = q.trim().toLowerCase();
   const filtered = kw
     ? projects.filter(
@@ -176,6 +188,35 @@ function Pipeline({ projects, brands = [], onGoProposals }: { projects: MktRow[]
       else { setMoveMsg(r.error ?? "이동 실패"); setTimeout(() => setMoveMsg(""), 3200); }
     });
   }
+  // 표 뷰 일괄편집.
+  const ids = filtered.map((r) => r.id);
+  const allChecked = ids.length > 0 && ids.every((id) => sel.has(id));
+  const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAll = () => setSel(allChecked ? new Set() : new Set(ids));
+  const ownerName = (id: string) => owners.find((o) => o.id === id)?.name ?? id;
+  async function runBulk(fn: (r: MktRow) => Promise<{ ok: boolean }>, doneMsg: (ok: number, fail: number) => string) {
+    if (sel.size === 0 || bulkBusy) return;
+    const list = filtered.filter((r) => sel.has(r.id));
+    setBulkBusy(true); setMoveMsg(""); setBulkProg({ done: 0, total: list.length });
+    let ok = 0, fail = 0;
+    for (let i = 0; i < list.length; i++) {
+      try { const r = await fn(list[i]); r.ok ? ok++ : fail++; } catch { fail++; }
+      setBulkProg({ done: i + 1, total: list.length });
+    }
+    setBulkBusy(false); setBulkProg(null); setSel(new Set());
+    setMoveMsg(doneMsg(ok, fail)); setTimeout(() => setMoveMsg(""), 3600);
+    router.refresh();
+  }
+  const doBulkStage = () => {
+    if (!bulkStage) return;
+    const label = PIPE.find((p) => p.key === bulkStage)?.label ?? bulkStage;
+    runBulk((r) => setMktStatusAction(r.id, bulkStage), (ok, fail) => `${ok}건 '${label}'로 이동${fail ? ` · ${fail}건 실패(게이트/오류)` : ""}`);
+  };
+  const doBulkOwner = () => {
+    if (!bulkOwner) return;
+    runBulk((r) => r.brand_id ? assignBrandOwnerAction(r.brand_id, "owner_ads", bulkOwner) : Promise.resolve({ ok: false }),
+      (ok, fail) => `${ok}건 마케팅 담당 '${ownerName(bulkOwner)}' 배정${fail ? ` · ${fail}건 실패(브랜드 미연결 등)` : ""}`);
+  };
   return (
     <div>
       <div className="bar">
@@ -184,7 +225,11 @@ function Pipeline({ projects, brands = [], onGoProposals }: { projects: MktRow[]
             {c.label} {count(c.key)}
           </span>
         ))}
-        <button className="btn sm pri" onClick={onGoProposals} style={{ marginLeft: "auto" }} title="마케팅 제안서 작성 화면으로 이동(제안서 저장 시 프로젝트가 자동 생성·연결됩니다)">
+        <div style={{ marginLeft: "auto", display: "inline-flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+          <button className="btn sm" onClick={() => pickView("board")} style={{ borderRadius: 0, border: "none", background: view === "board" ? "var(--acc)" : "#fff", color: view === "board" ? "#fff" : "var(--ink2)", fontWeight: 700 }}>▦ 파이프라인</button>
+          <button className="btn sm" onClick={() => pickView("table")} style={{ borderRadius: 0, border: "none", borderLeft: "1px solid var(--line)", background: view === "table" ? "var(--acc)" : "#fff", color: view === "table" ? "#fff" : "var(--ink2)", fontWeight: 700 }}>▤ 표(일괄)</button>
+        </div>
+        <button className="btn sm pri" onClick={onGoProposals} title="마케팅 제안서 작성 화면으로 이동(제안서 저장 시 프로젝트가 자동 생성·연결됩니다)">
           + 신규 프로젝트
         </button>
         <input
@@ -196,7 +241,53 @@ function Pipeline({ projects, brands = [], onGoProposals }: { projects: MktRow[]
           수주→진행은 계약 등록이 필요합니다 — 카드 이동도 게이트 검증
         </span>
       </div>
-      {projects.length === 0 ? (
+      {view === "table" ? (
+        <div className="card" style={{ overflowX: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid var(--line)", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "var(--ink3)" }}>{sel.size > 0 ? `${sel.size}건 선택됨` : "행 체크로 선택"}</span>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <select className="f" style={{ width: 130, padding: "3px 6px", fontSize: 12 }} value={bulkOwner} onChange={(e) => setBulkOwner(e.target.value)}>
+                <option value="">담당자 선택</option>
+                {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+              <button className="btn btn-sm btn-primary" disabled={bulkBusy || sel.size === 0 || !bulkOwner} onClick={doBulkOwner}>담당 배정{sel.size ? ` (${sel.size})` : ""}</button>
+              <select className="f" style={{ width: 130, padding: "3px 6px", fontSize: 12 }} value={bulkStage} onChange={(e) => setBulkStage(e.target.value)}>
+                <option value="">단계 이동…</option>
+                {PIPE.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+              <button className="btn btn-sm" disabled={bulkBusy || sel.size === 0 || !bulkStage} onClick={doBulkStage}>단계 이동{sel.size ? ` (${sel.size})` : ""}</button>
+            </div>
+          </div>
+          {bulkProg && (
+            <div style={{ padding: "6px 12px", borderBottom: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, height: 8, background: "var(--line)", borderRadius: 999, overflow: "hidden" }}>
+                <div style={{ width: `${bulkProg.total ? Math.round((bulkProg.done / bulkProg.total) * 100) : 0}%`, height: "100%", background: "var(--acc)", transition: "width .15s" }} />
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink2)", whiteSpace: "nowrap" }}>{bulkProg.done}/{bulkProg.total} ({bulkProg.total ? Math.round((bulkProg.done / bulkProg.total) * 100) : 0}%)</span>
+            </div>
+          )}
+          <table className="t">
+            <thead><tr>
+              <th style={{ width: 28 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} title="전체 선택" /></th>
+              <th>프로젝트 / 브랜드</th><th>단계</th><th>제안서</th>
+            </tr></thead>
+            <tbody>
+              {filtered.length === 0 && <tr><td colSpan={4} style={{ padding: "24px 12px", textAlign: "center", color: "var(--ink3)" }}>{projects.length === 0 ? "진행 중인 프로젝트 없음" : `「${q}」 결과 없음`}</td></tr>}
+              {filtered.map((m) => {
+                const checked = sel.has(m.id);
+                return (
+                  <tr key={m.id} style={{ background: checked ? "rgba(37,99,235,.08)" : undefined }}>
+                    <td><input type="checkbox" checked={checked} onChange={() => toggle(m.id)} /></td>
+                    <td><b>{m.title}</b><span className="sub">{m.brand_name}</span></td>
+                    <td><span className={`cellchip ${ST[m.proposal_status]?.cc ?? "cc-no"}`}>{ST[m.proposal_status]?.ko ?? m.proposal_status}</span></td>
+                    <td style={{ fontSize: 12, color: "var(--ink3)" }}>{m.proposal_id ? "📄 연결됨" : "미연결"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : projects.length === 0 ? (
         <div className="note">진행 중인 개별 프로젝트가 없습니다. RFP 접수·인바운드 문의가 등록되면 여기에 카드로 표시됩니다.</div>
       ) : filtered.length === 0 ? (
         <div className="note">「{q}」 검색 결과가 없습니다.</div>

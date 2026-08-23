@@ -104,13 +104,18 @@ export default async function MktPage() {
   const { listRoutineProjects } = await import("@/lib/mkt-routine");
   const routineData = await listRoutineProjects().catch(() => []);
 
+  // 표 뷰 일괄 담당배정용 담당자 목록.
+  const { adminUserList } = await import("@/lib/repo/queries");
+  const admins = await adminUserList().catch(() => []);
+  const owners = admins.filter((a) => a.name).map((a) => ({ id: a.id, name: a.name }));
+
   return (
     <div>
       <ScreenHeader
         title="마케팅 파이프라인"
         desc="2가지 트랙 — ① 개별 프로젝트(RFP→제안→수주) 파이프라인 · ② 루틴 운영대행(회차 캠페인 반복·지속관리) + 마케팅 제안서(작성→초안함 승인 발송)"
       />
-      <MktScreen rows={rows} proposals={proposals} brands={brands} routineData={routineData} />
+      <MktScreen rows={rows} proposals={proposals} brands={brands} routineData={routineData} owners={owners} />
     </div>
   );
 }
