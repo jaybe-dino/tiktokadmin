@@ -31,13 +31,14 @@ const STAGE_KEYS = new Set<string>(ONB_STAGES.map((s) => s.key));
 
 export async function onboardingPipeline(): Promise<Record<OnbStageKey, OnbCard[]>> {
   const empty: Record<OnbStageKey, OnbCard[]> = { invite: [], company: [], signup: [], product: [], ready: [] };
-  const rows = await query<{
+  type Row = {
     brand_id: string; brand_name: string; state: string; owner_onboard: string | null; stage_entered_at: string;
     onb_stage_override: string | null; onb_stage_override_at: string | null;
     app_id: string | null; app_status: string | null; app_updated: string | null; product_count: number;
-  }>(
+  };
+  const build = (overrideCols: boolean) =>
     `SELECT b.id AS brand_id, b.brand_name, b.state, b.owner_onboard, b.stage_entered_at,
-            b.onb_stage_override, b.onb_stage_override_at,
+            ${overrideCols ? "b.onb_stage_override, b.onb_stage_override_at," : "NULL::text AS onb_stage_override, NULL::timestamptz AS onb_stage_override_at,"}
             a.id AS app_id, a.status AS app_status, a.updated_at AS app_updated,
             COALESCE((SELECT count(*) FROM onb_products p WHERE p.application_id=a.id),0)::int AS product_count
        FROM brands b
@@ -47,8 +48,9 @@ export async function onboardingPipeline(): Promise<Record<OnbStageKey, OnbCard[
       WHERE b.state IN ('contract_done','docs','setup','live_onboarding')
          OR a.id IS NOT NULL
       ORDER BY b.stage_entered_at ASC
-      LIMIT 500`,
-  ).catch(() => [] as never[]);
+      LIMIT 500`;
+  // 마이그레이션 0081 미적용(override 컬럼 없음) 시에도 데이터가 사라지지 않도록 폴백.
+  const rows = await query<Row>(build(true)).catch(() => query<Row>(build(false)).catch(() => [] as Row[]));
 
   const now = Date.now();
   const out: Record<OnbStageKey, OnbCard[]> = { invite: [], company: [], signup: [], product: [], ready: [] };
