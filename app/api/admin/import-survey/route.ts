@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { currentUser } from "@/lib/auth";
-import { importSurveyCsv } from "@/lib/survey-import";
+import { importSurveyCsv, saveSurveyAnswers, listBrandOptions } from "@/lib/survey-import";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,9 +18,29 @@ async function authorized(req: NextRequest): Promise<boolean> {
   return !!u && (u.role === "exec" || u.role === "lead");
 }
 
+// 수동 배정용 브랜드 목록.
+export async function GET(req: NextRequest) {
+  if (!(await authorized(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  return NextResponse.json({ ok: true, brands: await listBrandOptions() });
+}
+
 export async function POST(req: NextRequest) {
   if (!(await authorized(req))) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const mode = req.nextUrl.searchParams.get("mode") ?? "";
   const dryRun = req.nextUrl.searchParams.get("dry_run") === "1" || req.nextUrl.searchParams.get("dry_run") === "true";
+
+  // 수동 배정: 미매칭 응답을 특정 브랜드에 저장.
+  if (mode === "assign") {
+    try {
+      const body = await req.json().catch(() => ({}));
+      const brandId = String(body.brandId ?? "");
+      const answers = (body.answers ?? {}) as Record<string, string>;
+      if (!/^[0-9a-f-]{36}$/i.test(brandId)) return NextResponse.json({ ok: false, error: "브랜드를 선택하세요." }, { status: 400 });
+      await saveSurveyAnswers(brandId, answers);
+      return NextResponse.json({ ok: true });
+    } catch (e) { return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 }); }
+  }
+
   try {
     let csv = "";
     const ct = (req.headers.get("content-type") ?? "").toLowerCase();

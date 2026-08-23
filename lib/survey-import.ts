@@ -27,12 +27,30 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((cell) => cell.trim() !== ""));
 }
 
-// 회사명 정규화 — 법인격·공백·기호 제거 후 소문자.
+/** 특정 브랜드에 설문 응답 저장(수동 배정용). token=csvsurvey_<brandId> 로 멱등. */
+export async function saveSurveyAnswers(brandId: string, answers: Record<string, string>): Promise<void> {
+  await query(
+    `INSERT INTO surveys (brand_id, kind, token, answers, sent_at, responded_at)
+     VALUES ($1,'marketing_survey',$2,$3,now(),now())
+     ON CONFLICT (token) DO UPDATE SET answers=EXCLUDED.answers, responded_at=now()`,
+    [brandId, `csvsurvey_${brandId}`, JSON.stringify(answers ?? {})],
+  );
+}
+
+/** 브랜드 선택 목록(수동 배정 드롭다운용). */
+export async function listBrandOptions(): Promise<{ id: string; name: string }[]> {
+  return query<{ id: string; name: string }>(
+    "SELECT id, brand_name AS name FROM brands WHERE state NOT IN ('dropped','churned') ORDER BY brand_name",
+  ).catch(() => []);
+}
+
+// 회사명 정규화 — 괄호 병기(영문) 제거 → 법인격 제거 → 공백·기호 제거 후 소문자.
 function normCo(v: string): string {
   return (v || "")
+    .replace(/[([<{][^)\]>}]*[)\]>}]/g, " ")   // (Medi N Research)·[...] 등 병기 제거((주)도 제거됨)
     .toLowerCase()
-    .replace(/㈜|주식회사|\(주\)|\(유\)|유한회사|inc\.?|co\.?,?\s*ltd\.?|ltd\.?|corp\.?/gi, "")
-    .replace(/[\s.,\-_()·]/g, "")
+    .replace(/㈜|주식회사|유한회사|inc\.?|co\.?,?\s*ltd\.?|ltd\.?|corp\.?/gi, "")
+    .replace(/[\s.,\-_()·&]/g, "")
     .trim();
 }
 const normEmail = (v: string): string => (v || "").trim().toLowerCase();
@@ -41,7 +59,7 @@ export interface SurveyImportReport {
   dryRun: boolean;
   total: number;
   matched: { company: string; brand: string; by: string; answers: number }[];
-  unmatched: { company: string; email: string }[];
+  unmatched: { company: string; email: string; candidates: string[]; answers: Record<string, string> }[];
   errors: { company: string; error: string }[];
 }
 
@@ -67,15 +85,28 @@ export async function importSurveyCsv(csvText: string, opts: { dryRun: boolean }
 
   const byName = new Map<string, string>();   // normCo → brandId
   const byEmail = new Map<string, string>();  // email → brandId
+  const nameList: { id: string; label: string; norm: string }[] = []; // 부분포함 매칭·후보 제시용
+  const addName = (id: string, label: string) => {
+    const n = normCo(label); if (!n) return;
+    if (!byName.has(n)) byName.set(n, id);
+    nameList.push({ id, label, norm: n });
+  };
   for (const b of brands) {
-    const n = normCo(b.brand_name); if (n) byName.set(n, b.id);
+    addName(b.id, b.brand_name);
     if (b.email) byEmail.set(normEmail(b.email), b.id);
   }
   for (const c of companies) {
-    for (const nm of [c.company_name_kr, c.shop_name_kr, c.company_name_en]) {
-      const n = normCo(String(nm ?? "")); if (n && !byName.has(n)) byName.set(n, c.brand_id);
-    }
+    for (const nm of [c.company_name_kr, c.shop_name_kr, c.company_name_en]) if (nm) addName(c.brand_id, String(nm));
     if (c.contact_email) { const e = normEmail(c.contact_email); if (e && !byEmail.has(e)) byEmail.set(e, c.brand_id); }
+  }
+
+  // 부분포함 매칭: 한쪽 이름이 다른 쪽을 포함(3자 이상)하고 브랜드가 유일하면 매칭.
+  function fuzzyName(cn: string): { id?: string; candidates: string[] } {
+    if (cn.length < 3) return { candidates: [] };
+    const hits = nameList.filter((x) => x.norm.length >= 3 && (cn.includes(x.norm) || x.norm.includes(cn)));
+    const ids = new Set(hits.map((h) => h.id));
+    const candidates = Array.from(new Set(hits.map((h) => h.label))).slice(0, 3);
+    return { id: ids.size === 1 ? hits[0].id : undefined, candidates };
   }
 
   for (let r = 1; r < rows.length; r++) {
@@ -86,8 +117,15 @@ export async function importSurveyCsv(csvText: string, opts: { dryRun: boolean }
     if (!company && !email) continue;
     report.total++;
 
-    // 매칭: 회사명 → 이메일(복수 이메일 "a@x / b@y" 도 각각 시도).
-    let brandId = byName.get(normCo(company)) ?? "";
+    // answers 구성(값 있는 문항만) + 응답자 정보 — 미매칭 수동배정에도 필요하므로 먼저 구성.
+    const answers: Record<string, string> = {};
+    if (contact) answers["응답자 담당자"] = contact;
+    if (email) answers["응답자 이메일"] = email;
+    for (const q of qCols) { const v = (row[q.idx] ?? "").trim(); if (v) answers[q.label] = v; }
+
+    // 매칭: 회사명 완전일치 → 이메일(복수 "a@x / b@y" 각각) → 회사명 부분포함.
+    const cn = normCo(company);
+    let brandId = byName.get(cn) ?? "";
     let by = brandId ? `회사명 ${company}` : "";
     if (!brandId && email) {
       for (const tok of email.split(/[\s,;/]+/)) {
@@ -95,14 +133,14 @@ export async function importSurveyCsv(csvText: string, opts: { dryRun: boolean }
         if (m) { brandId = m; by = `이메일 ${tok}`; break; }
       }
     }
+    let candidates: string[] = [];
+    if (!brandId) {
+      const fz = fuzzyName(cn);
+      candidates = fz.candidates;
+      if (fz.id) { brandId = fz.id; by = `회사명(부분일치) ${company}`; }
+    }
 
-    if (!brandId) { report.unmatched.push({ company, email }); continue; }
-
-    // answers 구성(값 있는 문항만) + 응답자 정보.
-    const answers: Record<string, string> = {};
-    if (contact) answers["응답자 담당자"] = contact;
-    if (email) answers["응답자 이메일"] = email;
-    for (const q of qCols) { const v = (row[q.idx] ?? "").trim(); if (v) answers[q.label] = v; }
+    if (!brandId) { report.unmatched.push({ company, email, candidates, answers }); continue; }
 
     if (opts.dryRun) { report.matched.push({ company, brand: company, by, answers: Object.keys(answers).length }); continue; }
 

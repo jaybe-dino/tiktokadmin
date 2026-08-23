@@ -61,11 +61,37 @@ export default function TpartnersImport() {
   }
 
   // 설문 CSV 이관
-  interface SvReport { dryRun: boolean; total: number; matched: { company: string; brand: string; by: string; answers: number }[]; unmatched: { company: string; email: string }[]; errors: { company: string; error: string }[] }
+  interface SvUnmatched { company: string; email: string; candidates: string[]; answers: Record<string, string> }
+  interface SvReport { dryRun: boolean; total: number; matched: { company: string; brand: string; by: string; answers: number }[]; unmatched: SvUnmatched[]; errors: { company: string; error: string }[] }
   const [svFile, setSvFile] = useState<File | null>(null);
   const [svBusy, setSvBusy] = useState(false);
   const [svReport, setSvReport] = useState<SvReport | null>(null);
   const [svMsg, setSvMsg] = useState("");
+  // 수동 배정
+  const [brandOpts, setBrandOpts] = useState<{ id: string; name: string }[]>([]);
+  const [assignSel, setAssignSel] = useState<Record<number, string>>({});
+  const [assignedIdx, setAssignedIdx] = useState<Set<number>>(new Set());
+
+  async function loadBrands() {
+    if (brandOpts.length) return;
+    try { const r = await fetch(`/api/admin/import-survey`, { method: "GET" }); const j = await r.json(); if (j.ok) setBrandOpts(j.brands ?? []); } catch { /* noop */ }
+  }
+  async function assignOne(idx: number, u: SvUnmatched) {
+    const brandId = assignSel[idx];
+    if (!brandId) { setSvMsg("배정할 브랜드를 선택하세요."); return; }
+    setSvBusy(true); setSvMsg("");
+    try {
+      const r = await fetch(`/api/admin/import-survey?mode=assign`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ brandId, answers: u.answers }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) { setSvMsg(j.error ?? "배정 실패"); return; }
+      setAssignedIdx((s) => new Set(s).add(idx));
+      setSvMsg(`"${u.company}" → 브랜드에 설문 저장됨.`);
+    } catch (e) { setSvMsg((e as Error).message); }
+    finally { setSvBusy(false); }
+  }
 
   async function runSurvey(dryRun: boolean) {
     if (!svFile) { setSvMsg("CSV 파일을 먼저 선택하세요."); return; }
@@ -78,6 +104,8 @@ export default function TpartnersImport() {
       const j = await r.json();
       if (!r.ok || !j.ok) { setSvMsg(j.error ?? "실패"); return; }
       setSvReport(j.report);
+      setAssignedIdx(new Set());
+      if ((j.report.unmatched?.length ?? 0) > 0) loadBrands();
       setSvMsg(dryRun ? "드라이런 완료 — 매칭 확인 후 '실제 이관'." : `설문 이관 완료 — ${j.report.matched.length}건 저장.`);
     } catch (e) { setSvMsg((e as Error).message); }
     finally { setSvBusy(false); }
@@ -234,11 +262,24 @@ export default function TpartnersImport() {
                 <span className="note">{svReport.dryRun ? "미리보기(쓰기 없음)" : "실제 반영됨"}</span>
               </div>
               {svReport.unmatched.length > 0 ? (
-                <details>
-                  <summary style={{ cursor: "pointer", color: "var(--bad)", fontSize: 12 }}>미매칭 {svReport.unmatched.length}건 (브랜드 원장에 없거나 회사명·이메일 불일치)</summary>
-                  <div style={{ fontSize: 11.5, marginTop: 4 }}>
+                <details open>
+                  <summary style={{ cursor: "pointer", color: "var(--bad)", fontSize: 12 }}>미매칭 {svReport.unmatched.length}건 — 브랜드를 직접 골라 배정하세요</summary>
+                  <div style={{ fontSize: 12, marginTop: 6, display: "grid", gap: 6 }}>
                     {svReport.unmatched.map((u, i) => (
-                      <div key={i}>{u.company || "(회사명 없음)"} · {u.email || "-"}</div>
+                      <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 6 }}>
+                        <span style={{ minWidth: 150 }}><b>{u.company || "(회사명 없음)"}</b><span style={{ color: "var(--ink3)" }}> · {u.email || "-"}</span></span>
+                        {assignedIdx.has(i) ? (
+                          <span className="chip grn">저장됨 ✓</span>
+                        ) : (
+                          <>
+                            <select className="f" style={{ minWidth: 180, padding: "2px 6px", fontSize: 12 }} value={assignSel[i] ?? ""} onChange={(e) => setAssignSel((s) => ({ ...s, [i]: e.target.value }))}>
+                              <option value="">브랜드 선택…{u.candidates.length ? ` (후보: ${u.candidates.join(", ")})` : ""}</option>
+                              {brandOpts.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                            </select>
+                            <button className="btn btn-sm pri" disabled={svBusy || !assignSel[i]} onClick={() => assignOne(i, u)}>이 브랜드에 저장</button>
+                          </>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </details>
