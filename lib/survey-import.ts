@@ -1,7 +1,7 @@
 // 설문 CSV 이관 — 응답행(회사·담당자·이메일 + 문항들)을 브랜드에 매칭해 surveys.answers 로 저장.
 //   · 매칭: 회사명(정규화) → 이메일 순. 사내 브랜드 원장(brands)·brand_company 기준.
 //   · 멱등: 브랜드당 CSV 설문 1건(token=csvsurvey_<brandId>) — 재실행 시 answers 갱신.
-import { query } from "./db";
+import { query, queryOne } from "./db";
 
 // ── CSV 파서(따옴표·개행 포함 필드·이스케이프 "" 처리) ──
 export function parseCsv(text: string): string[][] {
@@ -59,15 +59,26 @@ export interface SurveyImportReport {
   dryRun: boolean;
   total: number;
   matched: { company: string; brand: string; by: string; answers: number }[];
+  created: { company: string; brandId: string }[];   // 미매칭 → 신규 리드 생성
   unmatched: { company: string; email: string; candidates: string[]; answers: Record<string, string> }[];
   errors: { company: string; error: string }[];
+}
+
+/** 미매칭 응답용 신규 리드(브랜드) 생성 — 회사·담당자·이메일 + source=tpartners, state=lead_new. */
+async function createLeadBrand(company: string, contact: string, email: string): Promise<string> {
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO brands (brand_name, email, contact_name, source, state)
+     VALUES ($1,$2,$3,'tpartners','lead_new') RETURNING id`,
+    [company || "(설문 응답)", email || null, contact || null],
+  );
+  return row!.id;
 }
 
 interface BrandRef { id: string; brand_name: string; email: string | null }
 
 /** CSV 텍스트를 파싱해 브랜드에 설문을 매칭·저장. dryRun 이면 매칭만. */
-export async function importSurveyCsv(csvText: string, opts: { dryRun: boolean }): Promise<SurveyImportReport> {
-  const report: SurveyImportReport = { dryRun: opts.dryRun, total: 0, matched: [], unmatched: [], errors: [] };
+export async function importSurveyCsv(csvText: string, opts: { dryRun: boolean; createMissing?: boolean }): Promise<SurveyImportReport> {
+  const report: SurveyImportReport = { dryRun: opts.dryRun, total: 0, matched: [], created: [], unmatched: [], errors: [] };
   const rows = parseCsv(csvText);
   if (rows.length < 2) return report;
 
@@ -140,7 +151,20 @@ export async function importSurveyCsv(csvText: string, opts: { dryRun: boolean }
       if (fz.id) { brandId = fz.id; by = `회사명(부분일치) ${company}`; }
     }
 
-    if (!brandId) { report.unmatched.push({ company, email, candidates, answers }); continue; }
+    // 미매칭 처리: createMissing 이면 신규 리드 생성, 아니면 미매칭 목록.
+    let createdNew = false;
+    if (!brandId) {
+      if (opts.createMissing && !opts.dryRun) {
+        try {
+          brandId = await createLeadBrand(company, contact, email);
+          by = "신규 리드 생성"; createdNew = true;
+          report.created.push({ company, brandId });
+        } catch (e) { report.errors.push({ company, error: (e as Error).message.slice(0, 140) }); continue; }
+      } else {
+        report.unmatched.push({ company, email, candidates, answers });
+        continue;
+      }
+    }
 
     if (opts.dryRun) { report.matched.push({ company, brand: company, by, answers: Object.keys(answers).length }); continue; }
 
@@ -152,7 +176,8 @@ export async function importSurveyCsv(csvText: string, opts: { dryRun: boolean }
          ON CONFLICT (token) DO UPDATE SET answers=EXCLUDED.answers, responded_at=now()`,
         [brandId, token, JSON.stringify(answers)],
       );
-      report.matched.push({ company, brand: company, by, answers: Object.keys(answers).length });
+      // 신규 생성 건은 created 에만 집계(중복 방지), 기존 매칭은 matched.
+      if (!createdNew) report.matched.push({ company, brand: company, by, answers: Object.keys(answers).length });
     } catch (e) {
       report.errors.push({ company, error: (e as Error).message.slice(0, 140) });
     }

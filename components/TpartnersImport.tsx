@@ -62,7 +62,7 @@ export default function TpartnersImport() {
 
   // 설문 CSV 이관
   interface SvUnmatched { company: string; email: string; candidates: string[]; answers: Record<string, string> }
-  interface SvReport { dryRun: boolean; total: number; matched: { company: string; brand: string; by: string; answers: number }[]; unmatched: SvUnmatched[]; errors: { company: string; error: string }[] }
+  interface SvReport { dryRun: boolean; total: number; matched: { company: string; brand: string; by: string; answers: number }[]; created: { company: string; brandId: string }[]; unmatched: SvUnmatched[]; errors: { company: string; error: string }[] }
   const [svFile, setSvFile] = useState<File | null>(null);
   const [svBusy, setSvBusy] = useState(false);
   const [svReport, setSvReport] = useState<SvReport | null>(null);
@@ -93,20 +93,22 @@ export default function TpartnersImport() {
     finally { setSvBusy(false); }
   }
 
-  async function runSurvey(dryRun: boolean) {
+  async function runSurvey(dryRun: boolean, createMissing = false) {
     if (!svFile) { setSvMsg("CSV 파일을 먼저 선택하세요."); return; }
-    if (!dryRun && !confirm("설문 응답을 각 브랜드에 실제로 저장합니다. 진행할까요?")) return;
+    if (!dryRun && createMissing && !confirm("매칭 안 된 응답을 모두 '신규 리드'로 생성하고 설문을 붙입니다. 진행할까요?")) return;
+    if (!dryRun && !createMissing && !confirm("설문 응답을 각 브랜드에 실제로 저장합니다. 진행할까요?")) return;
     setSvBusy(true); setSvMsg(""); if (dryRun) setSvReport(null);
     try {
       const fd = new FormData();
       fd.set("file", svFile);
-      const r = await fetch(`/api/admin/import-survey?dry_run=${dryRun ? 1 : 0}`, { method: "POST", body: fd });
+      const r = await fetch(`/api/admin/import-survey?dry_run=${dryRun ? 1 : 0}&create_missing=${createMissing ? 1 : 0}`, { method: "POST", body: fd });
       const j = await r.json();
       if (!r.ok || !j.ok) { setSvMsg(j.error ?? "실패"); return; }
       setSvReport(j.report);
       setAssignedIdx(new Set());
       if ((j.report.unmatched?.length ?? 0) > 0) loadBrands();
-      setSvMsg(dryRun ? "드라이런 완료 — 매칭 확인 후 '실제 이관'." : `설문 이관 완료 — ${j.report.matched.length}건 저장.`);
+      const cr = j.report.created?.length ?? 0;
+      setSvMsg(dryRun ? "드라이런 완료 — 매칭 확인 후 '실제 이관'." : `완료 — 매칭 ${j.report.matched.length}건 저장${cr ? ` · 신규 리드 ${cr}건 생성` : ""}.`);
     } catch (e) { setSvMsg((e as Error).message); }
     finally { setSvBusy(false); }
   }
@@ -249,7 +251,8 @@ export default function TpartnersImport() {
           <input type="file" accept=".csv,text/csv" disabled={svBusy} onChange={(e) => { setSvFile(e.target.files?.[0] ?? null); setSvReport(null); }} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className="btn btn-sm" disabled={svBusy || !svFile} onClick={() => runSurvey(true)}>{svBusy ? "처리 중…" : "🔍 드라이런(미리보기)"}</button>
-            <button className="btn btn-sm pri" disabled={svBusy || !svFile || !svReport} onClick={() => runSurvey(false)}>✅ 설문 실제 이관</button>
+            <button className="btn btn-sm pri" disabled={svBusy || !svFile || !svReport} onClick={() => runSurvey(false)}>✅ 매칭건 저장</button>
+            <button className="btn btn-sm" disabled={svBusy || !svFile || !svReport} onClick={() => runSurvey(false, true)} title="매칭 안 된 응답을 신규 리드로 생성하고 설문 저장">➕ 매칭건 저장 + 미매칭 신규 리드 생성</button>
             {svMsg && <span className="note" style={{ alignSelf: "center" }}>{svMsg}</span>}
           </div>
           {svReport ? (
@@ -257,6 +260,7 @@ export default function TpartnersImport() {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <span className="chip">응답 {svReport.total}</span>
                 <span className="chip grn">매칭 {svReport.matched.length}</span>
+                {svReport.created.length > 0 ? <span className="chip grn">신규 리드 {svReport.created.length}</span> : null}
                 <span className={svReport.unmatched.length ? "chip amb" : "chip"}>미매칭 {svReport.unmatched.length}</span>
                 {svReport.errors.length > 0 ? <span className="chip red">오류 {svReport.errors.length}</span> : null}
                 <span className="note">{svReport.dryRun ? "미리보기(쓰기 없음)" : "실제 반영됨"}</span>

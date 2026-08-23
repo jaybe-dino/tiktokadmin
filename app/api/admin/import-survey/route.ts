@@ -54,7 +54,8 @@ export async function POST(req: NextRequest) {
       csv = String(body.csv ?? "");
     }
     if (!csv.trim()) return NextResponse.json({ ok: false, error: "빈 CSV 입니다." }, { status: 400 });
-    const report = await importSurveyCsv(csv, { dryRun });
+    const createMissing = req.nextUrl.searchParams.get("create_missing") === "1";
+    const report = await importSurveyCsv(csv, { dryRun, createMissing });
     return NextResponse.json({ ok: true, report });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
