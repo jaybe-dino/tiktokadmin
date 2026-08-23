@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { currentUser } from "@/lib/auth";
 import SideNav from "@/components/SideNav";
 import BugReportButton from "@/components/BugReportButton";
 import NotificationBell from "@/components/NotificationBell";
 import UpdatesButton from "@/components/UpdatesButton";
+import RouteProgress from "@/components/RouteProgress";
 import { myNotifications } from "@/lib/notifications";
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
@@ -26,6 +28,7 @@ export default async function DashLayout({ children }: { children: React.ReactNo
 
   return (
     <div className="flex min-h-screen">
+      <Suspense fallback={null}><RouteProgress /></Suspense>
       {/* 네이비 사이드바 (prototype v2.5) */}
       <aside className="w-[218px] shrink-0 flex flex-col sticky top-0 h-screen overflow-hidden"
         style={{ background: "var(--navy)", color: "#cbd5e1" }}>
