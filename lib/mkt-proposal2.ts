@@ -89,6 +89,17 @@ function decodeEntities(s: string): string {
   return s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
 
+// 화장품 등 법정 표시·사용상 주의사항 상용구 — 실제 제품 특징(핵심요소)이 아니므로 걸러낸다.
+//   상세페이지 og:description 에 이 문구가 그대로 들어있는 경우가 흔하다(제조사 공통 문구).
+const CAUTION_MARKERS = [
+  "사용 시 또는 사용", "직사광선", "부어오름", "가려움증", "전문의", "보관 및 취급",
+  "어린이의 손", "상처가 있는", "화장품 사용", "이상 증상이나 부작용",
+];
+export function looksLikeCaution(text: string): boolean {
+  const hits = CAUTION_MARKERS.filter((m) => text.includes(m)).length;
+  return hits >= 2; // 두 개 이상 겹치면 법정 주의사항 문구로 판단(단순 우연한 단어 겹침과 구분)
+}
+
 export interface ScrapedProduct { name: string; image_url: string; description: string; ok: boolean }
 
 /** 상품 상세페이지에서 og:title/og:image/og:description 최소 추출. 실패해도 throw 하지 않는다(ok=false). */
@@ -184,7 +195,12 @@ export async function generateMktProposal2(brandId: string): Promise<Mkt2GenResu
   const products: MktProductItem[] = urls.map((u, i) => {
     const s = scraped[i];
     if (!s.ok) warnings.push(`상품 페이지 자동 인식 실패(${u}) — 이미지·정보를 직접 입력해주세요.`);
-    const features = [s.description, i === 0 ? a1 : ""].filter(Boolean);
+    // og:description 은 화장품 법정 표시·주의사항 같은 상용구가 그대로 딸려오는 경우가 많다
+    // (진짜 핵심 특징이 아닌 임의 텍스트) — 그런 경우는 버리고, 설문의 실제 답변(A1 핵심 효능)만 신뢰한다.
+    const desc = s.description?.trim() ?? "";
+    const descUsable = desc.length > 0 && desc.length <= 120 && !looksLikeCaution(desc);
+    if (desc && !descUsable) warnings.push(`상품 페이지 설명이 법정 주의사항 등 일반 문구로 보여 제외했습니다(${u}) — 핵심 특징을 직접 입력해주세요.`);
+    const features = [i === 0 ? a1 : "", descUsable ? desc : ""].filter(Boolean);
     return { name: s.name || `제품 ${i + 1}`, image_url: s.image_url, features };
   });
 

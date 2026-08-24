@@ -308,8 +308,9 @@ function ProductCard({ p, n, accent }: { p: MktProductItem; n: number; accent: s
   return (
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, overflow: "hidden", background: "#fff", display: "flex", flexDirection: "column" }}>
       {p.image_url
+        // 제품 실측 이미지는 잘리면 안 됨(라벨·용량 표기 등) — cover 대신 contain 으로 전체 노출.
         // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={p.image_url} alt={p.name} style={{ width: "100%", height: "9.5em", objectFit: "cover", display: "block", background: "#f1f5f9" }} />
+        ? <img src={p.image_url} alt={p.name} style={{ width: "100%", height: "9.5em", objectFit: "contain", display: "block", background: "#f8fafc" }} />
         : <div style={{ height: "9.5em", background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.9em" }}>이미지 없음</div>}
       <div style={{ padding: "1em 1.1em" }}>
         <div style={{ fontSize: "0.9em", fontWeight: 800, color: accent }}>{String(n).padStart(2, "0")}</div>
