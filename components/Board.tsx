@@ -6,6 +6,7 @@ import Link from "next/link";
 import { transitionAction } from "@/app/actions";
 import { STATES, STATE_LABELS, SOURCE_LABELS, PLAN_LABELS, GRADES, type State } from "@/lib/types";
 import type { BoardCard } from "@/lib/repo/queries";
+import { businessDaysBetween } from "@/lib/time";
 import BoardCardLayer, { TRACK_LABELS, TRACK_COLORS } from "@/components/BoardCardLayer";
 import ImportanceStars from "@/components/ImportanceStars";
 
@@ -38,11 +39,12 @@ const PARTS: { value: string; label: string }[] = [
 const CONTRACT_DONE_IDX = STATES.indexOf("contract_done");
 const showTrack = (s: State) => STATES.indexOf(s) >= CONTRACT_DONE_IDX && s !== "dropped" && s !== "churned" && s !== "hold";
 
+// 경과일은 영업일(주말 제외) 기준 — SLA 정책과 동일 기준으로 표시.
 function ageOf(iso: string): { hours: number; days: number; label: string } {
   const ms = Math.max(0, Date.now() - new Date(iso).getTime());
   const hours = Math.floor(ms / 3600000);
-  const days = Math.floor(ms / 86400000);
-  return { hours, days, label: hours < 24 ? `${Math.max(1, hours)}h` : `${days}일` };
+  const days = businessDaysBetween(new Date(iso), new Date());
+  return { hours, days, label: hours < 24 ? `${Math.max(1, hours)}h` : `${days}영업일` };
 }
 function initials(name: string): string {
   return name.replace(/@.*/, "").slice(0, 2);
@@ -53,11 +55,13 @@ export default function Board({
   sla,
   me,
   canForce = false,
+  owners = [],
 }: {
   cards: BoardCard[];
   sla: Record<string, number>;
   me: string | null;
   canForce?: boolean;
+  owners?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [cards, setCards] = useState(propCards);
@@ -68,6 +72,7 @@ export default function Board({
   // 필터 (v3.1 bar) — 파트 / 담당 / 등급
   const [part, setPart] = useState("");
   const [ownerF, setOwnerF] = useState<"mine" | "all">("all");
+  const [ownerId, setOwnerId] = useState(""); // 특정 담당자 필터
   const [gradeF, setGradeF] = useState("");
 
   // 서버 새로고침으로 새 데이터가 오면 로컬 상태 동기화
@@ -76,8 +81,12 @@ export default function Board({
   const isMine = (c: BoardCard) =>
     !!me && [c.owner_intake, c.owner_sales, c.owner_onboard, c.owner_ads].includes(me);
 
+  const hasOwner = (c: BoardCard, id: string) =>
+    [c.owner_intake, c.owner_sales, c.owner_onboard, c.owner_ads].includes(id);
   const visible = cards.filter(
-    (c) => (gradeF === "" || c.grade === gradeF) && (ownerF !== "mine" || isMine(c)),
+    (c) => (gradeF === "" || c.grade === gradeF)
+      && (ownerF !== "mine" || isMine(c))
+      && (ownerId === "" || hasOwner(c, ownerId)),
   );
   // 보류 컬럼은 파트 필터와 무관하게 항상 맨 앞에 노출(어느 파트에서든 넣을 수 있어야 함).
   const shownCols = COLS.filter((col) => col.key === "hold" || part === "" || col.part === part);
@@ -161,6 +170,10 @@ export default function Board({
           <select value={ownerF} onChange={(e) => setOwnerF(e.target.value as "mine" | "all")}>
             <option value="mine">내 담당만</option>
             <option value="all">전체</option>
+          </select>
+          <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} title="담당자별 보기">
+            <option value="">담당자 전체</option>
+            {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
           <select value={gradeF} onChange={(e) => setGradeF(e.target.value)}>
             <option value="">등급 전체</option>

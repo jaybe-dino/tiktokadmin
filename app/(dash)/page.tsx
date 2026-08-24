@@ -46,7 +46,7 @@ export default async function BoardPage() {
   return (
     <PipelineViewShell
       storageKey="sales-pipeline-view"
-      board={<Board cards={active} sla={sla} me={me} canForce={canForce} />}
+      board={<Board cards={active} sla={sla} me={me} canForce={canForce} owners={owners} />}
       table={
         <>
           <CustomerTable rows={tableData.rows as unknown as Record<string, unknown>[]} canEdit={canEdit} ownerNames={ownerNames} owners={owners} />

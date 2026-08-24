@@ -2,6 +2,7 @@
 //   영업 파이프라인의 '서류수급(docs)' 진입 브랜드부터, 온보딩 신청(onb_applications) 진행상태로
 //   5단계(서류준비/invite · 기업정보등록 · 가입완료 · 제품등록 · 운영준비)를 파생한다.
 import { query } from "./db";
+import { businessDaysBetween } from "./time";
 
 export type OnbStageKey = "invite" | "company" | "signup" | "product" | "ready";
 
@@ -67,7 +68,7 @@ export async function onboardingPipeline(): Promise<Record<OnbStageKey, OnbCard[
     const anchor = overridden
       ? (r.onb_stage_override_at ?? r.stage_entered_at)
       : (stage === "invite" ? r.stage_entered_at : (r.app_updated ?? r.stage_entered_at));
-    const ageDays = Math.max(0, Math.floor((now - new Date(anchor).getTime()) / 86_400_000));
+    const ageDays = businessDaysBetween(new Date(anchor), new Date(now));
     const sla = ONB_STAGES.find((s) => s.key === stage)?.slaDays ?? null;
     out[stage].push({
       brand_id: r.brand_id, brand_name: r.brand_name, state: r.state, owner_onboard: r.owner_onboard,
