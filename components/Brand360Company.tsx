@@ -6,7 +6,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { saveCompanyAction, setCountriesAction, updateBrandAction } from "@/app/actions";
-import { deepAnalysisAction, addBrandIntroDeckAction, removeBrandIntroDeckAction } from "@/app/(dash)/brand360/actions";
+import { deepAnalysisAction, addBrandIntroDeckAction, addBrandIntroDeckFileAction, removeBrandIntroDeckAction } from "@/app/(dash)/brand360/actions";
 import type { Brand } from "@/lib/types";
 import type { Asset, BrandCompany } from "@/lib/repo/card";
 import { kstDateTime } from "@/lib/time";
@@ -68,8 +68,27 @@ export default function Brand360Company({ brand, company, assets, categories = [
       router.refresh();
     });
   }
+  function uploadDeck(fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+    start(async () => {
+      const fd = new FormData();
+      fd.set("brand_id", bv.id);
+      fd.set("file", file);
+      const r = await addBrandIntroDeckFileAction(fd);
+      if (!r.ok) { setMsg(r.error ?? "업로드 실패"); return; }
+      setDecks((d) => [{
+        id: r.id ?? `tmp-${Date.now()}`, brand_id: bv.id, kind: "intro_deck",
+        filename: r.filename ?? file.name, mime: null, size_bytes: null,
+        storage_url: null, external_url: r.url ?? null, source: "upload", source_ref: null,
+        uploaded_by: null, retention_until: null, created_at: new Date().toISOString(),
+      }, ...d]);
+      setMsg("파일을 업로드했습니다.");
+      router.refresh();
+    });
+  }
   function removeDeck(id: string) {
-    if (!confirm("이 소개서 링크를 삭제할까요?")) return;
+    if (!confirm("이 소개서를 삭제할까요?")) return;
     start(async () => {
       const r = await removeBrandIntroDeckAction(id, bv.id);
       if (!r.ok) { setMsg(r.error ?? "삭제 실패"); return; }
@@ -420,7 +439,14 @@ export default function Brand360Company({ brand, company, assets, categories = [
                 <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                   <input className="f" style={{ flex: "1 1 120px", minWidth: 0 }} placeholder="이름(선택)" value={deckName} onChange={(e) => setDeckName(e.target.value)} />
                   <input className="f" style={{ flex: "2 1 200px", minWidth: 0 }} placeholder="https:// 소개서 링크" value={deckUrl} onChange={(e) => setDeckUrl(e.target.value)} />
-                  <button className="btn sm pri" disabled={pending || !deckUrl.trim()} onClick={addDeck}>추가</button>
+                  <button className="btn sm pri" disabled={pending || !deckUrl.trim()} onClick={addDeck}>링크 추가</button>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12 }}>
+                  <label className="btn sm" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    📎 파일 업로드
+                    <input type="file" style={{ display: "none" }} disabled={pending} onChange={(e) => { uploadDeck(e.target.files); e.target.value = ""; }} />
+                  </label>
+                  <span style={{ color: "var(--ink3)", marginLeft: 6, fontSize: 11 }}>개인메일·카톡으로 받은 소개서 파일(20MB 이하)</span>
                 </div>
               </div>
             </div>

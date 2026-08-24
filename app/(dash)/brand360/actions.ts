@@ -553,6 +553,42 @@ export async function addBrandIntroDeckAction(
   } catch { return { ok: false, error: "소개서 저장 실패 — 잠시 후 다시 시도하세요." }; }
 }
 
+// 파일 업로드 첨부(개인메일·카톡으로 받은 소개서 등) — 바이트를 import_files 에 저장,
+//   assets(kind=intro_deck, external_url=스트리밍 경로)로 노출해 링크 첨부와 동일하게 열람.
+export async function addBrandIntroDeckFileAction(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string; id?: string; filename?: string; url?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const brandId = String(formData.get("brand_id") ?? "");
+  if (!UUID_RE.test(brandId)) return { ok: false, error: "잘못된 브랜드 ID" };
+  const file = formData.get("file");
+  if (!file || typeof file === "string" || !("arrayBuffer" in file) || (file as File).size === 0) {
+    return { ok: false, error: "파일을 선택하세요." };
+  }
+  const f = file as File;
+  if (f.size > 20 * 1024 * 1024) return { ok: false, error: "파일은 20MB 이하만 가능합니다." };
+  const { fixUploadFilename } = await import("@/lib/filename");
+  const filename = fixUploadFilename(f.name) || "소개서";
+  const bytes = Buffer.from(await f.arrayBuffer());
+  const mime = f.type || "application/octet-stream";
+  try {
+    const row = await queryOne<{ id: string }>(
+      `INSERT INTO import_files (brand_id, doc_field, filename, mime, size, bytes)
+       VALUES ($1,'intro_deck',$2,$3,$4,$5) RETURNING id`,
+      [brandId, filename, mime, bytes.length, bytes],
+    );
+    const url = `/api/brand/import-file/${row!.id}`;
+    const asset = await queryOne<{ id: string }>(
+      `INSERT INTO assets (brand_id, kind, filename, mime, external_url, source, uploaded_by)
+       VALUES ($1,'intro_deck',$2,$3,$4,'upload',$5) RETURNING id`,
+      [brandId, filename, mime, url, `admin:${u.id}`],
+    );
+    revalidatePath(`/brand/${brandId}`);
+    return { ok: true, id: asset?.id, filename, url };
+  } catch { return { ok: false, error: "파일 저장 실패 — 잠시 후 다시 시도하세요." }; }
+}
+
 export async function removeBrandIntroDeckAction(
   assetId: string, brandId: string,
 ): Promise<{ ok: boolean; error?: string }> {
