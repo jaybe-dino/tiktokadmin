@@ -168,6 +168,7 @@ export async function createMktProposalAction(input: {
   file_url?: string;  // 개별 제안서 파일 링크(드라이브 PPT/PDF)
   propose_date?: string;    // 제안 예정일
   final_due_date?: string;  // 최종 제안 예정 일정
+  reply_due_date?: string;  // 회신 예정일
   rfp_text?: string;        // 사전 RFP(설문/직접)
   rfp_file_url?: string;    // RFP 업로드 링크
   ai_direction?: string;    // AI 제안 방향
@@ -192,8 +193,10 @@ export async function createMktProposalAction(input: {
   if (ps && pe && ps > pe) return { ok: false, error: "기간 시작일이 종료일보다 늦습니다." };
   const pd = (input.propose_date ?? "").trim();
   const fd = (input.final_due_date ?? "").trim();
+  const rd = (input.reply_due_date ?? "").trim();
   if (pd && !isYmd(pd)) return { ok: false, error: "제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
   if (fd && !isYmd(fd)) return { ok: false, error: "최종 제안 예정일 형식(YYYY-MM-DD)을 확인하세요." };
+  if (rd && !isYmd(rd)) return { ok: false, error: "회신 예정일 형식(YYYY-MM-DD)을 확인하세요." };
 
   const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]).catch(() => null);
   if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
@@ -205,10 +208,10 @@ export async function createMktProposalAction(input: {
     try {
       prow = await queryOne<{ id: string }>(
         `INSERT INTO proposals (brand_id, kind, title, amount, period_start, period_end, note, url,
-                                propose_date, final_due_date, rfp_text, rfp_file_url, ai_direction, status, created_by)
-         VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',$14) RETURNING id`,
+                                propose_date, final_due_date, reply_due_date, rfp_text, rfp_file_url, ai_direction, status, created_by)
+         VALUES ($1,'marketing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'draft',$15) RETURNING id`,
         [input.brand_id, title, amount, ps || null, pe || null, (input.note ?? "").trim(), (input.file_url ?? "").trim(),
-         pd || null, fd || null, (input.rfp_text ?? "").trim() || null, (input.rfp_file_url ?? "").trim() || null,
+         pd || null, fd || null, rd || null, (input.rfp_text ?? "").trim() || null, (input.rfp_file_url ?? "").trim() || null,
          (input.ai_direction ?? "").trim() || null, `admin:${u.id}`],
       );
     } catch {
@@ -229,6 +232,9 @@ export async function createMktProposalAction(input: {
         [input.brand_id, title, (input.note ?? "").trim(), prow.id],
       ).catch((e) => console.error("[mkt] 프로젝트 자동연결 실패:", (e as Error).message));
     }
+
+    // 초기 생성 시 생성자를 마케팅 담당자로 지정(브랜드에 담당 미지정인 경우만 — 기존 담당은 보존).
+    await query("UPDATE brands SET owner_ads=$1 WHERE id=$2 AND owner_ads IS NULL", [u.id, input.brand_id]).catch(() => {});
 
     revalidatePath("/mkt");
     revalidatePath(`/brand/${input.brand_id}`);

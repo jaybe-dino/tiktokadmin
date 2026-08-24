@@ -11,7 +11,7 @@ export default async function MktPage() {
   // 마케팅 제안서 신규 필드(제안 예정일·최종 일정·RFP·AI방향) — 0064 미적용 시 빈 맵(안전).
   const metaRaw = (await query(
     `SELECT id, propose_date::text AS propose_date, final_due_date::text AS final_due_date,
-            rfp_text, rfp_file_url, ai_direction
+            reply_due_date::text AS reply_due_date, rfp_text, rfp_file_url, ai_direction
        FROM proposals WHERE kind='marketing'`,
   ).catch(() => [])) as Record<string, unknown>[];
   const metaById = new Map(metaRaw.map((m) => [String(m.id), m]));
@@ -35,6 +35,7 @@ export default async function MktPage() {
       prop_period_start: r.prop_period_start == null ? null : String(r.prop_period_start),
       prop_period_end: r.prop_period_end == null ? null : String(r.prop_period_end),
       prop_propose_date: meta.propose_date == null ? null : String(meta.propose_date),
+      prop_reply_due_date: meta.reply_due_date == null ? null : String(meta.reply_due_date),
       prop_rfp_text: meta.rfp_text == null ? null : String(meta.rfp_text),
       prop_rfp_file_url: meta.rfp_file_url == null ? null : String(meta.rfp_file_url),
       prop_ai_direction: meta.ai_direction == null ? null : String(meta.ai_direction),
@@ -85,6 +86,7 @@ export default async function MktPage() {
       project_status: p.project_status == null ? null : String(p.project_status),
       propose_date: meta.propose_date == null ? null : String(meta.propose_date),
       final_due_date: meta.final_due_date == null ? null : String(meta.final_due_date),
+      reply_due_date: meta.reply_due_date == null ? null : String(meta.reply_due_date),
       rfp_text: meta.rfp_text == null ? null : String(meta.rfp_text),
       rfp_file_url: meta.rfp_file_url == null ? null : String(meta.rfp_file_url),
       ai_direction: meta.ai_direction == null ? null : String(meta.ai_direction),

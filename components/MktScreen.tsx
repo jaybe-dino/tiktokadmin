@@ -44,6 +44,7 @@ export interface MktRow {
   prop_status: string | null;
   prop_url: string | null;
   prop_propose_date?: string | null;   // 제안 예정일(연결 제안서)
+  prop_reply_due_date?: string | null; // 회신 예정일(연결 제안서)
   prop_period_start?: string | null;
   prop_period_end?: string | null;
   prop_rfp_text?: string | null;
@@ -74,6 +75,7 @@ export interface MktProposalRow {
   // 고도화(0064): 제안 예정일·최종 일정·RFP·AI 제안방향
   propose_date?: string | null;
   final_due_date?: string | null;
+  reply_due_date?: string | null;
   rfp_text?: string | null;
   rfp_file_url?: string | null;
   ai_direction?: string | null;
@@ -203,6 +205,7 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAll = () => setSel(allChecked ? new Set() : new Set(ids));
   const ownerName = (id: string) => owners.find((o) => o.id === id)?.name ?? id;
+  const ownerNameOf = (id?: string | null) => (id ? (owners.find((o) => o.id === id)?.name ?? "담당") : null);
   async function runBulk(fn: (r: MktRow) => Promise<{ ok: boolean }>, doneMsg: (ok: number, fail: number) => string) {
     if (sel.size === 0 || bulkBusy) return;
     const list = filtered.filter((r) => sel.has(r.id));
@@ -325,7 +328,7 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
                   {col.label} <span className="c">{list.length}</span>
                 </h4>
                 {list.map((m) => (
-                  <KCard key={m.id} m={m} brands={brands} onDragStart={() => setDragId(m.id)} onDragEnd={() => { setDragId(null); setOverCol(null); }} dragging={dragId === m.id} />
+                  <KCard key={m.id} m={m} brands={brands} owners={owners} ownerName={ownerNameOf(m.owner_ads)} onDragStart={() => setDragId(m.id)} onDragEnd={() => { setDragId(null); setOverCol(null); }} dragging={dragId === m.id} />
                 ))}
                 {list.length === 0 && <div className="mt" style={{ padding: "2px 4px" }}>—</div>}
               </div>
@@ -358,7 +361,7 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
                   </div>
                 ) : (
                   holdList.map((m) => (
-                    <KCard key={m.id} m={m} brands={brands} onDragStart={() => setDragId(m.id)} onDragEnd={() => { setDragId(null); setOverCol(null); }} dragging={dragId === m.id} />
+                    <KCard key={m.id} m={m} brands={brands} owners={owners} ownerName={ownerNameOf(m.owner_ads)} onDragStart={() => setDragId(m.id)} onDragEnd={() => { setDragId(null); setOverCol(null); }} dragging={dragId === m.id} />
                   ))
                 )}
               </div>
@@ -376,7 +379,7 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
 }
 
 // 파이프라인 카드 — 드래그로 단계 이동, 클릭하면 상세 편집·제안서 연결 관리 모달.
-function KCard({ m, brands = [], onDragStart, onDragEnd, dragging }: { m: MktRow; brands?: MktBrandOpt[]; onDragStart?: () => void; onDragEnd?: () => void; dragging?: boolean }) {
+function KCard({ m, brands = [], owners = [], ownerName, onDragStart, onDragEnd, dragging }: { m: MktRow; brands?: MktBrandOpt[]; owners?: { id: string; name: string }[]; ownerName?: string | null; onDragStart?: () => void; onDragEnd?: () => void; dragging?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -391,9 +394,10 @@ function KCard({ m, brands = [], onDragStart, onDragEnd, dragging }: { m: MktRow
       >
         <div className="nm">{m.title}</div>
         <div className="mt">{m.brand_name}{m.note ? ` · ${m.note}` : ""}</div>
-        {(m.prop_propose_date || m.prop_amount != null) && (
+        {(m.prop_propose_date || m.prop_reply_due_date || m.prop_amount != null) && (
           <div style={{ fontSize: 10.5, color: "var(--ink3)", marginTop: 3, display: "flex", gap: 8, flexWrap: "wrap" }}>
             {m.prop_propose_date && <span>📅 제안 {m.prop_propose_date}</span>}
+            {m.prop_reply_due_date && <span style={{ color: "#b45309" }}>↩ 회신 {m.prop_reply_due_date}</span>}
             {m.prop_amount != null && <span>{m.prop_amount.toLocaleString("ko-KR")}원</span>}
           </div>
         )}
@@ -402,23 +406,37 @@ function KCard({ m, brands = [], onDragStart, onDragEnd, dragging }: { m: MktRow
           {m.proposal_id
             ? <span className="cellchip cc-ing" title="마케팅 제안서 연결됨">📄 제안서</span>
             : <span className="cellchip cc-no" title="연결된 제안서 없음">제안서 미연결</span>}
+          {ownerName
+            ? <span className="cellchip cc-ok" title={`마케팅 담당 ${ownerName}`} style={{ marginLeft: "auto" }}>👤 {ownerName}</span>
+            : <span className="cellchip cc-no" title="담당자 미지정" style={{ marginLeft: "auto" }}>👤 미지정</span>}
         </div>
       </div>
-      {open && <MktProjectDetail m={m} brands={brands} onClose={() => setOpen(false)} />}
+      {open && <MktProjectDetail m={m} brands={brands} owners={owners} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-// 프로젝트 상세 모달 — 제목·메모 편집, 상태 이동(게이트), 연결된 마케팅 제안서 관리.
-function MktProjectDetail({ m, brands = [], onClose }: { m: MktRow; brands?: MktBrandOpt[]; onClose: () => void }) {
+// 프로젝트 상세 모달 — 제목·메모 편집, 상태 이동(게이트), 담당자 지정, 연결된 마케팅 제안서 관리.
+function MktProjectDetail({ m, brands = [], owners = [], onClose }: { m: MktRow; brands?: MktBrandOpt[]; owners?: { id: string; name: string }[]; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [title, setTitle] = useState(m.title);
   const [note, setNote] = useState(m.note ?? "");
   const [status, setStatus] = useState(m.proposal_status);
+  const [owner, setOwner] = useState(m.owner_ads ?? "");
   const [msg, setMsg] = useState("");
   const [editProp, setEditProp] = useState(false);
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(""), 2600); };
+
+  function changeOwner(id: string) {
+    setOwner(id);
+    if (!id) return;
+    if (!m.brand_id) { flash("브랜드 미연결 — 담당자를 지정할 수 없습니다."); return; }
+    start(async () => {
+      const r = await assignBrandOwnerAction(m.brand_id, "owner_ads", id);
+      if (r.ok) { flash("담당자 지정됨"); router.refresh(); } else flash(r.error ?? "담당자 지정 실패");
+    });
+  }
 
   function saveInfo() {
     start(async () => {
@@ -462,10 +480,15 @@ function MktProjectDetail({ m, brands = [], onClose }: { m: MktRow; brands?: Mkt
         <input className="f" value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
         <label className="f" style={{ marginTop: 10 }}>메모</label>
         <textarea className="f" value={note} onChange={(e) => setNote(e.target.value)} rows={2} style={{ width: "100%", boxSizing: "border-box", resize: "vertical" }} />
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
           <label className="f" style={{ margin: 0 }}>단계</label>
           <select className="f" value={status} onChange={(e) => changeStatus(e.target.value)} disabled={pending}>
             {Object.entries(ST).map(([k, v]) => <option key={k} value={k}>{v.ko}</option>)}
+          </select>
+          <label className="f" style={{ margin: 0 }}>담당자</label>
+          <select className="f" value={owner} onChange={(e) => changeOwner(e.target.value)} disabled={pending || !m.brand_id} title={m.brand_id ? "마케팅 담당자 지정" : "브랜드 미연결"}>
+            <option value="">미지정</option>
+            {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
           <button className="btn sm pri" disabled={pending} onClick={saveInfo} style={{ marginLeft: "auto" }}>제목·메모 저장</button>
         </div>
@@ -707,6 +730,7 @@ function Proposals({
   const [fileUrl, setFileUrl] = useState("");
   const [linkProject, setLinkProject] = useState(true);
   const [proposeDate, setProposeDate] = useState("");
+  const [replyDue, setReplyDue] = useState("");
   const [rfp, setRfp] = useState("");
   const [rfpFile, setRfpFile] = useState("");
   const [aiDir, setAiDir] = useState("");
@@ -736,6 +760,7 @@ function Proposals({
           note,
           file_url: fileUrl,
           propose_date: proposeDate,
+          reply_due_date: replyDue,
           rfp_text: rfp,
           rfp_file_url: rfpFile,
           ai_direction: aiDir,
@@ -743,7 +768,7 @@ function Proposals({
         });
         if (r.ok) {
           setTitle(""); setAmount(""); setPs(""); setPe(""); setNote(""); setFileUrl("");
-          setProposeDate(""); setRfp(""); setRfpFile(""); setAiDir("");
+          setProposeDate(""); setReplyDue(""); setRfp(""); setRfpFile(""); setAiDir("");
           setOk("제안서가 저장되었습니다 — 발송 준비 후 초안함에서 승인·발송하세요.");
           router.refresh();
         } else setErr(r.error ?? "저장 실패");
@@ -840,6 +865,10 @@ function Proposals({
             <input className="f" type="date" value={proposeDate} onChange={(e) => setProposeDate(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
           </div>
           <div>
+            <label className="f">회신 예정일</label>
+            <input className="f" type="date" value={replyDue} onChange={(e) => setReplyDue(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+          </div>
+          <div>
             <label className="f">기간 시작</label>
             <input className="f" type="date" value={ps} onChange={(e) => setPs(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
           </div>
@@ -929,7 +958,7 @@ function Proposals({
                   <td>{p.period_start || p.period_end ? `${p.period_start ?? "미정"} ~ ${p.period_end ?? "미정"}` : "—"}</td>
                   <td>{p.note || "—"}{p.url && <div className="sub"><a href={p.url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>📎 제안서 파일 ↗</a></div>}</td>
                   <td style={{ minWidth: 160 }}>
-                    <div className="sub">제안 {p.propose_date ?? "—"} · 최종 {p.final_due_date ?? "—"}</div>
+                    <div className="sub">제안 {p.propose_date ?? "—"} · 회신 {p.reply_due_date ?? "—"} · 최종 {p.final_due_date ?? "—"}</div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
                       {(p.rfp_text || p.rfp_file_url) && <span className="cellchip cc-ok" style={{ fontSize: 10 }}>RFP</span>}
                       {p.rfp_file_url && <a href={p.rfp_file_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)", fontSize: 10.5 }}>📎RFP</a>}
