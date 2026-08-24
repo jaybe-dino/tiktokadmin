@@ -9,13 +9,14 @@ import { assignBrandOwnerAction } from "@/app/actions";
 
 type Stage = { key: OnbStageKey; label: string; slaDays: number | null };
 
-export default function OnbTable({ stages, groups, owners }: {
+export default function OnbTable({ stages, groups, held = [], owners }: {
   stages: Stage[];
   groups: Record<OnbStageKey, OnbCard[]>;
+  held?: OnbCard[];
   owners: { id: string; name: string }[];
 }) {
   const router = useRouter();
-  const rows = stages.flatMap((s) => (groups[s.key] ?? []));
+  const rows = [...stages.flatMap((s) => (groups[s.key] ?? [])), ...held];
   const labelOf = (k: OnbStageKey) => stages.find((s) => s.key === k)?.label ?? k;
   const ownerName = (id: string | null) => (id ? (owners.find((o) => o.id === id)?.name ?? id) : null);
 
@@ -99,7 +100,9 @@ export default function OnbTable({ stages, groups, owners }: {
               <tr key={c.brand_id} style={{ background: checked ? "rgba(37,99,235,.08)" : c.overSla ? "rgba(254,226,226,.35)" : undefined }}>
                 <td><input type="checkbox" checked={checked} onChange={() => toggle(c.brand_id)} /></td>
                 <td><Link href={`/brand/${c.brand_id}`} style={{ fontWeight: 700, color: "inherit" }}>{c.brand_name}</Link></td>
-                <td><span className="pill">{labelOf(c.stage)}</span>{c.overridden && <span style={{ fontSize: 9, color: "#7c3aed", marginLeft: 4 }}>수동</span>}</td>
+                <td>{c.held
+                  ? <span className="pill" style={{ background: "#fef3c7", color: "#b45309" }}>보류</span>
+                  : <><span className="pill">{labelOf(c.stage)}</span>{c.overridden && <span style={{ fontSize: 9, color: "#7c3aed", marginLeft: 4 }}>수동</span>}</>}</td>
                 <td style={{ fontSize: 12 }}>{ownerName(c.owner_onboard) ?? <span style={{ color: "var(--danger)", fontWeight: 700 }}>미배정</span>}</td>
                 <td style={{ fontSize: 12, color: "var(--ink3)" }}>{c.app_status ?? "—"}</td>
                 <td style={{ fontSize: 12 }}>{c.product_count || "—"}</td>

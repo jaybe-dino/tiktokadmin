@@ -1,4 +1,4 @@
-import { onboardingPipeline, ONB_STAGES } from "@/lib/onboarding-pipeline";
+import { onboardingBoardData, ONB_STAGES } from "@/lib/onboarding-pipeline";
 import { adminUserList } from "@/lib/repo/queries";
 import OnbBoard from "@/components/OnbBoard";
 import OnbTable from "@/components/OnbTable";
@@ -7,10 +7,12 @@ import PipelineViewShell from "@/components/PipelineViewShell";
 export const dynamic = "force-dynamic";
 
 export default async function OnboardingPipelinePage() {
-  const [groups, admins] = await Promise.all([
-    onboardingPipeline().catch(() => null),
+  const [data, admins] = await Promise.all([
+    onboardingBoardData().catch(() => null),
     adminUserList().catch(() => []),
   ]);
+  const groups = data?.groups ?? null;
+  const held = data?.held ?? [];
   const ownerNames = Object.fromEntries(admins.map((a) => [a.id, a.name]));
   const owners = admins.filter((a) => a.name).map((a) => ({ id: a.id, name: a.name }));
 
@@ -19,7 +21,7 @@ export default async function OnboardingPipelinePage() {
       <div className="ph">
         <div>
           <h1>온보딩 파이프라인</h1>
-          <p>영업 파이프라인 서류수급 진입 브랜드부터 — 서류준비/Invite → 기업정보 등록 → 가입 완료 → 제품 등록 → 운영 준비. 단계는 온보딩 신청 진행상태로 자동 파생되며, 드래그로 수동 이동할 수 있습니다.</p>
+          <p>온보딩 신청서를 생성한 브랜드만 노출 — 서류수급(담당 배정 대기) → 입점 셋업(담당 배정) → 가입 완료 → 제품 등록 → 운영 준비. 단계는 자동 파생되며, 드래그로 수동 이동·보류할 수 있습니다.</p>
         </div>
       </div>
 
@@ -30,8 +32,8 @@ export default async function OnboardingPipelinePage() {
       ) : (
         <PipelineViewShell
           storageKey="onb-pipeline-view"
-          board={<OnbBoard stages={ONB_STAGES} groups={groups} ownerNames={ownerNames} owners={owners} />}
-          table={<OnbTable stages={ONB_STAGES} groups={groups} owners={owners} />}
+          board={<OnbBoard stages={ONB_STAGES} groups={groups} held={held} ownerNames={ownerNames} owners={owners} />}
+          table={<OnbTable stages={ONB_STAGES} groups={groups} held={held} owners={owners} />}
         />
       )}
 

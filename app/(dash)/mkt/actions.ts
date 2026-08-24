@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 
-const STATUSES = ["draft", "sent", "negotiating", "meeting_scheduled", "won", "dropped"] as const;
+const STATUSES = ["draft", "sent", "negotiating", "meeting_scheduled", "won", "dropped", "hold"] as const;
 type MktStatus = (typeof STATUSES)[number];
 
 export interface MktResult {

@@ -8,13 +8,13 @@ import { ONB_STAGES } from "@/lib/onboarding-pipeline";
 const STAGE_KEYS = new Set<string>(ONB_STAGES.map((s) => s.key));
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** stage=null(또는 "auto")이면 자동 파생으로 복귀, 아니면 해당 단계로 수동 고정. */
+/** stage=null(또는 "auto")이면 자동 파생으로 복귀, "hold"면 보류 섹터, 아니면 해당 단계로 수동 고정. */
 export async function setOnbStageAction(brandId: string, stage: string | null): Promise<{ ok: boolean; error?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!UUID_RE.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
   const reset = !stage || stage === "auto";
-  if (!reset && !STAGE_KEYS.has(stage)) return { ok: false, error: "잘못된 단계" };
+  if (!reset && stage !== "hold" && !STAGE_KEYS.has(stage)) return { ok: false, error: "잘못된 단계" };
   try {
     if (reset) {
       await query("UPDATE brands SET onb_stage_override=NULL, onb_stage_override_at=NULL, updated_at=now() WHERE id=$1", [brandId]);

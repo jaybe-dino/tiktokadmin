@@ -93,6 +93,7 @@ const ST: Record<string, { ko: string; cc: string }> = {
   meeting_scheduled: { ko: "미팅 예정", cc: "cc-warn" },
   won: { ko: "수주", cc: "cc-ok" },
   dropped: { ko: "드랍", cc: "cc-no" },
+  hold: { ko: "보류", cc: "cc-warn" },
 };
 
 // 파이프라인 열 (project 트랙)
@@ -162,6 +163,10 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
   const [view, setView] = useState<"board" | "table">("board");
   useEffect(() => { try { const v = localStorage.getItem("mkt-pipeline-view"); if (v === "table" || v === "board") setView(v); } catch { /* noop */ } }, []);
   const pickView = (v: "board" | "table") => { setView(v); try { localStorage.setItem("mkt-pipeline-view", v); } catch { /* noop */ } };
+  // 보류 리스트 접기(많이 쌓일 수 있어 기본 접힘).
+  const [holdCollapsed, setHoldCollapsed] = useState(true);
+  useEffect(() => { try { const v = localStorage.getItem("mkt-hold-collapsed"); if (v != null) setHoldCollapsed(v === "1"); } catch { /* noop */ } }, []);
+  const toggleHold = () => setHoldCollapsed((c) => { const n = !c; try { localStorage.setItem("mkt-hold-collapsed", n ? "1" : "0"); } catch { /* noop */ } return n; });
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bulkStage, setBulkStage] = useState("");
   const [bulkOwner, setBulkOwner] = useState("");
@@ -264,6 +269,7 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
               <select className="f" style={{ width: 130, padding: "3px 6px", fontSize: 12 }} value={bulkStage} onChange={(e) => setBulkStage(e.target.value)}>
                 <option value="">단계 이동…</option>
                 {PIPE.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+                <option value="hold">보류</option>
               </select>
               <button className="btn btn-sm" disabled={bulkBusy || sel.size === 0 || !bulkStage} onClick={doBulkStage}>단계 이동{sel.size ? ` (${sel.size})` : ""}</button>
             </div>
@@ -325,6 +331,39 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
               </div>
             );
           })}
+          {/* 보류 섹터 — 맨 오른쪽. 많이 쌓일 수 있어 리스트 접기/펼치기. */}
+          {(() => {
+            const holdList = filtered.filter((r) => r.proposal_status === "hold");
+            return (
+              <div
+                className={`kcol${overCol === "hold" ? " dragover" : ""}`}
+                style={{ background: "#fffbeb", borderColor: "#fde68a" }}
+                onDragOver={(e) => { e.preventDefault(); if (overCol !== "hold") setOverCol("hold"); }}
+                onDragLeave={() => setOverCol((c) => (c === "hold" ? null : c))}
+                onDrop={() => dropTo("hold")}
+              >
+                <h4>
+                  <span className="dot" style={{ background: "#f59e0b" }} />
+                  보류 <span className="c">{holdList.length}</span>
+                  <button onClick={toggleHold} title={holdCollapsed ? "보류 목록 펼치기" : "보류 목록 접기"}
+                    style={{ marginLeft: "auto", border: "none", background: "none", cursor: "pointer", fontSize: 11, color: "var(--acc)", fontWeight: 700 }}>
+                    {holdCollapsed ? "펼치기 ▸" : "접기 ▾"}
+                  </button>
+                </h4>
+                {holdList.length === 0 ? (
+                  <div className="mt" style={{ padding: "2px 4px" }}>{overCol === "hold" ? "여기로 이동" : "보류 없음"}</div>
+                ) : holdCollapsed ? (
+                  <div className="mt" style={{ padding: "6px 4px", textAlign: "center", color: "var(--ink3)" }}>
+                    {holdList.length}건 보류 중 · <button onClick={toggleHold} style={{ border: "none", background: "none", color: "var(--acc)", cursor: "pointer", fontWeight: 700 }}>목록 보기</button>
+                  </div>
+                ) : (
+                  holdList.map((m) => (
+                    <KCard key={m.id} m={m} brands={brands} onDragStart={() => setDragId(m.id)} onDragEnd={() => { setDragId(null); setOverCol(null); }} dragging={dragId === m.id} />
+                  ))
+                )}
+              </div>
+            );
+          })()}
         </div>
         </KanbanScroll>
       )}

@@ -75,9 +75,13 @@ export default function Board({
   const [ownerF, setOwnerF] = useState<"mine" | "all">("all");
   const [ownerId, setOwnerId] = useState(""); // 특정 담당자 필터
   const [gradeF, setGradeF] = useState("");
+  // 보류 컬럼 리스트 접기(많이 쌓일 수 있어 기본 접힘) — localStorage 유지.
+  const [holdCollapsed, setHoldCollapsed] = useState(true);
 
   // 서버 새로고침으로 새 데이터가 오면 로컬 상태 동기화
   useEffect(() => setCards(propCards), [propCards]);
+  useEffect(() => { try { const v = localStorage.getItem("sales-hold-collapsed"); if (v != null) setHoldCollapsed(v === "1"); } catch { /* noop */ } }, []);
+  const toggleHold = () => setHoldCollapsed((c) => { const n = !c; try { localStorage.setItem("sales-hold-collapsed", n ? "1" : "0"); } catch { /* noop */ } return n; });
 
   const isMine = (c: BoardCard) =>
     !!me && [c.owner_intake, c.owner_sales, c.owner_onboard, c.owner_ads].includes(me);
@@ -213,9 +217,19 @@ export default function Board({
                   {list.length}
                   {slaDays != null && ` · SLA ${slaDays}일`}
                 </span>
+                {col.key === "hold" && (
+                  <button onClick={toggleHold} title={holdCollapsed ? "보류 목록 펼치기" : "보류 목록 접기"}
+                    style={{ marginLeft: "auto", border: "none", background: "none", cursor: "pointer", fontSize: 11, color: "var(--acc)", fontWeight: 700 }}>
+                    {holdCollapsed ? "펼치기 ▸" : "접기 ▾"}
+                  </button>
+                )}
               </h4>
               <div className="min-h-[60px]">
-                {list.map((c) => {
+                {col.key === "hold" && holdCollapsed && list.length > 0 ? (
+                  <div style={{ padding: "12px 8px", textAlign: "center", color: "var(--ink3)", fontSize: 12 }}>
+                    {list.length}건 보류 중 · <button onClick={toggleHold} style={{ border: "none", background: "none", color: "var(--acc)", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>목록 보기</button>
+                  </div>
+                ) : list.map((c) => {
                   const owner = c.owners_display?.split(",")[0]?.trim() ?? "";
                   const age = ageOf(c.stage_entered_at);
                   const p = sla[c.state];
