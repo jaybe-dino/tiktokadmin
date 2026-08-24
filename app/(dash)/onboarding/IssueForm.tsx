@@ -7,7 +7,7 @@ export default function IssueForm({ brands }: { brands: { id: string; brand_name
   const [email, setEmail] = useState("");
   const [brandId, setBrandId] = useState("");
   const [note, setNote] = useState("");
-  const [sendMail, setSendMail] = useState(true);
+  const [sendMail, setSendMail] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ email: string; code: string; mailed?: boolean } | null>(null);
   const [error, setError] = useState("");

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import {
   issueCustomer, setCustomerActive, setCustomerBrand, reviewStep, approveApplication, setStepLock,
-  deleteCustomer, forceApproveCustomer,
+  deleteCustomer, forceApproveCustomer, reissueCode,
 } from "@/lib/onboarding";
 
 export async function issueCustomerAction(email: string, brandId: string | null, note: string, sendMail?: boolean): Promise<{ ok: boolean; code?: string; error?: string; mailed?: boolean }> {
@@ -74,6 +74,15 @@ export async function forceApproveCustomerAction(customerId: string) {
   if (!u) return { ok: false, error: "권한이 없습니다." };
   const r = await forceApproveCustomer(customerId, u.name || u.id);
   if (r.ok) { revalidatePath("/onboarding"); revalidatePath("/onboarding-pipeline"); }
+  return r;
+}
+
+/** 발급 코드 재발급 — 목록에서 코드 분실/미보관 계정에 새 코드 발급. */
+export async function reissueCodeAction(customerId: string): Promise<{ ok: boolean; code?: string; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "권한이 없습니다." };
+  const r = await reissueCode(customerId);
+  if (r.ok) revalidatePath("/onboarding");
   return r;
 }
 

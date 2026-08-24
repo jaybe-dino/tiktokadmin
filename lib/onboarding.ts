@@ -38,12 +38,24 @@ export async function issueCustomer(email: string, brandId: string | null, note:
   const buf = randomBytes(8);
   const code = Array.from(buf, (b) => ALPHABET[b % ALPHABET.length]).join("");
   try {
-    await query(
-      `INSERT INTO onb_customers (email, access_code_hash, brand_id, note, created_by)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (email) DO UPDATE SET access_code_hash=EXCLUDED.access_code_hash,
-         brand_id=COALESCE(EXCLUDED.brand_id, onb_customers.brand_id), note=EXCLUDED.note, active=true`,
-      [e, hashPassword(code), brandId, note || "", by]);
+    // 평문 코드도 보관(관리자 목록 재확인용) — 0083 미적용 시 평문 없이 재시도.
+    try {
+      await query(
+        `INSERT INTO onb_customers (email, access_code_hash, access_code_plain, brand_id, note, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (email) DO UPDATE SET access_code_hash=EXCLUDED.access_code_hash,
+           access_code_plain=EXCLUDED.access_code_plain,
+           brand_id=COALESCE(EXCLUDED.brand_id, onb_customers.brand_id), note=EXCLUDED.note, active=true`,
+        [e, hashPassword(code), code, brandId, note || "", by]);
+    } catch (inner) {
+      if (!/access_code_plain/.test(inner instanceof Error ? inner.message : "")) throw inner;
+      await query(
+        `INSERT INTO onb_customers (email, access_code_hash, brand_id, note, created_by)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (email) DO UPDATE SET access_code_hash=EXCLUDED.access_code_hash,
+           brand_id=COALESCE(EXCLUDED.brand_id, onb_customers.brand_id), note=EXCLUDED.note, active=true`,
+        [e, hashPassword(code), brandId, note || "", by]);
+    }
     return { ok: true, code };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "발급 실패" };
@@ -345,21 +357,39 @@ export async function getOnbFile(id: string): Promise<{ filename: string; mime: 
 }
 
 // ── 관리자 뷰 ──
-export interface OnbCustomerRow extends OnbCustomer { last_login_at: string | null; created_at: string; app_id: string | null; app_status: string | null; submitted_steps: number; countries: string | null }
+export interface OnbCustomerRow extends OnbCustomer { last_login_at: string | null; created_at: string; app_id: string | null; app_status: string | null; submitted_steps: number; countries: string | null; access_code_plain?: string | null }
 export async function listCustomers(): Promise<OnbCustomerRow[]> {
-  return query<OnbCustomerRow>(
+  // 0083(access_code_plain) 미적용 DB 방어 — 평문 컬럼 유무에 따라 쿼리 분기.
+  const build = (plain: boolean) =>
     `SELECT c.id, c.email, c.brand_id, c.note, c.active, c.last_login_at, c.created_at,
+            ${plain ? "c.access_code_plain," : "NULL::text AS access_code_plain,"}
             a.id AS app_id, a.status AS app_status,
             COALESCE((SELECT count(*) FROM onb_steps s WHERE s.application_id=a.id AND s.status IN ('submitted','approved')),0)::int AS submitted_steps,
             (SELECT string_agg(DISTINCT oc.country_code, ', ' ORDER BY oc.country_code)
                FROM onb_countries oc WHERE oc.application_id=a.id AND oc.country_code <> '') AS countries
        FROM onb_customers c
        LEFT JOIN onb_applications a ON a.customer_id=c.id
-       ORDER BY c.created_at DESC`).catch(() => []);
+       ORDER BY c.created_at DESC`;
+  return query<OnbCustomerRow>(build(true)).catch(() => query<OnbCustomerRow>(build(false)).catch(() => []));
 }
 export async function setCustomerActive(id: string, active: boolean): Promise<{ ok: boolean }> {
   await query("UPDATE onb_customers SET active=$2 WHERE id=$1", [id, active]).catch(() => {});
   return { ok: true };
+}
+
+/** 발급 코드 재발급 — 새 8자리 코드 생성·저장(해시+평문). 분실/미보관 계정용. */
+export async function reissueCode(customerId: string): Promise<{ ok: boolean; code?: string; error?: string }> {
+  const ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+  const code = Array.from(randomBytes(8), (b) => ALPHABET[b % ALPHABET.length]).join("");
+  try {
+    try {
+      await query("UPDATE onb_customers SET access_code_hash=$2, access_code_plain=$3, active=true WHERE id=$1", [customerId, hashPassword(code), code]);
+    } catch (inner) {
+      if (!/access_code_plain/.test(inner instanceof Error ? inner.message : "")) throw inner;
+      await query("UPDATE onb_customers SET access_code_hash=$2, active=true WHERE id=$1", [customerId, hashPassword(code)]);
+    }
+    return { ok: true, code };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "재발급 실패" }; }
 }
 
 /** 고객 계정 + 연결된 신청서/스텝/제품/국가/파일까지 연쇄 삭제(onb_customers ON DELETE CASCADE). */

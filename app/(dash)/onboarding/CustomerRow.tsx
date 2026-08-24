@@ -2,10 +2,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { setOnbCustomerActiveAction, setOnbCustomerBrandAction, forceApproveCustomerAction, deleteOnbCustomerAction } from "./actions";
+import { setOnbCustomerActiveAction, setOnbCustomerBrandAction, forceApproveCustomerAction, deleteOnbCustomerAction, reissueCodeAction } from "./actions";
 import { kstDate } from "@/lib/time";
 
-interface Row { id: string; email: string; brand_id: string | null; note: string; active: boolean; last_login_at: string | null; app_id: string | null; app_status: string | null; submitted_steps: number; countries: string | null }
+interface Row { id: string; email: string; brand_id: string | null; note: string; active: boolean; last_login_at: string | null; app_id: string | null; app_status: string | null; submitted_steps: number; countries: string | null; access_code_plain?: string | null }
+
+const APPLY_URL = `${process.env.NEXT_PUBLIC_PORTAL_URL || "https://tiktok.glovek.space"}/apply`;
 
 const STATUS: Record<string, [string, string]> = {
   draft: ["작성중", "#4dabf7"], submitted: ["검토대기", "#f0a02c"],
@@ -17,7 +19,21 @@ export default function CustomerRow({ c, brands }: { c: Row; brands: { id: strin
   const [brandId, setBrandId] = useState(c.brand_id ?? "");
   const [active, setActive] = useState(c.active);
   const [busy, setBusy] = useState(false);
+  const [code, setCode] = useState(c.access_code_plain ?? "");
+  const [showCode, setShowCode] = useState(false);
   const st = c.app_status ? STATUS[c.app_status] ?? [c.app_status, "#888"] : ["미시작", "#999"];
+
+  async function reissue() {
+    if (!confirm(`${c.email} 의 접속 코드를 새로 발급합니다. 기존 코드는 무효화됩니다.\n진행할까요?`)) return;
+    setBusy(true);
+    const r = await reissueCodeAction(c.id);
+    setBusy(false);
+    if (r.ok && r.code) { setCode(r.code); setShowCode(true); }
+    else alert(r.error ?? "재발급 실패");
+  }
+  function copyInfo() {
+    navigator.clipboard?.writeText(`로그인: ${APPLY_URL}\n이메일: ${c.email}${code ? `\n코드: ${code}` : ""}`);
+  }
 
   async function changeBrand(v: string) {
     setBrandId(v); setBusy(true);
@@ -50,6 +66,20 @@ export default function CustomerRow({ c, brands }: { c: Row; brands: { id: strin
       <td style={td}>
         <div style={{ fontWeight: 600 }}>{c.email}</div>
         {c.note && <div style={{ fontSize: 11, color: "var(--ink2)" }}>{c.note}</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+          <a href={APPLY_URL} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--acc)" }} title="고객 로그인 URL">🔗 로그인 URL</a>
+          <span style={{ fontSize: 11, color: "var(--ink3)" }}>·</span>
+          {code ? (
+            <span style={{ fontSize: 11, color: "var(--ink2)" }}>
+              🔑 코드 <span style={{ fontFamily: "monospace", fontWeight: 700, letterSpacing: ".05em" }}>{showCode ? code : "••••••••"}</span>
+              <button onClick={() => setShowCode((s) => !s)} style={linkBtn} title={showCode ? "숨기기" : "보기"}>{showCode ? "숨김" : "보기"}</button>
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, color: "var(--ink3)" }}>🔑 코드 미보관</span>
+          )}
+          <button onClick={reissue} disabled={busy} style={linkBtn} title="새 코드 재발급(기존 무효화)">재발급</button>
+          <button onClick={copyInfo} style={linkBtn} title="URL·이메일·코드 복사">복사</button>
+        </div>
       </td>
       <td style={td}>
         <select value={brandId} disabled={busy} onChange={(e) => changeBrand(e.target.value)}
@@ -81,3 +111,4 @@ export default function CustomerRow({ c, brands }: { c: Row; brands: { id: strin
 }
 
 const td: React.CSSProperties = { padding: "10px 14px", borderBottom: "1px solid var(--line)", verticalAlign: "middle" };
+const linkBtn: React.CSSProperties = { border: "none", background: "none", color: "var(--acc)", fontSize: 11, cursor: "pointer", padding: "0 2px", fontWeight: 600 };
