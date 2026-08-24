@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { currentUser } from "@/lib/auth";
@@ -7,6 +6,7 @@ import BugReportButton from "@/components/BugReportButton";
 import NotificationBell from "@/components/NotificationBell";
 import UpdatesButton from "@/components/UpdatesButton";
 import RouteProgress from "@/components/RouteProgress";
+import GlobalSearch from "@/components/GlobalSearch";
 import { myNotifications } from "@/lib/notifications";
 
 export default async function DashLayout({ children }: { children: React.ReactNode }) {
@@ -56,12 +56,8 @@ export default async function DashLayout({ children }: { children: React.ReactNo
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="h-[52px] bg-white flex items-center gap-3 px-[18px] sticky top-0 z-40"
           style={{ borderBottom: "1px solid var(--line)" }}>
-          {/* 정적 안내가 아니라 실제 고객목록 검색으로 연결(어포던스 일치) */}
-          <Link href="/customers" className="flex-[0_1_420px] flex items-center gap-2 rounded-[9px] px-3 py-1.5"
-            style={{ background: "var(--bg)", border: "1px solid var(--line)", color: "var(--ink3)" }}>
-            <span>🔍</span>
-            <span className="text-[13px]">브랜드·담당자 검색 (고객 목록으로)</span>
-          </Link>
+          {/* 입력 즉시 인라인 검색(이메일·회사명·대표자·담당자) — 결과 클릭 시 원장으로 이동 */}
+          <GlobalSearch />
           <div className="ml-auto flex items-center gap-2">
             <UpdatesButton />
             <NotificationBell count={notif.count} items={notif.items} />
