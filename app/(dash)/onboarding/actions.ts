@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import {
   issueCustomer, setCustomerActive, setCustomerBrand, reviewStep, approveApplication, setStepLock,
+  deleteCustomer, forceApproveCustomer,
 } from "@/lib/onboarding";
 
 export async function issueCustomerAction(email: string, brandId: string | null, note: string, sendMail?: boolean): Promise<{ ok: boolean; code?: string; error?: string; mailed?: boolean }> {
@@ -63,6 +64,24 @@ export async function approveApplicationAction(applicationId: string) {
   const u = await currentUser();
   if (!u) return { ok: false, error: "권한이 없습니다." };
   const r = await approveApplication(applicationId, u.name || u.id);
-  if (r.ok) revalidatePath("/onboarding");
+  if (r.ok) { revalidatePath("/onboarding"); revalidatePath("/onboarding-pipeline"); }
+  return r;
+}
+
+/** 담당자 강제 승인 — 고객 입력이 없어도 신청서를 만들어 즉시 전체 승인·매핑. */
+export async function forceApproveCustomerAction(customerId: string) {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "권한이 없습니다." };
+  const r = await forceApproveCustomer(customerId, u.name || u.id);
+  if (r.ok) { revalidatePath("/onboarding"); revalidatePath("/onboarding-pipeline"); }
+  return r;
+}
+
+/** 온보딩 신청서(고객 계정) 리스트에서 삭제 — 신청서·서류까지 연쇄 삭제. */
+export async function deleteOnbCustomerAction(customerId: string) {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "권한이 없습니다." };
+  const r = await deleteCustomer(customerId);
+  if (r.ok) { revalidatePath("/onboarding"); revalidatePath("/onboarding-pipeline"); }
   return r;
 }

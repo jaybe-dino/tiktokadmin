@@ -8,6 +8,7 @@ import {
   getCountries, getProducts, getProductCountries,
 } from "@/lib/onboarding";
 import ReviewClient from "./ReviewClient";
+import NoAppActions from "./NoAppActions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
     return (
       <div className="max-w-4xl">
         <ScreenHeader title={customer.email} desc="아직 신청서를 시작하지 않았습니다." right={<Link className="btn sm" href="/onboarding">← 목록</Link>} />
+        <NoAppActions customerId={customerId} hasBrand={!!customer.brand_id} />
       </div>
     );
   }

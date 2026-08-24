@@ -361,6 +361,25 @@ export async function setCustomerActive(id: string, active: boolean): Promise<{ 
   await query("UPDATE onb_customers SET active=$2 WHERE id=$1", [id, active]).catch(() => {});
   return { ok: true };
 }
+
+/** 고객 계정 + 연결된 신청서/스텝/제품/국가/파일까지 연쇄 삭제(onb_customers ON DELETE CASCADE). */
+export async function deleteCustomer(customerId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await query("DELETE FROM onb_customers WHERE id=$1", [customerId]);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "삭제 실패" }; }
+}
+
+/** 담당자 강제 승인 — 고객 입력이 없어도 신청서를 확보해 즉시 전체 승인·원장 매핑. 브랜드 연결 필요. */
+export async function forceApproveCustomer(customerId: string, by: string): Promise<{ ok: boolean; error?: string; mappedProducts?: number; mappedCountries?: number }> {
+  const c = await queryOne<{ brand_id: string | null }>("SELECT brand_id FROM onb_customers WHERE id=$1", [customerId]).catch(() => null);
+  if (!c) return { ok: false, error: "고객 계정을 찾을 수 없습니다." };
+  if (!c.brand_id) return { ok: false, error: "먼저 연결 브랜드를 지정하세요." };
+  const app = await getOrCreateApplication(customerId, c.brand_id);
+  // 신청서 생성 시 brand_id 가 비어있던 경우 보정.
+  await query("UPDATE onb_applications SET brand_id=COALESCE(brand_id,$2) WHERE id=$1", [app.id, c.brand_id]).catch(() => {});
+  return approveApplication(app.id, by, { finalize: true });
+}
 /** 고객↔브랜드 연결(발급 후 지정). 신청서에도 전파해 승인 시 매핑 대상이 되도록 함. */
 export async function setCustomerBrand(customerId: string, brandId: string | null): Promise<{ ok: boolean }> {
   await query("UPDATE onb_customers SET brand_id=$2 WHERE id=$1", [customerId, brandId]).catch(() => {});

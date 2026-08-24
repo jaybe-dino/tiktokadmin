@@ -53,7 +53,11 @@ export async function onboardingBoardData(): Promise<OnbBoardData> {
             COALESCE((SELECT count(*) FROM onb_products p WHERE p.application_id=a.id),0)::int AS product_count
        FROM brands b
        JOIN LATERAL (
-         SELECT id, status, updated_at FROM onb_applications x WHERE x.brand_id=b.id ORDER BY created_at DESC LIMIT 1
+         SELECT x.id, x.status, x.updated_at
+           FROM onb_applications x
+           LEFT JOIN onb_customers cu ON cu.id = x.customer_id
+          WHERE COALESCE(x.brand_id, cu.brand_id) = b.id
+          ORDER BY x.created_at DESC LIMIT 1
        ) a ON true
       ORDER BY b.stage_entered_at ASC
       LIMIT 1000`;
