@@ -22,15 +22,18 @@ function ctx(over: Partial<GateContext> = {}): GateContext {
 }
 
 describe("nextStepGuide (게이트 재사용)", () => {
-  it("meeting → contact 체크리스트: 회의록/담당/등급", async () => {
+  it("meeting → contact 체크리스트: 영업담당/사전학습설문 (등급 요건 제거)", async () => {
     const brand = makeBrand({ state: "meeting" });
     const guide = await nextStepGuide(brand, ctx({ brand }));
     expect(guide?.to).toBe("contact");
     const labels = guide!.items.map((i) => i.label);
-    expect(labels.some((l) => l.includes("회의록"))).toBe(true);
-    // 회의록 자동 충족 반영
-    const guide2 = await nextStepGuide(brand, ctx({ brand, hasMeetingNote: true }));
-    const note = guide2!.items.find((i) => i.label.includes("회의록"));
-    expect(note?.done).toBe(true);
+    // 영업담당·사전학습설문은 요건, 사전분석(등급)은 제거됨.
+    expect(labels.some((l) => l.includes("영업담당"))).toBe(true);
+    expect(labels.some((l) => l.includes("사전학습"))).toBe(true);
+    expect(labels.some((l) => l.includes("사전분석(등급)"))).toBe(false);
+    // 사전학습 설문 발송 시 해당 항목 자동 충족.
+    const guide2 = await nextStepGuide(brand, ctx({ brand, hasPreSurvey: true }));
+    const item = guide2!.items.find((i) => i.label.includes("사전학습"));
+    expect(item?.done).toBe(true);
   });
 });

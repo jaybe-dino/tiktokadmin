@@ -143,19 +143,18 @@ describe("gates", () => {
     );
     expect(good.passed).toBe(true);
   });
-  it("meeting→contact: 회의록·영업담당·등급 필요", () => {
+  it("meeting→contact: 영업담당·사전학습설문 필요(등급 요건 제거)", () => {
     const bad = evaluateGate("meeting", "contact", ctx());
     expect(bad.passed).toBe(false);
-    expect(bad.failed.map((f) => f.label)).toContain("회의록 없음");
-    expect(bad.failed.map((f) => f.label)).toContain("사전분석(등급) 없음");
+    expect(bad.failed.map((f) => f.label)).toContain("영업담당 미지정");
+    // 사전분석(등급) 요건은 제거됨 — 게이트에 포함되지 않아야 한다.
+    expect(bad.failed.map((f) => f.label)).not.toContain("사전분석(등급) 없음");
 
     const good = evaluateGate(
       "meeting",
       "contact",
       ctx({
-        brand: makeBrand({ owner_sales: "sales@x.com", grade: "A" }),
-        hasMeetingNote: true,
-        hasDiagnosis: true,
+        brand: makeBrand({ owner_sales: "sales@x.com" }),
         hasPreSurvey: true,
       }),
     );

@@ -59,11 +59,6 @@ const hasMeetingNote: Rule = {
   label: "회의록 없음",
   test: (c) => c.hasMeetingNote,
 };
-const hasDiagnosis: Rule = {
-  key: "hasDiagnosis",
-  label: "사전분석(등급) 없음",
-  test: (c) => c.hasDiagnosis,
-};
 const paymentConfirmed: Rule = {
   key: "paymentConfirmed",
   label: "결제 미확인",
@@ -119,7 +114,7 @@ export const GATES: Record<string, Rule[]> = {
   "lead_new→seminar": [assigned("owner_intake", "유입담당 미지정")],
   "lead_new→meeting": [hasContact, hasEmailOrPhone, hasSource, assigned("owner_intake", "유입담당 미지정")],
   "seminar→meeting": [hasContact, assigned("owner_intake", "유입담당 미지정")],
-  "meeting→contact": [assigned("owner_sales", "영업담당 미지정"), hasDiagnosis, hasPreSurvey],
+  "meeting→contact": [assigned("owner_sales", "영업담당 미지정"), hasPreSurvey],
   "contact→contract_review": [hasContractType, assigned("owner_contract", "계약담당 미지정")],
   "contact→contract_done": [hasContractType, hasPlan, hasSentProposal, paymentConfirmed],
   "contract_review→contract_done": [paymentConfirmed],
