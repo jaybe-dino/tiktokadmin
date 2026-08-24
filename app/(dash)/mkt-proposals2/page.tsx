@@ -1,36 +1,35 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
 import { currentUser } from "@/lib/auth";
-import { query } from "@/lib/db";
 import { listMktProposals } from "@/lib/mkt-proposal-doc";
-import NewMktProposal from "./NewMktProposal";
+import { listSurveyEligibleBrands } from "@/lib/mkt-proposal2";
+import GenerateMktProposal2 from "./GenerateMktProposal2";
 
 export const dynamic = "force-dynamic";
 
 const STATUS_KO: Record<string, string> = { draft: "작성 중", sent: "발송", accepted: "수주", rejected: "드랍" };
 
-export default async function MktProposalsPage() {
+export default async function MktProposals2Page() {
   await currentUser();
   const [docs, brands] = await Promise.all([
-    listMktProposals({ genSource: "manual" }),
-    query<{ id: string; brand_name: string }>(
-      "SELECT id, brand_name FROM brands WHERE state NOT IN ('dropped','churned') ORDER BY brand_name",
-    ).catch(() => []),
+    listMktProposals({ genSource: "auto" }),
+    listSurveyEligibleBrands(),
   ]);
 
   return (
     <div className="max-w-5xl">
       <ScreenHeader
-        title="마케팅 제안서"
-        desc="TikTok Shop 마케팅 협업 제안서(수동 작성) — 예산 자동계산(무가·유가·GMV) + 국가 시즌 캘린더. 운영 제안서와 별개."
-        right={<Link href="/mkt-proposals2" className="btn sm">🤖 설문 자동생성(2번째 방식) →</Link>}
+        title="마케팅 제안서2 (설문 자동생성)"
+        desc="마케팅 설문 응답(A2 대표 상품 링크·D16 예산·B8 진출국가)을 읽어 제목·제품·예산·국가를 자동으로 채웁니다. 생성 후 에디터에서 텍스트만 다듬으면 됩니다 — 기존 「마케팅 제안서」(수동)와는 별개 목록입니다."
+        right={<Link href="/mkt-proposals" className="btn sm">📝 수동 작성(1번째 방식) →</Link>}
       />
-      <NewMktProposal brands={brands} />
+
+      <GenerateMktProposal2 brands={brands} />
 
       <div className="card" style={{ marginTop: 14, padding: 0, overflow: "hidden" }}>
-        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", fontWeight: 600 }}>제안서 목록</div>
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", fontWeight: 600 }}>자동생성된 제안서</div>
         {docs.length === 0 ? (
-          <div style={{ padding: 24, color: "var(--ink2)", fontSize: 14 }}>아직 마케팅 제안서가 없습니다. 위에서 브랜드를 선택해 생성하세요.</div>
+          <div style={{ padding: 24, color: "var(--ink2)", fontSize: 14 }}>아직 자동생성된 제안서가 없습니다. 위에서 설문 응답이 있는 브랜드를 선택해 생성하세요.</div>
         ) : (
           <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
             <thead>

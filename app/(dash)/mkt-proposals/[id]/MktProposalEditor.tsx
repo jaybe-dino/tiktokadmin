@@ -49,6 +49,8 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
   const [overrides, setOverrides] = useState<(MonthOverride | null)[]>(doc.month_overrides_json ?? []);
   const [tpls, setTpls] = useState<TplItem[]>(templates);
   const [tplSel, setTplSel] = useState("");
+  // 생성방식(0087)에 따라 목록 복귀 경로 분기 — 설문 자동생성(방식2)은 /mkt-proposals2 로.
+  const listHref = doc.gen_source === "survey_auto" ? "/mkt-proposals2" : "/mkt-proposals";
 
   function toggleCountry(c: string) {
     setCountries((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]));
@@ -179,7 +181,7 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
     if (!confirm("이 마케팅 제안서를 삭제할까요?")) return;
     start(async () => {
       const r = await deleteMktProposalDocAction(doc.id);
-      if (r.ok) router.push("/mkt-proposals"); else setMsg(r.error ?? "삭제 실패");
+      if (r.ok) router.push(listHref); else setMsg(r.error ?? "삭제 실패");
     });
   }
 
@@ -188,7 +190,8 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
       {/* ── 편집 ── */}
       <div style={{ display: "grid", gap: 12 }}>
         <div className="bar" style={{ margin: 0 }}>
-          <Link href="/mkt-proposals" className="btn sm">← 목록</Link>
+          <Link href={listHref} className="btn sm">← 목록</Link>
+          {doc.gen_source === "survey_auto" && <span className="chip" style={{ fontSize: 10.5 }}>🤖 설문 자동생성</span>}
           <a href={`/mkt-proposal/${doc.token}`} target="_blank" rel="noreferrer" className="btn sm">미리보기 ↗</a>
           <button className="btn sm pri" disabled={pending} onClick={() => save()}>{pending ? "저장 중…" : "저장"}</button>
           <button className="btn sm" disabled={pending} onClick={() => save("pipeline")} title="브랜드의 마케팅 파이프라인 카드로 등록·연동">파이프라인 연동</button>

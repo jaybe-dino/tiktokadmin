@@ -41,6 +41,8 @@ export interface MktProposalDocRow {
   created_at: string;
   updated_at: string;
   brand_name?: string;
+  // 생성방식 구분(0087) — null=기존(수동, /mkt-proposals), 'survey_auto'=설문 자동생성(/mkt-proposals2).
+  gen_source?: string | null;
 }
 
 const COLS =
@@ -49,19 +51,31 @@ const COLS =
   "d.first_month_seeding, d.commission_pct, d.references_json, d.intro_note, d.accent, d.accent2, d.show_bundle_slide, " +
   "d.phase_ratios_json, d.month_overrides_json, d.created_by, d.created_at, d.updated_at";
 
-export async function listMktProposals(brandId?: string): Promise<MktProposalDocRow[]> {
-  const where = brandId ? "WHERE d.brand_id=$1" : "";
-  const args = brandId ? [brandId] : [];
+export async function listMktProposals(opts?: { brandId?: string; genSource?: "auto" | "manual" }): Promise<MktProposalDocRow[]> {
+  const where: string[] = [];
+  const args: string[] = [];
+  if (opts?.brandId) { args.push(opts.brandId); where.push(`d.brand_id=$${args.length}`); }
+  if (opts?.genSource === "auto") where.push(`d.gen_source='survey_auto'`);
+  if (opts?.genSource === "manual") where.push(`d.gen_source IS NULL`);
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  // 0087(gen_source) 미적용 DB 방어 — 컬럼 없으면 필터 없이 폴백.
   return query<MktProposalDocRow>(
-    `SELECT ${COLS}, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id ${where} ORDER BY d.created_at DESC LIMIT 200`,
+    `SELECT ${COLS}, d.gen_source, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id ${whereSql} ORDER BY d.created_at DESC LIMIT 200`,
     args,
-  ).catch(() => []);
+  ).catch(() =>
+    query<MktProposalDocRow>(
+      `SELECT ${COLS}, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id ${opts?.brandId ? "WHERE d.brand_id=$1" : ""} ORDER BY d.created_at DESC LIMIT 200`,
+      opts?.brandId ? [opts.brandId] : [],
+    ).catch(() => []),
+  );
 }
 
 export async function getMktProposalById(id: string): Promise<MktProposalDocRow | null> {
   return queryOne<MktProposalDocRow>(
-    `SELECT ${COLS}, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id WHERE d.id=$1`, [id],
-  ).catch(() => null);
+    `SELECT ${COLS}, d.gen_source, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id WHERE d.id=$1`, [id],
+  ).catch(() =>
+    queryOne<MktProposalDocRow>(`SELECT ${COLS}, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id WHERE d.id=$1`, [id]).catch(() => null),
+  );
 }
 
 export async function getMktProposalByToken(token: string): Promise<MktProposalDocRow | null> {
@@ -97,6 +111,7 @@ export interface MktProposalInput {
   show_bundle_slide?: boolean;
   phase_ratios_json?: Partial<PhaseRatios>;
   month_overrides_json?: (MonthOverride | null)[];
+  gen_source?: string | null; // 신규 생성 시에만 반영(수정 시에는 변경하지 않음).
 }
 
 const VALID_COUNTRIES: MktCountry[] = ["US", "TH", "VN", "PH", "MY", "SG"];
@@ -135,25 +150,42 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
   }
 
   const token = `mp_${randomUUID().replace(/-/g, "").slice(0, 24)}`;
-  const row = await queryOne<{ id: string; token: string }>(
-    `INSERT INTO mkt_proposal_docs
-       (brand_id, mkt_project_id, token, title, subtitle, status, products_json, track, goal_first, goal_final,
-        countries, start_month, months, monthly_budget, operation_fee, gmv_reserve_min, gmv_reserve_max,
-        first_month_seeding, commission_pct, references_json, intro_note, accent, phase_ratios_json, month_overrides_json,
-        accent2, show_bundle_slide, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
-     RETURNING id, token`,
-    [
-      input.brand_id, input.mkt_project_id ?? null, token, input.title, input.subtitle ?? "", input.status ?? "draft",
-      JSON.stringify(input.products_json ?? []), input.track ?? "standard", input.goal_first ?? "", input.goal_final ?? "",
-      countries, startMonth, months, Math.round(Number(input.monthly_budget ?? 5000000)), Math.round(Number(input.operation_fee ?? 1500000)),
-      Math.round(Number(input.gmv_reserve_min ?? 1000000)), Math.round(Number(input.gmv_reserve_max ?? 3000000)),
-      input.first_month_seeding ?? true, Number(input.commission_pct ?? 10),
-      JSON.stringify(input.references_json ?? []), input.intro_note ?? "", input.accent ?? "#111111",
-      JSON.stringify(input.phase_ratios_json ?? {}), JSON.stringify(input.month_overrides_json ?? []),
-      input.accent2 ?? "#0b1220", input.show_bundle_slide ?? true, by,
-    ],
-  );
+  const insVals = [
+    input.brand_id, input.mkt_project_id ?? null, token, input.title, input.subtitle ?? "", input.status ?? "draft",
+    JSON.stringify(input.products_json ?? []), input.track ?? "standard", input.goal_first ?? "", input.goal_final ?? "",
+    countries, startMonth, months, Math.round(Number(input.monthly_budget ?? 5000000)), Math.round(Number(input.operation_fee ?? 1500000)),
+    Math.round(Number(input.gmv_reserve_min ?? 1000000)), Math.round(Number(input.gmv_reserve_max ?? 3000000)),
+    input.first_month_seeding ?? true, Number(input.commission_pct ?? 10),
+    JSON.stringify(input.references_json ?? []), input.intro_note ?? "", input.accent ?? "#111111",
+    JSON.stringify(input.phase_ratios_json ?? {}), JSON.stringify(input.month_overrides_json ?? []),
+    input.accent2 ?? "#0b1220", input.show_bundle_slide ?? true, by,
+  ];
+  let row: { id: string; token: string } | null;
+  try {
+    row = await queryOne<{ id: string; token: string }>(
+      `INSERT INTO mkt_proposal_docs
+         (brand_id, mkt_project_id, token, title, subtitle, status, products_json, track, goal_first, goal_final,
+          countries, start_month, months, monthly_budget, operation_fee, gmv_reserve_min, gmv_reserve_max,
+          first_month_seeding, commission_pct, references_json, intro_note, accent, phase_ratios_json, month_overrides_json,
+          accent2, show_bundle_slide, created_by, gen_source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+       RETURNING id, token`,
+      [...insVals, input.gen_source ?? null],
+    );
+  } catch (e) {
+    if (!/gen_source/.test(e instanceof Error ? e.message : "")) throw e;
+    // 0087(gen_source) 미적용 DB 방어 — 컬럼 없이 재시도.
+    row = await queryOne<{ id: string; token: string }>(
+      `INSERT INTO mkt_proposal_docs
+         (brand_id, mkt_project_id, token, title, subtitle, status, products_json, track, goal_first, goal_final,
+          countries, start_month, months, monthly_budget, operation_fee, gmv_reserve_min, gmv_reserve_max,
+          first_month_seeding, commission_pct, references_json, intro_note, accent, phase_ratios_json, month_overrides_json,
+          accent2, show_bundle_slide, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+       RETURNING id, token`,
+      insVals,
+    );
+  }
   return { id: row!.id, token: row!.token };
 }
 
