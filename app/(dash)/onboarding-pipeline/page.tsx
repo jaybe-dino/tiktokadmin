@@ -30,7 +30,7 @@ export default async function OnboardingPipelinePage() {
       ) : (
         <PipelineViewShell
           storageKey="onb-pipeline-view"
-          board={<OnbBoard stages={ONB_STAGES} groups={groups} ownerNames={ownerNames} />}
+          board={<OnbBoard stages={ONB_STAGES} groups={groups} ownerNames={ownerNames} owners={owners} />}
           table={<OnbTable stages={ONB_STAGES} groups={groups} owners={owners} />}
         />
       )}

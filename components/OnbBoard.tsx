@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { OnbCard, OnbStageKey } from "@/lib/onboarding-pipeline";
 import { setOnbStageAction } from "@/app/(dash)/onboarding-pipeline/actions";
+import KanbanScroll from "@/components/KanbanScroll";
 
 const STAGE_DOT: Record<string, string> = {
   invite: "#6366f1", company: "#0891b2", signup: "#16a34a", product: "#d97706", ready: "#7c3aed",
@@ -12,12 +13,14 @@ const STAGE_DOT: Record<string, string> = {
 
 type Stage = { key: OnbStageKey; label: string; slaDays: number | null; desc: string };
 
-export default function OnbBoard({ stages, groups, ownerNames }: {
+export default function OnbBoard({ stages, groups, ownerNames, owners = [] }: {
   stages: Stage[];
   groups: Record<OnbStageKey, OnbCard[]>;
   ownerNames: Record<string, string>;
+  owners?: { id: string; name: string }[];
 }) {
   const router = useRouter();
+  const [ownerFilter, setOwnerFilter] = useState("");
   const [pending, start] = useTransition();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<OnbStageKey | null>(null);
@@ -52,13 +55,25 @@ export default function OnbBoard({ stages, groups, ownerNames }: {
     });
   }
 
-  // 낙관적 이동 반영해 컬럼별 재분배.
+  // 낙관적 이동 반영해 컬럼별 재분배(담당자 필터 적용).
   const cols: Record<OnbStageKey, OnbCard[]> = { invite: [], company: [], signup: [], product: [], ready: [] };
-  for (const c of Object.values(groups).flat()) cols[stageOf(c)].push(c);
+  for (const c of Object.values(groups).flat()) {
+    if (ownerFilter && c.owner_onboard !== ownerFilter) continue;
+    cols[stageOf(c)].push(c);
+  }
 
   return (
     <>
+      {owners.length > 0 && (
+        <div className="bar" style={{ margin: "0 0 10px" }}>
+          <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} title="온보딩 담당자별 보기">
+            <option value="">담당자 전체</option>
+            {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+        </div>
+      )}
       {msg && <div className="note" style={{ marginBottom: 8, color: "var(--danger)" }}>{msg}</div>}
+      <KanbanScroll>
       <div className="kb">
         {stages.map((st) => {
           const list = cols[st.key] ?? [];
@@ -127,6 +142,7 @@ export default function OnbBoard({ stages, groups, ownerNames }: {
           );
         })}
       </div>
+      </KanbanScroll>
       {pending && <div className="note" style={{ marginTop: 6, color: "var(--ink3)" }}>저장 중…</div>}
     </>
   );

@@ -9,6 +9,7 @@ import type { BoardCard } from "@/lib/repo/queries";
 import { businessDaysBetween } from "@/lib/time";
 import BoardCardLayer, { TRACK_LABELS, TRACK_COLORS } from "@/components/BoardCardLayer";
 import ImportanceStars from "@/components/ImportanceStars";
+import KanbanScroll from "@/components/KanbanScroll";
 
 // v3.1 s-kanban → 기획 8절: 8컬럼 (계약완료→계약 검토에 합류, 정산중→운영 중에 통합 표시).
 // 상태 자체는 canonical enum 유지 — 표시만 병합.
@@ -192,6 +193,7 @@ export default function Board({
         </div>
       )}
 
+      <KanbanScroll>
       <div className="kb">
         {shownCols.map((col) => {
           const list = inCol(col);
@@ -288,6 +290,7 @@ export default function Board({
           );
         })}
       </div>
+      </KanbanScroll>
 
       {selected && <BoardCardLayer card={selected} onClose={() => setSelectedId(null)} />}
 

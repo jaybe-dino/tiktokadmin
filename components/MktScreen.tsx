@@ -2,6 +2,7 @@
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { assignBrandOwnerAction } from "@/app/actions";
+import KanbanScroll from "@/components/KanbanScroll";
 import Link from "next/link";
 import {
   createMktProjectAction,
@@ -292,6 +293,7 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
       ) : filtered.length === 0 ? (
         <div className="note">「{q}」 검색 결과가 없습니다.</div>
       ) : (
+        <KanbanScroll>
         <div className="kb">
           {PIPE.map((col) => {
             const list = filtered.filter((r) => r.proposal_status === col.key);
@@ -315,6 +317,7 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
             );
           })}
         </div>
+        </KanbanScroll>
       )}
       {moveMsg && <div className="note" style={{ marginTop: 8, color: "var(--bad)" }}>⚠ {moveMsg}</div>}
       <div className="note" style={{ marginTop: 8 }}>
