@@ -132,9 +132,10 @@ export async function addMeetingNoteAction(formData: FormData): Promise<{ ok: bo
   let isAudio = false;
   if (file && typeof file === "object" && "arrayBuffer" in file && (file as File).size > 0) {
     const f = file as File;
-    fileName = f.name; fileMime = f.type || "application/octet-stream";
+    const { fixUploadFilename } = await import("@/lib/filename");
+    fileName = fixUploadFilename(f.name); fileMime = f.type || "application/octet-stream";
     const { isAudioFile } = await import("@/lib/stt");
-    isAudio = isAudioFile(fileName, fileMime);
+    isAudio = isAudioFile(fileName ?? "", fileMime);
     // 녹음(전사 대상)은 25MB(Whisper 한도), 그 외 첨부는 15MB.
     const cap = isAudio && wantTranscribe ? 25 : 15;
     if (f.size > cap * 1024 * 1024) return { ok: false, error: `파일은 ${cap}MB 이하만 가능합니다.` };
@@ -324,6 +325,16 @@ export async function suggestNextActionsAction(
         .join("\n")
     : "- 기록된 메일 없음";
 
+  // 최근 회의록 — 제목 + 본문 발췌(최신 4건). 다음 액션은 최신 커뮤 내용을 반영해야 함.
+  const notes = await query<{ note_date: string; title: string | null; body: string | null }>(
+    `SELECT note_date::text AS note_date, title, body
+       FROM meeting_notes WHERE brand_id=$1 ORDER BY note_date DESC, created_at DESC LIMIT 4`,
+    [brandId],
+  ).catch(() => [] as { note_date: string; title: string | null; body: string | null }[]);
+  const noteLines = notes.length
+    ? notes.map((n) => `- ${(n.note_date ?? "").slice(0, 10)} ${n.title || "(제목 없음)"}${n.body ? `\n  ${n.body.replace(/\s+/g, " ").slice(0, 400)}` : ""}`).join("\n")
+    : "- 기록된 회의록 없음";
+
   const briefText = brand.brief_md
     ? brand.brief_md.slice(0, 1500)
     : "(사전분석 브리프 미생성)";
@@ -344,10 +355,13 @@ export async function suggestNextActionsAction(
 사전분석 브리프:
 ${briefText}
 
-최근 메일:
+최근 회의록(최신순):
+${noteLines}
+
+최근 메일(최신순):
 ${mailLines}
 
-위 맥락으로 담당자를 위한 "다음 액션 제안"을 작성해줘.`;
+위 맥락, 특히 최근 회의록·메일에서 확인된 요청·약속·미결 사항을 반영해 담당자를 위한 "다음 액션 제안"을 작성해줘.`;
 
   const draft = await aiText({ system, user, maxTokens: 700 }).catch(() => null);
   if (!draft) return { ok: false, error: "AI 제안 생성 실패 (잠시 후 재시도)" };

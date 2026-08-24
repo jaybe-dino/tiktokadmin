@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { getImportFile } from "@/lib/tpartners-import";
+import { contentDisposition } from "@/lib/filename";
 
 // 이관된 서류 스트리밍(브랜드360에서 열람). 어드민 세션 필요.
 export const runtime = "nodejs";
@@ -16,7 +17,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   return new NextResponse(new Uint8Array(f.bytes), {
     headers: {
       "content-type": f.mime || "application/octet-stream",
-      "content-disposition": `inline; filename="${encodeURIComponent(f.filename)}"`,
+      "content-disposition": contentDisposition(f.filename, "inline"),
       "cache-control": "private, max-age=300",
     },
   });
