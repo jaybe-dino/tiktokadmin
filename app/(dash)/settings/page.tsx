@@ -24,6 +24,7 @@ import BrandCategoryConfig from "@/components/BrandCategoryConfig";
 import MigrationStatusCard from "@/components/MigrationStatusCard";
 import { getMigrationState } from "@/lib/migrate";
 import IntegrityCard from "@/components/IntegrityCard";
+import EmailRemapCard from "@/components/EmailRemapCard";
 
 export const dynamic = "force-dynamic";
 
@@ -248,6 +249,9 @@ export default async function SettingsPage() {
 
           {/* 데이터 정합성 점검 — 파트장·대표 */}
           {canEdit && <IntegrityCard />}
+
+          {/* 과거 메일함 재맵핑 — 파트장·대표 */}
+          {canEdit && <EmailRemapCard />}
 
           {/* 단계별 필수항목 */}
           <div className="card">
