@@ -15,14 +15,15 @@ export interface SurveyEligibleBrand {
 
 /** 마케팅 설문(surveys.kind='marketing_survey') 응답이 있는 브랜드 목록(최신 응답순). */
 export async function listSurveyEligibleBrands(): Promise<SurveyEligibleBrand[]> {
-  return query<SurveyEligibleBrand>(
-    `SELECT DISTINCT ON (b.id) b.id AS brand_id, b.brand_name, s.responded_at::text AS responded_at,
-            COALESCE((SELECT count(*) FROM mkt_proposal_docs md WHERE md.brand_id=b.id AND md.gen_source='survey_auto'),0)::int AS proposal_count
-       FROM surveys s
-       JOIN brands b ON b.id = s.brand_id
-      WHERE s.kind='marketing_survey' AND s.responded_at IS NOT NULL
-      ORDER BY b.id, s.responded_at DESC`,
-  ).catch(() => []);
+  const build = (genSourceCol: boolean) => `
+    SELECT DISTINCT ON (b.id) b.id AS brand_id, b.brand_name, s.responded_at::text AS responded_at,
+           COALESCE((SELECT count(*) FROM mkt_proposal_docs md WHERE md.brand_id=b.id${genSourceCol ? " AND md.gen_source='survey_auto'" : ""}),0)::int AS proposal_count
+      FROM surveys s
+      JOIN brands b ON b.id = s.brand_id
+     WHERE s.kind='marketing_survey' AND s.responded_at IS NOT NULL
+     ORDER BY b.id, s.responded_at DESC`;
+  // 0087(gen_source) 미적용 DB 방어 — 컬럼 없으면 카운트 조건 없이 폴백(목록이 통째로 비지 않게).
+  return query<SurveyEligibleBrand>(build(true)).catch(() => query<SurveyEligibleBrand>(build(false)).catch(() => []));
 }
 
 interface SurveyRow { answers: Record<string, string>; responded_at: string }
