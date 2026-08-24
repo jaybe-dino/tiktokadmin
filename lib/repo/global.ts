@@ -34,7 +34,7 @@ export function allMeetings() {
 export function allMktProjects() {
   // 연결된 마케팅 제안서(proposal_id)의 제목·금액·상태·파일까지 함께 — 카드 상세에서 관리.
   return query(`SELECT mp.id, mp.title, mp.kind, mp.proposal_status, mp.note, mp.proposal_id,
-      b.brand_name, b.id AS brand_id,
+      b.brand_name, b.id AS brand_id, b.owner_ads,
       p.title AS prop_title, p.amount AS prop_amount, p.status AS prop_status, p.url AS prop_url,
       p.period_start::text AS prop_period_start, p.period_end::text AS prop_period_end
      FROM mkt_projects mp JOIN brands b ON b.id=mp.brand_id

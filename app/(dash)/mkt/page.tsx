@@ -26,6 +26,7 @@ export default async function MktPage() {
       note: r.note == null ? null : String(r.note),
       brand_name: String(r.brand_name ?? ""),
       brand_id: String(r.brand_id ?? ""),
+      owner_ads: r.owner_ads == null ? null : String(r.owner_ads),
       proposal_id: r.proposal_id == null ? null : String(r.proposal_id),
       prop_title: r.prop_title == null ? null : String(r.prop_title),
       prop_amount: r.prop_amount == null ? null : Number(r.prop_amount),

@@ -36,6 +36,7 @@ export interface MktRow {
   note: string | null;
   brand_name: string;
   brand_id: string;
+  owner_ads?: string | null;   // 브랜드 마케팅 담당(담당자별 필터용)
   // 연결된 마케팅 제안서(proposal_id) — 없으면 null
   proposal_id: string | null;
   prop_title: string | null;
@@ -152,6 +153,7 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");   // 담당자별 필터(브랜드 마케팅 담당)
   // 드래그앤드랍 이동 상태
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
@@ -166,14 +168,15 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkProg, setBulkProg] = useState<{ done: number; total: number } | null>(null);
   const kw = q.trim().toLowerCase();
-  const filtered = kw
-    ? projects.filter(
-        (r) =>
-          r.title.toLowerCase().includes(kw) ||
-          r.brand_name.toLowerCase().includes(kw) ||
-          (r.note ?? "").toLowerCase().includes(kw),
-      )
-    : projects;
+  const filtered = projects.filter((r) => {
+    if (ownerFilter && (r.owner_ads ?? "") !== ownerFilter) return false;
+    if (!kw) return true;
+    return (
+      r.title.toLowerCase().includes(kw) ||
+      r.brand_name.toLowerCase().includes(kw) ||
+      (r.note ?? "").toLowerCase().includes(kw)
+    );
+  });
   const count = (k: string) => filtered.filter((r) => r.proposal_status === k).length;
   // 드롭 → 상태 이동(게이트 검증). 같은 열이면 무시.
   function dropTo(colKey: string) {
@@ -233,6 +236,12 @@ function Pipeline({ projects, brands = [], owners = [], onGoProposals }: { proje
         <button className="btn sm pri" onClick={onGoProposals} title="마케팅 제안서 작성 화면으로 이동(제안서 저장 시 프로젝트가 자동 생성·연결됩니다)">
           + 신규 프로젝트
         </button>
+        {owners.length > 0 && (
+          <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} title="마케팅 담당자별 보기">
+            <option value="">담당자 전체</option>
+            {owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+        )}
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
