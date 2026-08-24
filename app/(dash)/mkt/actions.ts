@@ -4,6 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
+import { syncServiceTags } from "@/lib/service-tags";
 
 const STATUSES = ["draft", "sent", "negotiating", "meeting_scheduled", "won", "dropped", "hold"] as const;
 type MktStatus = (typeof STATUSES)[number];
@@ -235,6 +236,8 @@ export async function createMktProposalAction(input: {
 
     // 초기 생성 시 생성자를 마케팅 담당자로 지정(브랜드에 담당 미지정인 경우만 — 기존 담당은 보존).
     await query("UPDATE brands SET owner_ads=$1 WHERE id=$2 AND owner_ads IS NULL", [u.id, input.brand_id]).catch(() => {});
+    // 마케팅 제안서 맵핑 — 브랜드가 운영중이면 <마케팅대행> 태그 자동 활성화.
+    await syncServiceTags(input.brand_id);
 
     revalidatePath("/mkt");
     revalidatePath(`/brand/${input.brand_id}`);

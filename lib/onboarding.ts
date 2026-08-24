@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { query, queryOne } from "./db";
 import { env } from "./env";
 import { hashPassword, verifyPassword } from "./auth";
+import { syncServiceTags } from "./service-tags";
 
 const COOKIE = "onb_session";
 
@@ -408,12 +409,14 @@ export async function forceApproveCustomer(customerId: string, by: string): Prom
   const app = await getOrCreateApplication(customerId, c.brand_id);
   // 신청서 생성 시 brand_id 가 비어있던 경우 보정.
   await query("UPDATE onb_applications SET brand_id=COALESCE(brand_id,$2) WHERE id=$1", [app.id, c.brand_id]).catch(() => {});
+  // approveApplication 내부에서 syncServiceTags 호출됨(브랜드 매핑 후 태그 자동 활성화).
   return approveApplication(app.id, by, { finalize: true });
 }
 /** 고객↔브랜드 연결(발급 후 지정). 신청서에도 전파해 승인 시 매핑 대상이 되도록 함. */
 export async function setCustomerBrand(customerId: string, brandId: string | null): Promise<{ ok: boolean }> {
   await query("UPDATE onb_customers SET brand_id=$2 WHERE id=$1", [customerId, brandId]).catch(() => {});
   await query("UPDATE onb_applications SET brand_id=$2, updated_at=now() WHERE customer_id=$1", [customerId, brandId]).catch(() => {});
+  if (brandId) await syncServiceTags(brandId);
   return { ok: true };
 }
 
@@ -607,6 +610,7 @@ export async function approveApplication(applicationId: string, by: string, opts
       await query("UPDATE onb_applications SET status='approved', admin_memo=CONCAT(admin_memo, E'\n[승인] ', $2::text), updated_at=now() WHERE id=$1", [applicationId, by]);
       await query("UPDATE onb_steps SET status='approved', reviewed_at=now() WHERE application_id=$1 AND status IN ('submitted','unlocked')", [applicationId]).catch(() => {});
     }
+    await syncServiceTags(brandId);
     return { ok: true, mappedProducts: mapped, mappedCountries, mappedContacts };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "매핑 실패" };

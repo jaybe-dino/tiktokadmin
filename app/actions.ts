@@ -785,6 +785,23 @@ export async function setContractTypeAction(brandId: string, contractType: strin
   return { ok: true };
 }
 
+/** 운영중 서비스 트랙 태그(운영대행/마케팅대행) 수동 토글 — 필수값 아님, 온보딩 신청서/마케팅 제안서 맵핑 시 자동 활성화. */
+export async function setServiceTagAction(brandId: string, key: "ops" | "mkt", value: boolean): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const col = key === "ops" ? "tag_ops_agency" : "tag_mkt_agency";
+  try {
+    const { query } = await import("@/lib/db");
+    await query(`UPDATE brands SET ${col}=$2, updated_at=now() WHERE id=$1`, [brandId, value]);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (/tag_ops_agency|tag_mkt_agency/.test(msg)) return { ok: false, error: "마이그레이션(0086) 적용이 필요합니다(관리자)." };
+    return { ok: false, error: "저장 실패" };
+  }
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
+}
+
 export async function addContractAction(input: {
   brand_id: string; kind: string; fee_pct?: number; term_months?: number;
   countries?: string[]; start_date?: string; end_date?: string; note?: string;

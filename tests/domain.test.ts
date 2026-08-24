@@ -60,7 +60,10 @@ describe("state machine", () => {
   it("전진 전이 허용", () => {
     expect(isTransitionAllowed("lead_new", "meeting").allowed).toBe(true);
     expect(isTransitionAllowed("contact", "contract_done").allowed).toBe(true);
-    expect(isTransitionAllowed("setup", "live_mall").allowed).toBe(true);
+    // 서류수급/입점셋업 폐지(0085) — 계약완료 → 운영중 직행.
+    expect(isTransitionAllowed("contract_done", "live_mall").allowed).toBe(true);
+    expect(isTransitionAllowed("contract_done", "live_onboarding").allowed).toBe(true);
+    expect(isTransitionAllowed("setup", "live_mall").allowed).toBe(false);
   });
   it("허용되지 않은 점프 거부", () => {
     expect(isTransitionAllowed("lead_new", "docs").allowed).toBe(false);
@@ -187,10 +190,16 @@ describe("gates", () => {
     const good = evaluateGate("contact", "contract_review", ctx({ brand: b2, hasSentProposal: true }));
     expect(good.passed).toBe(true);
   });
-  it("docs→setup: 서류 100% + 사업자번호", () => {
-    const b = makeBrand({ biz_no: "1234567890" });
-    expect(evaluateGate("docs", "setup", ctx({ brand: b })).passed).toBe(false);
-    expect(evaluateGate("docs", "setup", ctx({ brand: b, allDocsDone: true })).passed).toBe(true);
+  it("contract_done→live_mall/live_onboarding: 계약형태 일치 + 광고담당 필요(서류수급/입점셋업 폐지)", () => {
+    const bMall = makeBrand({ contract_type: "mall" });
+    expect(evaluateGate("contract_done", "live_mall", ctx({ brand: bMall })).passed).toBe(false);
+    const bMallOk = makeBrand({ contract_type: "mall", owner_ads: "ads@x.com" });
+    expect(evaluateGate("contract_done", "live_mall", ctx({ brand: bMallOk })).passed).toBe(true);
+
+    const bOnb = makeBrand({ contract_type: "onboarding" });
+    expect(evaluateGate("contract_done", "live_onboarding", ctx({ brand: bOnb })).passed).toBe(false);
+    const bOnbOk = makeBrand({ contract_type: "onboarding", owner_ads: "ads@x.com" });
+    expect(evaluateGate("contract_done", "live_onboarding", ctx({ brand: bOnbOk })).passed).toBe(true);
   });
 });
 

@@ -6,6 +6,7 @@ import { ensureDocTemplate } from "./docs";
 import { query } from "./db";
 import { isTransitionAllowed } from "./states";
 import { raiseGateViolation } from "./sla";
+import { syncServiceTags } from "./service-tags";
 import type { Brand, OwnerField, Role, State } from "./types";
 
 // 게이트 검증 전이 — 모든 상태 쓰기의 단일 경로 (03-GATES-SLA §3).
@@ -64,6 +65,7 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
       await query("UPDATE brands SET state=$2, stage_entered_at=now() WHERE id=$1", [brand.id, to]);
       if (to === "contract_done" && brand.contract_type) await ensureDocTemplate(brand.id, brand.contract_type);
       await resolveAlertsForBrand(brand.id, ["sla_breach", "gate_violation", "stale"]);
+      await syncServiceTags(brand.id);
       const updated = await getBrand(brand.id);
       return { ok: true, brand: updated ?? undefined };
     }
@@ -93,6 +95,7 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
         await query("UPDATE brands SET state=$2, stage_entered_at=now() WHERE id=$1", [brand.id, to]);
         if (to === "contract_done" && brand.contract_type) await ensureDocTemplate(brand.id, brand.contract_type);
         await resolveAlertsForBrand(brand.id, ["sla_breach", "gate_violation", "stale"]);
+        await syncServiceTags(brand.id);
         const updated = await getBrand(brand.id);
         return { ok: true, brand: updated ?? undefined };
       }
@@ -119,6 +122,7 @@ export async function transitionBrand(input: TransitionInput): Promise<Transitio
     await resolveAlertsForBrand(brand.id, ["sla_breach", "gate_violation", "stale"]);
   }
 
+  await syncServiceTags(brand.id);
   const updated = await getBrand(brand.id);
   return { ok: true, brand: updated ?? undefined };
 }

@@ -23,16 +23,15 @@ const COLS: ColDef[] = [
   { key: "contact", label: "개별 컨택", part: "sales", dot: "var(--sales)", states: ["contact"], drop: "contact" },
   { key: "contract", label: "계약 검토", part: "sales", dot: "var(--sales)", states: ["contract_review"], drop: "contract_review" },
   { key: "contract_done", label: "계약 완료", part: "sales", dot: "var(--sales)", states: ["contract_done"], drop: "contract_done" },
-  { key: "docs", label: "서류 수급", part: "onb", dot: "var(--onb)", states: ["docs"], drop: "docs" },
-  { key: "setup", label: "입점 셋업", part: "onb", dot: "var(--onb)", states: ["setup"], drop: "setup" },
-  { key: "live", label: "운영 중", part: "ops", dot: "var(--ops)", states: ["live_mall", "live_onboarding", "settling"], drop: "live_mall" },
+  // 서류수급·입점셋업 단계 폐지(0085) — 계약완료 다음은 운영 중으로 직행.
+  // 레거시 docs/setup 상태(마이그레이션 미적용 DB)도 여기 병합 표시.
+  { key: "live", label: "운영 중", part: "ops", dot: "var(--ops)", states: ["docs", "setup", "live_mall", "live_onboarding", "settling"], drop: "live_mall" },
 ];
 
 const PARTS: { value: string; label: string }[] = [
   { value: "", label: "전체 파트" },
   { value: "mkt", label: "마케팅" },
   { value: "sales", label: "영업" },
-  { value: "onb", label: "온보딩" },
   { value: "ops", label: "운영" },
 ];
 

@@ -118,10 +118,9 @@ export const GATES: Record<string, Rule[]> = {
   "contact→contract_review": [hasContractType, assigned("owner_contract", "계약담당 미지정")],
   "contact→contract_done": [hasContractType, hasPlan, hasSentProposal, paymentConfirmed],
   "contract_review→contract_done": [paymentConfirmed],
-  "contract_done→docs": [assigned("owner_onboard", "온보딩담당 미지정"), docTemplateCreated],
-  "docs→setup": [allDocsDone, hasBizNo],
-  "setup→live_mall": [eq("contract_type", "mall", "계약형태 mall 아님"), assigned("owner_ads", "광고담당 미지정")],
-  "setup→live_onboarding": [eq("contract_type", "onboarding", "계약형태 onboarding 아님"), assigned("owner_ads", "광고담당 미지정")],
+  // 계약완료 → 운영중 직행(서류수급/입점셋업 단계 폐지, 0085) — 계약형태 일치 + 광고담당 배정만 확인.
+  "contract_done→live_mall": [eq("contract_type", "mall", "계약형태 mall 아님"), assigned("owner_ads", "광고담당 미지정")],
+  "contract_done→live_onboarding": [eq("contract_type", "onboarding", "계약형태 onboarding 아님"), assigned("owner_ads", "광고담당 미지정")],
   "live_mall→settling": [eq("pay_status", "subscribed", "구독상태 아님"), hasFirstPerformance],
   "live_onboarding→settling": [hasFirstPerformance],
 };

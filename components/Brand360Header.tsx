@@ -7,11 +7,13 @@ import { useRouter } from "next/navigation";
 import {
   assignAction, composeEmailAction, deleteBrandAction, dropAction,
   logContactAction, remindAction, sendSmsAction, sendWelcomeAction, transitionAction,
-  setContractTypeAction,
+  setContractTypeAction, setServiceTagAction,
 } from "@/app/actions";
 import { FORWARD_TRANSITIONS } from "@/lib/states";
 import { STATE_LABELS, type Brand, type OwnerField, type State } from "@/lib/types";
 import CopyButton from "@/components/CopyButton";
+
+const OPERATING_STATES = new Set<State>(["live_mall", "live_onboarding", "settling"]);
 
 type AdminUser = { id: string; name: string; role: string };
 
@@ -28,6 +30,8 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
   const [msg, setMsg] = useState<{ t: string; bad: boolean } | null>(null);
   const [smsText, setSmsText] = useState("");
   const [dropReason, setDropReason] = useState("");
+  const [tagOps, setTagOps] = useState(!!brand.tag_ops_agency);
+  const [tagMkt, setTagMkt] = useState(!!brand.tag_mkt_agency);
 
   function flash(t: string, bad = false) {
     setMsg({ t, bad });
@@ -258,6 +262,44 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
             </select>
             <span style={{ fontSize: 10.5, color: "var(--ink3)" }}>제안서 발송 시 자동 설정 · 여기서 직접 지정도 가능</span>
           </div>
+          {OPERATING_STATES.has(brand.state) && (
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink3)" }}>서비스 트랙 태그</span>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={tagOps}
+                  disabled={pending}
+                  onChange={(e) => {
+                    const v = e.target.checked;
+                    setTagOps(v);
+                    start(async () => {
+                      const r = await setServiceTagAction(brand.id, "ops", v);
+                      if (!r.ok) { setTagOps(!v); flash(r.error || "저장 실패", true); }
+                    });
+                  }}
+                />
+                운영대행
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={tagMkt}
+                  disabled={pending}
+                  onChange={(e) => {
+                    const v = e.target.checked;
+                    setTagMkt(v);
+                    start(async () => {
+                      const r = await setServiceTagAction(brand.id, "mkt", v);
+                      if (!r.ok) { setTagMkt(!v); flash(r.error || "저장 실패", true); }
+                    });
+                  }}
+                />
+                마케팅대행
+              </label>
+              <span style={{ fontSize: 10.5, color: "var(--ink3)" }}>필수 아님 · 온보딩 신청서/마케팅 제안서 맵핑 시 자동 체크</span>
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: "var(--danger)" }}>제외·삭제</span>
             <input

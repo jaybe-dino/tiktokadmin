@@ -135,6 +135,9 @@ export interface Brand {
   notion_page_url: string | null;
   created_at: string;
   updated_at: string;
+  // 운영중 서비스 트랙 태그(0086) — 필수 아님. 마이그레이션 미적용 DB 에선 undefined.
+  tag_ops_agency?: boolean;
+  tag_mkt_agency?: boolean;
 }
 
 export type AlertKind =

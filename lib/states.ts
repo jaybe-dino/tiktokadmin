@@ -2,16 +2,17 @@ import type { OwnerField, Role, State } from "./types";
 
 // 상태 머신 (03-GATES-SLA §1). 허용 전이·퍼널 순서·담당 매핑.
 
-/** 허용 전이(전진). dropped/churned/hold 는 별도 규칙. */
+/** 허용 전이(전진). dropped/churned/hold 는 별도 규칙.
+ *  docs/setup 은 폐지된 레거시 상태(계약완료 → 운영중 직행) — 신규 전이는 발생하지 않는다. */
 export const FORWARD_TRANSITIONS: Record<State, State[]> = {
   lead_new: ["seminar", "meeting", "contact"],
   seminar: ["meeting", "contact"],
   meeting: ["contact"],
   contact: ["contract_review", "contract_done"],
   contract_review: ["contract_done"],
-  contract_done: ["docs"],
-  docs: ["setup"],
-  setup: ["live_mall", "live_onboarding"],
+  contract_done: ["live_mall", "live_onboarding"],
+  docs: [], // 폐지 — 레거시 데이터만 존재 가능(마이그레이션 0085 로 운영중 이관)
+  setup: [], // 폐지 — 상동
   live_mall: ["settling"],
   live_onboarding: ["settling"],
   settling: [],
@@ -21,7 +22,7 @@ export const FORWARD_TRANSITIONS: Record<State, State[]> = {
   hold: ["lead_new", "seminar", "meeting", "contact", "contract_review", "contract_done", "docs", "setup", "live_mall", "live_onboarding", "settling"],
 };
 
-/** 퍼널 서열 (전진 판정용). 종료 상태·보류는 -1(서열 밖). */
+/** 퍼널 서열 (전진 판정용). 종료 상태·보류·폐지된 docs/setup 은 -1(서열 밖). */
 const ORDINAL: Record<State, number> = {
   lead_new: 0,
   seminar: 1,
@@ -29,11 +30,11 @@ const ORDINAL: Record<State, number> = {
   contact: 3,
   contract_review: 4,
   contract_done: 5,
-  docs: 6,
-  setup: 7,
-  live_mall: 8,
-  live_onboarding: 8,
-  settling: 9,
+  docs: -1, // 폐지 — 레거시 데이터 전용
+  setup: -1, // 폐지 — 상동
+  live_mall: 6,
+  live_onboarding: 6,
+  settling: 7,
   dropped: -1,
   churned: -1,
   hold: -1, // 파이프라인 서열 밖 — 진입/해제는 isTransitionAllowed 명시 처리.

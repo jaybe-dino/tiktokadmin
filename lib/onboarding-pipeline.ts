@@ -1,5 +1,5 @@
 // 온보딩 파이프라인 — 온보딩·제품 파트 전용 보드 데이터.
-//   온보딩 신청서(onb_applications)를 생성한 브랜드만 노출한다.
+//   영업 파이프라인이 '운영중'(live_mall/live_onboarding/settling)이고 온보딩 신청서가 맵핑된 브랜드만 노출한다.
 //   신청서만 생성(담당 미배정)=서류수급, 온보딩 담당 배정 시=입점셋업 으로 파생하고,
 //   이후 승인·제품등록·운영개시로 5단계(서류수급 · 입점셋업 · 가입완료 · 제품등록 · 운영준비)를 파생한다.
 //   onb_stage_override='hold' 는 '보류' 섹터로 분리한다(단계 파생과 무관).
@@ -59,6 +59,7 @@ export async function onboardingBoardData(): Promise<OnbBoardData> {
           WHERE COALESCE(x.brand_id, cu.brand_id) = b.id
           ORDER BY x.created_at DESC LIMIT 1
        ) a ON true
+      WHERE b.state IN ('live_mall','live_onboarding','settling')
       ORDER BY b.stage_entered_at ASC
       LIMIT 1000`;
   // 마이그레이션 0081 미적용(override 컬럼 없음) 시에도 데이터가 사라지지 않도록 폴백.
