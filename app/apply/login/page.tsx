@@ -18,8 +18,12 @@ export default function ApplyLogin() {
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
-    if (data.ok) { router.replace("/apply"); router.refresh(); }
-    else setError(data.error ?? "로그인에 실패했습니다.");
+    if (data.ok) {
+      // ?next=/apply/products 처럼 포털 내 경로가 지정되면 그 페이지로 복귀(외부 경로는 무시).
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.replace(next && next.startsWith("/apply") ? next : "/apply");
+      router.refresh();
+    } else setError(data.error ?? "로그인에 실패했습니다.");
   }
 
   return (

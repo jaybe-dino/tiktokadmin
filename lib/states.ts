@@ -72,10 +72,10 @@ export function isTransitionAllowed(
     };
   }
 
-  // 보류 진입: 종료 상태를 제외한 어느 단계에서든 언제든 가능(사유 불필요).
+  // 보류 진입: 종료 상태를 제외한 어느 단계에서든 가능 — 단 사유(메모) 필수(예: 추후 재컨택 / 완전 보류).
   if (to === "hold") {
     const ok = from !== "dropped" && from !== "churned";
-    return { allowed: ok, requiresReason: false, reason: ok ? undefined : `${from}에서 보류 불가` };
+    return { allowed: ok, requiresReason: true, reason: ok ? undefined : `${from}에서 보류 불가` };
   }
   // 보류 해제: 파이프라인 어느 단계로든 복귀(사유 불필요). dropped/churned 는 위에서 처리됨.
   if (from === "hold") {

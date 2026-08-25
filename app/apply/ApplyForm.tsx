@@ -18,9 +18,9 @@ const COMPANY_COUNTRIES: [string, string][] = [["KR", "대한민국"], ["US", "�
 const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", "제품 등록", "물류 계약서"];
 
 interface Step { step_no: number; status: string; admin_feedback: string }
-interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string }
-interface ProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; translation_status: string }
-interface Product { id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string }
+export interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string }
+export interface ProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; translation_status: string }
+export interface Product { id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string }
 interface Props { email: string; app: Record<string, unknown>; steps: Step[]; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]> }
 
 const sv = (app: Record<string, unknown>, k: string): string => (app[k] == null ? "" : String(app[k]));
@@ -368,7 +368,7 @@ function Step4({ disabled, countries, products, productCountries, onChange, flas
     </div>
   );
 }
-function ProductCard({ idx, p, disabled, countries, rows, onChange, flash, onDelete }:
+export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash, onDelete }:
   { idx: number; p: Product; disabled: boolean; countries: Country[]; rows: ProductCountry[]; onChange: () => void; flash: (m: string) => void; onDelete: () => void }) {
   const [pd, setPd] = useState({ name: p.name, category: p.category ?? "", sku: p.sku ?? "", description_kr: p.description_kr ?? "" });
   const byCode = Object.fromEntries(rows.map((r) => [r.country_code, r]));
@@ -554,7 +554,7 @@ function SignaturePad({ value, onChange, disabled }: { value: string; onChange: 
 
 // ══════════ 공통 UI (라이트 테마) ══════════
 const ACC = "#12b886";
-function Card({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
+export function Card({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
   return <div style={{ background: "#fff", border: "1px solid #e2e6eb", borderRadius: 14, padding: 20 }}>
     <div style={{ fontSize: 16, fontWeight: 800, color: "#111" }}>{title}</div>
     {desc && <div style={{ fontSize: 12.5, color: "#8b93a1", margin: "3px 0 12px" }}>{desc}</div>}
@@ -593,7 +593,7 @@ function Banner({ tone, children }: { tone: "warn" | "info" | "ok" | "mute"; chi
   const c = { warn: ["#fff7ed", "#c2410c", "#fed7aa"], info: ["#eef4ff", "#1e40af", "#cfe0ff"], ok: ["#eafaf3", "#0b7a52", "#a7f0cf"], mute: ["#f7f8fa", "#6b7280", "#e2e6eb"] }[tone];
   return <div style={{ background: c[0], color: c[1], border: `1px solid ${c[2]}`, borderRadius: 10, padding: "11px 14px", fontSize: 13, marginBottom: 14 }}>{children}</div>;
 }
-function Empty({ children }: { children: React.ReactNode }) { return <div style={{ background: "#f7f8fa", border: "1px solid #e2e6eb", borderRadius: 12, padding: 40, textAlign: "center", color: "#6b7280", fontSize: 13 }}>{children}</div>; }
+export function Empty({ children }: { children: React.ReactNode }) { return <div style={{ background: "#f7f8fa", border: "1px solid #e2e6eb", borderRadius: 12, padding: 40, textAlign: "center", color: "#6b7280", fontSize: 13 }}>{children}</div>; }
 
 const inputStyle: React.CSSProperties = { width: "100%", background: "#fff", border: "1px solid #d5dae1", borderRadius: 9, padding: "10px 12px", color: "#111", fontSize: 14, marginTop: 5, boxSizing: "border-box" };
 const cellInp: React.CSSProperties = { background: "#fff", border: "1px solid #d5dae1", borderRadius: 6, padding: "6px 8px", color: "#111", fontSize: 12, boxSizing: "border-box" };

@@ -32,7 +32,7 @@ export default function CustomerRow({ c, brands }: { c: Row; brands: { id: strin
     else alert(r.error ?? "재발급 실패");
   }
   function copyInfo() {
-    navigator.clipboard?.writeText(`로그인: ${APPLY_URL}\n이메일: ${c.email}${code ? `\n코드: ${code}` : ""}`);
+    navigator.clipboard?.writeText(`신청서: ${APPLY_URL}\n제품관리: ${APPLY_URL}/products\n이메일: ${c.email}${code ? `\n코드: ${code}` : ""}`);
   }
 
   async function changeBrand(v: string) {

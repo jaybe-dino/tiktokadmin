@@ -56,19 +56,19 @@ export async function setCountryLogisticsDetailAction(code: string, d: { local_a
 // Step4 — 제품
 export async function addProductAction(p: Partial<OnbProduct>) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
-  const r = await addProduct(app.id, p); revalidatePath("/apply"); return r;
+  const r = await addProduct(app.id, p); revalidatePath("/apply"); revalidatePath("/apply/products"); return r;
 }
 export async function updateProductAction(id: string, p: Partial<OnbProduct>) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
-  const r = await updateProduct(app.id, id, p); revalidatePath("/apply"); return r;
+  const r = await updateProduct(app.id, id, p); revalidatePath("/apply"); revalidatePath("/apply/products"); return r;
 }
 export async function deleteProductAction(id: string) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
-  const r = await deleteProduct(app.id, id); revalidatePath("/apply"); return r;
+  const r = await deleteProduct(app.id, id); revalidatePath("/apply"); revalidatePath("/apply/products"); return r;
 }
 export async function upsertProductCountryAction(productId: string, pc: Partial<OnbProductCountry>) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
-  const r = await upsertProductCountry(productId, pc); revalidatePath("/apply"); return r;
+  const r = await upsertProductCountry(productId, pc); revalidatePath("/apply"); revalidatePath("/apply/products"); return r;
 }
 export async function deleteProductCountryAction(id: string) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };

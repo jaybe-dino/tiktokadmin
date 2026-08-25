@@ -90,11 +90,11 @@ describe("state machine", () => {
     expect(ownerFieldForState("docs")).toBe("owner_onboard");
     expect(ownerFieldForState("live_mall")).toBe("owner_ads");
   });
-  it("보류(hold): 어느 단계에서든 언제든 진입(사유 불필요)", () => {
+  it("보류(hold): 어느 단계에서든 진입 가능 — 단 메모(사유) 필수", () => {
     for (const from of ["lead_new", "meeting", "contact", "contract_review", "setup", "live_mall"] as const) {
       const r = isTransitionAllowed(from, "hold");
       expect(r.allowed).toBe(true);
-      expect(r.requiresReason).toBe(false);
+      expect(r.requiresReason).toBe(true); // 예: 추후 재컨택 / 완전 보류
     }
     // 종료 상태에서는 보류 불가
     expect(isTransitionAllowed("dropped", "hold").allowed).toBe(false);

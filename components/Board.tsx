@@ -107,11 +107,19 @@ export default function Board({
     const to: State =
       col.key === "live" ? (card.contract_type === "onboarding" ? "live_onboarding" : "live_mall") : col.drop;
 
+    // 보류 이동은 메모(사유) 필수 — 나중에 왜 보류했는지 추적할 수 있게 타임라인에 기록된다.
+    let holdReason: string | undefined;
+    if (col.key === "hold") {
+      const r = window.prompt(`'${card.brand_name}' 보류 사유를 입력하세요 (필수)\n예: 추후 재컨택 / 완전 보류 / 예산 확정 대기`, "");
+      if (!r || !r.trim()) return; // 미입력·취소 → 이동하지 않음
+      holdReason = r.trim();
+    }
+
     // 낙관적 업데이트 — 카드를 즉시 이동
     const prev = cards;
     setCards((cs) => cs.map((c) => (c.id === id ? { ...c, state: to } : c)));
 
-    let res = await transitionAction(id, to);
+    let res = await transitionAction(id, to, holdReason);
     // 뒤로 되돌리기(후퇴 전이) 등 사유가 필요한 경우 — 사유를 입력받아 재시도.
     if (!res.ok && res.needReason) {
       const reason = window.prompt(`'${STATE_LABELS[card.state]}' → '${STATE_LABELS[to]}' 단계 변경 사유를 입력하세요:`, "");

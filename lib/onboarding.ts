@@ -223,10 +223,21 @@ export async function deleteWarehouse(applicationId: string, id: string): Promis
 }
 
 // ── 제품(products) ──
-export interface OnbProduct { id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string }
+export interface OnbProduct {
+  id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string;
+  // 제품 승인(0088) — 미적용 DB 에선 undefined.
+  approval_status?: string; approval_note?: string; approved_at?: string | null; approved_by?: string;
+}
 export interface OnbProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; detail_page_translated: string; translation_status: string }
 export async function getProducts(applicationId: string): Promise<OnbProduct[]> {
-  return query<OnbProduct>("SELECT id, name, category, sku, description_kr, main_image_url FROM onb_products WHERE application_id=$1 ORDER BY created_at", [applicationId]).catch(() => []);
+  // 0088(승인 컬럼) 포함 조회 → 미적용 DB 폴백.
+  return query<OnbProduct>(
+    `SELECT id, name, category, sku, description_kr, main_image_url,
+            approval_status, approval_note, approved_at::text AS approved_at, approved_by
+       FROM onb_products WHERE application_id=$1 ORDER BY created_at`, [applicationId],
+  ).catch(() =>
+    query<OnbProduct>("SELECT id, name, category, sku, description_kr, main_image_url FROM onb_products WHERE application_id=$1 ORDER BY created_at", [applicationId]).catch(() => []),
+  );
 }
 export async function getProductCountries(productId: string): Promise<OnbProductCountry[]> {
   return query<OnbProductCountry>("SELECT * FROM onb_product_countries WHERE product_id=$1 ORDER BY country_code", [productId]).catch(() => []);
@@ -245,7 +256,38 @@ export async function updateProduct(applicationId: string, id: string, p: Partia
     `UPDATE onb_products SET name=$3, category=$4, sku=$5, description_kr=$6, main_image_url=$7
      WHERE id=$1 AND application_id=$2`,
     [id, applicationId, p.name ?? "", p.category ?? "", p.sku ?? "", p.description_kr ?? "", p.main_image_url ?? ""]).catch(() => {});
+  // 승인된 제품을 브랜드가 수정하면 재검토 대상 — 승인 상태를 대기로 되돌린다(0088 미적용 시 무시).
+  await query(
+    "UPDATE onb_products SET approval_status='pending', approved_at=NULL WHERE id=$1 AND application_id=$2 AND approval_status='approved'",
+    [id, applicationId]).catch(() => {});
   return { ok: true };
+}
+
+/** 어드민: 제품 개별 승인/반려. */
+export async function setProductApproval(productId: string, status: "approved" | "rejected" | "pending", note: string, by: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await query(
+      `UPDATE onb_products SET approval_status=$2, approval_note=$3,
+              approved_at=CASE WHEN $2='approved' THEN now() ELSE NULL END, approved_by=$4
+        WHERE id=$1`,
+      [productId, status, note ?? "", by]);
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (/approval_status/.test(msg)) return { ok: false, error: "마이그레이션(0088) 적용이 필요합니다(관리자)." };
+    return { ok: false, error: "저장 실패" };
+  }
+}
+
+/** 브랜드의 최신 온보딩 신청서 id — 어드민 브랜드별 제품 열람용(신청서/고객계정 양쪽 brand_id 매칭). */
+export async function getApplicationIdForBrand(brandId: string): Promise<string | null> {
+  const r = await queryOne<{ id: string }>(
+    `SELECT a.id FROM onb_applications a
+       LEFT JOIN onb_customers cu ON cu.id = a.customer_id
+      WHERE COALESCE(a.brand_id, cu.brand_id) = $1
+      ORDER BY a.created_at DESC LIMIT 1`,
+    [brandId]).catch(() => null);
+  return r?.id ?? null;
 }
 export async function deleteProduct(applicationId: string, id: string): Promise<{ ok: boolean }> {
   await query("DELETE FROM onb_products WHERE id=$1 AND application_id=$2", [id, applicationId]).catch(() => {});

@@ -98,3 +98,42 @@ ${existing || "(등록된 항목 없음)"}
     existingCount: certs.length,
   };
 }
+
+// ── 브랜드별 온보딩 신청 제품 열람·승인(제품 관리 포털 연동) ──────────────
+import { revalidatePath } from "next/cache";
+import {
+  getApplicationIdForBrand, getProducts, getProductCountries, setProductApproval,
+  type OnbProduct, type OnbProductCountry,
+} from "@/lib/onboarding";
+
+export interface BrandOnbProducts {
+  ok: boolean;
+  error?: string;
+  appId?: string | null;
+  products?: (OnbProduct & { countries: OnbProductCountry[] })[];
+}
+
+/** 브랜드 선택 → 그 브랜드가 신청서/제품포털에서 등록한 제품 목록(국가별 상세 포함). */
+export async function getBrandOnbProductsAction(brandId: string): Promise<BrandOnbProducts> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!/^[0-9a-f-]{36}$/i.test(brandId)) return { ok: false, error: "잘못된 브랜드" };
+  const appId = await getApplicationIdForBrand(brandId);
+  if (!appId) return { ok: true, appId: null, products: [] };
+  const products = await getProducts(appId);
+  const out = [] as (OnbProduct & { countries: OnbProductCountry[] })[];
+  for (const p of products) out.push({ ...p, countries: await getProductCountries(p.id) });
+  return { ok: true, appId, products: out };
+}
+
+/** 제품 개별 승인/반려/대기 전환. 반려는 사유 필수. */
+export async function setOnbProductApprovalAction(
+  productId: string, status: "approved" | "rejected" | "pending", note: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (status === "rejected" && !note.trim()) return { ok: false, error: "반려 사유를 입력하세요." };
+  const r = await setProductApproval(productId, status, note.trim(), u.name || u.id);
+  if (r.ok) { revalidatePath("/products"); revalidatePath("/apply/products"); }
+  return r;
+}
