@@ -14,6 +14,7 @@ import Brand360GateCard, { type GateView } from "@/components/Brand360GateCard";
 import Brand360Header from "@/components/Brand360Header";
 import Brand360Meetings, { type DraftRow, type MeetingRow } from "@/components/Brand360Meetings";
 import Brand360Products from "@/components/Brand360Products";
+import ImageTranslate from "@/components/ImageTranslate";
 import Brand360SurveyCard, { Brand360SurveyPanel } from "@/components/Brand360SurveyCard";
 import Brand360Compose from "@/components/Brand360Compose";
 import { getQuestions } from "@/lib/survey-db";
@@ -335,15 +336,25 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     />
   );
 
-  // 제품·인증·재고 — 제품 마스터 · 인증 매트릭스 · 초기 재고
+  // 제품·인증·재고 — 제품 마스터 · 인증 매트릭스 · 초기 재고 + 상세페이지 이미지 번역
   const panelProducts = (
-    <Brand360Products
-      brandId={brand.id}
-      products={deep?.products ?? []}
-      certs={deep?.certs ?? []}
-      inventory={deep?.inventory ?? []}
-      setupStage={brand.state === "setup" || brand.state === "live_mall" || brand.state === "live_onboarding" || brand.state === "settling"}
-    />
+    <>
+      <Brand360Products
+        brandId={brand.id}
+        products={deep?.products ?? []}
+        certs={deep?.certs ?? []}
+        inventory={deep?.inventory ?? []}
+        setupStage={brand.state === "setup" || brand.state === "live_mall" || brand.state === "live_onboarding" || brand.state === "settling"}
+      />
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="hd"><b>🌐 상세페이지 이미지 번역</b>
+          <span style={{ color: "var(--ink3)", fontSize: 11 }}>이미지 속 한글을 영어·베트남어·태국어로 번역한 새 이미지 생성 — 번역본은 브랜드 파일에 저장</span>
+        </div>
+        <div className="bd">
+          <ImageTranslate endpoint="/api/image-translate" extra={{ brand_id: brand.id }} />
+        </div>
+      </div>
+    </>
   );
 
   // 계약·결제 — 계약 등록/상태 + 결제 안내·수기 확인

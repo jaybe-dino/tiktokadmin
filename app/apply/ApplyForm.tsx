@@ -6,6 +6,7 @@ import {
   addProductAction, updateProductAction, deleteProductAction, upsertProductCountryAction,
 } from "./actions";
 import FdaListingExample from "@/components/FdaListingExample";
+import ImageTranslate from "@/components/ImageTranslate";
 
 // ── 상수(tpartners 정합) ──
 const COUNTRIES: [string, string][] = [["US", "미국"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"]];
@@ -358,6 +359,12 @@ function Step4({ disabled, countries, products, productCountries, onChange, flas
         products.map((p, idx) => (
           <ProductCard key={p.id} idx={idx} p={p} disabled={disabled} countries={countries} rows={productCountries[p.id] ?? []} onChange={onChange} flash={flash} onDelete={() => del(p.id)} />
         ))}
+      {!disabled && (
+        <Card title="🌐 상세페이지 이미지 번역 (선택)"
+          desc="상세페이지 이미지 속 한글 텍스트를 영어·베트남어·태국어로 번역한 새 이미지를 만들어 드립니다. 레이아웃·디자인은 그대로 유지되며, 번역본은 신청서에 자동 저장됩니다.">
+          <ImageTranslate endpoint="/api/apply/translate-image" compact />
+        </Card>
+      )}
     </div>
   );
 }

@@ -90,6 +90,10 @@ export const env = {
   get anthropicKey() {
     return opt("ANTHROPIC_API_KEY");
   },
+  // Google Gemini (나노바나나 이미지 편집·번역). GEMINI_API_KEY 또는 GOOGLE_API_KEY.
+  get geminiKey() {
+    return opt("GEMINI_API_KEY") || opt("GOOGLE_API_KEY");
+  },
   get anthropicModel() {
     return opt("ANTHROPIC_MODEL", "claude-sonnet-5");
   },
