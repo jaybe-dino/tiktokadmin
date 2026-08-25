@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getProposalByToken, defaultTemplate, type ProposalDoc, type ProposalTemplate } from "@/lib/proposal-doc";
+import { proposalAssetUrl } from "@/lib/asset-url";
 import PrintBar from "./PrintBar";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,10 @@ export default async function ProposalPage({ params, searchParams }: { params: P
   if (!d) notFound();
   // 발행된 제안서만 공개. 초안·발행취소 링크는 404(관리자 미리보기만 ?preview=1 로 열람).
   if (d.status !== "published" && preview !== "1") notFound();
+  // 이미지 URL 정리 — 드라이브 공유링크 변환 + 세션 보호 파일은 토큰 프록시로(로그인 없는 열람자도 표시).
+  d.brand_logo_url = d.brand_logo_url ? proposalAssetUrl(d.brand_logo_url, token) : d.brand_logo_url;
+  d.products = d.products.map((p) => ({ ...p, image_url: p.image_url ? proposalAssetUrl(p.image_url, token) : p.image_url }));
+  d.creators = d.creators.map((c) => ({ ...c, thumb_url: c.thumb_url ? proposalAssetUrl(c.thumb_url, token) : c.thumb_url }));
   const tpl = await defaultTemplate();
   // accent 는 <style> 안에 인라인되므로 반드시 hex 만 허용(CSS/스크립트 인젝션 차단).
   const accent = safeHexColor(d.accent) || safeHexColor(tpl?.accent) || "#ec4899";

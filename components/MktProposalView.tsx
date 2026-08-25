@@ -4,6 +4,7 @@ import {
   type MktCountry, type Phase,
 } from "@/lib/mkt-proposal-engine";
 import type { MktProposalDocRow, MktProductItem, MktReferenceItem } from "@/lib/mkt-proposal-doc";
+import { normalizeImageUrl } from "@/lib/asset-url";
 
 const safeHex = (v: string | null | undefined) => (v && /^#[0-9a-fA-F]{3,8}$/.test(v.trim()) ? v.trim() : "#111827");
 const chunk = <T,>(arr: T[], n: number): T[][] => { const o: T[][] = []; for (let i = 0; i < arr.length; i += n) o.push(arr.slice(i, i + n)); return o; };
@@ -310,7 +311,7 @@ function ProductCard({ p, n, accent }: { p: MktProductItem; n: number; accent: s
       {p.image_url
         // 제품 실측 이미지는 잘리면 안 됨(라벨·용량 표기 등) — cover 대신 contain 으로 전체 노출.
         // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={p.image_url} alt={p.name} style={{ width: "100%", height: "9.5em", objectFit: "contain", display: "block", background: "#f8fafc" }} />
+        ? <img src={normalizeImageUrl(p.image_url)} alt={p.name} style={{ width: "100%", height: "9.5em", objectFit: "contain", display: "block", background: "#f8fafc" }} />
         : <div style={{ height: "9.5em", background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.9em" }}>이미지 없음</div>}
       <div style={{ padding: "1em 1.1em" }}>
         <div style={{ fontSize: "0.9em", fontWeight: 800, color: accent }}>{String(n).padStart(2, "0")}</div>
@@ -330,7 +331,7 @@ function RefCard({ r, accent }: { r: MktReferenceItem; accent: string }) {
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff", display: "flex", flexDirection: "column", minHeight: 0 }}>
       {r.image_url
         // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={r.image_url} alt={r.creator ?? ""} style={{ width: "100%", flex: 1, objectFit: "cover", display: "block", background: "#f1f5f9", minHeight: 0 }} />
+        ? <img src={normalizeImageUrl(r.image_url)} alt={r.creator ?? ""} style={{ width: "100%", flex: 1, objectFit: "cover", display: "block", background: "#f1f5f9", minHeight: 0 }} />
         : <div style={{ flex: 1, background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.85em" }}>@{r.creator || "creator"}</div>}
       <div style={{ padding: "0.7em 0.8em" }}>
         {r.creator && <div style={{ fontWeight: 800, fontSize: "0.92em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.creator}</div>}
