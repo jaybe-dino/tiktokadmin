@@ -9,8 +9,8 @@ import {
   saveMktTemplate, getMktTemplate, deleteMktTemplate,
   type MktProposalInput, type MktTemplateConfig, type MktReferenceItem,
 } from "@/lib/mkt-proposal-doc";
-import { similarProductContent } from "@/lib/glovek-content";
-import { categorySearchTerms } from "@/lib/categories";
+import { similarProductContent, glovekZeroDiagnosis } from "@/lib/glovek-content";
+import { categoryTermTiers } from "@/lib/categories";
 
 type R = { ok: boolean; error?: string };
 
@@ -90,15 +90,15 @@ export async function fillGlovekMktRefsAction(
     ).catch(() => null);
     cat = (b?.category || b?.product_category || "").trim();
   }
-  const terms = categorySearchTerms(cat);
-  if (terms.length === 0) return { ok: false, error: "카테고리를 선택하세요 (예: 스킨케어 > 크림)." };
-
-  // 소분류 우선 검색 → 결과 없으면 대분류로 폴백.
-  let used = terms[0];
-  let glovek = await similarProductContent([terms[0]], 8).catch(() => []);
-  if (glovek.length === 0 && terms.length > 1) {
-    used = terms[1];
-    glovek = await similarProductContent([terms[1]], 8).catch(() => []);
+  // 티어별 검색 — 소분류(한글 파트+영문 동의어 OR) → 대분류 폴백. 예: 세럼·앰플 → [세럼·앰플, 세럼, 앰플, serum, ampoule, essence].
+  const tiers = categoryTermTiers(cat);
+  if (tiers.length === 0) return { ok: false, error: "카테고리를 선택하세요 (예: 스킨케어 > 크림)." };
+  let used: string[] = [];
+  let glovek: Awaited<ReturnType<typeof similarProductContent>> = [];
+  for (const tier of tiers) {
+    used = tier;
+    glovek = await similarProductContent(tier, 8).catch(() => []);
+    if (glovek.length > 0) break;
   }
   const refs: MktReferenceItem[] = glovek
     .filter((g) => g.handle || g.name || g.image_url)
@@ -111,8 +111,8 @@ export async function fillGlovekMktRefsAction(
       image_url: g.image_url || undefined,
       // ROAS·수수료 등 성과 지표는 자동 채우지 않음(허위 방지 — 담당자 입력).
     }));
-  const note = `카테고리 「${cat}」(검색어: ${used}) · glovek 유사 콘텐츠 ${refs.length}건` +
-    (refs.length === 0 ? " — 매칭 없음(다른 카테고리를 선택하거나 틱톡 자동조회를 사용하세요)" : "");
+  let note = `카테고리 「${cat}」(검색어: ${used.slice(0, 4).join(", ")}${used.length > 4 ? " 외" : ""}) · glovek 유사 콘텐츠 ${refs.length}건`;
+  if (refs.length === 0) note += ` — ${await glovekZeroDiagnosis()}`;
   return { ok: true, refs: refs.length ? refs : undefined, note };
 }
 

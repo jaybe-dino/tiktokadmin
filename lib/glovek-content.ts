@@ -88,6 +88,24 @@ async function fromTable(table: string, keywords: string[], limit: number): Prom
 }
 const str = (v: unknown) => (v == null ? undefined : String(v).trim() || undefined);
 
+/** glovek 콘텐츠 조회 가능 상태 진단 — "매칭 0건"과 "연결/스키마 문제"를 구분해 UI 에 알려주기 위함.
+ *   configured=false 면 GLOVEK_DB_URL_RO 미설정 → 어드민 DB 로 폴백돼 사실상 항상 0건. */
+export async function glovekContentStatus(): Promise<{ configured: boolean; videos: boolean; products: boolean }> {
+  const configured = Boolean(process.env.GLOVEK_DB_URL_RO?.trim());
+  const v = await columnsOf("videos");
+  const p = await columnsOf("products");
+  return { configured, videos: v.length > 0, products: p.length > 0 };
+}
+
+/** 매칭 0건일 때 원인 안내 문구(한국어) — 액션들이 note 에 붙인다. */
+export async function glovekZeroDiagnosis(): Promise<string> {
+  const st = await glovekContentStatus().catch(() => null);
+  if (!st) return "glovek DB 상태 확인 실패";
+  if (!st.configured) return "원인: GLOVEK_DB_URL_RO 미설정 — glovek DB 가 연결되지 않아 검색이 되지 않습니다(설정→연동 상태에서 확인)";
+  if (!st.videos && !st.products) return "원인: glovek DB 에 videos/products 테이블이 보이지 않습니다 — RO 계정 권한/스키마 확인 필요";
+  return "glovek 연결은 정상 — 이 카테고리와 매칭되는 데이터가 없습니다(다른 소분류를 선택해보세요)";
+}
+
 /**
  * 브랜드 키워드로 glovek 에서 유사 제품 콘텐츠를 찾는다.
  *   videos(실제 콘텐츠) → products 순으로 시도하고 합쳐서 반환. 스키마가 없거나 비면 [].

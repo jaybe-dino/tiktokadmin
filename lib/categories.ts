@@ -40,3 +40,90 @@ export function categorySearchTerms(v: string | null | undefined): string[] {
   if (main) out.push(main);
   return out;
 }
+
+// 분류 라벨 → 검색 동의어(영문 포함) — glovek 크롤 데이터가 영문/혼용 표기여도 매칭되도록.
+const SYNONYMS: Record<string, string[]> = {
+  // 대분류
+  "스킨케어": ["skincare", "skin care"],
+  "메이크업": ["makeup", "cosmetic"],
+  "헤어": ["hair"],
+  "바디": ["body"],
+  "향수·프래그런스": ["perfume", "fragrance"],
+  "건강기능식품": ["supplement", "health"],
+  "식품": ["food"],
+  "생활·리빙": ["home", "living"],
+  "패션·잡화": ["fashion"],
+  "유아·키즈": ["baby", "kids"],
+  "반려동물": ["pet"],
+  "전자·기기": ["device", "electronics"],
+  // 소분류
+  "크림": ["cream", "moisturizer"],
+  "세럼·앰플": ["serum", "ampoule", "essence"],
+  "토너·스킨": ["toner"],
+  "로션·에멀전": ["lotion", "emulsion"],
+  "클렌저": ["cleanser", "cleansing"],
+  "마스크팩": ["mask pack", "sheet mask", "mask"],
+  "선케어": ["sunscreen", "sun care", "spf"],
+  "미스트": ["mist"],
+  "아이케어": ["eye cream"],
+  "립": ["lip", "lipstick", "tint"],
+  "베이스·쿠션": ["foundation", "cushion"],
+  "아이": ["eyeshadow", "eyeliner", "mascara"],
+  "치크": ["blush", "blusher"],
+  "네일": ["nail"],
+  "샴푸·트리트먼트": ["shampoo", "treatment", "conditioner"],
+  "헤어에센스·오일": ["hair oil", "hair essence"],
+  "염색·펌": ["hair dye", "hair color"],
+  "두피케어": ["scalp"],
+  "바디워시": ["body wash"],
+  "바디로션·크림": ["body lotion", "body cream"],
+  "핸드·풋": ["hand cream", "foot"],
+  "데오드란트": ["deodorant"],
+  "제모": ["hair removal", "wax"],
+  "향수": ["perfume", "eau de"],
+  "룸스프레이·디퓨저": ["diffuser", "room spray"],
+  "비타민": ["vitamin"],
+  "유산균": ["probiotics"],
+  "콜라겐": ["collagen"],
+  "오메가3": ["omega"],
+  "다이어트": ["diet", "slimming"],
+  "홍삼·인삼": ["ginseng", "red ginseng"],
+  "스낵": ["snack"],
+  "음료": ["drink", "beverage"],
+  "간편식": ["instant", "meal"],
+  "건강식품": ["health food"],
+  "김·해조류": ["seaweed", "laver"],
+  "주방": ["kitchen"],
+  "세탁·청소": ["cleaning", "laundry"],
+  "욕실": ["bath"],
+  "수납·정리": ["storage", "organizer"],
+  "의류": ["clothes", "apparel"],
+  "가방": ["bag"],
+  "액세서리": ["accessory", "jewelry"],
+  "신발": ["shoes"],
+  "기저귀·물티슈": ["diaper", "wipes"],
+  "유아 스킨케어": ["baby lotion", "baby cream"],
+  "완구": ["toy"],
+  "유아식": ["baby food"],
+  "사료·간식": ["pet food", "treats"],
+  "위생·미용": ["grooming"],
+  "용품": ["supplies"],
+  "뷰티디바이스": ["beauty device", "led mask"],
+  "생활가전": ["appliance"],
+};
+
+/** 라벨 하나 → 검색어 묶음: 라벨 원문 + "·" 분리 파트("세럼·앰플"→세럼/앰플) + 영문 동의어. */
+function expandLabel(label: string): string[] {
+  const parts = label.split("·").map((s) => s.trim()).filter((s) => s.length >= 2);
+  const all = [label, ...parts, ...(SYNONYMS[label] ?? [])];
+  return [...new Set(all)];
+}
+
+/** glovek 검색어 티어 — [소분류 묶음, 대분류 묶음] 순으로 시도(각 묶음은 OR 검색). */
+export function categoryTermTiers(v: string | null | undefined): string[][] {
+  const { main, sub } = splitCategory(v);
+  const tiers: string[][] = [];
+  if (sub) tiers.push(expandLabel(sub));
+  if (main) tiers.push(expandLabel(main));
+  return tiers;
+}

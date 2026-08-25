@@ -5,8 +5,8 @@ import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { aiEnabled, aiText } from "@/lib/ai";
 import { crawlUrl } from "@/lib/brand-crawl";
-import { similarProductContent } from "@/lib/glovek-content";
-import { categorySearchTerms } from "@/lib/categories";
+import { similarProductContent, glovekZeroDiagnosis } from "@/lib/glovek-content";
+import { categoryTermTiers } from "@/lib/categories";
 import {
   saveProposal, deleteProposal, prefillFromBrand, saveTemplate, getProposalById,
   type ProposalInput, type TemplateInput, type ProposalFeature, type ProposalCreator,
@@ -361,10 +361,13 @@ export async function fillReferencesByCategoryAction(proposalId: string, categor
   }
   if (!cat) return { ok: false, error: "카테고리를 선택하세요(또는 브랜드에 카테고리를 먼저 설정)." };
 
-  // "대분류 > 소분류" 선택형 — 소분류(세부) 우선 검색, 매칭 없으면 대분류로 폴백.
-  const terms = categorySearchTerms(cat);
-  let glovek = await similarProductContent([terms[0] ?? cat], 8).catch(() => []);
-  if (glovek.length === 0 && terms.length > 1) glovek = await similarProductContent([terms[1]], 8).catch(() => []);
+  // "대분류 > 소분류" 선택형 — 소분류(한글 파트+영문 동의어 OR) 우선, 매칭 없으면 대분류로 폴백.
+  const tiers = categoryTermTiers(cat);
+  let glovek: Awaited<ReturnType<typeof similarProductContent>> = [];
+  for (const tier of tiers.length ? tiers : [[cat]]) {
+    glovek = await similarProductContent(tier, 8).catch(() => []);
+    if (glovek.length > 0) break;
+  }
   const creators: ProposalCreator[] = glovek
     .filter((g) => g.handle || g.name || g.image_url)
     .map((g) => ({
@@ -376,6 +379,6 @@ export async function fillReferencesByCategoryAction(proposalId: string, categor
       // 매출·ROAS 등 지표는 자동 채우지 않음(허위 방지).
     }));
   const note = `카테고리 '${cat}' · glovek 유사 콘텐츠 ${glovek.length}건` +
-    (glovek.length === 0 ? " — 매칭 없음(수동 입력 필요)" : " 불러옴");
+    (glovek.length === 0 ? ` — ${await glovekZeroDiagnosis()}` : " 불러옴");
   return { ok: true, creators: creators.length ? creators : undefined, note };
 }
