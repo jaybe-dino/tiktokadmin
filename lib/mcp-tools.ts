@@ -513,11 +513,27 @@ export const TOOLS: Record<string, ToolDef> = {
       return { ok: true, id, status };
     },
   },
+  glovek_diag: {
+    description: "glovek 콘텐츠 DB(레퍼런스 검색용) 연동 진단 — GLOVEK_DB_URL_RO 설정 여부, videos/products 행수, 카테고리 실값 분포, 이름 샘플. 선택: q(검색어)로 실검색 테스트.",
+    inputSchema: { type: "object", properties: { q: { type: "string" } } },
+    async handler(a) {
+      const { glovekDataProfile, similarProductContent } = await import("./glovek-content");
+      const profile = await glovekDataProfile();
+      const q = String(a.q ?? "").trim();
+      const search = q ? await similarProductContent([q], 8).catch(() => []) : undefined;
+      return {
+        configured: profile.configured,
+        note: profile.configured ? "GLOVEK_DB_URL_RO 설정됨" : "GLOVEK_DB_URL_RO 미설정 — 어드민 DB 폴백 상태(레퍼런스 검색 불가)",
+        tables: profile.tables,
+        ...(q ? { search_q: q, search_hits: search?.length ?? 0, search_sample: (search ?? []).slice(0, 3) } : {}),
+      };
+    },
+  },
 };
 
 export const READ_ONLY_TOOLS = new Set([
   "list_brands", "get_brand_360", "find_sla_breaches", "find_gate_violations",
   "find_missing_docs", "draft_reminder", "compute_funnel_metrics",
   "get_customer_card", "list_products", "find_cert_risks", "list_meetings",
-  "suggest_assignee", "list_no_reply", "list_bug_reports",
+  "suggest_assignee", "list_no_reply", "list_bug_reports", "glovek_diag",
 ]);
