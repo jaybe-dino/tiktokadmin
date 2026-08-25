@@ -9,7 +9,7 @@ import {
   saveMktTemplate, getMktTemplate, deleteMktTemplate,
   type MktProposalInput, type MktTemplateConfig, type MktReferenceItem,
 } from "@/lib/mkt-proposal-doc";
-import { similarProductContent, glovekZeroDiagnosis } from "@/lib/glovek-content";
+import { similarProductContent, glovekZeroDiagnosis, listGlovekCategories } from "@/lib/glovek-content";
 import { categoryTermTiers } from "@/lib/categories";
 
 type R = { ok: boolean; error?: string };
@@ -67,6 +67,15 @@ export async function deleteMktProposalDocAction(id: string): Promise<R> {
   if (!u) return { ok: false, error: "세션 만료" };
   try { await deleteMktProposal(id); revalidatePath("/mkt-proposals"); return { ok: true }; }
   catch (e) { return { ok: false, error: friendlyError(e, "마케팅 제안서") }; }
+}
+
+/** glovek DB 의 실제 카테고리 값 목록 — 에디터에서 "실값 그대로 선택"용(마케팅·운영 제안서 공용). */
+export async function listGlovekCategoriesAction(): Promise<R & { categories?: { value: string; count: number }[] }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const categories = await listGlovekCategories(60).catch(() => []);
+  if (categories.length === 0) return { ok: false, error: `glovek 카테고리를 불러오지 못했습니다 — ${await glovekZeroDiagnosis()}` };
+  return { ok: true, categories };
 }
 
 // ── glovek 유사 콘텐츠 레퍼런스 불러오기(카테고리 선택 기준) ──

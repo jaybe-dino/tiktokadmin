@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction, generateProductUspAction, fillReferencesByCategoryAction, listBrandOpsQuotesAction, type OpsQuoteForDoc } from "../actions";
 import type { ProposalDoc, ProposalProduct, ProposalCreator, ProposalFeature, ProposalValueItem, ProposalStep, ProposalImpact, ProposalAddon } from "@/lib/proposal-doc";
 import CategoryPicker from "@/components/CategoryPicker";
+import GlovekCategorySelect from "@/components/GlovekCategorySelect";
 
 const TRACKS: [string, string][] = [["onboarding", "온보딩"], ["mall", "멀티몰"], ["marketing", "마케팅"]];
 
@@ -292,6 +293,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 10, padding: 10, border: "1px dashed var(--line)", borderRadius: 8, background: "var(--bg)" }}>
           <span style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>🖼️ 카테고리 → glovek 레퍼런스</span>
           <CategoryPicker value={refCat} onChange={setRefCat} compact />
+          <GlovekCategorySelect onPick={setRefCat} />
           <button className="btn sm primary" disabled={busy} onClick={fillRefs}>썸네일 레퍼런스 불러오기</button>
           <span style={{ fontSize: 11, color: "var(--ink3)" }}>소분류(세부)까지 선택 권장 — 소분류 우선, 없으면 대분류로 검색(매출·ROAS는 수동)</span>
         </div>

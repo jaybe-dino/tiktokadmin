@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import MktProposalView from "@/components/MktProposalView";
 import CategoryPicker from "@/components/CategoryPicker";
+import GlovekCategorySelect from "@/components/GlovekCategorySelect";
 import { COUNTRY_LABEL, computeBudgetPlan, PHASE_RATIO, type MktCountry, type Phase, type PhaseRatios, type MonthOverride } from "@/lib/mkt-proposal-engine";
 import type { MktProposalDocRow, MktProductItem, MktReferenceItem, MktTemplateConfig } from "@/lib/mkt-proposal-doc";
 import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction, saveMktTemplateAction, loadMktTemplateAction, deleteMktTemplateAction, fillGlovekMktRefsAction } from "../actions";
@@ -391,6 +392,7 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
         <Card title={`레퍼런스 (${refs.length})`}>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <CategoryPicker value={category} onChange={setCategory} compact />
+            <GlovekCategorySelect onPick={setCategory} />
             <button className="btn sm pri" disabled={pending || ttBusy || gvBusy} onClick={fetchGlovekRefs}
               title="선택한 카테고리(소분류 우선, 없으면 대분류)로 glovek.space 유사 제품 콘텐츠(썸네일·크리에이터·GMV) 검색">
               {gvBusy ? "glovek 조회 중…" : "🌏 glovek 유사 콘텐츠 불러오기"}

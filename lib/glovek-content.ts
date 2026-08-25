@@ -146,6 +146,30 @@ export async function glovekDataProfile(): Promise<{ configured: boolean; tables
   return { configured, tables };
 }
 
+/** glovek DB 의 실제 카테고리 값 목록(videos+products 합산, 건수 내림차순) —
+ *  제안서 레퍼런스 검색에서 "실값 그대로 선택"할 수 있게 UI 에 제공. */
+export async function listGlovekCategories(limit = 60): Promise<{ value: string; count: number }[]> {
+  const merged = new Map<string, number>();
+  for (const t of ["videos", "products"]) {
+    const cols = await columnsOf(t);
+    if (cols.length === 0) continue;
+    const f = mapFields(cols);
+    if (!f.category) continue;
+    const rows = await queryRo<{ v: string | null; n: string }>(
+      `SELECT ${qid(f.category)}::text AS v, count(*) AS n FROM ${qid(t)}
+        WHERE ${qid(f.category)} IS NOT NULL AND btrim(${qid(f.category)}::text) <> ''
+        GROUP BY 1 ORDER BY n DESC LIMIT $1`,
+      [limit],
+    ).catch(() => []);
+    for (const r of rows) {
+      const v = (r.v ?? "").trim();
+      if (v) merged.set(v, (merged.get(v) ?? 0) + Number(r.n));
+    }
+  }
+  return [...merged.entries()].map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count).slice(0, limit);
+}
+
 /** 매칭 0건일 때 원인 안내 문구(한국어) — 액션들이 note 에 붙인다. */
 export async function glovekZeroDiagnosis(): Promise<string> {
   const st = await glovekContentStatus().catch(() => null);
