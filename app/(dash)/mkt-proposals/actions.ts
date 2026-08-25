@@ -10,15 +10,17 @@ import {
   type MktProposalInput, type MktTemplateConfig, type MktReferenceItem,
 } from "@/lib/mkt-proposal-doc";
 import { similarProductContent } from "@/lib/glovek-content";
+import { categorySearchTerms } from "@/lib/categories";
 
 type R = { ok: boolean; error?: string };
 
-export async function createMktProposalDocAction(brandId: string): Promise<R & { id?: string }> {
+export async function createMktProposalDocAction(brandId: string, category?: string): Promise<R & { id?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!brandId) return { ok: false, error: "브랜드를 선택하세요." };
   try {
     const prefill = await prefillMktProposal(brandId);
+    if (category?.trim()) prefill.category = category.trim();
     const { id } = await saveMktProposal(prefill, u.name || u.id);
     revalidatePath("/mkt-proposals");
     return { ok: true, id };
@@ -67,34 +69,37 @@ export async function deleteMktProposalDocAction(id: string): Promise<R> {
   catch (e) { return { ok: false, error: friendlyError(e, "마케팅 제안서") }; }
 }
 
-// ── glovek 유사 콘텐츠 레퍼런스 불러오기 ──
-//   glovek.space DB(읽기전용)를 직접 조회 — 별도 API 불필요. 키워드 우선순위:
-//   ① 에디터의 현재 제품명(설문·상품링크에서 만들어진 products_json, 미저장분 포함)
-//   ② 브랜드 카테고리(brands.category / brand_company.product_category).
+// ── glovek 유사 콘텐츠 레퍼런스 불러오기(카테고리 선택 기준) ──
+//   glovek.space DB(읽기전용)를 직접 조회 — 별도 API 불필요. 키워드가 아니라 담당자가 직접 고른
+//   카테고리("스킨케어 > 크림")로 검색한다: 소분류(세부) 우선 → 매칭 없으면 대분류 폴백.
+//   카테고리 미지정 시 제안서 저장 카테고리 → 브랜드 카테고리 순 폴백.
 //   썸네일은 glovek 이 웹에 띄우는 이미지 URL 그대로 — 공개 페이지에선 웹썸네일 프록시로 표시·영구 캐시.
 export async function fillGlovekMktRefsAction(
-  docId: string, keywords?: string[],
+  docId: string, category?: string,
 ): Promise<R & { refs?: MktReferenceItem[]; note?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   const doc = await getMktProposalById(docId);
   if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
 
-  let kw = (keywords ?? []).map((k) => k.trim()).filter(Boolean);
-  if (kw.length === 0) {
-    kw = (doc.products_json ?? []).flatMap((p) => [p.name_en, p.name]).filter((v): v is string => Boolean(v?.trim()));
-  }
-  if (kw.length === 0 && doc.brand_id) {
+  let cat = (category ?? "").trim() || (doc.category ?? "").trim();
+  if (!cat && doc.brand_id) {
     const b = await queryOne<{ category: string | null; product_category: string | null }>(
       "SELECT b.category, c.product_category FROM brands b LEFT JOIN brand_company c ON c.brand_id=b.id WHERE b.id=$1",
       [doc.brand_id],
     ).catch(() => null);
-    const cat = (b?.category || b?.product_category || "").trim();
-    if (cat) kw = [cat];
+    cat = (b?.category || b?.product_category || "").trim();
   }
-  if (kw.length === 0) return { ok: false, error: "검색 기준이 없습니다 — 제품을 먼저 넣거나 브랜드에 카테고리를 설정하세요." };
+  const terms = categorySearchTerms(cat);
+  if (terms.length === 0) return { ok: false, error: "카테고리를 선택하세요 (예: 스킨케어 > 크림)." };
 
-  const glovek = await similarProductContent(kw.slice(0, 6), 8).catch(() => []);
+  // 소분류 우선 검색 → 결과 없으면 대분류로 폴백.
+  let used = terms[0];
+  let glovek = await similarProductContent([terms[0]], 8).catch(() => []);
+  if (glovek.length === 0 && terms.length > 1) {
+    used = terms[1];
+    glovek = await similarProductContent([terms[1]], 8).catch(() => []);
+  }
   const refs: MktReferenceItem[] = glovek
     .filter((g) => g.handle || g.name || g.image_url)
     .map((g) => ({
@@ -106,8 +111,8 @@ export async function fillGlovekMktRefsAction(
       image_url: g.image_url || undefined,
       // ROAS·수수료 등 성과 지표는 자동 채우지 않음(허위 방지 — 담당자 입력).
     }));
-  const note = `키워드 「${kw.slice(0, 3).join(", ")}」 · glovek 유사 콘텐츠 ${refs.length}건` +
-    (refs.length === 0 ? " — 매칭 없음(키워드를 바꾸거나 틱톡 자동조회를 사용하세요)" : "");
+  const note = `카테고리 「${cat}」(검색어: ${used}) · glovek 유사 콘텐츠 ${refs.length}건` +
+    (refs.length === 0 ? " — 매칭 없음(다른 카테고리를 선택하거나 틱톡 자동조회를 사용하세요)" : "");
   return { ok: true, refs: refs.length ? refs : undefined, note };
 }
 

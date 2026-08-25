@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction, generateProductUspAction, fillReferencesByCategoryAction, listBrandOpsQuotesAction, type OpsQuoteForDoc } from "../actions";
 import type { ProposalDoc, ProposalProduct, ProposalCreator, ProposalFeature, ProposalValueItem, ProposalStep, ProposalImpact, ProposalAddon } from "@/lib/proposal-doc";
+import CategoryPicker from "@/components/CategoryPicker";
 
 const TRACKS: [string, string][] = [["onboarding", "온보딩"], ["mall", "멀티몰"], ["marketing", "마케팅"]];
 
@@ -290,9 +291,9 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
       <Card title={`크리에이터 콘텐츠 레퍼런스 (${d.creators.length})`}>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 10, padding: 10, border: "1px dashed var(--line)", borderRadius: 8, background: "var(--bg)" }}>
           <span style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>🖼️ 카테고리 → glovek 레퍼런스</span>
-          <input className="f" value={refCat} onChange={(e) => setRefCat(e.target.value)} placeholder="카테고리(비우면 브랜드 카테고리)" style={{ width: 220 }} />
+          <CategoryPicker value={refCat} onChange={setRefCat} compact />
           <button className="btn sm primary" disabled={busy} onClick={fillRefs}>썸네일 레퍼런스 불러오기</button>
-          <span style={{ fontSize: 11, color: "var(--ink3)" }}>glovek 유사 제품 콘텐츠를 썸네일과 함께 추가(매출·ROAS는 수동)</span>
+          <span style={{ fontSize: 11, color: "var(--ink3)" }}>소분류(세부)까지 선택 권장 — 소분류 우선, 없으면 대분류로 검색(매출·ROAS는 수동)</span>
         </div>
         <CreatorsEditor items={d.creators} on={(v) => set("creators", v)} />
       </Card>

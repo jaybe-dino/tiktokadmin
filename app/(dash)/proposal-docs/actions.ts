@@ -6,6 +6,7 @@ import { query, queryOne } from "@/lib/db";
 import { aiEnabled, aiText } from "@/lib/ai";
 import { crawlUrl } from "@/lib/brand-crawl";
 import { similarProductContent } from "@/lib/glovek-content";
+import { categorySearchTerms } from "@/lib/categories";
 import {
   saveProposal, deleteProposal, prefillFromBrand, saveTemplate, getProposalById,
   type ProposalInput, type TemplateInput, type ProposalFeature, type ProposalCreator,
@@ -358,9 +359,12 @@ export async function fillReferencesByCategoryAction(proposalId: string, categor
     ).catch(() => null);
     cat = (b?.category || b?.product_category || "").trim();
   }
-  if (!cat) return { ok: false, error: "카테고리를 입력하세요(또는 브랜드에 카테고리를 먼저 설정)." };
+  if (!cat) return { ok: false, error: "카테고리를 선택하세요(또는 브랜드에 카테고리를 먼저 설정)." };
 
-  const glovek = await similarProductContent([cat], 8).catch(() => []);
+  // "대분류 > 소분류" 선택형 — 소분류(세부) 우선 검색, 매칭 없으면 대분류로 폴백.
+  const terms = categorySearchTerms(cat);
+  let glovek = await similarProductContent([terms[0] ?? cat], 8).catch(() => []);
+  if (glovek.length === 0 && terms.length > 1) glovek = await similarProductContent([terms[1]], 8).catch(() => []);
   const creators: ProposalCreator[] = glovek
     .filter((g) => g.handle || g.name || g.image_url)
     .map((g) => ({

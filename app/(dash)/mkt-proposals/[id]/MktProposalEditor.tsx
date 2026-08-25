@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import MktProposalView from "@/components/MktProposalView";
+import CategoryPicker from "@/components/CategoryPicker";
 import { COUNTRY_LABEL, computeBudgetPlan, PHASE_RATIO, type MktCountry, type Phase, type PhaseRatios, type MonthOverride } from "@/lib/mkt-proposal-engine";
 import type { MktProposalDocRow, MktProductItem, MktReferenceItem, MktTemplateConfig } from "@/lib/mkt-proposal-doc";
 import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction, saveMktTemplateAction, loadMktTemplateAction, deleteMktTemplateAction, fillGlovekMktRefsAction } from "../actions";
@@ -74,14 +75,14 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
     }
   }
 
-  // glovek 유사 콘텐츠 레퍼런스 — 현재 화면의 제품명(미저장분 포함) → 없으면 서버가 브랜드 카테고리로 폴백.
+  // glovek 유사 콘텐츠 레퍼런스 — 담당자가 직접 고른 카테고리(대분류>소분류) 기준으로 조회.
+  const [category, setCategory] = useState(doc.category ?? "");
   const [gvBusy, setGvBusy] = useState(false);
   async function fetchGlovekRefs() {
     if (gvBusy) return;
     setGvBusy(true); setTtMsg("");
     try {
-      const kw = products.flatMap((p) => [p.name_en, p.name]).filter((v): v is string => Boolean(v?.trim()));
-      const r = await fillGlovekMktRefsAction(doc.id, kw);
+      const r = await fillGlovekMktRefsAction(doc.id, category);
       if (!r.ok) { setTtMsg(r.error ?? "조회 실패"); return; }
       if (r.refs?.length) setRefs((prev) => [...r.refs!, ...prev]);
       setTtMsg(`${r.refs?.length ? "✅ " : ""}${r.note ?? ""}${r.refs?.length ? " — 확인 후 [저장]을 눌러 반영하세요." : ""}`);
@@ -208,6 +209,7 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
         goal_first: goalFirst, goal_final: goalFinal, intro_note: intro,
         products_json: products, references_json: refs,
         phase_ratios_json: ratios, month_overrides_json: overrides,
+        category,
       });
       if (!r.ok) { setMsg(r.error ?? "저장 실패"); return; }
       if (after === "pipeline") {
@@ -388,13 +390,14 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
 
         <Card title={`레퍼런스 (${refs.length})`}>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <CategoryPicker value={category} onChange={setCategory} compact />
             <button className="btn sm pri" disabled={pending || ttBusy || gvBusy} onClick={fetchGlovekRefs}
-              title="glovek.space 유사 제품 콘텐츠(썸네일·크리에이터·GMV) — 제품명 기준, 없으면 브랜드 카테고리로 검색">
+              title="선택한 카테고리(소분류 우선, 없으면 대분류)로 glovek.space 유사 제품 콘텐츠(썸네일·크리에이터·GMV) 검색">
               {gvBusy ? "glovek 조회 중…" : "🌏 glovek 유사 콘텐츠 불러오기"}
             </button>
             <button className="btn sm" disabled={pending || ttBusy || gvBusy} onClick={fetchTikTokRefs}
               title="제품명으로 유사제품 키워드 생성 → 틱톡 영상(조회수 상위 썸네일·크리에이터) + 틱톡샵 유사 제품 자동 수집">
-              {ttBusy ? "틱톡 조회 중… (최대 2~3분)" : "🎯 틱톡 레퍼런스 자동조회 (영상+샵)"}
+              {ttBusy ? "틱톡 조회 중… (최대 2~3분)" : "🎯 틱톡 자동조회"}
             </button>
             <span style={{ fontSize: 10.5, color: "var(--ink3)" }}>결과 확인 후 반드시 저장 · 틱톡 조회는 저장된 제품 기준</span>
           </div>
