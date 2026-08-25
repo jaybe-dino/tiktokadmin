@@ -26,12 +26,12 @@ async function saveRefImage(brandId: string, filename: string, mime: string, byt
   return row ? `/api/brand/import-file/${row.id}` : null;
 }
 
-/** 제품명 → 틱톡 검색용 영어 키워드(유사제품 일반명). AI 미설정 시 영문명/원문 폴백. */
-async function searchKeyword(name: string, nameEn: string | undefined, category: string): Promise<string> {
+/** 제품명+특징(상세페이지에서 파악된 것) → 틱톡 검색용 영어 키워드(유사제품 일반명). AI 미설정 시 영문명/원문 폴백. */
+async function searchKeyword(name: string, nameEn: string | undefined, features: string): Promise<string> {
   if (aiEnabled()) {
     const kw = await aiText({
-      system: "제품명을 TikTok 검색용 짧은 영어 키워드(2~4단어, 일반명사 중심)로 변환한다. 브랜드명은 빼고 제품 종류·핵심효능만. 키워드만 출력.",
-      user: `제품명: ${name}${nameEn ? ` (${nameEn})` : ""}${category ? `\n카테고리: ${category}` : ""}`,
+      system: "제품명과 특징을 보고, 이 제품과 '유사한 제품'을 TikTok에서 찾기 위한 짧은 영어 검색 키워드(2~4단어, 일반명사 중심)로 변환한다. 브랜드명은 빼고 제품 종류·핵심효능만. 키워드만 출력.",
+      user: `제품명: ${name}${nameEn ? ` (${nameEn})` : ""}${features ? `\n제품 특징: ${features.slice(0, 300)}` : ""}`,
       maxTokens: 30,
     }).catch(() => null);
     const clean = (kw ?? "").trim().replace(/^["']|["']$/g, "").split("\n")[0];
@@ -60,7 +60,8 @@ export async function POST(req: NextRequest) {
   const warnings: string[] = [];
 
   for (const p of products) {
-    const kw = await searchKeyword(p.name, p.name_en, "");
+    // 상세페이지에서 파악된 제품 특징(features)까지 반영해 '유사제품' 키워드를 만든다.
+    const kw = await searchKeyword(p.name, p.name_en, (p.features ?? []).filter(Boolean).join(" · "));
     // ① 영상 — 조회수 상위 4개(1 SKU당, 회의 확정 기준).
     try {
       const videos = await searchTikTokVideos(kw, country, 12);
