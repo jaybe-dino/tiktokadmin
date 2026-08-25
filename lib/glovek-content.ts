@@ -34,7 +34,7 @@ async function columnsOf(table: string): Promise<string[]> {
 const firstCol = (cols: string[], cands: string[]) => cands.find((c) => cols.includes(c));
 const qid = (c: string) => `"${c.replace(/"/g, '""')}"`; // 식별자 인용
 
-interface FieldMap { name?: string; brand?: string; category?: string; image?: string; link?: string; handle?: string; gmv?: string; views?: string }
+export interface FieldMap { name?: string; brand?: string; category?: string; image?: string; link?: string; handle?: string; gmv?: string; views?: string }
 function mapFields(cols: string[]): FieldMap {
   return {
     name: firstCol(cols, ["name", "title", "product_name", "product_title", "video_title", "caption", "desc", "description"]),
@@ -95,6 +95,55 @@ export async function glovekContentStatus(): Promise<{ configured: boolean; vide
   const v = await columnsOf("videos");
   const p = await columnsOf("products");
   return { configured, videos: v.length > 0, products: p.length > 0 };
+}
+
+// ── 데이터 프로파일(설정→진단 카드용) — 실데이터 유무·카테고리 실값 분포를 어드민에서 눈으로 확인 ──
+export interface GlovekTableProfile {
+  table: string;
+  exists: boolean;
+  rows: number | null;                                // 대략 행수(estimate, 없으면 정확 카운트)
+  fields: FieldMap;                                   // 휴리스틱으로 매핑된 실제 컬럼명
+  categories: { value: string; count: number }[];     // 카테고리 실값 상위 30 + 건수
+  samples: string[];                                  // 이름 샘플 5건
+}
+
+export async function glovekDataProfile(): Promise<{ configured: boolean; tables: GlovekTableProfile[] }> {
+  const configured = Boolean(process.env.GLOVEK_DB_URL_RO?.trim());
+  const tables: GlovekTableProfile[] = [];
+  for (const t of ["videos", "products"]) {
+    const cols = await columnsOf(t);
+    if (cols.length === 0) {
+      tables.push({ table: t, exists: false, rows: null, fields: {}, categories: [], samples: [] });
+      continue;
+    }
+    const f = mapFields(cols);
+    // 행수: pg_class 추정치(빠름) → 추정 불가·0이면 정확 카운트 폴백.
+    let rows: number | null = null;
+    const est = await queryRo<{ n: string }>("SELECT reltuples::bigint AS n FROM pg_class WHERE relname=$1", [t]).catch(() => []);
+    if (est[0]) rows = Math.max(0, Number(est[0].n));
+    if (!rows) {
+      const c = await queryRo<{ n: string }>(`SELECT count(*) AS n FROM ${qid(t)}`).catch(() => []);
+      if (c[0]) rows = Number(c[0].n);
+    }
+    let categories: { value: string; count: number }[] = [];
+    if (f.category) {
+      categories = (
+        await queryRo<{ v: string | null; n: string }>(
+          `SELECT ${qid(f.category)}::text AS v, count(*) AS n FROM ${qid(t)} GROUP BY 1 ORDER BY n DESC LIMIT 30`,
+        ).catch(() => [])
+      ).map((r) => ({ value: (r.v ?? "").trim() || "(빈값)", count: Number(r.n) }));
+    }
+    let samples: string[] = [];
+    if (f.name) {
+      samples = (
+        await queryRo<{ v: string | null }>(
+          `SELECT ${qid(f.name)}::text AS v FROM ${qid(t)} WHERE ${qid(f.name)} IS NOT NULL LIMIT 5`,
+        ).catch(() => [])
+      ).map((r) => String(r.v).trim().slice(0, 60)).filter(Boolean);
+    }
+    tables.push({ table: t, exists: true, rows, fields: f, categories, samples });
+  }
+  return { configured, tables };
 }
 
 /** 매칭 0건일 때 원인 안내 문구(한국어) — 액션들이 note 에 붙인다. */

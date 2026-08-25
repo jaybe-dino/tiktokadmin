@@ -26,6 +26,7 @@ import { getMigrationState } from "@/lib/migrate";
 import IntegrityCard from "@/components/IntegrityCard";
 import EmailRemapCard from "@/components/EmailRemapCard";
 import IntegrationStatus from "@/components/IntegrationStatus";
+import GlovekDataStatus from "@/components/GlovekDataStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -256,6 +257,7 @@ export default async function SettingsPage() {
 
           {/* 외부 연동 상태(환경변수 인식 여부) — 파트장·대표 */}
           {canEdit && <IntegrationStatus />}
+          {canEdit && <GlovekDataStatus />}
 
           {/* 단계별 필수항목 */}
           <div className="card">
