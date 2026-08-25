@@ -24,3 +24,15 @@ export function proposalAssetUrl(u: string | null | undefined, token: string): s
   const m = n.match(PROTECTED_FILE_RE);
   return m ? `/api/proposal-asset/${encodeURIComponent(token)}/${m[1]}` : n;
 }
+
+/** 제안서 공개 페이지용(강화판) — 보호 파일은 토큰 프록시로, 외부 http(s) 이미지는 서버 웹썸네일
+ *  프록시(/api/proposal-img)로 재작성. 외부 CDN 의 핫링크 차단·만료 URL 도 서버가 대신 받아
+ *  첫 성공 시 영구 캐시하므로, 웹에서 보는 썸네일이 그대로 뜬다. */
+export function proposalImageUrl(u: string | null | undefined, token: string): string {
+  const n = normalizeImageUrl(u);
+  if (!n) return "";
+  const m = n.match(PROTECTED_FILE_RE);
+  if (m) return `/api/proposal-asset/${encodeURIComponent(token)}/${m[1]}`;
+  if (/^https?:\/\//i.test(n)) return `/api/proposal-img/${encodeURIComponent(token)}?u=${encodeURIComponent(n)}`;
+  return n;
+}

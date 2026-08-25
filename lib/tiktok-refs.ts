@@ -3,6 +3,7 @@
 //   액터 스키마는 업체별로 다를 수 있어 입력은 별칭 필드를 함께 보내고, 출력은 방어적으로 파싱한다.
 //   액터 교체: APIFY_TIKTOK_ACTOR / APIFY_TIKTOK_SHOP_ACTOR 환경변수로 오버라이드.
 import { env } from "./env";
+import { fetchExternalImage } from "./image-fetch";
 
 const VIDEO_ACTOR = process.env.APIFY_TIKTOK_ACTOR || "clockworks~tiktok-scraper";
 const SHOP_ACTOR = process.env.APIFY_TIKTOK_SHOP_ACTOR || "trakk~tiktok-shop-search-scraper";
@@ -120,20 +121,7 @@ export async function searchTikTokShop(keyword: string, country: string, limit =
   return out;
 }
 
-/** 원격 이미지 다운로드(썸네일 영구 보관용) — 이미지 MIME 만 허용, 실패 시 null. */
+/** 원격 이미지 다운로드(썸네일 영구 보관용) — 공용 유틸 위임(이미지 MIME 만, 실패 시 null). */
 export async function fetchImageBytes(url: string): Promise<{ bytes: Buffer; mime: string } | null> {
-  try {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 15_000);
-    const res = await fetch(url, {
-      signal: ctl.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; GlovekBot/1.0)", Referer: "https://www.tiktok.com/" },
-    }).finally(() => clearTimeout(timer));
-    if (!res.ok) return null;
-    const mime = res.headers.get("content-type")?.split(";")[0].trim() || "";
-    if (!mime.startsWith("image/")) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length === 0 || buf.length > 8 * 1024 * 1024) return null;
-    return { bytes: buf, mime };
-  } catch { return null; }
+  return fetchExternalImage(url, 15_000);
 }
