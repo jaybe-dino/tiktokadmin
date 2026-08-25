@@ -94,6 +94,10 @@ export const env = {
   get geminiKey() {
     return opt("GEMINI_API_KEY") || opt("GOOGLE_API_KEY");
   },
+  // Apify (틱톡 영상·샵 레퍼런스 검색). 표준 변수명 3종 모두 허용.
+  get apifyToken() {
+    return opt("APIFY_TOKEN") || opt("APIFY_API_TOKEN") || opt("APIFY_API_KEY");
+  },
   get anthropicModel() {
     return opt("ANTHROPIC_MODEL", "claude-sonnet-5");
   },

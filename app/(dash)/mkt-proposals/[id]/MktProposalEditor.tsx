@@ -51,6 +51,28 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
   const [tplSel, setTplSel] = useState("");
   // 생성방식(0087)에 따라 목록 복귀 경로 분기 — 설문 자동생성(방식2)은 /mkt-proposals2 로.
   const listHref = doc.gen_source === "survey_auto" ? "/mkt-proposals2" : "/mkt-proposals";
+  // 틱톡 레퍼런스 자동조회(Apify) — DB에 저장된 제품 기준으로 실행되므로 제품 수정 후엔 먼저 저장.
+  const [ttBusy, setTtBusy] = useState(false);
+  const [ttMsg, setTtMsg] = useState("");
+  async function fetchTikTokRefs() {
+    if (ttBusy) return;
+    setTtBusy(true); setTtMsg("");
+    try {
+      const res = await fetch("/api/tiktok-refs", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ doc_id: doc.id }),
+      });
+      const j = await res.json().catch(() => ({ ok: false, error: "응답 해석 실패" }));
+      if (!j.ok || !Array.isArray(j.refs)) { setTtMsg(j.error ?? "조회 실패"); return; }
+      setRefs((prev) => [...j.refs, ...prev]);
+      const warn = (j.warnings ?? []).length ? ` · 참고: ${j.warnings.join(" / ")}` : "";
+      setTtMsg(`✅ ${j.refs.length}건 수집됨 — 확인 후 [저장]을 눌러 반영하세요.${warn}`);
+    } catch {
+      setTtMsg("네트워크 오류 또는 시간 초과 — 다시 시도해주세요.");
+    } finally {
+      setTtBusy(false);
+    }
+  }
 
   function toggleCountry(c: string) {
     setCountries((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]));
@@ -347,6 +369,14 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
         </Card>
 
         <Card title={`레퍼런스 (${refs.length})`}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <button className="btn sm pri" disabled={pending || ttBusy} onClick={fetchTikTokRefs}
+              title="제품명으로 유사제품 키워드 생성 → 틱톡 영상(조회수 상위 썸네일·크리에이터) + 틱톡샵 유사 제품 자동 수집">
+              {ttBusy ? "틱톡 조회 중… (최대 2~3분)" : "🎯 틱톡 레퍼런스 자동조회 (영상+샵)"}
+            </button>
+            <span style={{ fontSize: 10.5, color: "var(--ink3)" }}>저장된 제품 기준 · 결과 확인 후 반드시 저장</span>
+          </div>
+          {ttMsg && <div style={{ fontSize: 11.5, color: ttMsg.startsWith("✅") ? "#0b7a52" : "#b45309" }}>{ttMsg}</div>}
           {refs.map((r, i) => (
             <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 8, marginBottom: 6, display: "grid", gap: 4 }}>
               <div style={{ display: "flex", gap: 6 }}>
