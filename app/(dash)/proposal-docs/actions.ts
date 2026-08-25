@@ -351,22 +351,30 @@ export async function fillReferencesByCategoryAction(proposalId: string, categor
   if (!u) return { ok: false, error: "세션 만료" };
   const doc = await getProposalById(proposalId);
   if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
-  let cat = (category ?? "").trim();
-  if (!cat && doc.brand_id) {
+  // 소스 우선순위(첫 매칭에서 종료): ① 선택 카테고리 ② 제안서 제품명(핵심 SKU·영문명) ③ 브랜드 카테고리.
+  //   운영대행 제안 시점에도 제품 정보는 대부분 있으므로, 카테고리 매칭 실패 시 제품명으로 자동 폴백.
+  const sources: string[][][] = [];
+  const cat = (category ?? "").trim();
+  if (cat) { const t = categoryTermTiers(cat); sources.push(t.length ? t : [[cat]]); }
+  const names = [doc.product_en, ...(doc.products ?? []).map((p) => p.name)]
+    .map((s) => (s ?? "").trim()).filter(Boolean);
+  if (names.length) sources.push([names.slice(0, 6)]);
+  if (doc.brand_id) {
     const b = await queryOne<{ category: string | null; product_category: string | null }>(
       `SELECT b.category, c.product_category FROM brands b LEFT JOIN brand_company c ON c.brand_id=b.id WHERE b.id=$1`,
       [doc.brand_id],
     ).catch(() => null);
-    cat = (b?.category || b?.product_category || "").trim();
+    const bc = (b?.category || b?.product_category || "").trim();
+    if (bc && bc !== cat) { const t = categoryTermTiers(bc); sources.push(t.length ? t : [[bc]]); }
   }
-  if (!cat) return { ok: false, error: "카테고리를 선택하세요(또는 브랜드에 카테고리를 먼저 설정)." };
+  if (sources.length === 0) return { ok: false, error: "검색 기준이 없습니다 — 카테고리를 선택하거나 핵심 SKU 제품명을 먼저 넣어주세요." };
 
-  // "대분류 > 소분류" 선택형 — 소분류(한글 파트+영문 동의어 OR) 우선, 매칭 없으면 대분류로 폴백.
-  const tiers = categoryTermTiers(cat);
   let glovek: Awaited<ReturnType<typeof similarProductContent>> = [];
-  for (const tier of tiers.length ? tiers : [[cat]]) {
-    glovek = await similarProductContent(tier, 8).catch(() => []);
-    if (glovek.length > 0) break;
+  outer: for (const tiers of sources) {
+    for (const tier of tiers) {
+      glovek = await similarProductContent(tier, 8).catch(() => []);
+      if (glovek.length > 0) break outer;
+    }
   }
   const creators: ProposalCreator[] = glovek
     .filter((g) => g.handle || g.name || g.image_url)
@@ -378,7 +386,8 @@ export async function fillReferencesByCategoryAction(proposalId: string, categor
       caption: g.name || g.category,
       // 매출·ROAS 등 지표는 자동 채우지 않음(허위 방지).
     }));
-  const note = `카테고리 '${cat}' · glovek 유사 콘텐츠 ${glovek.length}건` +
+  const basis = cat || (names.length ? `제품명 ${names[0]}` : "브랜드 카테고리");
+  const note = `기준 '${basis}' · glovek 유사 콘텐츠 ${glovek.length}건` +
     (glovek.length === 0 ? ` — ${await glovekZeroDiagnosis()}` : " 불러옴");
   return { ok: true, creators: creators.length ? creators : undefined, note };
 }

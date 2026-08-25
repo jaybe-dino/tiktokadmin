@@ -83,7 +83,9 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
     if (gvBusy) return;
     setGvBusy(true); setTtMsg("");
     try {
-      const r = await fillGlovekMktRefsAction(doc.id, category);
+      // 설문·상품링크 유래 제품명(미저장분 포함)도 함께 전달 — 카테고리 매칭 실패 시 자동 폴백 검색.
+      const names = products.flatMap((p) => [p.name_en, p.name]).filter((v): v is string => Boolean(v?.trim()));
+      const r = await fillGlovekMktRefsAction(doc.id, category, names);
       if (!r.ok) { setTtMsg(r.error ?? "조회 실패"); return; }
       if (r.refs?.length) setRefs((prev) => [...r.refs!, ...prev]);
       setTtMsg(`${r.refs?.length ? "✅ " : ""}${r.note ?? ""}${r.refs?.length ? " — 확인 후 [저장]을 눌러 반영하세요." : ""}`);
