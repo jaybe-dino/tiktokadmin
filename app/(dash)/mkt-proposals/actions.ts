@@ -7,8 +7,9 @@ import { friendlyError } from "@/lib/action";
 import {
   saveMktProposal, deleteMktProposal, prefillMktProposal, getMktProposalById,
   saveMktTemplate, getMktTemplate, deleteMktTemplate,
-  type MktProposalInput, type MktTemplateConfig,
+  type MktProposalInput, type MktTemplateConfig, type MktReferenceItem,
 } from "@/lib/mkt-proposal-doc";
+import { similarProductContent } from "@/lib/glovek-content";
 
 type R = { ok: boolean; error?: string };
 
@@ -64,6 +65,50 @@ export async function deleteMktProposalDocAction(id: string): Promise<R> {
   if (!u) return { ok: false, error: "세션 만료" };
   try { await deleteMktProposal(id); revalidatePath("/mkt-proposals"); return { ok: true }; }
   catch (e) { return { ok: false, error: friendlyError(e, "마케팅 제안서") }; }
+}
+
+// ── glovek 유사 콘텐츠 레퍼런스 불러오기 ──
+//   glovek.space DB(읽기전용)를 직접 조회 — 별도 API 불필요. 키워드 우선순위:
+//   ① 에디터의 현재 제품명(설문·상품링크에서 만들어진 products_json, 미저장분 포함)
+//   ② 브랜드 카테고리(brands.category / brand_company.product_category).
+//   썸네일은 glovek 이 웹에 띄우는 이미지 URL 그대로 — 공개 페이지에선 웹썸네일 프록시로 표시·영구 캐시.
+export async function fillGlovekMktRefsAction(
+  docId: string, keywords?: string[],
+): Promise<R & { refs?: MktReferenceItem[]; note?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const doc = await getMktProposalById(docId);
+  if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+
+  let kw = (keywords ?? []).map((k) => k.trim()).filter(Boolean);
+  if (kw.length === 0) {
+    kw = (doc.products_json ?? []).flatMap((p) => [p.name_en, p.name]).filter((v): v is string => Boolean(v?.trim()));
+  }
+  if (kw.length === 0 && doc.brand_id) {
+    const b = await queryOne<{ category: string | null; product_category: string | null }>(
+      "SELECT b.category, c.product_category FROM brands b LEFT JOIN brand_company c ON c.brand_id=b.id WHERE b.id=$1",
+      [doc.brand_id],
+    ).catch(() => null);
+    const cat = (b?.category || b?.product_category || "").trim();
+    if (cat) kw = [cat];
+  }
+  if (kw.length === 0) return { ok: false, error: "검색 기준이 없습니다 — 제품을 먼저 넣거나 브랜드에 카테고리를 설정하세요." };
+
+  const glovek = await similarProductContent(kw.slice(0, 6), 8).catch(() => []);
+  const refs: MktReferenceItem[] = glovek
+    .filter((g) => g.handle || g.name || g.image_url)
+    .map((g) => ({
+      creator: g.handle || undefined,
+      product: g.name || undefined,
+      gmv: g.gmv || undefined,
+      engagement: g.views ? `조회수 ${g.views}` : undefined,
+      desc: [g.brand, g.category, g.link].filter(Boolean).join(" · ").slice(0, 180) || undefined,
+      image_url: g.image_url || undefined,
+      // ROAS·수수료 등 성과 지표는 자동 채우지 않음(허위 방지 — 담당자 입력).
+    }));
+  const note = `키워드 「${kw.slice(0, 3).join(", ")}」 · glovek 유사 콘텐츠 ${refs.length}건` +
+    (refs.length === 0 ? " — 매칭 없음(키워드를 바꾸거나 틱톡 자동조회를 사용하세요)" : "");
+  return { ok: true, refs: refs.length ? refs : undefined, note };
 }
 
 // 상태 매핑: 제안서 문서 status → 파이프라인 mkt_projects.proposal_status
