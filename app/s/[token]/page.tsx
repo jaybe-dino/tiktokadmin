@@ -33,20 +33,32 @@ export default async function SurveyPage({ params }: { params: Promise<{ token: 
   }
 
   const isPre = survey.kind === "pre_meeting";
+  const isBrief = survey.kind === "content_brief";
+  const productLabel = isBrief ? String((survey.answers as Record<string, unknown>)?.product_label ?? "").trim() : "";
   return (
     <Shell>
       <div className="mb-6">
         <div className="text-sm text-pink-600 font-semibold">
-          {isPre ? "GloveK · 1:1 미팅 사전 설문" : "GloveK · 마케팅 사전 설문"}
+          {isBrief ? "GloveK · 브랜드 제품 브리프 설문" : isPre ? "GloveK · 1:1 미팅 사전 설문" : "GloveK · 마케팅 사전 설문"}
         </div>
         <h1 className="text-xl font-extrabold mt-1">
-          {isPre ? `${survey.brand_name}님, 미팅 전에 몇 가지만 여쭤볼게요` : `${survey.brand_name}님, 몇 가지만 여쭤볼게요`}
+          {isBrief
+            ? `${survey.brand_name}님${productLabel ? ` — ${productLabel}` : ""}, 제품 이야기를 들려주세요`
+            : isPre ? `${survey.brand_name}님, 미팅 전에 몇 가지만 여쭤볼게요` : `${survey.brand_name}님, 몇 가지만 여쭤볼게요`}
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          {isPre
+          {isBrief
+            ? "제품을 잘 아는 담당자의 언어를, 크리에이터가 촬영 가능한 콘텐츠 언어로 바꾸기 위한 설문입니다. 마케팅 경험이 없어도 작성 가능합니다."
+            : isPre
             ? "1:1 미팅을 알차게 준비하기 위한 설문입니다. 마케팅 방향과 회사 기본정보를 여쭤봅니다 — 2분이면 됩니다."
             : "미팅에서 논의한 내용을 바탕으로 맞춤 제안을 준비하기 위한 설문입니다. 1분이면 됩니다."}
         </p>
+        {isBrief && (
+          <p className="text-xs mt-2" style={{ color: "#c0326a", background: "#fdf0f5", borderRadius: 8, padding: "8px 10px", lineHeight: 1.55 }}>
+            가장 중요한 원칙: “좋아요”처럼 짧게 쓰지 말고, <b>어떤 사람이 / 언제 불편하고 / 제품을 어떻게 쓰면 / 무엇이 달라지는지</b>를
+            실제 대화하듯 적어 주세요. 확실하지 않은 표현은 추측하지 말고 <b>확인 필요</b>라고 적어도 됩니다.
+          </p>
+        )}
       </div>
       <SurveyForm token={token} questions={await getQuestions(survey.kind)} />
     </Shell>

@@ -543,3 +543,80 @@ export async function setMktProposalStatusAction(id: string, to: string): Promis
   revalidatePath(`/brand/${cur.brand_id}`);
   return { ok: true };
 }
+
+// ── 콘텐츠 브리프 설문 (브랜드 제품 브리프, kind='content_brief') ─────────────
+//   마케팅 파트에서 브랜드별로 발급 — 제품별·복수 발급 가능. 공개 링크 /s/{token} 으로
+//   브랜드 담당자가 작성, 응답은 surveys.answers 에 저장(제품 라벨은 발급 시 심어 병합 보존).
+
+export interface ContentBriefRow {
+  id: string; token: string; url: string;
+  product_label: string;
+  sent_at: string | null; responded_at: string | null; created_at: string;
+}
+
+/** 브랜드의 콘텐츠 브리프 설문 목록(최신순). */
+export async function listContentBriefsAction(brandId: string): Promise<MktResult & { briefs?: ContentBriefRow[] }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const { env } = await import("@/lib/env");
+  const rows = await query<{ id: string; token: string; answers: Record<string, unknown> | null; sent_at: string | null; responded_at: string | null; created_at: string }>(
+    "SELECT id, token, answers, sent_at, responded_at, created_at FROM surveys WHERE brand_id=$1 AND kind='content_brief' ORDER BY created_at DESC",
+    [brandId],
+  ).catch(() => []);
+  const briefs = rows.map((r) => {
+    const a = r.answers ?? {};
+    const label = String(a.product_name_kr ?? a.product_label ?? "").trim() || "(제품 미지정)";
+    return { id: r.id, token: r.token, url: `${env.adminUrl}/s/${r.token}`, product_label: label, sent_at: r.sent_at, responded_at: r.responded_at, created_at: r.created_at };
+  });
+  return { ok: true, briefs };
+}
+
+/** 콘텐츠 브리프 설문 발급 — 제품명(선택)을 라벨로 심어 여러 개 구분. */
+export async function createContentBriefAction(brandId: string, productLabel?: string): Promise<MktResult & { url?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!brandId) return { ok: false, error: "브랜드가 연결되지 않은 프로젝트입니다 — 브랜드 연결 후 발급하세요." };
+  const { createSurvey } = await import("@/lib/repo/card");
+  const { env } = await import("@/lib/env");
+  try {
+    const token = await createSurvey(brandId, "content_brief");
+    const label = (productLabel ?? "").trim();
+    if (label) {
+      await query(
+        "UPDATE surveys SET answers = COALESCE(answers,'{}'::jsonb) || jsonb_build_object('product_label', $2::text) WHERE token=$1",
+        [token, label],
+      ).catch(() => {});
+    }
+    revalidatePath("/mkt");
+    return { ok: true, url: `${env.adminUrl}/s/${token}` };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "발급 실패" }; }
+}
+
+/** 브리프 응답 열람 — 문항 라벨 + 응답 텍스트 쌍(섹션 포함). */
+export async function getContentBriefAnswersAction(surveyId: string): Promise<MktResult & { qa?: { section?: string; label: string; answer: string }[] }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const s = await queryOne<{ kind: string; answers: Record<string, unknown> | null }>(
+    "SELECT kind, answers FROM surveys WHERE id=$1", [surveyId],
+  ).catch(() => null);
+  if (!s) return { ok: false, error: "설문을 찾을 수 없습니다." };
+  const { getQuestions } = await import("@/lib/survey-db");
+  const questions = await getQuestions(s.kind);
+  const answers = s.answers ?? {};
+  const qa: { section?: string; label: string; answer: string }[] = [];
+  for (const q of questions) {
+    const v = answers[q.key];
+    const answer = Array.isArray(v) ? v.join(", ") : typeof v === "boolean" ? (v ? "동의" : "미동의") : String(v ?? "").trim();
+    if (answer) qa.push({ section: q.section, label: q.label, answer });
+  }
+  return { ok: true, qa };
+}
+
+/** 브리프 삭제(잘못 발급/중복 정리). */
+export async function deleteContentBriefAction(surveyId: string): Promise<MktResult> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  await query("DELETE FROM surveys WHERE id=$1 AND kind='content_brief'", [surveyId]).catch(() => {});
+  revalidatePath("/mkt");
+  return { ok: true };
+}

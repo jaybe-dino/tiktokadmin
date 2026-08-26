@@ -59,9 +59,17 @@ export default function SurveyForm({ token, questions }: { token: string; questi
           {questions.filter((q) => (q.section ?? "") === sec).map((q) => {
           return (
         <div key={q.key} id={`q-${q.key}`}>
-          <label style={{ display: "block", fontWeight: 600, fontSize: 14, marginBottom: 8 }}>
+          <label style={{ display: "block", fontWeight: 600, fontSize: 14, marginBottom: q.help || q.example ? 4 : 8 }}>
             {q.label}
+            {q.optional ? <span style={{ color: "#bbb", fontWeight: 400, fontSize: 12, marginLeft: 6 }}>(선택)</span> : null}
           </label>
+          {q.help && <p style={{ color: "#888", fontSize: 12.5, lineHeight: 1.5, margin: "0 0 6px" }}>쉽게 말하면: {q.help}</p>}
+          {q.example && (
+            <details style={{ marginBottom: 8 }}>
+              <summary style={{ fontSize: 12, color: "#c0326a", cursor: "pointer" }}>좋은 답변 예시 보기</summary>
+              <div style={{ whiteSpace: "pre-wrap", fontSize: 12.5, color: "#666", background: "#faf5f7", borderRadius: 8, padding: "8px 10px", marginTop: 4 }}>{q.example}</div>
+            </details>
+          )}
 
           {q.type === "select" && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -92,7 +100,7 @@ export default function SurveyForm({ token, questions }: { token: string; questi
           )}
 
           {q.type === "text" && (
-            <textarea rows={3} value={(answers[q.key] as string) ?? ""}
+            <textarea rows={q.help || q.example ? 4 : 3} value={(answers[q.key] as string) ?? ""}
               onChange={(e) => set(q.key, e.target.value)}
               style={{ width: "100%", border: "1px solid #ddd", borderRadius: 10, padding: 10, fontSize: 14 }}
               placeholder="자유롭게 적어주세요" />

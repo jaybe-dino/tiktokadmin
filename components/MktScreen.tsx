@@ -3,6 +3,7 @@ import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { assignBrandOwnerAction } from "@/app/actions";
 import KanbanScroll from "@/components/KanbanScroll";
+import ContentBriefCard from "@/components/ContentBriefCard";
 import Link from "next/link";
 import {
   createMktProjectAction,
@@ -492,6 +493,9 @@ function MktProjectDetail({ m, brands = [], owners = [], onClose }: { m: MktRow;
           </select>
           <button className="btn sm pri" disabled={pending} onClick={saveInfo} style={{ marginLeft: "auto" }}>제목·메모 저장</button>
         </div>
+
+        {/* 콘텐츠 브리프 설문 — 브랜드(제품별) 콘텐츠 설문 발급·응답 열람 */}
+        <ContentBriefCard brandId={m.brand_id || null} />
 
         {/* 연결된 마케팅 제안서 */}
         <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 14 }}>

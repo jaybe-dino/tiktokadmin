@@ -291,8 +291,9 @@ export async function submitSurveyResponse(token: string, answers: Record<string
   if (!s) return false;
   if (s.responded_at) return false; // 재제출 방지(#24) — 이미 응답 완료.
   // 원자적 가드: 동시 재제출 시에도 최초 1건만 저장(0행이면 이미 응답됨).
+  //   병합(||) — 발급 시 심어둔 메타(예: 콘텐츠 브리프의 product_label)를 보존한다.
   const saved = await query<{ id: string }>(
-    "UPDATE surveys SET answers=$2, responded_at=now() WHERE token=$1 AND responded_at IS NULL RETURNING id",
+    "UPDATE surveys SET answers = COALESCE(answers,'{}'::jsonb) || $2::jsonb, responded_at=now() WHERE token=$1 AND responded_at IS NULL RETURNING id",
     [token, JSON.stringify(answers)]);
   if (saved.length === 0) return false;
   // 목표국이 응답에 있으면 brands.countries 보강(덮어쓰기 아님 — 병합).
