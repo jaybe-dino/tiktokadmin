@@ -41,8 +41,9 @@ type Common = z.infer<typeof Common>;
 //   '담당자배정(seminar)'은 유입담당이 실제 배정될 때만 진입(assignOwnerCore 자동 전진) —
 //   자동 유입이 담당자배정으로 직행하지 않도록 세미나 소스도 lead_new 로 매핑한다.
 const LEAD_STATE: Record<string, State> = {
-  glovek_consult: "contact",
-  apply_consult: "contact",
+  // BUG-23: 상담 신청도 '개별 컨택'이 아닌 '리드 확보'에서 시작 — 컨택은 담당자가 실제 접촉 후 이동.
+  glovek_consult: "lead_new",
+  apply_consult: "lead_new",
   glovek_inquiry: "lead_new",
   glovek_signup: "lead_new",
   apply_qna: "lead_new",

@@ -295,8 +295,16 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{m}월</option>)}
               </select>
             </div>
-            <div style={{ flex: 1 }}><L>개월</L><input className="f" type="number" min={1} max={12} value={months} onChange={(e) => setMonths(Number(e.target.value))} /></div>
+            <div style={{ flex: 1 }}><L>개월</L>
+              {/* BUG-27: +/- 로 월 추가·삭제 — 시작월부터 자동 계산(3~8월 등 어느 달이든 시작 가능). */}
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <button type="button" className="btn sm" onClick={() => setMonths((m) => Math.max(1, m - 1))} title="마지막 월 삭제">−</button>
+                <input className="f" type="number" min={1} max={12} value={months} onChange={(e) => setMonths(Math.min(12, Math.max(1, Number(e.target.value) || 6)))} style={{ width: 56, textAlign: "center" }} />
+                <button type="button" className="btn sm" onClick={() => setMonths((m) => Math.min(12, m + 1))} title="월 추가">＋</button>
+              </div>
+            </div>
           </div>
+          <div style={{ fontSize: 10.5, color: "var(--ink3)" }}>시작월부터 {months}개월이 자동 계산됩니다 — 월별 페이즈·이벤트는 선택 국가 시즌표 기준.</div>
           <L>월 캠페인 예산 (RFP · 만원) — 무가+유가</L>
           <input className="f" type="number" value={monthlyMan} onChange={(e) => setMonthlyMan(Number(e.target.value))} />
           <div style={{ display: "flex", gap: 8 }}>

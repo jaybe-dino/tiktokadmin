@@ -40,6 +40,7 @@ export interface ProposalDoc {
   products: ProposalProduct[];
   creators: ProposalCreator[];
   accent: string | null;
+  accent2?: string | null; // 배경색(0091, BUG-21) — NULL 이면 기본 핑크·보라 계열
   // v2 — 레퍼런스 데크 정합 필드.
   product_en: string | null;
   product_volume: string | null;
@@ -102,6 +103,7 @@ export interface ProposalInput {
   features?: string[]; seeding_qty?: number | null; live_qty?: number | null; op_tags?: string[];
   kpi_tier?: string | null; kpi_stage?: string | null; kpi_creator_content?: number | null; kpi_ad_spend?: string | null;
   products?: ProposalProduct[]; creators?: ProposalCreator[]; accent?: string | null;
+  accent2?: string | null;
   // v2
   product_en?: string | null; product_volume?: string | null;
   product_features?: ProposalFeature[]; product_tags?: string[];
@@ -116,8 +118,7 @@ export interface ProposalInput {
 /** 생성/수정 upsert. id 있으면 수정, 없으면 생성(token 발급). */
 export async function saveProposal(input: ProposalInput & { id?: string }, by: string): Promise<{ id: string; token: string }> {
   if (input.id) {
-    const row = await queryOne<{ id: string; token: string }>(
-      `UPDATE proposal_docs SET
+    const updSet = `
          title=COALESCE($2,title), subtitle=COALESCE($3,subtitle), brand_name=COALESCE($4,brand_name),
          brand_logo_url=$5, track=COALESCE($6,track),
          list_amount=$7, monthly_amount=$8, fee_pct=$9, term_months=$10, term_discount_pct=$11,
@@ -132,9 +133,8 @@ export async function saveProposal(input: ProposalInput & { id?: string }, by: s
          impact_banner=$32,
          kpi_year_tier=$33, kpi_year_stage=$34,
          kpi_year_creator_content=$35, kpi_year_ad_spend=$36,
-         addons=COALESCE($37::jsonb,addons), updated_at=now()
-       WHERE id=$1 RETURNING id, token`,
-      [input.id, input.title, input.subtitle, input.brand_name, input.brand_logo_url ?? null, input.track,
+         addons=COALESCE($37::jsonb,addons)`;
+    const updVals: unknown[] = [input.id, input.title, input.subtitle, input.brand_name, input.brand_logo_url ?? null, input.track,
        input.list_amount ?? null, input.monthly_amount ?? null, input.fee_pct ?? null, input.term_months ?? null, input.term_discount_pct ?? null,
        input.features ? JSON.stringify(input.features) : null, input.seeding_qty ?? null, input.live_qty ?? null, input.op_tags ? JSON.stringify(input.op_tags) : null,
        input.kpi_tier ?? null, input.kpi_stage ?? null, input.kpi_creator_content ?? null, input.kpi_ad_spend ?? null,
@@ -147,7 +147,18 @@ export async function saveProposal(input: ProposalInput & { id?: string }, by: s
        input.impact_banner ?? null,
        input.kpi_year_tier ?? null, input.kpi_year_stage ?? null,
        input.kpi_year_creator_content ?? null, input.kpi_year_ad_spend ?? null,
-       input.addons ? JSON.stringify(input.addons) : null]);
+       input.addons ? JSON.stringify(input.addons) : null];
+    // 0091(accent2 배경색) 포함 저장 → 미적용 DB 는 컬럼 없이 폴백.
+    let row: { id: string; token: string } | null;
+    try {
+      row = await queryOne<{ id: string; token: string }>(
+        `UPDATE proposal_docs SET ${updSet}, accent2=$38, updated_at=now() WHERE id=$1 RETURNING id, token`,
+        [...updVals, input.accent2 ?? null]);
+    } catch (e) {
+      if (!/accent2/.test(e instanceof Error ? e.message : "")) throw e;
+      row = await queryOne<{ id: string; token: string }>(
+        `UPDATE proposal_docs SET ${updSet}, updated_at=now() WHERE id=$1 RETURNING id, token`, updVals);
+    }
     if (!row) throw new Error("제안서를 찾을 수 없습니다.");
     return row;
   }

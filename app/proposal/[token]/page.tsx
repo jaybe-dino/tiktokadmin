@@ -50,6 +50,8 @@ export default async function ProposalPage({ params, searchParams }: { params: P
   const tpl = await defaultTemplate();
   // accent 는 <style> 안에 인라인되므로 반드시 hex 만 허용(CSS/스크립트 인젝션 차단).
   const accent = safeHexColor(d.accent) || safeHexColor(tpl?.accent) || "#ec4899";
+  // 배경색(BUG-21) — 지정 시 표지 다크 그라디언트·페이지 틴트 계열을 이 색 기준으로 파생. 미지정이면 기본 핑크·보라.
+  const bg = safeHexColor(d.accent2);
   const agency = tpl?.agency_name || "DINO STUDIO";
   const order = tpl?.sections?.length ? tpl.sections : ["cover", "product", "pricing", "operations", "kpi", "addon", "creators", "closing"];
 
@@ -66,7 +68,7 @@ export default async function ProposalPage({ params, searchParams }: { params: P
 
   return (
     <div className="pp-root">
-      <style dangerouslySetInnerHTML={{ __html: css(accent) }} />
+      <style dangerouslySetInnerHTML={{ __html: css(accent, bg) }} />
       <PrintBar accent={accent} />
       <main className="pp-doc">
         {order.map((k) => sectionEls[k]).filter(Boolean)}
@@ -369,10 +371,20 @@ function Eyebrow({ small, title, sub }: { small: string; title: string; sub?: st
   );
 }
 
-function css(accent: string): string {
+function css(accent: string, bg?: string | null): string {
+  // 배경색(bg) 지정 시 틴트·라인·그라운드·다크 섹션을 그 색에서 파생(color-mix) — 미지정이면 기존 기본값 유지.
+  const mix = (pct: number, base = "#ffffff") => (bg ? `color-mix(in srgb, ${bg} ${pct}%, ${base})` : null);
+  const tint = mix(8) ?? "#fdeef5";
+  const tint2 = mix(18) ?? "#fbdcea";
+  const line = mix(15) ?? "#f3dbe7";
+  const ground = bg ? `linear-gradient(180deg,${mix(6)},${mix(12)})` : "linear-gradient(180deg,#fdf1f7,#fbe8f1)";
+  const darkBg = bg
+    ? `radial-gradient(circle at 32% 42%, ${mix(55)} 0%, ${bg} 34%, color-mix(in srgb, ${bg} 55%, #000) 62%, color-mix(in srgb, ${bg} 22%, #000) 88%)`
+    : `radial-gradient(circle at 32% 42%, #ff5fa0 0%, #b12768 34%, #4d1230 62%, #1a0a13 88%)`;
+  const darkBase = bg ? `color-mix(in srgb, ${bg} 30%, #000)` : "#160a10";
   return `
-  .pp-root{--acc:${accent};--hot:#f6339a;--ink:#17121a;--ink2:#5b4b55;--ink3:#9b8791;--tint:#fdeef5;--tint2:#fbdcea;--line:#f3dbe7;
-    background:linear-gradient(180deg,#fdf1f7,#fbe8f1);min-height:100vh;
+  .pp-root{--acc:${accent};--hot:#f6339a;--ink:#17121a;--ink2:#5b4b55;--ink3:#9b8791;--tint:${tint};--tint2:${tint2};--line:${line};
+    background:${ground};min-height:100vh;
     font-family:-apple-system,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif;color:var(--ink);
     /* 인쇄/PDF 시 배경색·그라디언트·다크 섹션이 유지되도록 강제. */
     -webkit-print-color-adjust:exact;print-color-adjust:exact;}
@@ -395,8 +407,8 @@ function css(accent: string): string {
   .pp-tags{display:flex;flex-wrap:wrap;gap:8px;}
   .pp-tag{display:inline-block;background:var(--tint2);color:var(--acc);font-weight:800;font-size:13px;padding:6px 12px;border-radius:999px;}
   /* dark 섹션(표지·마무리) */
-  .pp-dark{background:#160a10;position:relative;overflow:hidden;color:#fff;
-    background-image:radial-gradient(circle at 32% 42%, #ff5fa0 0%, #b12768 34%, #4d1230 62%, #1a0a13 88%);}
+  .pp-dark{background:${darkBase};position:relative;overflow:hidden;color:#fff;
+    background-image:${darkBg};}
   /* 표지 */
   .pp-cover{display:grid;place-items:center;padding:70px 40px;}
   .pp-cover-card{position:relative;z-index:1;background:#fff;color:var(--ink);border-radius:22px;box-shadow:0 24px 70px rgba(0,0,0,.28);padding:60px 48px;text-align:center;max-width:640px;width:100%;}

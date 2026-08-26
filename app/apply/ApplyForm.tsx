@@ -20,7 +20,7 @@ const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", 
 interface Step { step_no: number; status: string; admin_feedback: string }
 export interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string }
 export interface ProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; translation_status: string }
-export interface Product { id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string }
+export interface Product { id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string; label_photo_url?: string }
 interface Props { email: string; app: Record<string, unknown>; steps: Step[]; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]> }
 
 const sv = (app: Record<string, unknown>, k: string): string => (app[k] == null ? "" : String(app[k]));
@@ -292,16 +292,11 @@ function Step3({ v, set, disabled }: { v: Record<string, string>; set: (k: strin
       <Card title="② 대표자 여권" desc="여권 사진·인적사항 면 한 장을 선명하게 업로드해주세요.">
         <FileField label="여권 사진면" req field="rep_passport_front" k="rep_passport_front_url" {...{ v, set, disabled }} />
       </Card>
-      <Card title="③ 대표자 신분증" desc="국내 주민등록증 또는 운전면허증의 앞·뒷면을 업로드해주세요.">
-        <Grid>
-          <FileField label="신분증 앞면" req field="rep_id_front" k="rep_id_front_url" {...{ v, set, disabled }} />
-          <FileField label="신분증 뒷면" req field="rep_id_back" k="rep_id_back_url" {...{ v, set, disabled }} />
-        </Grid>
-      </Card>
-      <Card title="④ 대표자 거주지 증명서류" desc="최근 12개월 이내 발행, 대표자 성명·주소가 함께 표시된 서류 1부 (은행 거래내역서·신용카드 명세서·공과금 고지서·보험 증권 등).">
+      {/* BUG-24: 대표자 신분증 카드 제거 — 여권만 필요(기존 제출분은 어드민 검토 화면에서 계속 열람 가능). */}
+      <Card title="③ 대표자 거주지 증명서류" desc="최근 12개월 이내 발행, 대표자 성명·주소가 함께 표시된 서류 1부 (은행 거래내역서·신용카드 명세서·공과금 고지서·보험 증권 등).">
         <FileField label="거주지 증명서류" req field="rep_address_proof" k="rep_address_proof_url" {...{ v, set, disabled }} />
       </Card>
-      <Card title="⑤ 핑퐁페이먼트(PingPong) 가입 여부" desc="해외 정산을 위해 PingPong Payments 계정이 필요합니다.">
+      <Card title="④ 핑퐁페이먼트(PingPong) 가입 여부" desc="해외 정산을 위해 PingPong Payments 계정이 필요합니다.">
         <div style={{ background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: 12.5, color: "#1e3a8a" }}>
           <b>📘 가입 가이드</b>
           <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
@@ -324,8 +319,8 @@ function Step3({ v, set, disabled }: { v: Record<string, string>; set: (k: strin
             );
           })}
         </div>
+        {/* BUG-26: 이메일 입력칸 제거 — 연동은 브랜드사가 직접 하므로 가입 여부만 확인. */}
         <Grid>
-          <F label="핑퐁페이먼트 이메일 (가입된 경우)" type="email" k="payoneer_email" placeholder="pingpong@example.com" {...{ v, set, disabled }} />
           <F label="메모 (선택)" k="payoneer_note" {...{ v, set, disabled }} />
         </Grid>
       </Card>
@@ -370,7 +365,7 @@ function Step4({ disabled, countries, products, productCountries, onChange, flas
 }
 export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash, onDelete }:
   { idx: number; p: Product; disabled: boolean; countries: Country[]; rows: ProductCountry[]; onChange: () => void; flash: (m: string) => void; onDelete: () => void }) {
-  const [pd, setPd] = useState({ name: p.name, category: p.category ?? "", sku: p.sku ?? "", description_kr: p.description_kr ?? "" });
+  const [pd, setPd] = useState({ name: p.name, category: p.category ?? "", sku: p.sku ?? "", description_kr: p.description_kr ?? "", label_photo_url: p.label_photo_url ?? "" });
   const byCode = Object.fromEntries(rows.map((r) => [r.country_code, r]));
   const [pc, setPc] = useState<Record<string, Partial<ProductCountry>>>(byCode);
   const updPc = (code: string, patch: Partial<ProductCountry>) => setPc((s) => ({ ...s, [code]: { ...(s[code] ?? {}), ...patch } }));
@@ -391,6 +386,14 @@ export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash
         <MInp label="SKU" val={pd.sku} on={(x) => setPd({ ...pd, sku: x })} disabled={disabled} />
       </Grid>
       <textarea value={pd.description_kr} disabled={disabled} onChange={(e) => setPd({ ...pd, description_kr: e.target.value })} rows={2} placeholder="제품 설명 (한글)" style={{ ...inputStyle, marginTop: 8, resize: "vertical" }} />
+      {/* BUG-25: 영문 라벨 부착 사진 — 제품 단상자에 영문 라벨을 붙인 상태가 잘 보이게 촬영. */}
+      <div style={{ marginTop: 12, background: "#fffdf2", border: "1px solid #f2e6bf", borderRadius: 10, padding: "10px 12px" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#111" }}>영문 라벨 부착 사진 <span style={{ color: "#e03131" }}>*</span></div>
+        <div style={{ fontSize: 12, color: "#8a7a3f", margin: "3px 0 6px" }}>제품 단상자에 영문 라벨을 부착한 후, 부착 상태가 잘 보이도록 사진을 촬영해 업로드해주세요.</div>
+        <InlineFile field={`label_photo_${p.id}`} url={pd.label_photo_url || undefined} disabled={disabled}
+          onDone={(u) => setPd((s) => ({ ...s, label_photo_url: u }))} />
+        {pd.label_photo_url && <span style={{ fontSize: 11.5, color: "#0b7a52", marginLeft: 6 }}>✓ 업로드됨 — 아래 [저장]을 눌러 반영하세요</span>}
+      </div>
       <div style={{ marginTop: 12, fontSize: 13, fontWeight: 700, color: "#111" }}>국가별 단가 · 인증 · 상세페이지</div>
       <details style={{ marginTop: 6, background: "#f0f6ff", border: "1px solid #cfe0ff", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, color: "#1e3a8a" }}>
         <summary style={{ cursor: "pointer", fontWeight: 700 }}>📎 FDA 인증 첨부자료 예시 — 어떤 서류를 올리면 되나요?</summary>

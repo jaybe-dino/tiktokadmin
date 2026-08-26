@@ -227,12 +227,14 @@ export interface OnbProduct {
   id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string;
   // 제품 승인(0088) — 미적용 DB 에선 undefined.
   approval_status?: string; approval_note?: string; approved_at?: string | null; approved_by?: string;
+  // 영문 라벨 부착 사진(0090, BUG-25) — 미적용 DB 에선 undefined.
+  label_photo_url?: string;
 }
 export interface OnbProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; detail_page_translated: string; translation_status: string }
 export async function getProducts(applicationId: string): Promise<OnbProduct[]> {
-  // 0088(승인 컬럼) 포함 조회 → 미적용 DB 폴백.
+  // 0088(승인)·0090(라벨 사진) 컬럼 포함 조회 → 미적용 DB 폴백.
   return query<OnbProduct>(
-    `SELECT id, name, category, sku, description_kr, main_image_url,
+    `SELECT id, name, category, sku, description_kr, main_image_url, label_photo_url,
             approval_status, approval_note, approved_at::text AS approved_at, approved_by
        FROM onb_products WHERE application_id=$1 ORDER BY created_at`, [applicationId],
   ).catch(() =>
@@ -244,18 +246,37 @@ export async function getProductCountries(productId: string): Promise<OnbProduct
 }
 export async function addProduct(applicationId: string, p: Partial<OnbProduct>): Promise<{ ok: boolean; id?: string; error?: string }> {
   try {
-    const r = await queryOne<{ id: string }>(
-      `INSERT INTO onb_products (application_id, name, category, sku, description_kr, main_image_url)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [applicationId, p.name ?? "", p.category ?? "", p.sku ?? "", p.description_kr ?? "", p.main_image_url ?? ""]);
+    // 0090(라벨 사진) 포함 → 미적용 DB 는 컬럼 없이 폴백.
+    let r: { id: string } | null;
+    try {
+      r = await queryOne<{ id: string }>(
+        `INSERT INTO onb_products (application_id, name, category, sku, description_kr, main_image_url, label_photo_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+        [applicationId, p.name ?? "", p.category ?? "", p.sku ?? "", p.description_kr ?? "", p.main_image_url ?? "", p.label_photo_url ?? ""]);
+    } catch (e) {
+      if (!/label_photo_url/.test(e instanceof Error ? e.message : "")) throw e;
+      r = await queryOne<{ id: string }>(
+        `INSERT INTO onb_products (application_id, name, category, sku, description_kr, main_image_url)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+        [applicationId, p.name ?? "", p.category ?? "", p.sku ?? "", p.description_kr ?? "", p.main_image_url ?? ""]);
+    }
     return { ok: true, id: r!.id };
   } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "추가 실패" }; }
 }
 export async function updateProduct(applicationId: string, id: string, p: Partial<OnbProduct>): Promise<{ ok: boolean }> {
   await query(
-    `UPDATE onb_products SET name=$3, category=$4, sku=$5, description_kr=$6, main_image_url=$7
+    // label_photo_url 은 미전달(undefined) 시 기존 값 유지 — 다른 필드만 수정할 때 사진이 지워지지 않게.
+    `UPDATE onb_products SET name=$3, category=$4, sku=$5, description_kr=$6, main_image_url=$7,
+            label_photo_url=COALESCE($8::text, label_photo_url)
      WHERE id=$1 AND application_id=$2`,
-    [id, applicationId, p.name ?? "", p.category ?? "", p.sku ?? "", p.description_kr ?? "", p.main_image_url ?? ""]).catch(() => {});
+    [id, applicationId, p.name ?? "", p.category ?? "", p.sku ?? "", p.description_kr ?? "", p.main_image_url ?? "", p.label_photo_url ?? null],
+  ).catch(() =>
+    // 0090 미적용 DB 폴백 — 라벨 사진 컬럼 없이 저장.
+    query(
+      `UPDATE onb_products SET name=$3, category=$4, sku=$5, description_kr=$6, main_image_url=$7
+       WHERE id=$1 AND application_id=$2`,
+      [id, applicationId, p.name ?? "", p.category ?? "", p.sku ?? "", p.description_kr ?? "", p.main_image_url ?? ""]).catch(() => {}),
+  );
   // 승인된 제품을 브랜드가 수정하면 재검토 대상 — 승인 상태를 대기로 되돌린다(0088 미적용 시 무시).
   await query(
     "UPDATE onb_products SET approval_status='pending', approved_at=NULL WHERE id=$1 AND application_id=$2 AND approval_status='approved'",

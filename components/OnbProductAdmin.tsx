@@ -75,6 +75,12 @@ export default function OnbProductAdmin({ brands }: { brands: { id: string; name
                 <span className={`cellchip ${ap.cls}`} style={{ marginLeft: "auto" }}>{ap.label}</span>
               </div>
               {p.description_kr && <div style={{ fontSize: 12.5, color: "var(--ink2)", marginTop: 4 }}>{p.description_kr}</div>}
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                영문 라벨 사진:{" "}
+                {p.label_photo_url
+                  ? <a href={p.label_photo_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>📷 보기 ↗</a>
+                  : <span style={{ color: "#c92a2a" }}>미등록</span>}
+              </div>
               {p.approval_status === "rejected" && p.approval_note && (
                 <div style={{ fontSize: 12, color: "#c92a2a", marginTop: 4 }}>반려 사유: {p.approval_note}</div>
               )}

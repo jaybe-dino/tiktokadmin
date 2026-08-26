@@ -2,17 +2,17 @@ import { currentUser } from "@/lib/auth";
 import { ownerFieldForRole } from "@/lib/states";
 import { queueBrands, type BoardCard } from "@/lib/repo/queries";
 import { query } from "@/lib/db";
+import { businessDaysBetween } from "@/lib/time";
 import QueueBoard, { type QueueRow } from "./QueueBoard";
 
 export const dynamic = "force-dynamic";
 
-const DAY = 86400000;
-
+// 경과일은 영업일(주말 제외) 기준 — 파이프라인 보드·SLA 정책과 동일 기준(BUG-18).
 function daysSince(iso: string | null): number | null {
   if (!iso) return null;
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return null;
-  return Math.floor((Date.now() - t) / DAY);
+  return businessDaysBetween(new Date(t), new Date());
 }
 
 /** 우선순위: 위반 → 회신 필요 → 오늘마감/초과 → 액션없음 → 그 외 */

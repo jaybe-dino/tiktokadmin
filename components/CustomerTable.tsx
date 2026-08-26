@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GradeBadge, PayBadge, PlanBadge, StateBadge } from "@/components/badges";
+import { businessDaysBetween } from "@/lib/time";
 import { SOURCE_LABELS, STATE_LABELS, STATES } from "@/lib/types";
 import { deleteBrandsAction, dropBrandsAction, assignBrandOwnerAction, transitionAction, setBrandMetaAction } from "@/app/actions";
 import { GRADES, PLANS, PLAN_LABELS } from "@/lib/types";
@@ -35,14 +36,15 @@ const ASSIGN_ROLES: { value: OwnerField; label: string }[] = [
   { value: "owner_contract", label: "계약담당" },
 ];
 
+// 경과일은 영업일(주말 제외) 기준 — 파이프라인 보드·SLA 정책과 동일 기준(BUG-18).
 function sinceLabel(iso: unknown): { text: string; danger: boolean } {
   if (!iso) return { text: "—", danger: false };
   const t = new Date(String(iso)).getTime();
   if (Number.isNaN(t)) return { text: "—", danger: false };
-  const days = Math.floor((Date.now() - t) / 86_400_000);
+  const days = businessDaysBetween(new Date(t), new Date());
   if (days <= 0) return { text: "오늘", danger: false };
-  if (days === 1) return { text: "어제", danger: false };
-  return { text: `${days}일 전`, danger: days >= 7 };
+  if (days === 1) return { text: "1영업일 전", danger: false };
+  return { text: `${days}영업일 전`, danger: days >= 5 };
 }
 function ymd(iso: unknown): string {
   if (!iso) return "—";

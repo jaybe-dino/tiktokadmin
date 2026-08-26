@@ -573,11 +573,24 @@ export async function addBrandIntroDeckFileAction(
   const bytes = Buffer.from(await f.arrayBuffer());
   const mime = f.type || "application/octet-stream";
   try {
-    const row = await queryOne<{ id: string }>(
-      `INSERT INTO import_files (brand_id, doc_field, filename, mime, size, bytes)
-       VALUES ($1,'intro_deck',$2,$3,$4,$5) RETURNING id`,
-      [brandId, filename, mime, bytes.length, bytes],
-    );
+    // BUG-22: 같은 파일명 재업로드 시 UNIQUE(brand_id, filename) 충돌로 실패하던 문제 —
+    //   충돌하면 파일명에 짧은 접미사를 붙여 재시도(기존 첨부를 덮지 않고 별도 보존).
+    const insertFile = (fname: string) =>
+      queryOne<{ id: string }>(
+        `INSERT INTO import_files (brand_id, doc_field, filename, mime, size, bytes)
+         VALUES ($1,'intro_deck',$2,$3,$4,$5) RETURNING id`,
+        [brandId, fname, mime, bytes.length, bytes],
+      );
+    let row: { id: string } | null;
+    try {
+      row = await insertFile(filename);
+    } catch (e) {
+      if (!/unique|duplicate/i.test(e instanceof Error ? e.message : "")) throw e;
+      const dot = filename.lastIndexOf(".");
+      const suffix = `-${Date.now().toString(36).slice(-5)}`;
+      const uniq = dot > 0 ? `${filename.slice(0, dot)}${suffix}${filename.slice(dot)}` : `${filename}${suffix}`;
+      row = await insertFile(uniq);
+    }
     const url = `/api/brand/import-file/${row!.id}`;
     const asset = await queryOne<{ id: string }>(
       `INSERT INTO assets (brand_id, kind, filename, mime, external_url, source, uploaded_by)

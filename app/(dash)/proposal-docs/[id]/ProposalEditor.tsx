@@ -33,7 +33,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         term_months: d.term_months, term_discount_pct: d.track === "onboarding" ? null : d.term_discount_pct, features: d.features,
         seeding_qty: d.seeding_qty, live_qty: d.live_qty, op_tags: d.op_tags,
         kpi_tier: d.kpi_tier, kpi_stage: d.kpi_stage, kpi_creator_content: d.kpi_creator_content, kpi_ad_spend: d.kpi_ad_spend,
-        products: d.products, creators: d.creators, accent: d.accent,
+        products: d.products, creators: d.creators, accent: d.accent, accent2: d.accent2 ?? null,
         product_en: d.product_en, product_volume: d.product_volume, product_features: d.product_features, product_tags: d.product_tags,
         value_items: d.value_items, value_total: d.value_total,
         roadmap_steps: d.roadmap_steps, impacts: d.impacts, impact_banner: d.impact_banner,
@@ -167,6 +167,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
           <Sel label="트랙" v={d.track} opts={TRACKS} on={(v) => set("track", v)} />
           <F label="브랜드 로고 URL" v={d.brand_logo_url ?? ""} on={(v) => set("brand_logo_url", v || null)} />
           <F label="강조색(브랜드 오버라이드, 예: #1f7a4d)" v={d.accent ?? ""} on={(v) => set("accent", v || null)} placeholder="비우면 템플릿 기본색" />
+          <F label="배경색(표지·페이지 톤, 예: #1d4ed8)" v={d.accent2 ?? ""} on={(v) => set("accent2", v || null)} placeholder="비우면 기본(핑크·보라 계열)" />
         </Grid>
       </Card>
 
