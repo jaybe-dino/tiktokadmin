@@ -517,10 +517,11 @@ export const TOOLS: Record<string, ToolDef> = {
     description: "glovek 콘텐츠 DB(레퍼런스 검색용) 연동 진단 — GLOVEK_DB_URL_RO 설정 여부, videos/products 행수, 카테고리 실값 분포, 이름 샘플. 선택: q(검색어)로 실검색 테스트.",
     inputSchema: { type: "object", properties: { q: { type: "string" } } },
     async handler(a) {
-      const { glovekDataProfile, similarProductContent } = await import("./glovek-content");
+      const { glovekDataProfile, similarContentRefs } = await import("./glovek-content");
       const profile = await glovekDataProfile();
       const q = String(a.q ?? "").trim();
-      const search = q ? await similarProductContent([q], 8).catch(() => []) : undefined;
+      // 실검색 테스트는 제안서 레퍼런스가 실제로 쓰는 경로(제품→연결 영상 썸네일)와 동일하게.
+      const search = q ? await similarContentRefs([q], 8).catch(() => []) : undefined;
       return {
         configured: profile.configured,
         note: profile.configured ? "GLOVEK_DB_URL_RO 설정됨" : "GLOVEK_DB_URL_RO 미설정 — 어드민 DB 폴백 상태(레퍼런스 검색 불가)",
