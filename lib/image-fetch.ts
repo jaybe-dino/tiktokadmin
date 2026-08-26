@@ -21,9 +21,11 @@ export async function fetchExternalImage(
     const res = await fetch(url, {
       signal: ctl.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; GlovekBot/1.0)",
+        // 틱톡 CDN 등은 봇 UA 서버 요청을 차단 — 실제 브라우저 UA 로 요청.
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         ...(referer ? { Referer: referer } : {}),
-        Accept: "image/avif,image/webp,image/*,*/*;q=0.8",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
       },
     }).finally(() => clearTimeout(timer));
     if (!res.ok) return null;

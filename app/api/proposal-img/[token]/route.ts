@@ -82,9 +82,13 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     }
   }
 
-  // 2) 원본 다운로드(서버 → Referer 세팅으로 핫링크 차단 우회) → 캐시 저장 → 응답.
+  // 2) 원본 다운로드(서버 → 브라우저 UA·Referer 정책) → 캐시 저장 → 응답.
   const img = await fetchExternalImage(u);
-  if (!img) return placeholder();
+  if (!img) {
+    // 서버 fetch 가 차단돼도(틱톡 CDN 봇 차단 등) 브라우저 직접 로드는 되는 경우가 많다
+    // (페이지 <img> 가 no-referrer 라 glovek.space 와 동일 경로) — 원본으로 리다이렉트해 표시 우선.
+    return NextResponse.redirect(u, { status: 302, headers: { "Cache-Control": "public, max-age=300" } });
+  }
   if (doc.brandId) {
     const sha = createHash("sha256").update(img.bytes).digest("hex");
     await queryOne(

@@ -91,7 +91,7 @@ function Cover({ d, agency }: { d: ProposalDoc; agency: string }) {
           <b className="pp-agency">{agency}</b>
           <span className="pp-x">×</span>
           {d.brand_logo_url
-            ? <img className="pp-brandlogo" src={d.brand_logo_url} alt={d.brand_name} />
+            ? <img className="pp-brandlogo" src={d.brand_logo_url} alt={d.brand_name} referrerPolicy="no-referrer" />
             : <b className="pp-brand">{d.brand_name || "BRAND"}</b>}
         </div>
       </div>
@@ -108,7 +108,7 @@ function ProductSection({ d }: { d: ProposalDoc }) {
       <Eyebrow small="FEATURED PRODUCT" title="TikTok Shop 운영 핵심 SKU" sub={p?.desc || undefined} />
       <div className="pp-hero">
         <div className="pp-hero-img">
-          {p?.image_url ? <img src={p.image_url} alt={p.name} /> : <div className="pp-hero-ph">{p?.name || "제품 이미지"}</div>}
+          {p?.image_url ? <img src={p.image_url} alt={p.name} referrerPolicy="no-referrer" /> : <div className="pp-hero-ph">{p?.name || "제품 이미지"}</div>}
         </div>
         <div className="pp-hero-body">
           {(p?.name || p?.desc) && <span className="pp-badge soft">주력제품{p?.desc ? ` · ${p.desc}` : ""}</span>}
@@ -309,12 +309,12 @@ function CreatorsSection({ d }: { d: ProposalDoc }) {
           <article key={i} className="pp-creator">
             {c.link ? (
               <a className="pp-cr-media" href={c.link} target="_blank" rel="noreferrer" title="콘텐츠 원본 보기" style={{ display: "block" }}>
-                {c.thumb_url ? <img src={c.thumb_url} alt={c.handle} /> : <div className="pp-cr-ph" />}
+                {c.thumb_url ? <img src={c.thumb_url} alt={c.handle} referrerPolicy="no-referrer" /> : <div className="pp-cr-ph" />}
                 <span className="pp-cr-play">▶</span>
               </a>
             ) : (
               <div className="pp-cr-media">
-                {c.thumb_url ? <img src={c.thumb_url} alt={c.handle} /> : <div className="pp-cr-ph" />}
+                {c.thumb_url ? <img src={c.thumb_url} alt={c.handle} referrerPolicy="no-referrer" /> : <div className="pp-cr-ph" />}
                 {c.thumb_url ? <span className="pp-cr-play">▶</span> : null}
               </div>
             )}
