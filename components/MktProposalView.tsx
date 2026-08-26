@@ -311,7 +311,7 @@ function ProductCard({ p, n, accent }: { p: MktProductItem; n: number; accent: s
       {p.image_url
         // 제품 실측 이미지는 잘리면 안 됨(라벨·용량 표기 등) — cover 대신 contain 으로 전체 노출.
         // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={normalizeImageUrl(p.image_url)} alt={p.name} style={{ width: "100%", height: "9.5em", objectFit: "contain", display: "block", background: "#f8fafc" }} />
+        ? <img src={normalizeImageUrl(p.image_url)} alt={p.name} referrerPolicy="no-referrer" style={{ width: "100%", height: "9.5em", objectFit: "contain", display: "block", background: "#f8fafc" }} />
         : <div style={{ height: "9.5em", background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.9em" }}>이미지 없음</div>}
       <div style={{ padding: "1em 1.1em" }}>
         <div style={{ fontSize: "0.9em", fontWeight: 800, color: accent }}>{String(n).padStart(2, "0")}</div>
@@ -329,8 +329,9 @@ function ProductCard({ p, n, accent }: { p: MktProductItem; n: number; accent: s
 function RefCard({ r, accent }: { r: MktReferenceItem; accent: string }) {
   // 썸네일 클릭 → 콘텐츠(틱톡) 원본으로 이동. 링크 없으면 일반 이미지.
   const media = r.image_url
+    // referrerPolicy: 틱톡 CDN 은 타 사이트 Referer 가 붙으면 403 — glovek.space 처럼 no-referrer 로 로드.
     // eslint-disable-next-line @next/next/no-img-element
-    ? <img src={normalizeImageUrl(r.image_url)} alt={r.creator ?? ""} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", background: "#f1f5f9" }} />
+    ? <img src={normalizeImageUrl(r.image_url)} alt={r.creator ?? ""} referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", background: "#f1f5f9" }} />
     : <div style={{ height: "100%", background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.85em" }}>@{r.creator || "creator"}</div>;
   return (
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff", display: "flex", flexDirection: "column", minHeight: 0 }}>

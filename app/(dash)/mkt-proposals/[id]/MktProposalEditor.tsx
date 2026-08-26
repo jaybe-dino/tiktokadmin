@@ -200,26 +200,43 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
     brand_name: brands.find((b) => b.id === brandId)?.brand_name ?? doc.brand_name,
   };
 
+  async function doSave(): Promise<boolean> {
+    const r = await saveMktProposalDocAction({
+      id: doc.id, brand_id: brandId || null, title, subtitle, status, accent, accent2, show_bundle_slide: showBundle,
+      countries, start_month: startMonth, months,
+      monthly_budget: monthlyMan * MAN, operation_fee: opFeeMan * MAN,
+      gmv_reserve_min: gmvMinMan * MAN, gmv_reserve_max: gmvMaxMan * MAN,
+      first_month_seeding: firstSeed, commission_pct: commission,
+      goal_first: goalFirst, goal_final: goalFinal, intro_note: intro,
+      products_json: products, references_json: refs,
+      phase_ratios_json: ratios, month_overrides_json: overrides,
+      category,
+    });
+    if (!r.ok) { setMsg(r.error ?? "저장 실패"); return false; }
+    return true;
+  }
   function save(after?: "pipeline") {
     setMsg("");
     start(async () => {
-      const r = await saveMktProposalDocAction({
-        id: doc.id, brand_id: brandId || null, title, subtitle, status, accent, accent2, show_bundle_slide: showBundle,
-        countries, start_month: startMonth, months,
-        monthly_budget: monthlyMan * MAN, operation_fee: opFeeMan * MAN,
-        gmv_reserve_min: gmvMinMan * MAN, gmv_reserve_max: gmvMaxMan * MAN,
-        first_month_seeding: firstSeed, commission_pct: commission,
-        goal_first: goalFirst, goal_final: goalFinal, intro_note: intro,
-        products_json: products, references_json: refs,
-        phase_ratios_json: ratios, month_overrides_json: overrides,
-        category,
-      });
-      if (!r.ok) { setMsg(r.error ?? "저장 실패"); return; }
+      if (!(await doSave())) return;
       if (after === "pipeline") {
         const lr = await linkMktProposalToPipelineAction(doc.id);
         setMsg(lr.ok ? "저장 + 파이프라인 연동 완료 — /mkt 에서 카드로 표시됩니다." : lr.error ?? "연동 실패");
       } else setMsg("저장되었습니다.");
       router.refresh();
+    });
+  }
+  // 미리보기 — 현재 편집중 값을 먼저 저장한 뒤 공개 페이지를 연다(저장 안 하면 옛 버전이 보이는 문제 방지).
+  //   팝업차단 회피: 클릭 시점에 빈 탭을 먼저 열고, 저장 후 이동.
+  function openPreview() {
+    const w = window.open("", "_blank");
+    setMsg("");
+    start(async () => {
+      const ok = await doSave();
+      const url = `/mkt-proposal/${doc.token}`;
+      if (ok) setMsg("저장 후 미리보기를 열었습니다.");
+      if (w) w.location.href = url; else window.open(url, "_blank");
+      if (ok) router.refresh();
     });
   }
   function del() {
@@ -237,7 +254,7 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
         <div className="bar" style={{ margin: 0 }}>
           <Link href={listHref} className="btn sm">← 목록</Link>
           {doc.gen_source === "survey_auto" && <span className="chip" style={{ fontSize: 10.5 }}>🤖 설문 자동생성</span>}
-          <a href={`/mkt-proposal/${doc.token}`} target="_blank" rel="noreferrer" className="btn sm">미리보기 ↗</a>
+          <button className="btn sm" disabled={pending} onClick={openPreview} title="현재 편집 내용을 저장한 뒤 공개 페이지를 새 탭으로 엽니다">미리보기(저장 후) ↗</button>
           <button className="btn sm pri" disabled={pending} onClick={() => save()}>{pending ? "저장 중…" : "저장"}</button>
           <button className="btn sm" disabled={pending} onClick={() => save("pipeline")} title="브랜드의 마케팅 파이프라인 카드로 등록·연동">파이프라인 연동</button>
           <button className="btn sm" disabled={pending} onClick={del} style={{ color: "#e03131", marginLeft: "auto" }}>삭제</button>

@@ -10,7 +10,8 @@ export async function fetchExternalImage(
   try {
     const h = new URL(url);
     if (h.protocol !== "https:" && h.protocol !== "http:") return null;
-    referer = /tiktok/i.test(h.hostname) ? "https://www.tiktok.com/" : `${h.origin}/`;
+    // 틱톡 CDN 은 Referer 가 붙으면 403 을 주는 경우가 있어 아예 보내지 않는다(no-referrer 로드와 동일).
+    referer = /tiktok/i.test(h.hostname) ? "" : `${h.origin}/`;
   } catch {
     return null;
   }
@@ -21,7 +22,7 @@ export async function fetchExternalImage(
       signal: ctl.signal,
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; GlovekBot/1.0)",
-        Referer: referer,
+        ...(referer ? { Referer: referer } : {}),
         Accept: "image/avif,image/webp,image/*,*/*;q=0.8",
       },
     }).finally(() => clearTimeout(timer));
