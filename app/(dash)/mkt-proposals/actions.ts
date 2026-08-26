@@ -9,7 +9,7 @@ import {
   saveMktTemplate, getMktTemplate, deleteMktTemplate,
   type MktProposalInput, type MktTemplateConfig, type MktReferenceItem,
 } from "@/lib/mkt-proposal-doc";
-import { similarProductContent, glovekZeroDiagnosis, listGlovekCategories } from "@/lib/glovek-content";
+import { similarProductContent, glovekZeroDiagnosis, listGlovekCategories, glovekDataProfile } from "@/lib/glovek-content";
 import { categoryTermTiers } from "@/lib/categories";
 
 type R = { ok: boolean; error?: string };
@@ -74,7 +74,14 @@ export async function listGlovekCategoriesAction(): Promise<R & { categories?: {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   const categories = await listGlovekCategories(60).catch(() => []);
-  if (categories.length === 0) return { ok: false, error: `glovek 카테고리를 불러오지 못했습니다 — ${await glovekZeroDiagnosis()}` };
+  if (categories.length === 0) {
+    // glovek 스키마에 카테고리 컬럼 자체가 없으면(현재 실스키마) 그 사실을 정확히 안내.
+    const profile = await glovekDataProfile().catch(() => null);
+    if (profile?.configured && profile.tables.some((t) => t.exists) && profile.tables.every((t) => !t.fields.category)) {
+      return { ok: false, error: "glovek DB에 카테고리 컬럼이 없습니다 — 실값 선택 대신 제품명·영문 키워드 자동 검색이 사용됩니다(그냥 '불러오기'를 누르세요)." };
+    }
+    return { ok: false, error: `glovek 카테고리를 불러오지 못했습니다 — ${await glovekZeroDiagnosis()}` };
+  }
   return { ok: true, categories };
 }
 

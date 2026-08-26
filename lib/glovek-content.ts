@@ -102,6 +102,7 @@ export interface GlovekTableProfile {
   table: string;
   exists: boolean;
   rows: number | null;                                // 대략 행수(estimate, 없으면 정확 카운트)
+  columns: string[];                                  // 원시 컬럼명 전체(매핑 튜닝용)
   fields: FieldMap;                                   // 휴리스틱으로 매핑된 실제 컬럼명
   categories: { value: string; count: number }[];     // 카테고리 실값 상위 30 + 건수
   samples: string[];                                  // 이름 샘플 5건
@@ -113,7 +114,7 @@ export async function glovekDataProfile(): Promise<{ configured: boolean; tables
   for (const t of ["videos", "products"]) {
     const cols = await columnsOf(t);
     if (cols.length === 0) {
-      tables.push({ table: t, exists: false, rows: null, fields: {}, categories: [], samples: [] });
+      tables.push({ table: t, exists: false, rows: null, columns: [], fields: {}, categories: [], samples: [] });
       continue;
     }
     const f = mapFields(cols);
@@ -141,7 +142,7 @@ export async function glovekDataProfile(): Promise<{ configured: boolean; tables
         ).catch(() => [])
       ).map((r) => String(r.v).trim().slice(0, 60)).filter(Boolean);
     }
-    tables.push({ table: t, exists: true, rows, fields: f, categories, samples });
+    tables.push({ table: t, exists: true, rows, columns: cols, fields: f, categories, samples });
   }
   return { configured, tables };
 }

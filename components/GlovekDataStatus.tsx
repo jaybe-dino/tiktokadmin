@@ -49,6 +49,11 @@ export default async function GlovekDataStatus() {
                     샘플: {t.samples.join(" · ")}
                   </div>
                 )}
+                {t.columns.length > 0 && (
+                  <div style={{ color: "var(--ink3)", fontSize: 10, marginTop: 4 }}>
+                    컬럼: {t.columns.join(", ")}
+                  </div>
+                )}
               </div>
             ))}
             <div className="note" style={{ fontSize: 11 }}>
