@@ -281,7 +281,8 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
           <Slide key={`ref-${gi}`} accent={accent}>
             <Pad>
               <Head accent={accent} kicker="REFERENCE" title={`크리에이터 콘텐츠 실측 레퍼런스${all.length > 1 ? ` (${gi + 1}/${all.length})` : ""}`} />
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginTop: 14, height: "calc(100% - 80px)" }}>
+              {/* 카드 높이를 콘텐츠 실제 비율(9:16)에 맞춤 — 슬라이드 높이에 맞춰 늘리지 않고 세로 중앙 정렬. */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginTop: 14, height: "calc(100% - 80px)", alignItems: "center", alignContent: "center" }}>
                 {grp.map((r, i) => <RefCard key={i} r={r} accent={accent} />)}
               </div>
             </Pad>
@@ -338,14 +339,16 @@ function RefCard({ r, accent }: { r: MktReferenceItem; accent: string }) {
     ? <img src={normalizeImageUrl(r.image_url)} alt={r.creator ?? ""} referrerPolicy="no-referrer" loading="lazy" onError={() => setBroken(true)}
         style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", background: "#f1f5f9" }} />
     : <div style={{ height: "100%", background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.85em" }}>@{r.creator || "creator"}</div>;
+  // 미디어 영역은 콘텐츠 실제 비율(틱톡 세로 9:16) 고정 — 슬라이드 높이에 따라 길어지지 않게.
+  const mediaBox: React.CSSProperties = { aspectRatio: "9 / 16", maxHeight: "24em", width: "100%", display: "block", position: "relative", overflow: "hidden" };
   return (
-    <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff", display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff", display: "flex", flexDirection: "column" }}>
       {r.url
-        ? <a href={r.url} target="_blank" rel="noreferrer" style={{ flex: 1, minHeight: 0, display: "block", position: "relative" }} title="콘텐츠 원본 보기">
+        ? <a href={r.url} target="_blank" rel="noreferrer" style={mediaBox} title="콘텐츠 원본 보기">
             {media}
             <span style={{ position: "absolute", right: 6, bottom: 6, background: "rgba(0,0,0,.55)", color: "#fff", fontSize: "0.72em", fontWeight: 700, padding: "2px 7px", borderRadius: 7 }}>▶ 보기</span>
           </a>
-        : <div style={{ flex: 1, minHeight: 0 }}>{media}</div>}
+        : <div style={mediaBox}>{media}</div>}
       <div style={{ padding: "0.7em 0.8em" }}>
         {r.creator && <div style={{ fontWeight: 800, fontSize: "0.92em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.creator}</div>}
         {r.engagement && <div style={{ fontSize: "0.78em", color: "#64748b", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.engagement}</div>}
