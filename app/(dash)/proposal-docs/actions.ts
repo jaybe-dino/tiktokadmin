@@ -5,7 +5,7 @@ import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { aiEnabled, aiText } from "@/lib/ai";
 import { crawlUrl } from "@/lib/brand-crawl";
-import { similarProductContent, glovekZeroDiagnosis } from "@/lib/glovek-content";
+import { similarProductContent, similarContentRefs, glovekZeroDiagnosis } from "@/lib/glovek-content";
 import { categoryTermTiers } from "@/lib/categories";
 import {
   saveProposal, deleteProposal, prefillFromBrand, saveTemplate, getProposalById,
@@ -251,7 +251,7 @@ export async function generateProposalContentAction(proposalId: string): Promise
   if (category) keywords.push(category);
 
   // 3) glovek 유사 제품 콘텐츠 → 콘텐츠 레퍼런스(크리에이터) 초안.
-  const glovek = await similarProductContent(keywords, 8).catch(() => []);
+  const glovek = await similarContentRefs(keywords, 8).catch(() => []);
   const creators: ProposalCreator[] = glovek
     .filter((g) => g.handle || g.name || g.image_url)
     .map((g) => ({
@@ -369,10 +369,10 @@ export async function fillReferencesByCategoryAction(proposalId: string, categor
   }
   if (sources.length === 0) return { ok: false, error: "검색 기준이 없습니다 — 카테고리를 선택하거나 핵심 SKU 제품명을 먼저 넣어주세요." };
 
-  let glovek: Awaited<ReturnType<typeof similarProductContent>> = [];
+  let glovek: Awaited<ReturnType<typeof similarContentRefs>> = [];
   outer: for (const tiers of sources) {
     for (const tier of tiers) {
-      glovek = await similarProductContent(tier, 8).catch(() => []);
+      glovek = await similarContentRefs(tier, 8).catch(() => []);
       if (glovek.length > 0) break outer;
     }
   }

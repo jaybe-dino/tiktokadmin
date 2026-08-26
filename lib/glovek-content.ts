@@ -147,6 +147,88 @@ export async function glovekDataProfile(): Promise<{ configured: boolean; tables
   return { configured, tables };
 }
 
+/** 조회수 표기 — 1234567 → "1.2M". */
+const fmtCount = (n: number): string => {
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(Math.round(n));
+};
+
+/**
+ * glovek.space 방식 콘텐츠 레퍼런스(썸네일 우선) — 실스키마 2단 조회:
+ *   ① products.title/brand_name 키워드 매칭 → ② videos.product_ref 로 연결된 콘텐츠 영상을
+ *   조회수순으로 가져와 썸네일(cover_url)·크리에이터(@handle)·조회수를 채운다.
+ *   (videos 에는 제목 컬럼이 없어 직접 키워드 검색이 불가 — 제품 경유가 정답)
+ *   product_ref/cover_url 컬럼이 없는 스키마면 기존 일반 검색으로 폴백.
+ */
+export async function similarContentRefs(keywords: string[], limit = 8): Promise<GlovekContent[]> {
+  const kw = keywords.map((k) => k.trim()).filter(Boolean).slice(0, 6);
+  if (kw.length === 0) return [];
+  const pCols = await columnsOf("products");
+  const vCols = await columnsOf("videos");
+  const canJoin = pCols.includes("product_id") && vCols.includes("product_ref") && vCols.includes("cover_url");
+  if (!canJoin) return similarProductContent(kw, limit);
+
+  // ① 제품 매칭(title·brand_name ILIKE OR)
+  const params: unknown[] = [];
+  const clauses = kw.map((k) => {
+    params.push(`%${k}%`);
+    return `(title ILIKE $${params.length} OR brand_name ILIKE $${params.length})`;
+  });
+  const prods = await queryRo<{ product_id: string; title: string; brand_name: string | null; image_url: string | null; url: string | null; price: string | null; currency: string | null }>(
+    `SELECT product_id::text AS product_id, title, brand_name, image_url, url, price::text AS price, currency
+       FROM products WHERE ${clauses.join(" OR ")} LIMIT 40`,
+    params,
+  ).catch(() => []);
+  if (prods.length === 0) return similarProductContent(kw, limit);
+  const byId = new Map(prods.map((p) => [p.product_id, p]));
+
+  // ② 연결 영상 — 썸네일 있는 것만, 조회수 내림차순.
+  const vids = await queryRo<{ product_ref: string; handle: string | null; views: string | null; url: string | null; cover_url: string; brand_name: string | null }>(
+    `SELECT product_ref::text AS product_ref, handle, views::text AS views, url, cover_url, brand_name
+       FROM videos
+      WHERE product_ref::text = ANY($1::text[]) AND COALESCE(cover_url,'') <> ''
+      ORDER BY views DESC NULLS LAST LIMIT $2`,
+    [prods.map((p) => p.product_id), limit * 3],
+  ).catch(() => []);
+
+  const out: GlovekContent[] = [];
+  const seen = new Set<string>();
+  for (const v of vids) {
+    const p = byId.get(v.product_ref);
+    const key = `${v.handle ?? ""}·${v.product_ref}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      source: "videos",
+      name: p?.title?.slice(0, 120),
+      brand: v.brand_name ?? p?.brand_name ?? undefined,
+      image_url: v.cover_url,
+      link: v.url ?? p?.url ?? undefined,
+      handle: v.handle ? `@${v.handle.replace(/^@/, "")}` : undefined,
+      gmv: p?.price ? `${p.currency ?? ""}${p.price}`.trim() : undefined,
+      views: fmtCount(Number(v.views ?? 0)) || undefined,
+    });
+    if (out.length >= limit) break;
+  }
+  // 영상이 모자라면 썸네일 있는 제품으로 보충.
+  if (out.length < limit) {
+    for (const p of prods) {
+      if (out.length >= limit) break;
+      if (!p.image_url?.trim()) continue;
+      if (seen.has(`p·${p.product_id}`)) continue;
+      seen.add(`p·${p.product_id}`);
+      out.push({
+        source: "products", name: p.title?.slice(0, 120), brand: p.brand_name ?? undefined,
+        image_url: p.image_url, link: p.url ?? undefined,
+        gmv: p.price ? `${p.currency ?? ""}${p.price}`.trim() : undefined,
+      });
+    }
+  }
+  return out.length > 0 ? out : similarProductContent(kw, limit);
+}
+
 /** glovek DB 의 실제 카테고리 값 목록(videos+products 합산, 건수 내림차순) —
  *  제안서 레퍼런스 검색에서 "실값 그대로 선택"할 수 있게 UI 에 제공. */
 export async function listGlovekCategories(limit = 60): Promise<{ value: string; count: number }[]> {

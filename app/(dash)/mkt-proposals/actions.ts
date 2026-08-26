@@ -9,7 +9,7 @@ import {
   saveMktTemplate, getMktTemplate, deleteMktTemplate,
   type MktProposalInput, type MktTemplateConfig, type MktReferenceItem,
 } from "@/lib/mkt-proposal-doc";
-import { similarProductContent, glovekZeroDiagnosis, listGlovekCategories, glovekDataProfile } from "@/lib/glovek-content";
+import { similarContentRefs, glovekZeroDiagnosis, listGlovekCategories, glovekDataProfile } from "@/lib/glovek-content";
 import { categoryTermTiers } from "@/lib/categories";
 
 type R = { ok: boolean; error?: string };
@@ -125,11 +125,11 @@ export async function fillGlovekMktRefsAction(
 
   let usedLabel = sources[0].label;
   let used: string[] = [];
-  let glovek: Awaited<ReturnType<typeof similarProductContent>> = [];
+  let glovek: Awaited<ReturnType<typeof similarContentRefs>> = [];
   outer: for (const src of sources) {
     for (const tier of src.tiers) {
       usedLabel = src.label; used = tier;
-      glovek = await similarProductContent(tier, 8).catch(() => []);
+      glovek = await similarContentRefs(tier, 8).catch(() => []);
       if (glovek.length > 0) break outer;
     }
   }
