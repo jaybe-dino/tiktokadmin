@@ -339,6 +339,7 @@ function CreatorsEditor({ items, on }: { items: ProposalCreator[]; on: (v: Propo
             <input className="f" value={c.brand ?? ""} onChange={(e) => upd(i, { brand: e.target.value })} placeholder="브랜드(배지, 예: Mediheal)" />
             <input className="f" value={c.product ?? ""} onChange={(e) => upd(i, { product: e.target.value })} placeholder="협업 제품" />
             <input className="f" value={c.thumb_url ?? ""} onChange={(e) => upd(i, { thumb_url: e.target.value })} placeholder="썸네일 URL" />
+            <input className="f" value={c.link ?? ""} onChange={(e) => upd(i, { link: e.target.value })} placeholder="콘텐츠 링크(틱톡 URL)" style={{ gridColumn: "span 2" }} />
             <input className="f" value={c.revenue ?? ""} onChange={(e) => upd(i, { revenue: e.target.value })} placeholder="매출(예: ₩12,000,000)" />
             <input className="f" value={c.roas ?? ""} onChange={(e) => upd(i, { roas: e.target.value })} placeholder="ROAS(예: 4.2x)" />
             <input className="f" value={c.fee_rate ?? ""} onChange={(e) => upd(i, { fee_rate: e.target.value })} placeholder="수수료율(예: 15%)" />

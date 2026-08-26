@@ -184,8 +184,8 @@ export async function similarContentRefs(keywords: string[], limit = 8): Promise
   if (prods.length === 0) return similarProductContent(kw, limit);
   const byId = new Map(prods.map((p) => [p.product_id, p]));
 
-  // ② 연결 영상 — 썸네일 있는 것만, 조회수 내림차순.
-  const vids = await queryRo<{ product_ref: string; handle: string | null; views: string | null; url: string | null; cover_url: string; brand_name: string | null }>(
+  // ② 연결 영상 — product_ref 매칭, 썸네일 있는 것만, 조회수 내림차순.
+  const vids = await queryRo<{ product_ref: string | null; handle: string | null; views: string | null; url: string | null; cover_url: string; brand_name: string | null }>(
     `SELECT product_ref::text AS product_ref, handle, views::text AS views, url, cover_url, brand_name
        FROM videos
       WHERE product_ref::text = ANY($1::text[]) AND COALESCE(cover_url,'') <> ''
@@ -195,10 +195,9 @@ export async function similarContentRefs(keywords: string[], limit = 8): Promise
 
   const out: GlovekContent[] = [];
   const seen = new Set<string>();
-  for (const v of vids) {
-    const p = byId.get(v.product_ref);
-    const key = `${v.handle ?? ""}·${v.product_ref}`;
-    if (seen.has(key)) continue;
+  const pushVideo = (v: { product_ref?: string | null; handle: string | null; views: string | null; url: string | null; cover_url: string; brand_name: string | null }, p?: { title: string; brand_name: string | null; url: string | null; price: string | null; currency: string | null }) => {
+    const key = `v·${v.handle ?? ""}·${v.url ?? v.cover_url}`;
+    if (seen.has(key)) return;
     seen.add(key);
     out.push({
       source: "videos",
@@ -210,18 +209,41 @@ export async function similarContentRefs(keywords: string[], limit = 8): Promise
       gmv: p?.price ? `${p.currency ?? ""}${p.price}`.trim() : undefined,
       views: fmtCount(Number(v.views ?? 0)) || undefined,
     });
+  };
+  for (const v of vids) {
     if (out.length >= limit) break;
+    pushVideo(v, v.product_ref ? byId.get(v.product_ref) : undefined);
   }
-  // 영상이 모자라면 썸네일 있는 제품으로 보충.
+
+  // ②-b product_ref 미연결 스키마/데이터 폴백 — 매칭 제품의 브랜드명으로 영상 검색(썸네일 확보).
   if (out.length < limit) {
+    const brandNames = [...new Set(prods.map((p) => (p.brand_name ?? "").trim().toLowerCase()).filter(Boolean))];
+    if (brandNames.length > 0) {
+      const byBrand = new Map(prods.map((p) => [(p.brand_name ?? "").trim().toLowerCase(), p]));
+      const bvids = await queryRo<{ handle: string | null; views: string | null; url: string | null; cover_url: string; brand_name: string | null }>(
+        `SELECT handle, views::text AS views, url, cover_url, brand_name
+           FROM videos
+          WHERE lower(btrim(brand_name)) = ANY($1::text[]) AND COALESCE(cover_url,'') <> ''
+          ORDER BY views DESC NULLS LAST LIMIT $2`,
+        [brandNames, limit * 3],
+      ).catch(() => []);
+      for (const v of bvids) {
+        if (out.length >= limit) break;
+        pushVideo(v, byBrand.get((v.brand_name ?? "").trim().toLowerCase()));
+      }
+    }
+  }
+
+  // ③ 남으면 제품으로 보충 — 썸네일 있는 제품 먼저, 마지막에 썸네일 없는 제품(8개 채우기).
+  for (const withImage of [true, false]) {
     for (const p of prods) {
       if (out.length >= limit) break;
-      if (!p.image_url?.trim()) continue;
+      if (withImage !== Boolean(p.image_url?.trim())) continue;
       if (seen.has(`p·${p.product_id}`)) continue;
       seen.add(`p·${p.product_id}`);
       out.push({
         source: "products", name: p.title?.slice(0, 120), brand: p.brand_name ?? undefined,
-        image_url: p.image_url, link: p.url ?? undefined,
+        image_url: p.image_url ?? undefined, link: p.url ?? undefined,
         gmv: p.price ? `${p.currency ?? ""}${p.price}`.trim() : undefined,
       });
     }

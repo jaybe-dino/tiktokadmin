@@ -6,6 +6,7 @@ export interface ProposalProduct { name: string; image_url?: string; desc?: stri
 export interface ProposalCreator {
   handle: string; brand?: string; product?: string; revenue?: string; roas?: string;
   fee_rate?: string; engagement?: string; thumb_url?: string; caption?: string;
+  link?: string; // 콘텐츠(틱톡) 링크 — 썸네일 클릭 시 이동
 }
 // v2(레퍼런스 데크) 서브 타입 — 전부 담당자 편집 가능.
 export interface ProposalFeature { title: string; desc?: string }         // 핵심 SKU 특징 카드

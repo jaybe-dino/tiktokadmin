@@ -140,8 +140,9 @@ export async function fillGlovekMktRefsAction(
       product: g.name || undefined,
       gmv: g.gmv || undefined,
       engagement: g.views ? `조회수 ${g.views}` : undefined,
-      desc: [g.brand, g.category, g.link].filter(Boolean).join(" · ").slice(0, 180) || undefined,
+      desc: [g.brand, g.category].filter(Boolean).join(" · ").slice(0, 120) || undefined,
       image_url: g.image_url || undefined,
+      url: g.link || undefined, // 썸네일 클릭 → 틱톡 이동
       // ROAS·수수료 등 성과 지표는 자동 채우지 않음(허위 방지 — 담당자 입력).
     }));
   let note = `${usedLabel}(검색어: ${used.slice(0, 4).join(", ")}${used.length > 4 ? " 외" : ""}) · glovek 유사 콘텐츠 ${refs.length}건`;

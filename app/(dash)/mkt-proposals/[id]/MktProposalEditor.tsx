@@ -418,6 +418,7 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
                 <input className="f" placeholder="수수료" value={r.commission ?? ""} onChange={(e) => setRefs(upd(refs, i, { commission: e.target.value }))} />
               </div>
               <input className="f" placeholder="이미지 URL" value={r.image_url ?? ""} onChange={(e) => setRefs(upd(refs, i, { image_url: e.target.value }))} />
+              <input className="f" placeholder="콘텐츠 링크(틱톡 URL — 썸네일 클릭 시 이동)" value={r.url ?? ""} onChange={(e) => setRefs(upd(refs, i, { url: e.target.value }))} />
               <input className="f" placeholder="설명" value={r.desc ?? ""} onChange={(e) => setRefs(upd(refs, i, { desc: e.target.value }))} />
               <button className="btn sm" onClick={() => setRefs(refs.filter((_, j) => j !== i))} style={{ color: "#e03131", justifySelf: "start" }}>제거</button>
             </div>

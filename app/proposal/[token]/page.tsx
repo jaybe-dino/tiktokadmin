@@ -305,10 +305,17 @@ function CreatorsSection({ d }: { d: ProposalDoc }) {
       <div className="pp-creators">
         {d.creators.map((c, i) => (
           <article key={i} className="pp-creator">
-            <div className="pp-cr-media">
-              {c.thumb_url ? <img src={c.thumb_url} alt={c.handle} /> : <div className="pp-cr-ph" />}
-              {c.thumb_url ? <span className="pp-cr-play">▶</span> : null}
-            </div>
+            {c.link ? (
+              <a className="pp-cr-media" href={c.link} target="_blank" rel="noreferrer" title="콘텐츠 원본 보기" style={{ display: "block" }}>
+                {c.thumb_url ? <img src={c.thumb_url} alt={c.handle} /> : <div className="pp-cr-ph" />}
+                <span className="pp-cr-play">▶</span>
+              </a>
+            ) : (
+              <div className="pp-cr-media">
+                {c.thumb_url ? <img src={c.thumb_url} alt={c.handle} /> : <div className="pp-cr-ph" />}
+                {c.thumb_url ? <span className="pp-cr-play">▶</span> : null}
+              </div>
+            )}
             <div className="pp-cr-body">
               <div className="pp-cr-head">
                 {(c.brand || c.product) ? <span className="pp-cr-brand">{c.brand || c.product}</span> : null}

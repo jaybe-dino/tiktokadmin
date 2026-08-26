@@ -76,8 +76,9 @@ export async function POST(req: NextRequest) {
           creator: v.creator ? `@${v.creator.replace(/^@/, "")}` : "",
           product: p.name,
           engagement: `조회수 ${formatCount(v.playCount)}`,
-          desc: [v.caption, v.url].filter(Boolean).join(" · ").slice(0, 180),
+          desc: (v.caption ?? "").slice(0, 120),
           image_url: url,
+          url: v.url || undefined, // 썸네일 클릭 → 틱톡 영상
         });
         added++;
       }
@@ -100,8 +101,9 @@ export async function POST(req: NextRequest) {
         refs.push({
           product: it.title,
           gmv: it.price || undefined,
-          desc: `TikTok Shop 유사 제품${it.shopName ? ` · ${it.shopName}` : ""}${it.url ? ` · ${it.url}` : ""}`.slice(0, 180),
+          desc: `TikTok Shop 유사 제품${it.shopName ? ` · ${it.shopName}` : ""}`.slice(0, 120),
           image_url: url || undefined,
+          url: it.url || undefined, // 썸네일 클릭 → 틱톡샵 상품
         });
         added++;
       }

@@ -259,6 +259,7 @@ export async function generateProposalContentAction(proposalId: string): Promise
       brand: g.brand,
       product: g.name,
       thumb_url: g.image_url,
+      link: g.link, // 썸네일 클릭 → 콘텐츠 원본
       caption: g.name || g.category,
       // 매출·ROAS·수수료율·참여율 등 성과 지표는 단위/통화를 확신할 수 없어 자동 채우지 않음(담당자 입력).
     }));
@@ -383,6 +384,7 @@ export async function fillReferencesByCategoryAction(proposalId: string, categor
       brand: g.brand,
       product: g.name,
       thumb_url: g.image_url, // glovek 썸네일
+      link: g.link, // 썸네일 클릭 → 콘텐츠 원본
       caption: g.name || g.category,
       // 매출·ROAS 등 지표는 자동 채우지 않음(허위 방지).
     }));

@@ -7,6 +7,7 @@ export interface MktProductItem { name: string; name_en?: string; volume?: strin
 export interface MktReferenceItem {
   creator?: string; product?: string; gmv?: string; roas?: string;
   commission?: string; engagement?: string; desc?: string; image_url?: string;
+  url?: string; // 콘텐츠(틱톡 영상/샵) 링크 — 썸네일 클릭 시 이동
 }
 
 export interface MktProposalDocRow {

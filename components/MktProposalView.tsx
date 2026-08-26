@@ -327,12 +327,19 @@ function ProductCard({ p, n, accent }: { p: MktProductItem; n: number; accent: s
   );
 }
 function RefCard({ r, accent }: { r: MktReferenceItem; accent: string }) {
+  // 썸네일 클릭 → 콘텐츠(틱톡) 원본으로 이동. 링크 없으면 일반 이미지.
+  const media = r.image_url
+    // eslint-disable-next-line @next/next/no-img-element
+    ? <img src={normalizeImageUrl(r.image_url)} alt={r.creator ?? ""} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", background: "#f1f5f9" }} />
+    : <div style={{ height: "100%", background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.85em" }}>@{r.creator || "creator"}</div>;
   return (
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff", display: "flex", flexDirection: "column", minHeight: 0 }}>
-      {r.image_url
-        // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={normalizeImageUrl(r.image_url)} alt={r.creator ?? ""} style={{ width: "100%", flex: 1, objectFit: "cover", display: "block", background: "#f1f5f9", minHeight: 0 }} />
-        : <div style={{ flex: 1, background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.85em" }}>@{r.creator || "creator"}</div>}
+      {r.url
+        ? <a href={r.url} target="_blank" rel="noreferrer" style={{ flex: 1, minHeight: 0, display: "block", position: "relative" }} title="콘텐츠 원본 보기">
+            {media}
+            <span style={{ position: "absolute", right: 6, bottom: 6, background: "rgba(0,0,0,.55)", color: "#fff", fontSize: "0.72em", fontWeight: 700, padding: "2px 7px", borderRadius: 7 }}>▶ 보기</span>
+          </a>
+        : <div style={{ flex: 1, minHeight: 0 }}>{media}</div>}
       <div style={{ padding: "0.7em 0.8em" }}>
         {r.creator && <div style={{ fontWeight: 800, fontSize: "0.92em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.creator}</div>}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 4, alignItems: "center" }}>
