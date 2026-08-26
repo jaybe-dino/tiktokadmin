@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { queryOne } from "@/lib/db";
 import { normalizeImageUrl } from "@/lib/asset-url";
-import { fetchExternalImage } from "@/lib/image-fetch";
+import { fetchExternalImage, fetchTikTokOembedThumb } from "@/lib/image-fetch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,32 +30,36 @@ function placeholder(): NextResponse {
 
 const asArray = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
 
-/** 토큰 → 문서에 실제 포함된 이미지 URL 목록(원문+정규화형 모두) + 브랜드. 운영 제안서 → 마케팅 제안서 순. */
-async function allowedForToken(token: string): Promise<{ brandId: string | null; allowed: Set<string> } | null> {
-  const push = (set: Set<string>, u: unknown) => {
+/** 토큰 → 문서에 실제 포함된 이미지 URL 목록(원문+정규화형 모두) + 이미지→콘텐츠(영상) 링크 매핑 + 브랜드.
+ *  linkFor 는 서명 만료된 틱톡 커버를 oEmbed 로 재조회할 때 사용. 운영 제안서 → 마케팅 제안서 순. */
+async function allowedForToken(token: string): Promise<{ brandId: string | null; allowed: Set<string>; linkFor: Map<string, string> } | null> {
+  const allowed = new Set<string>();
+  const linkFor = new Map<string, string>();
+  const push = (u: unknown, link?: unknown) => {
     const raw = typeof u === "string" ? u.trim() : "";
     if (!raw) return;
-    set.add(raw);
-    set.add(normalizeImageUrl(raw));
+    const norm = normalizeImageUrl(raw);
+    allowed.add(raw);
+    allowed.add(norm);
+    const l = typeof link === "string" ? link.trim() : "";
+    if (l) { linkFor.set(raw, l); linkFor.set(norm, l); }
   };
   const ops = await queryOne<{ brand_id: string | null; brand_logo_url: string | null; products: unknown; creators: unknown }>(
     "SELECT brand_id, brand_logo_url, products, creators FROM proposal_docs WHERE token=$1", [token],
   ).catch(() => null);
   if (ops) {
-    const allowed = new Set<string>();
-    push(allowed, ops.brand_logo_url);
-    for (const p of asArray(ops.products)) push(allowed, p.image_url);
-    for (const c of asArray(ops.creators)) push(allowed, c.thumb_url);
-    return { brandId: ops.brand_id, allowed };
+    push(ops.brand_logo_url);
+    for (const p of asArray(ops.products)) push(p.image_url);
+    for (const c of asArray(ops.creators)) push(c.thumb_url, c.link);
+    return { brandId: ops.brand_id, allowed, linkFor };
   }
   const mkt = await queryOne<{ brand_id: string | null; products_json: unknown; references_json: unknown }>(
     "SELECT brand_id, products_json, references_json FROM mkt_proposal_docs WHERE token=$1", [token],
   ).catch(() => null);
   if (mkt) {
-    const allowed = new Set<string>();
-    for (const p of asArray(mkt.products_json)) push(allowed, p.image_url);
-    for (const r of asArray(mkt.references_json)) push(allowed, r.image_url);
-    return { brandId: mkt.brand_id, allowed };
+    for (const p of asArray(mkt.products_json)) push(p.image_url);
+    for (const r of asArray(mkt.references_json)) push(r.image_url, r.url);
+    return { brandId: mkt.brand_id, allowed, linkFor };
   }
   return null;
 }
@@ -82,23 +86,37 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     }
   }
 
+  const cacheAndServe = async (img: { bytes: Buffer; mime: string }) => {
+    if (doc.brandId) {
+      const sha = createHash("sha256").update(img.bytes).digest("hex");
+      await queryOne(
+        `INSERT INTO import_files (brand_id, doc_field, filename, mime, size, sha256, bytes)
+         VALUES ($1,'web_img',$2,$3,$4,$5,$6)
+         ON CONFLICT (brand_id, filename) DO UPDATE SET bytes=EXCLUDED.bytes, mime=EXCLUDED.mime, size=EXCLUDED.size, sha256=EXCLUDED.sha256`,
+        [doc.brandId, cacheName, img.mime, img.bytes.length, sha, img.bytes],
+      ).catch((e) => console.error("[proposal-img] cache:", (e as Error).message));
+    }
+    return new NextResponse(new Uint8Array(img.bytes), {
+      headers: { "Content-Type": img.mime, "Cache-Control": "public, max-age=86400" },
+    });
+  };
+
   // 2) 원본 다운로드(서버 → 브라우저 UA·Referer 정책) → 캐시 저장 → 응답.
   const img = await fetchExternalImage(u);
-  if (!img) {
-    // 서버 fetch 가 차단돼도(틱톡 CDN 봇 차단 등) 브라우저 직접 로드는 되는 경우가 많다
-    // (페이지 <img> 가 no-referrer 라 glovek.space 와 동일 경로) — 원본으로 리다이렉트해 표시 우선.
-    return NextResponse.redirect(u, { status: 302, headers: { "Cache-Control": "public, max-age=300" } });
+  if (img) return cacheAndServe(img);
+
+  // 3) 서명 만료(x-expires) 보정 — 이미지에 연결된 틱톡 영상 링크가 있으면 oEmbed 로
+  //    "현재 유효한" 썸네일 URL 을 재조회해 받고 영구 캐시(glovek 제안 ② 의 oEmbed 폴백과 동일).
+  const pageUrl = doc.linkFor.get(u);
+  if (pageUrl) {
+    const fresh = await fetchTikTokOembedThumb(pageUrl);
+    if (fresh) {
+      const img2 = await fetchExternalImage(fresh);
+      if (img2) return cacheAndServe(img2);
+    }
   }
-  if (doc.brandId) {
-    const sha = createHash("sha256").update(img.bytes).digest("hex");
-    await queryOne(
-      `INSERT INTO import_files (brand_id, doc_field, filename, mime, size, sha256, bytes)
-       VALUES ($1,'web_img',$2,$3,$4,$5,$6)
-       ON CONFLICT (brand_id, filename) DO UPDATE SET bytes=EXCLUDED.bytes, mime=EXCLUDED.mime, size=EXCLUDED.size, sha256=EXCLUDED.sha256`,
-      [doc.brandId, cacheName, img.mime, img.bytes.length, sha, img.bytes],
-    ).catch((e) => console.error("[proposal-img] cache:", (e as Error).message));
-  }
-  return new NextResponse(new Uint8Array(img.bytes), {
-    headers: { "Content-Type": img.mime, "Cache-Control": "public, max-age=86400" },
-  });
+
+  // 4) 서버 fetch 가 전부 차단돼도 브라우저 직접 로드는 되는 경우가 많다
+  //    (페이지 <img> 가 no-referrer 라 glovek.space 와 동일 경로) — 원본으로 리다이렉트해 표시 우선.
+  return NextResponse.redirect(u, { status: 302, headers: { "Cache-Control": "public, max-age=300" } });
 }

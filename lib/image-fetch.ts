@@ -2,6 +2,27 @@
 //   핫링크 차단(Referer 검사) 호스트 대응: 기본은 원본 도메인을 Referer 로, 틱톡 CDN 은 tiktok.com 을 보낸다.
 //   이미지 MIME 만 허용(HTML 오류페이지·비이미지 차단), 8MB 상한, 실패 시 null.
 
+/** 틱톡 oEmbed 로 영상의 "현재 유효한" 썸네일 URL 재조회 — cover_url 서명 만료(x-expires) 보정용.
+ *  공개 API(인증 불필요): https://www.tiktok.com/oembed?url=<영상URL> → thumbnail_url */
+export async function fetchTikTokOembedThumb(videoUrl: string, timeoutMs = 8_000): Promise<string | null> {
+  try {
+    const u = new URL(videoUrl);
+    if (!/tiktok\.com$/i.test(u.hostname.replace(/^www\./, ""))) return null;
+  } catch { return null; }
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    const res = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`, {
+      signal: ctl.signal,
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" },
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return null;
+    const json = (await res.json().catch(() => null)) as { thumbnail_url?: string } | null;
+    const t = (json?.thumbnail_url ?? "").trim();
+    return /^https?:\/\//i.test(t) ? t : null;
+  } catch { return null; }
+}
+
 export async function fetchExternalImage(
   url: string,
   timeoutMs = 8_000,
