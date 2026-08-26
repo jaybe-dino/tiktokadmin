@@ -1,4 +1,7 @@
+"use client";
 // 마케팅 제안서 렌더 — A4 가로 고정비율 슬라이드(화면=PDF 동일 레이아웃). 순수, db 의존 없음.
+//   (클라이언트 컴포넌트 — 이미지 로드 실패 시 placeholder 전환(onError) 때문. 데이터는 전부 props.)
+import { useState } from "react";
 import {
   computeBudgetPlan, wonMan, COUNTRY_CALENDAR, COUNTRY_LABEL, PHASE_RATIO, PHASE_MEANING,
   type MktCountry, type Phase,
@@ -327,11 +330,13 @@ function ProductCard({ p, n, accent }: { p: MktProductItem; n: number; accent: s
   );
 }
 function RefCard({ r, accent }: { r: MktReferenceItem; accent: string }) {
-  // 썸네일 클릭 → 콘텐츠(틱톡) 원본으로 이동. 링크 없으면 일반 이미지.
-  const media = r.image_url
+  // 이미지 로드 실패(만료 URL 등) 시 액박 대신 크리에이터 placeholder 로 전환.
+  const [broken, setBroken] = useState(false);
+  const media = r.image_url && !broken
     // referrerPolicy: 틱톡 CDN 은 타 사이트 Referer 가 붙으면 403 — glovek.space 처럼 no-referrer 로 로드.
     // eslint-disable-next-line @next/next/no-img-element
-    ? <img src={normalizeImageUrl(r.image_url)} alt={r.creator ?? ""} referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", background: "#f1f5f9" }} />
+    ? <img src={normalizeImageUrl(r.image_url)} alt={r.creator ?? ""} referrerPolicy="no-referrer" loading="lazy" onError={() => setBroken(true)}
+        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", background: "#f1f5f9" }} />
     : <div style={{ height: "100%", background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.85em" }}>@{r.creator || "creator"}</div>;
   return (
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff", display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -343,6 +348,7 @@ function RefCard({ r, accent }: { r: MktReferenceItem; accent: string }) {
         : <div style={{ flex: 1, minHeight: 0 }}>{media}</div>}
       <div style={{ padding: "0.7em 0.8em" }}>
         {r.creator && <div style={{ fontWeight: 800, fontSize: "0.92em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.creator}</div>}
+        {r.engagement && <div style={{ fontSize: "0.78em", color: "#64748b", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.engagement}</div>}
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 4, alignItems: "center" }}>
           {r.gmv && <span style={{ background: accent, color: "#fff", fontSize: "0.82em", fontWeight: 800, padding: "2px 7px", borderRadius: 7 }}>{r.gmv}</span>}
           {r.roas && <span style={{ fontSize: "0.8em", color: "#475569" }}>ROAS <b>{r.roas}</b></span>}

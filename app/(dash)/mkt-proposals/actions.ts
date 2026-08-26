@@ -139,7 +139,11 @@ export async function fillGlovekMktRefsAction(
       creator: g.handle || undefined,
       product: g.name || undefined,
       gmv: g.gmv || undefined,
-      engagement: g.views ? `조회수 ${g.views}` : undefined,
+      // 지표 묶음 — 조회수·좋아요·댓글·공유(있는 것만).
+      engagement: [
+        g.views ? `조회수 ${g.views}` : "", g.likes ? `♥ ${g.likes}` : "",
+        g.comments ? `댓글 ${g.comments}` : "", g.shares ? `공유 ${g.shares}` : "",
+      ].filter(Boolean).join(" · ") || undefined,
       desc: [g.brand, g.category].filter(Boolean).join(" · ").slice(0, 120) || undefined,
       image_url: g.image_url || undefined,
       url: g.link || undefined, // 썸네일 클릭 → 틱톡 이동

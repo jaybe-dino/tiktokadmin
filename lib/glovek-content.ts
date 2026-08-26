@@ -15,6 +15,9 @@ export interface GlovekContent {
   handle?: string;
   gmv?: string;
   views?: string;
+  likes?: string;
+  comments?: string;
+  shares?: string;
 }
 
 // 테이블별 컬럼 캐시(요청 수명 내 재사용).
@@ -184,9 +187,11 @@ export async function similarContentRefs(keywords: string[], limit = 8): Promise
   if (prods.length === 0) return similarProductContent(kw, limit);
   const byId = new Map(prods.map((p) => [p.product_id, p]));
 
-  // ② 연결 영상 — product_ref 매칭, 썸네일 있는 것만, 조회수 내림차순.
-  const vids = await queryRo<{ product_ref: string | null; handle: string | null; views: string | null; url: string | null; cover_url: string; brand_name: string | null }>(
-    `SELECT product_ref::text AS product_ref, handle, views::text AS views, url, cover_url, brand_name
+  // ② 연결 영상 — product_ref 매칭, 썸네일 있는 것만, 조회수 내림차순. 지표(조회·좋아요·댓글·공유) 포함.
+  type VideoRow = { product_ref?: string | null; handle: string | null; views: string | null; likes: string | null; comments: string | null; shares: string | null; url: string | null; cover_url: string; brand_name: string | null };
+  const vids = await queryRo<VideoRow>(
+    `SELECT product_ref::text AS product_ref, handle, views::text AS views, likes::text AS likes,
+            comments::text AS comments, shares::text AS shares, url, cover_url, brand_name
        FROM videos
       WHERE product_ref::text = ANY($1::text[]) AND COALESCE(cover_url,'') <> ''
       ORDER BY views DESC NULLS LAST LIMIT $2`,
@@ -195,7 +200,7 @@ export async function similarContentRefs(keywords: string[], limit = 8): Promise
 
   const out: GlovekContent[] = [];
   const seen = new Set<string>();
-  const pushVideo = (v: { product_ref?: string | null; handle: string | null; views: string | null; url: string | null; cover_url: string; brand_name: string | null }, p?: { title: string; brand_name: string | null; url: string | null; price: string | null; currency: string | null }) => {
+  const pushVideo = (v: VideoRow, p?: { title: string; brand_name: string | null; url: string | null; price: string | null; currency: string | null }) => {
     const key = `v·${v.handle ?? ""}·${v.url ?? v.cover_url}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -208,6 +213,9 @@ export async function similarContentRefs(keywords: string[], limit = 8): Promise
       handle: v.handle ? `@${v.handle.replace(/^@/, "")}` : undefined,
       gmv: p?.price ? `${p.currency ?? ""}${p.price}`.trim() : undefined,
       views: fmtCount(Number(v.views ?? 0)) || undefined,
+      likes: fmtCount(Number(v.likes ?? 0)) || undefined,
+      comments: fmtCount(Number(v.comments ?? 0)) || undefined,
+      shares: fmtCount(Number(v.shares ?? 0)) || undefined,
     });
   };
   for (const v of vids) {
@@ -220,8 +228,9 @@ export async function similarContentRefs(keywords: string[], limit = 8): Promise
     const brandNames = [...new Set(prods.map((p) => (p.brand_name ?? "").trim().toLowerCase()).filter(Boolean))];
     if (brandNames.length > 0) {
       const byBrand = new Map(prods.map((p) => [(p.brand_name ?? "").trim().toLowerCase(), p]));
-      const bvids = await queryRo<{ handle: string | null; views: string | null; url: string | null; cover_url: string; brand_name: string | null }>(
-        `SELECT handle, views::text AS views, url, cover_url, brand_name
+      const bvids = await queryRo<VideoRow>(
+        `SELECT handle, views::text AS views, likes::text AS likes, comments::text AS comments,
+                shares::text AS shares, url, cover_url, brand_name
            FROM videos
           WHERE lower(btrim(brand_name)) = ANY($1::text[]) AND COALESCE(cover_url,'') <> ''
           ORDER BY views DESC NULLS LAST LIMIT $2`,

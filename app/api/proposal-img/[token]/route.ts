@@ -116,7 +116,14 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     }
   }
 
-  // 4) 서버 fetch 가 전부 차단돼도 브라우저 직접 로드는 되는 경우가 많다
-  //    (페이지 <img> 가 no-referrer 라 glovek.space 와 동일 경로) — 원본으로 리다이렉트해 표시 우선.
+  // 4) 서명 만료가 확정된 URL(x-expires 과거)은 브라우저도 못 여니 리다이렉트 대신 placeholder.
+  //    그 외에는 원본으로 302 — 페이지 <img> 가 no-referrer 라 브라우저 직접 로드는 되는 경우가 많다.
+  const expired = (() => {
+    try {
+      const t = Number(new URL(u).searchParams.get("x-expires"));
+      return Number.isFinite(t) && t > 0 && t * 1000 < Date.now();
+    } catch { return false; }
+  })();
+  if (expired) return placeholder();
   return NextResponse.redirect(u, { status: 302, headers: { "Cache-Control": "public, max-age=300" } });
 }

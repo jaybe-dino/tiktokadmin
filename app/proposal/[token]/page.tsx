@@ -328,7 +328,7 @@ function CreatorsSection({ d }: { d: ProposalDoc }) {
               <div className="pp-cr-metrics">
                 {c.roas ? <div><span>ROAS</span><b>{c.roas}</b></div> : null}
                 {c.fee_rate ? <div><span>수수료율</span><b>{c.fee_rate}</b></div> : null}
-                {c.engagement ? <div><span>참여율</span><b>{c.engagement}</b></div> : null}
+                {c.engagement ? <div><span>지표</span><b style={{ fontSize: 13 }}>{c.engagement}</b></div> : null}
               </div>
             </div>
           </article>
