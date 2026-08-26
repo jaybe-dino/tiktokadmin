@@ -276,12 +276,12 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
           </Slide>
         )}
 
-        {/* 레퍼런스 (8개/슬라이드 = 4×2) */}
-        {chunk(refs, 8).map((grp, gi) => (
+        {/* 레퍼런스 — 기본 4개/슬라이드(1행 4열, 세로형 썸네일이 크게 보이도록). 4개 초과 시 장수 자동 추가. */}
+        {chunk(refs, 4).map((grp, gi, all) => (
           <Slide key={`ref-${gi}`} accent={accent}>
             <Pad>
-              <Head accent={accent} kicker="REFERENCE" title={`크리에이터 콘텐츠 실측 레퍼런스${chunk(refs, 8).length > 1 ? ` (${gi + 1})` : ""}`} />
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gridTemplateRows: "1fr 1fr", gap: 12, marginTop: 14, height: "calc(100% - 80px)" }}>
+              <Head accent={accent} kicker="REFERENCE" title={`크리에이터 콘텐츠 실측 레퍼런스${all.length > 1 ? ` (${gi + 1}/${all.length})` : ""}`} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginTop: 14, height: "calc(100% - 80px)" }}>
                 {grp.map((r, i) => <RefCard key={i} r={r} accent={accent} />)}
               </div>
             </Pad>
