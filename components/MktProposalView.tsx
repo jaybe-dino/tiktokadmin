@@ -330,7 +330,7 @@ function ProductCard({ p, n, accent }: { p: MktProductItem; n: number; accent: s
     </div>
   );
 }
-function RefCard({ r, accent }: { r: MktReferenceItem; accent: string }) {
+export function RefCard({ r, accent }: { r: MktReferenceItem; accent: string }) {
   // 이미지 로드 실패(만료 URL 등) 시 액박 대신 크리에이터 placeholder 로 전환.
   const [broken, setBroken] = useState(false);
   const media = r.image_url && !broken

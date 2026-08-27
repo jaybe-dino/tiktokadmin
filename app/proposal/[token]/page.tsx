@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { getProposalByToken, defaultTemplate, type ProposalDoc, type ProposalTemplate } from "@/lib/proposal-doc";
 import { proposalImageUrl } from "@/lib/asset-url";
 import PrintBar from "./PrintBar";
-import OpsCreatorMedia from "@/components/OpsCreatorMedia";
+import { RefCard } from "@/components/MktProposalView";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +63,7 @@ export default async function ProposalPage({ params, searchParams }: { params: P
     operations: <OperationsSection key="operations" d={d} />,
     kpi: <KpiSection key="kpi" d={d} />,
     addon: <AddonSection key="addon" d={d} />,
-    creators: <CreatorsSection key="creators" d={d} />,
+    creators: <CreatorsSection key="creators" d={d} accent={accent} />,
     closing: <Closing key="closing" d={d} agency={agency} tpl={tpl} />,
   };
 
@@ -299,30 +299,18 @@ function AddonSection({ d }: { d: ProposalDoc }) {
   );
 }
 
-// ── 레퍼런스 케이스 ──
-function CreatorsSection({ d }: { d: ProposalDoc }) {
+// ── 레퍼런스 케이스 — 마케팅 데크와 "동일한 컴포넌트(RefCard)"로 렌더(이미지 로직 단일화). ──
+function CreatorsSection({ d, accent }: { d: ProposalDoc; accent: string }) {
   if (d.creators.length === 0) return null;
   return (
     <section className="pp-page">
       <Eyebrow small="REFERENCE CASES" title="크리에이터 콘텐츠 레퍼런스" />
-      <div className="pp-creators">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 16 }}>
         {d.creators.map((c, i) => (
-          <article key={i} className="pp-creator">
-            <OpsCreatorMedia thumb={c.thumb_url} link={c.link} handle={c.handle} />
-            <div className="pp-cr-body">
-              <div className="pp-cr-head">
-                {(c.brand || c.product) ? <span className="pp-cr-brand">{c.brand || c.product}</span> : null}
-                <b>{c.handle}</b>
-              </div>
-              {c.revenue ? <div className="pp-cr-rev"><b>{c.revenue}</b> 매출</div> : null}
-              {c.caption ? <div className="pp-cr-cap">{c.caption}</div> : null}
-              <div className="pp-cr-metrics">
-                {c.roas ? <div><span>ROAS</span><b>{c.roas}</b></div> : null}
-                {c.fee_rate ? <div><span>수수료율</span><b>{c.fee_rate}</b></div> : null}
-                {c.engagement ? <div><span>지표</span><b style={{ fontSize: 13 }}>{c.engagement}</b></div> : null}
-              </div>
-            </div>
-          </article>
+          <RefCard key={i} accent={accent} r={{
+            creator: c.handle, product: c.brand || c.product, gmv: c.revenue, roas: c.roas,
+            engagement: c.engagement, image_url: c.thumb_url, url: c.link,
+          }} />
         ))}
       </div>
     </section>
