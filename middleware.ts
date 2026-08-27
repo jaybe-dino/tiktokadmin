@@ -17,6 +17,9 @@ export function middleware(req: NextRequest) {
   if (ph && host === ph) {
     const allowed = pathname.startsWith("/apply") || pathname.startsWith("/api/apply") ||
       pathname.startsWith("/_next") || pathname.startsWith("/proposal/") || pathname.startsWith("/mkt-proposal/") || pathname === "/favicon.ico" ||
+      // 공개 제안서의 이미지 서빙 경로 — 제안서 페이지가 이 호스트로 발급되므로 함께 허용해야
+      // 썸네일이 뜬다(각 라우트가 토큰→문서→브랜드 일치 + image/* MIME 만 자체 검증).
+      pathname.startsWith("/api/proposal-asset/") || pathname.startsWith("/api/proposal-img/") ||
       pathname.startsWith("/faq") ||   // 외부 공개 FAQ(QnA) — 포털 호스트에서 열람 허용
       // 토큰(CRON_SECRET) 보호 마이그레이션 엔드포인트 — 포털 호스트에서도 접근 허용(스키마 반영용).
       pathname.startsWith("/api/admin/migrate");
