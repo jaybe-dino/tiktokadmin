@@ -37,3 +37,21 @@ describe("asset-url (제안서 이미지 URL 정리)", () => {
     expect(proposalImageUrl(null, "tok1")).toBe("");
   });
 });
+
+// 썸네일 칸에 틱톡 "영상 링크" 를 넣는 수기 입력 패턴 판별(재조회 경로 트리거).
+import { tiktokPageUrl } from "../lib/image-fetch";
+describe("tiktokPageUrl (영상 페이지 URL 판별)", () => {
+  it("영상 페이지·공유 단축 링크는 그대로 반환", () => {
+    const v = "https://www.tiktok.com/@user1/video/7637646582816541966?is_from_webapp=1";
+    expect(tiktokPageUrl(v)).toBe(v);
+    expect(tiktokPageUrl("https://vm.tiktok.com/ZS9abc/")).toBe("https://vm.tiktok.com/ZS9abc/");
+    expect(tiktokPageUrl("https://www.tiktok.com/t/ZT8xyz/")).toBe("https://www.tiktok.com/t/ZT8xyz/");
+  });
+  it("이미지 CDN·타 도메인·내부 경로는 null", () => {
+    expect(tiktokPageUrl("https://p16-sign-sg.tiktokcdn.com/obj/cover.jpg?x-expires=1")).toBeNull();
+    expect(tiktokPageUrl("https://example.com/@a/video/1234567")).toBeNull();
+    expect(tiktokPageUrl("/api/brand/import-file/12345678-1234-1234-1234-123456789abc")).toBeNull();
+    expect(tiktokPageUrl("")).toBeNull();
+    expect(tiktokPageUrl(null)).toBeNull();
+  });
+});

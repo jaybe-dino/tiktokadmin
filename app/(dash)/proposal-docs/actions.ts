@@ -155,13 +155,26 @@ export async function pinProposalImagesAction(docId: string): Promise<{
   if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
   if (!doc.brand_id) return { ok: false, error: "브랜드가 연결되지 않은 제안서입니다 — 브랜드 연결 후 실행하세요." };
   const { pinExternalImage, verifyInternalImage } = await import("@/lib/ref-pin");
+  const { tiktokPageUrl } = await import("@/lib/image-fetch");
   const ext = (v?: string | null) => Boolean(v && /^https?:\/\//i.test(v));
   const dead: string[] = [];
   let fixed = 0, healed = 0, okCnt = 0;
 
   // 외부 URL 은 내려받아 저장, 내부 경로는 공개 프록시 서빙 조건(존재·브랜드 일치·image/*)을
   // 검증하고 어긋나면 복구 — "이미 내부 경로라 0건" 이면서 실제로는 안 뜨던 케이스를 여기서 잡는다.
-  const handle = async (label: string, url: string | null | undefined, link: string | null | undefined, setUrl: (u: string) => void) => {
+  // 썸네일 칸에 틱톡 "영상 링크" 가 들어온 수기 입력은 링크 칸으로 옮기고 실제 썸네일을 재조회한다.
+  const handle = async (
+    label: string, url: string | null | undefined, link: string | null | undefined,
+    setUrl: (u: string) => void, setLink?: (u: string) => void,
+  ) => {
+    const page = tiktokPageUrl(url);
+    if (page && !(link ?? "").trim() && setLink) { link = page; setLink(page); }
+    if (!(url ?? "").trim() && ext(link)) {
+      // 썸네일이 비어 있어도 영상 링크가 있으면 현재 유효한 썸네일을 받아 채운다.
+      const pinned = await pinExternalImage(doc.brand_id!, link, link);
+      if (pinned) { setUrl(pinned); fixed++; } else dead.push(`${label} — 썸네일 재조회 실패`);
+      return;
+    }
     if (ext(url)) {
       const pinned = await pinExternalImage(doc.brand_id!, url, link);
       if (pinned) { setUrl(pinned); fixed++; } else dead.push(label);
@@ -175,7 +188,8 @@ export async function pinProposalImagesAction(docId: string): Promise<{
 
   const creators = doc.creators.map((c) => ({ ...c }));
   await Promise.all(creators.map((c) =>
-    handle(`레퍼런스 ${c.handle || c.product || "?"}`, c.thumb_url, c.link, (v) => { c.thumb_url = v; })));
+    handle(`레퍼런스 ${c.handle || c.product || "?"}`, c.thumb_url, c.link,
+      (v) => { c.thumb_url = v; }, (v) => { c.link = v; })));
   const products = doc.products.map((pr) => ({ ...pr }));
   await Promise.all(products.map((pr) =>
     handle(`제품 ${pr.name}`, pr.image_url, null, (v) => { pr.image_url = v; })));

@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { queryOne } from "@/lib/db";
 import { normalizeImageUrl } from "@/lib/asset-url";
-import { fetchExternalImage, fetchTikTokOembedThumb } from "@/lib/image-fetch";
+import { fetchExternalImage, fetchTikTokOembedThumb, tiktokPageUrl } from "@/lib/image-fetch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,12 +102,15 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   };
 
   // 2) 원본 다운로드(서버 → 브라우저 UA·Referer 정책) → 캐시 저장 → 응답.
-  const img = await fetchExternalImage(u);
+  //    단, 썸네일 칸에 틱톡 "영상 링크" 가 들어온 경우(수기 입력 패턴)는 HTML 페이지라 건너뛰고
+  //    그 링크 자체를 pageUrl 삼아 3) 재조회 경로로 실제 썸네일을 받는다.
+  const uPage = tiktokPageUrl(u);
+  const img = uPage ? null : await fetchExternalImage(u);
   if (img) return cacheAndServe(img);
 
   // 3) 서명 만료(x-expires) 보정 — 이미지에 연결된 틱톡 영상 링크가 있으면 oEmbed 로
   //    "현재 유효한" 썸네일 URL 을 재조회해 받고 영구 캐시(glovek 제안 ② 의 oEmbed 폴백과 동일).
-  const pageUrl = doc.linkFor.get(u);
+  const pageUrl = doc.linkFor.get(u) ?? uPage ?? undefined;
   if (pageUrl) {
     // 보정 ①: glovek DB 의 "현재" cover_url 재조회(크롤러 재수집분 — glovek.space 가 항상 뜨는 경로).
     const { latestGlovekCover } = await import("@/lib/glovek-content");
@@ -132,6 +135,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
       return Number.isFinite(t) && t > 0 && t * 1000 < Date.now();
     } catch { return false; }
   })();
-  if (expired) return placeholder();
+  //    영상 페이지 URL 은 <img> 가 HTML 을 못 그리므로 리다이렉트해도 항상 깨진다 — placeholder.
+  if (expired || uPage) return placeholder();
   return NextResponse.redirect(u, { status: 302, headers: { "Cache-Control": "public, max-age=300" } });
 }

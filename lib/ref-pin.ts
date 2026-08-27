@@ -4,7 +4,7 @@
 //   실패 시(원본 만료 + oEmbed 재조회도 실패) null — 호출부는 원본 URL 을 유지한다.
 import { createHash } from "node:crypto";
 import { queryOne } from "./db";
-import { fetchExternalImage, fetchTikTokOembedThumb } from "./image-fetch";
+import { fetchExternalImage, fetchTikTokOembedThumb, tiktokPageUrl } from "./image-fetch";
 
 export type InternalImageCheck =
   | { status: "ok" }
@@ -69,20 +69,24 @@ export async function pinExternalImage(
 ): Promise<string | null> {
   const src = (imageUrl ?? "").trim();
   if (!src || !/^https?:\/\//i.test(src)) return null;
-  let img = await fetchExternalImage(src, 6_000);
-  if (!img && pageUrl) {
+  // 썸네일 칸에 틱톡 "영상 링크" 가 들어온 경우 — 이미지가 아니므로 직접 fetch 를 건너뛰고
+  // 그 링크를 pageUrl 삼아 재조회 경로(glovek 현재 커버 → oEmbed)로 실제 썸네일을 받는다.
+  const srcPage = tiktokPageUrl(src);
+  const page = (pageUrl ?? "").trim() || srcPage;
+  let img = srcPage ? null : await fetchExternalImage(src, 6_000);
+  if (!img && page) {
     // 서명 만료 커버 보정 ①: glovek DB 의 "현재" cover_url 재조회(크롤러 재수집분 — 가장 확실).
     const { latestGlovekCover } = await import("./glovek-content");
-    const gv = await latestGlovekCover(pageUrl).catch(() => null);
+    const gv = await latestGlovekCover(page).catch(() => null);
     if (gv && gv !== src) img = await fetchExternalImage(gv, 6_000);
   }
-  if (!img && pageUrl) {
+  if (!img && page) {
     // 보정 ②: 틱톡 oEmbed 로 현재 유효한 썸네일 재조회.
-    const fresh = await fetchTikTokOembedThumb(pageUrl, 6_000);
+    const fresh = await fetchTikTokOembedThumb(page, 6_000);
     if (fresh) img = await fetchExternalImage(fresh, 6_000);
   }
   if (!img) return null;
-  const key = createHash("sha256").update((pageUrl ?? "") || src).digest("hex").slice(0, 20);
+  const key = createHash("sha256").update(page || src).digest("hex").slice(0, 20);
   const sha = createHash("sha256").update(img.bytes).digest("hex");
   const row = await queryOne<{ id: string }>(
     `INSERT INTO import_files (brand_id, doc_field, filename, mime, size, sha256, bytes)

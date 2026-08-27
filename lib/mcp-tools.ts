@@ -518,7 +518,7 @@ export const TOOLS: Record<string, ToolDef> = {
     inputSchema: { type: "object", properties: { id: { type: "string", description: "제안서 id 또는 공개 token" } }, required: ["id"] },
     async handler(a) {
       const key = String(a.id ?? "").trim();
-      const { fetchExternalImage, fetchTikTokOembedThumb } = await import("./image-fetch");
+      const { fetchExternalImage, fetchTikTokOembedThumb, tiktokPageUrl } = await import("./image-fetch");
       let kind = "ops";
       let brandId: string | null = null;
       let items: { label: string; image?: string; link?: string }[] = [];
@@ -554,17 +554,20 @@ export const TOOLS: Record<string, ToolDef> = {
             : String(f.brand_id) !== String(brandId) ? `내부파일 브랜드 불일치(403 예상: file.brand=${f.brand_id} vs doc.brand=${brandId})`
             : `내부파일 OK (${f.mime ?? "?"} · ${f.size ?? 0}b)`;
         } else if (/^https?:\/\//i.test(image)) {
-          const r = await fetchExternalImage(image, 6000);
-          status = r ? `외부 fetch OK (${r.mime} · ${r.bytes.length}b)` : "외부 fetch 실패(만료/차단)";
+          const pg = tiktokPageUrl(image);
+          const r = pg ? null : await fetchExternalImage(image, 6000);
+          status = r ? `외부 fetch OK (${r.mime} · ${r.bytes.length}b)`
+            : pg ? "썸네일 칸에 영상 링크(이미지 아님)" : "외부 fetch 실패(만료/차단)";
           if (!r) {
-            if (it.link) {
+            const pu = (it.link ?? "").trim() || pg;
+            if (pu) {
               const { latestGlovekCover } = await import("./glovek-content");
-              const gv = await latestGlovekCover(it.link).catch(() => null);
+              const gv = await latestGlovekCover(pu).catch(() => null);
               if (gv) {
                 const rg = await fetchExternalImage(gv, 6000);
                 status += rg ? " · glovek 재조회 OK(복구 가능)" : " · glovek 재조회 URL fetch 실패";
               } else status += " · glovek 재조회 매칭 없음";
-              const fresh = await fetchTikTokOembedThumb(it.link, 6000);
+              const fresh = await fetchTikTokOembedThumb(pu, 6000);
               if (!fresh) status += " · oEmbed 실패";
               else {
                 const r2 = await fetchExternalImage(fresh, 6000);
