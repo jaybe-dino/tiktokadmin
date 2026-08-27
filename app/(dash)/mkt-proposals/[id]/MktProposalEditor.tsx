@@ -7,7 +7,7 @@ import CategoryPicker from "@/components/CategoryPicker";
 import GlovekCategorySelect from "@/components/GlovekCategorySelect";
 import { COUNTRY_LABEL, computeBudgetPlan, PHASE_RATIO, type MktCountry, type Phase, type PhaseRatios, type MonthOverride } from "@/lib/mkt-proposal-engine";
 import type { MktProposalDocRow, MktProductItem, MktReferenceItem, MktTemplateConfig } from "@/lib/mkt-proposal-doc";
-import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction, saveMktTemplateAction, loadMktTemplateAction, deleteMktTemplateAction, fillGlovekMktRefsAction } from "../actions";
+import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction, saveMktTemplateAction, loadMktTemplateAction, deleteMktTemplateAction, fillGlovekMktRefsAction, pinMktProposalImagesAction } from "../actions";
 
 const MAN = 10000;
 const toMan = (won: number) => Math.round((won || 0) / MAN);
@@ -76,6 +76,22 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
     }
   }
 
+  // 이미지 영구저장(복구) — 저장된 외부 이미지(제품·레퍼런스)를 서버 DB 로 옮겨 항상 뜨게.
+  async function pinImages() {
+    if (gvBusy) return;
+    setGvBusy(true); setTtMsg("");
+    try {
+      const r = await pinMktProposalImagesAction(doc.id);
+      if (!r.ok) { setTtMsg(r.error ?? "영구저장 실패"); return; }
+      if (r.references_json) setRefs(r.references_json);
+      if (r.products_json) setProducts(r.products_json);
+      setTtMsg(`🖼 이미지 영구저장 완료 — ${r.fixed ?? 0}건 저장${r.dead?.length ? ` · 복구 실패 ${r.dead.length}건(${r.dead.slice(0, 3).join(", ")}${r.dead.length > 3 ? " 외" : ""}) — 원본 삭제됨, 교체 필요` : ""}`);
+    } catch {
+      setTtMsg("영구저장 중 오류 — 다시 시도해주세요.");
+    } finally {
+      setGvBusy(false);
+    }
+  }
   // glovek 유사 콘텐츠 레퍼런스 — 담당자가 직접 고른 카테고리(대분류>소분류) 기준으로 조회.
   const [category, setCategory] = useState(doc.category ?? "");
   const [gvBusy, setGvBusy] = useState(false);
@@ -424,6 +440,8 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
               title="선택한 카테고리(소분류 우선, 없으면 대분류)로 glovek.space 유사 제품 콘텐츠(썸네일·크리에이터·GMV) 검색">
               {gvBusy ? "glovek 조회 중…" : "🌏 glovek 유사 콘텐츠 불러오기"}
             </button>
+            <button className="btn sm" disabled={pending || ttBusy || gvBusy} onClick={pinImages}
+              title="저장된 외부 이미지(제품·레퍼런스)를 서버에 영구 저장해 만료·차단과 무관하게 항상 표시">🖼 이미지 영구저장</button>
             <button className="btn sm" disabled={pending || ttBusy || gvBusy} onClick={fetchTikTokRefs}
               title="제품명으로 유사제품 키워드 생성 → 틱톡 영상(조회수 상위 썸네일·크리에이터) + 틱톡샵 유사 제품 자동 수집">
               {ttBusy ? "틱톡 조회 중… (최대 2~3분)" : "🎯 틱톡 자동조회"}

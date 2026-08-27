@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction, generateProductUspAction, fillReferencesByCategoryAction, listBrandOpsQuotesAction, type OpsQuoteForDoc } from "../actions";
+import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction, generateProductUspAction, fillReferencesByCategoryAction, pinProposalImagesAction, listBrandOpsQuotesAction, type OpsQuoteForDoc } from "../actions";
 import type { ProposalDoc, ProposalProduct, ProposalCreator, ProposalFeature, ProposalValueItem, ProposalStep, ProposalImpact, ProposalAddon } from "@/lib/proposal-doc";
 import CategoryPicker from "@/components/CategoryPicker";
 import GlovekCategorySelect from "@/components/GlovekCategorySelect";
@@ -110,6 +110,17 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
     if (!r.ok) { flash(r.error ?? "불러오기 실패"); return; }
     if (r.creators?.length) setD((p) => ({ ...p, creators: [...p.creators, ...r.creators!] }));
     flash(r.note ?? "완료");
+  }
+  // 이미지 영구저장(복구) — 저장된 외부 이미지(로고·제품·레퍼런스)를 서버 DB 로 옮겨 항상 뜨게.
+  async function pinImages() {
+    setBusy(true);
+    let r; try { r = await pinProposalImagesAction(d.id); }
+    catch (e) { flash((e as Error).message || "영구저장 실패"); setBusy(false); return; }
+    setBusy(false);
+    if (!r.ok) { flash(r.error ?? "영구저장 실패"); return; }
+    setD((p) => ({ ...p, brand_logo_url: r.brand_logo_url ?? p.brand_logo_url, products: r.products ?? p.products, creators: r.creators ?? p.creators }));
+    flash(`이미지 영구저장 완료 — ${r.fixed ?? 0}건 저장${r.dead?.length ? ` · 복구 실패 ${r.dead.length}건(${r.dead.slice(0, 3).join(", ")}${r.dead.length > 3 ? " 외" : ""}) — 원본 삭제됨, 새 이미지로 교체 필요` : ""}`);
+    router.refresh();
   }
   // 운영 견적 불러오기 — 이 브랜드의 #2 견적 목록을 열어 선택 → 가격조건에 채운다(저장은 별도, 수기 수정 가능).
   async function loadQuotes() {
@@ -296,6 +307,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
           <CategoryPicker value={refCat} onChange={setRefCat} compact />
           <GlovekCategorySelect onPick={setRefCat} />
           <button className="btn sm primary" disabled={busy} onClick={fillRefs}>썸네일 레퍼런스 불러오기</button>
+          <button className="btn sm" disabled={busy} onClick={pinImages} title="저장된 외부 이미지(로고·제품·레퍼런스)를 서버에 영구 저장해 만료·차단과 무관하게 항상 표시">🖼 이미지 영구저장(복구)</button>
           <span style={{ fontSize: 11, color: "var(--ink3)" }}>소분류(세부)까지 선택 권장 — 소분류 우선, 없으면 대분류로 검색(매출·ROAS는 수동)</span>
         </div>
         <CreatorsEditor items={d.creators} on={(v) => set("creators", v)} />
