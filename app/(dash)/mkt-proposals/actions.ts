@@ -149,6 +149,14 @@ export async function fillGlovekMktRefsAction(
       url: g.link || undefined, // 썸네일 클릭 → 틱톡 이동
       // ROAS·수수료 등 성과 지표는 자동 채우지 않음(허위 방지 — 담당자 입력).
     }));
+  // 썸네일 영구 저장(핀) — 외부 CDN 만료·차단과 무관하게 항상 뜨도록 내부 URL 로 치환(실패 시 원본 유지).
+  if (doc.brand_id && refs.length > 0) {
+    const { pinExternalImage } = await import("@/lib/ref-pin");
+    await Promise.all(refs.map(async (r) => {
+      const pinned = await pinExternalImage(doc.brand_id!, r.image_url, r.url);
+      if (pinned) r.image_url = pinned;
+    }));
+  }
   let note = `${usedLabel}(검색어: ${used.slice(0, 4).join(", ")}${used.length > 4 ? " 외" : ""}) · glovek 유사 콘텐츠 ${refs.length}건`;
   if (refs.length === 0) note += ` — ${await glovekZeroDiagnosis()}`;
   return { ok: true, refs: refs.length ? refs : undefined, note };

@@ -396,6 +396,14 @@ export async function fillReferencesByCategoryAction(proposalId: string, categor
       caption: g.name || g.category,
       // 매출·ROAS 등 지표는 자동 채우지 않음(허위 방지).
     }));
+  // 썸네일 영구 저장(핀) — 외부 CDN 만료·차단과 무관하게 항상 뜨도록 내부 URL 로 치환(실패 시 원본 유지).
+  if (doc.brand_id && creators.length > 0) {
+    const { pinExternalImage } = await import("@/lib/ref-pin");
+    await Promise.all(creators.map(async (c) => {
+      const pinned = await pinExternalImage(doc.brand_id!, c.thumb_url, c.link);
+      if (pinned) c.thumb_url = pinned;
+    }));
+  }
   const basis = cat || (names.length ? `제품명 ${names[0]}` : "브랜드 카테고리");
   const note = `기준 '${basis}' · glovek 유사 콘텐츠 ${glovek.length}건` +
     (glovek.length === 0 ? ` — ${await glovekZeroDiagnosis()}` : " 불러옴");
