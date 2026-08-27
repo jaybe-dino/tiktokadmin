@@ -146,7 +146,7 @@ export async function saveTemplateAction(input: TemplateInput): Promise<{ ok: bo
 //    즉시 내려받아 DB(import_files)에 보관하고 내부 URL 로 치환한다(만료 시 oEmbed 재조회 포함).
 //    문서의 다른 필드는 건드리지 않음 — 이미지 3개 컬럼만 직접 UPDATE.
 export async function pinProposalImagesAction(docId: string): Promise<{
-  ok: boolean; error?: string; fixed?: number; dead?: string[];
+  ok: boolean; error?: string; fixed?: number; healed?: number; ok_count?: number; dead?: string[];
   brand_logo_url?: string | null; products?: import("@/lib/proposal-doc").ProposalProduct[]; creators?: ProposalCreator[];
 }> {
   const u = await currentUser();
@@ -154,35 +154,40 @@ export async function pinProposalImagesAction(docId: string): Promise<{
   const doc = await getProposalById(docId);
   if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
   if (!doc.brand_id) return { ok: false, error: "브랜드가 연결되지 않은 제안서입니다 — 브랜드 연결 후 실행하세요." };
-  const { pinExternalImage } = await import("@/lib/ref-pin");
+  const { pinExternalImage, verifyInternalImage } = await import("@/lib/ref-pin");
   const ext = (v?: string | null) => Boolean(v && /^https?:\/\//i.test(v));
   const dead: string[] = [];
-  let fixed = 0;
+  let fixed = 0, healed = 0, okCnt = 0;
+
+  // 외부 URL 은 내려받아 저장, 내부 경로는 공개 프록시 서빙 조건(존재·브랜드 일치·image/*)을
+  // 검증하고 어긋나면 복구 — "이미 내부 경로라 0건" 이면서 실제로는 안 뜨던 케이스를 여기서 잡는다.
+  const handle = async (label: string, url: string | null | undefined, link: string | null | undefined, setUrl: (u: string) => void) => {
+    if (ext(url)) {
+      const pinned = await pinExternalImage(doc.brand_id!, url, link);
+      if (pinned) { setUrl(pinned); fixed++; } else dead.push(label);
+      return;
+    }
+    const chk = await verifyInternalImage(doc.brand_id!, url, link);
+    if (chk.status === "ok") okCnt++;
+    else if (chk.status === "healed") { setUrl(chk.url); healed++; }
+    else if (chk.status === "dead") dead.push(`${label} — ${chk.reason}`);
+  };
 
   const creators = doc.creators.map((c) => ({ ...c }));
-  await Promise.all(creators.map(async (c) => {
-    if (!ext(c.thumb_url)) return;
-    const pinned = await pinExternalImage(doc.brand_id!, c.thumb_url, c.link);
-    if (pinned) { c.thumb_url = pinned; fixed++; } else dead.push(`레퍼런스 ${c.handle || c.product || "?"}`);
-  }));
+  await Promise.all(creators.map((c) =>
+    handle(`레퍼런스 ${c.handle || c.product || "?"}`, c.thumb_url, c.link, (v) => { c.thumb_url = v; })));
   const products = doc.products.map((pr) => ({ ...pr }));
-  await Promise.all(products.map(async (pr) => {
-    if (!ext(pr.image_url)) return;
-    const pinned = await pinExternalImage(doc.brand_id!, pr.image_url);
-    if (pinned) { pr.image_url = pinned; fixed++; } else dead.push(`제품 ${pr.name}`);
-  }));
+  await Promise.all(products.map((pr) =>
+    handle(`제품 ${pr.name}`, pr.image_url, null, (v) => { pr.image_url = v; })));
   let logo = doc.brand_logo_url;
-  if (ext(logo)) {
-    const pinned = await pinExternalImage(doc.brand_id!, logo);
-    if (pinned) { logo = pinned; fixed++; } else dead.push("브랜드 로고");
-  }
+  if (logo) await handle("브랜드 로고", logo, null, (v) => { logo = v; });
 
   await query(
     `UPDATE proposal_docs SET brand_logo_url=$2, products=$3::jsonb, creators=$4::jsonb, updated_at=now() WHERE id=$1`,
     [docId, logo ?? null, JSON.stringify(products), JSON.stringify(creators)],
   );
   revalidatePath(`/proposal-docs/${docId}`);
-  return { ok: true, fixed, dead, brand_logo_url: logo ?? null, products, creators };
+  return { ok: true, fixed, healed, ok_count: okCnt, dead, brand_logo_url: logo ?? null, products, creators };
 }
 
 // ─────────────────────────────────────────────────────────────

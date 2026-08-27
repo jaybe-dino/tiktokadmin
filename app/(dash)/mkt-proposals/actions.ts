@@ -165,7 +165,7 @@ export async function fillGlovekMktRefsAction(
 // ── 이미지 영구저장(복구) — 저장된 문서의 외부 이미지(제품·레퍼런스 썸네일)를 서버가 내려받아
 //    DB 에 보관하고 내부 URL 로 치환(만료 시 oEmbed 재조회 포함). 이미지 2개 컬럼만 직접 UPDATE.
 export async function pinMktProposalImagesAction(docId: string): Promise<R & {
-  fixed?: number; dead?: string[];
+  fixed?: number; healed?: number; ok_count?: number; dead?: string[];
   products_json?: import("@/lib/mkt-proposal-doc").MktProductItem[]; references_json?: MktReferenceItem[];
 }> {
   const u = await currentUser();
@@ -173,30 +173,38 @@ export async function pinMktProposalImagesAction(docId: string): Promise<R & {
   const doc = await getMktProposalById(docId);
   if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
   if (!doc.brand_id) return { ok: false, error: "브랜드가 연결되지 않은 제안서입니다 — 브랜드 연결 후 실행하세요." };
-  const { pinExternalImage } = await import("@/lib/ref-pin");
+  const { pinExternalImage, verifyInternalImage } = await import("@/lib/ref-pin");
   const ext = (v?: string | null) => Boolean(v && /^https?:\/\//i.test(v));
   const dead: string[] = [];
-  let fixed = 0;
+  let fixed = 0, healed = 0, okCnt = 0;
+
+  // 외부 URL 은 내려받아 저장, 내부 경로는 공개 프록시 서빙 조건(존재·브랜드 일치·image/*)을
+  // 검증하고 어긋나면 복구(운영 제안서 pinProposalImagesAction 과 동일 로직).
+  const handle = async (label: string, url: string | null | undefined, link: string | null | undefined, setUrl: (u: string) => void) => {
+    if (ext(url)) {
+      const pinned = await pinExternalImage(doc.brand_id!, url, link);
+      if (pinned) { setUrl(pinned); fixed++; } else dead.push(label);
+      return;
+    }
+    const chk = await verifyInternalImage(doc.brand_id!, url, link);
+    if (chk.status === "ok") okCnt++;
+    else if (chk.status === "healed") { setUrl(chk.url); healed++; }
+    else if (chk.status === "dead") dead.push(`${label} — ${chk.reason}`);
+  };
 
   const refs = (doc.references_json ?? []).map((r) => ({ ...r }));
-  await Promise.all(refs.map(async (r) => {
-    if (!ext(r.image_url)) return;
-    const pinned = await pinExternalImage(doc.brand_id!, r.image_url, r.url);
-    if (pinned) { r.image_url = pinned; fixed++; } else dead.push(`레퍼런스 ${r.creator || r.product || "?"}`);
-  }));
+  await Promise.all(refs.map((r) =>
+    handle(`레퍼런스 ${r.creator || r.product || "?"}`, r.image_url, r.url, (v) => { r.image_url = v; })));
   const products = (doc.products_json ?? []).map((p) => ({ ...p }));
-  await Promise.all(products.map(async (p) => {
-    if (!ext(p.image_url)) return;
-    const pinned = await pinExternalImage(doc.brand_id!, p.image_url);
-    if (pinned) { p.image_url = pinned; fixed++; } else dead.push(`제품 ${p.name}`);
-  }));
+  await Promise.all(products.map((p) =>
+    handle(`제품 ${p.name}`, p.image_url, null, (v) => { p.image_url = v; })));
 
   await query(
     `UPDATE mkt_proposal_docs SET products_json=$2::jsonb, references_json=$3::jsonb, updated_at=now() WHERE id=$1`,
     [docId, JSON.stringify(products), JSON.stringify(refs)],
   );
   revalidatePath(`/mkt-proposals/${docId}`);
-  return { ok: true, fixed, dead, products_json: products, references_json: refs };
+  return { ok: true, fixed, healed, ok_count: okCnt, dead, products_json: products, references_json: refs };
 }
 
 // 상태 매핑: 제안서 문서 status → 파이프라인 mkt_projects.proposal_status

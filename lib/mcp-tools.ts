@@ -581,10 +581,14 @@ export const TOOLS: Record<string, ToolDef> = {
   glovek_diag: {
     description: "glovek 콘텐츠 DB(레퍼런스 검색용) 연동 진단 — GLOVEK_DB_URL_RO 설정 여부, videos/products 행수, 카테고리 실값 분포, 이름 샘플. 선택: q(검색어)로 실검색 테스트.",
     inputSchema: { type: "object", properties: { q: { type: "string" } } },
-    async handler(a) {
+    async handler(a, actorName) {
+      const q0 = String(a.q ?? "").trim();
+      // 우회 호출 — MCP 클라이언트가 도구 목록을 캐시해 proposal_img_diag 가 아직 안 보일 때,
+      // q="imgdiag:<제안서 id 또는 token>" 으로 이미 노출된 이 도구를 통해 같은 진단을 실행한다.
+      if (/^imgdiag:/i.test(q0)) return TOOLS.proposal_img_diag.handler({ id: q0.replace(/^imgdiag:/i, "").trim() }, actorName);
       const { glovekDataProfile, similarContentRefs } = await import("./glovek-content");
       const profile = await glovekDataProfile();
-      const q = String(a.q ?? "").trim();
+      const q = q0;
       // 실검색 테스트는 제안서 레퍼런스가 실제로 쓰는 경로(제품→연결 영상 썸네일)와 동일하게.
       const search = q ? await similarContentRefs([q], 8).catch(() => []) : undefined;
       return {

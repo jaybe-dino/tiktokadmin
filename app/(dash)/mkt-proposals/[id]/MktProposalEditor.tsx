@@ -85,7 +85,7 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
       if (!r.ok) { setTtMsg(r.error ?? "영구저장 실패"); return; }
       if (r.references_json) setRefs(r.references_json);
       if (r.products_json) setProducts(r.products_json);
-      setTtMsg(`🖼 이미지 영구저장 완료 — ${r.fixed ?? 0}건 저장${r.dead?.length ? ` · 복구 실패 ${r.dead.length}건(${r.dead.slice(0, 3).join(", ")}${r.dead.length > 3 ? " 외" : ""}) — 원본 삭제됨, 교체 필요` : ""}`);
+      setTtMsg(`🖼 이미지 영구저장 완료 — 외부 저장 ${r.fixed ?? 0}건 · 내부 정상 ${r.ok_count ?? 0}건 · 복구 ${r.healed ?? 0}건${r.dead?.length ? ` · 실패 ${r.dead.length}건(${r.dead.slice(0, 3).join(", ")}${r.dead.length > 3 ? " 외" : ""})` : ""}`);
     } catch {
       setTtMsg("영구저장 중 오류 — 다시 시도해주세요.");
     } finally {

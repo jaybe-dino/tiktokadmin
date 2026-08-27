@@ -119,7 +119,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
     setBusy(false);
     if (!r.ok) { flash(r.error ?? "영구저장 실패"); return; }
     setD((p) => ({ ...p, brand_logo_url: r.brand_logo_url ?? p.brand_logo_url, products: r.products ?? p.products, creators: r.creators ?? p.creators }));
-    flash(`이미지 영구저장 완료 — ${r.fixed ?? 0}건 저장${r.dead?.length ? ` · 복구 실패 ${r.dead.length}건(${r.dead.slice(0, 3).join(", ")}${r.dead.length > 3 ? " 외" : ""}) — 원본 삭제됨, 새 이미지로 교체 필요` : ""}`);
+    flash(`이미지 영구저장 완료 — 외부 저장 ${r.fixed ?? 0}건 · 내부 정상 ${r.ok_count ?? 0}건 · 복구 ${r.healed ?? 0}건${r.dead?.length ? ` · 실패 ${r.dead.length}건(${r.dead.slice(0, 3).join(", ")}${r.dead.length > 3 ? " 외" : ""})` : ""}`);
     router.refresh();
   }
   // 운영 견적 불러오기 — 이 브랜드의 #2 견적 목록을 열어 선택 → 가격조건에 채운다(저장은 별도, 수기 수정 가능).
