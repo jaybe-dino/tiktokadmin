@@ -513,6 +513,65 @@ export const TOOLS: Record<string, ToolDef> = {
       return { ok: true, id, status };
     },
   },
+  proposal_img_diag: {
+    description: "제안서 이미지 실측 진단 — 운영/마케팅 제안서의 레퍼런스 이미지가 왜 안 뜨는지 서버에서 직접 측정(내부파일 존재/브랜드 일치/외부 fetch/oEmbed 재조회).",
+    inputSchema: { type: "object", properties: { id: { type: "string", description: "제안서 id 또는 공개 token" } }, required: ["id"] },
+    async handler(a) {
+      const key = String(a.id ?? "").trim();
+      const { fetchExternalImage, fetchTikTokOembedThumb } = await import("./image-fetch");
+      let kind = "ops";
+      let brandId: string | null = null;
+      let items: { label: string; image?: string; link?: string }[] = [];
+      const ops = await queryOne<{ id: string; brand_id: string | null; brand_logo_url: string | null; creators: unknown }>(
+        "SELECT id, brand_id, brand_logo_url, creators FROM proposal_docs WHERE id::text=$1 OR token=$1", [key],
+      ).catch(() => null);
+      if (ops) {
+        brandId = ops.brand_id;
+        const cs = Array.isArray(ops.creators) ? (ops.creators as Record<string, unknown>[]) : [];
+        items = cs.map((c) => ({ label: String(c.handle ?? c.product ?? "?"), image: c.thumb_url as string | undefined, link: c.link as string | undefined }));
+        if (ops.brand_logo_url) items.unshift({ label: "(로고)", image: ops.brand_logo_url });
+      } else {
+        const mkt = await queryOne<{ id: string; brand_id: string | null; references_json: unknown }>(
+          "SELECT id, brand_id, references_json FROM mkt_proposal_docs WHERE id::text=$1 OR token=$1", [key],
+        ).catch(() => null);
+        if (!mkt) return { ok: false, error: "제안서를 찾을 수 없습니다(id/token 확인)." };
+        kind = "mkt";
+        brandId = mkt.brand_id;
+        const rs = Array.isArray(mkt.references_json) ? (mkt.references_json as Record<string, unknown>[]) : [];
+        items = rs.map((r) => ({ label: String(r.creator ?? r.product ?? "?"), image: r.image_url as string | undefined, link: r.url as string | undefined }));
+      }
+      const out: { label: string; url_head: string; status: string }[] = [];
+      for (const it of items.slice(0, 10)) {
+        const image = (it.image ?? "").trim();
+        let status = "";
+        const m = image.match(/^\/api\/(?:brand\/import-file|apply\/file)\/([0-9a-f-]{36})/i);
+        if (!image) status = "이미지 URL 없음";
+        else if (m) {
+          const f = await queryOne<{ brand_id: string; mime: string | null; size: number | null }>(
+            "SELECT brand_id, mime, size FROM import_files WHERE id=$1", [m[1]],
+          ).catch(() => null);
+          status = !f ? "내부파일 없음(404 예상)"
+            : String(f.brand_id) !== String(brandId) ? `내부파일 브랜드 불일치(403 예상: file.brand=${f.brand_id} vs doc.brand=${brandId})`
+            : `내부파일 OK (${f.mime ?? "?"} · ${f.size ?? 0}b)`;
+        } else if (/^https?:\/\//i.test(image)) {
+          const r = await fetchExternalImage(image, 6000);
+          status = r ? `외부 fetch OK (${r.mime} · ${r.bytes.length}b)` : "외부 fetch 실패(만료/차단)";
+          if (!r) {
+            if (it.link) {
+              const fresh = await fetchTikTokOembedThumb(it.link, 6000);
+              if (!fresh) status += " · oEmbed 실패";
+              else {
+                const r2 = await fetchExternalImage(fresh, 6000);
+                status += r2 ? " · oEmbed 재조회 OK(복구 가능)" : " · oEmbed URL fetch 실패";
+              }
+            } else status += " · 영상 link 없음(oEmbed 불가)";
+          }
+        } else status = `기타 경로: ${image.slice(0, 50)}`;
+        out.push({ label: it.label, url_head: image.slice(0, 90), status });
+      }
+      return { ok: true, kind, brand_id: brandId, total: items.length, items: out };
+    },
+  },
   glovek_diag: {
     description: "glovek 콘텐츠 DB(레퍼런스 검색용) 연동 진단 — GLOVEK_DB_URL_RO 설정 여부, videos/products 행수, 카테고리 실값 분포, 이름 샘플. 선택: q(검색어)로 실검색 테스트.",
     inputSchema: { type: "object", properties: { q: { type: "string" } } },
@@ -536,5 +595,5 @@ export const READ_ONLY_TOOLS = new Set([
   "list_brands", "get_brand_360", "find_sla_breaches", "find_gate_violations",
   "find_missing_docs", "draft_reminder", "compute_funnel_metrics",
   "get_customer_card", "list_products", "find_cert_risks", "list_meetings",
-  "suggest_assignee", "list_no_reply", "list_bug_reports", "glovek_diag",
+  "suggest_assignee", "list_no_reply", "list_bug_reports", "glovek_diag", "proposal_img_diag",
 ]);
