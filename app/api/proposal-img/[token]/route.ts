@@ -109,6 +109,14 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   //    "현재 유효한" 썸네일 URL 을 재조회해 받고 영구 캐시(glovek 제안 ② 의 oEmbed 폴백과 동일).
   const pageUrl = doc.linkFor.get(u);
   if (pageUrl) {
+    // 보정 ①: glovek DB 의 "현재" cover_url 재조회(크롤러 재수집분 — glovek.space 가 항상 뜨는 경로).
+    const { latestGlovekCover } = await import("@/lib/glovek-content");
+    const gv = await latestGlovekCover(pageUrl).catch(() => null);
+    if (gv) {
+      const imgG = await fetchExternalImage(gv);
+      if (imgG) return cacheAndServe(imgG);
+    }
+    // 보정 ②: 틱톡 oEmbed.
     const fresh = await fetchTikTokOembedThumb(pageUrl);
     if (fresh) {
       const img2 = await fetchExternalImage(fresh);

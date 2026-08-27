@@ -558,6 +558,12 @@ export const TOOLS: Record<string, ToolDef> = {
           status = r ? `외부 fetch OK (${r.mime} · ${r.bytes.length}b)` : "외부 fetch 실패(만료/차단)";
           if (!r) {
             if (it.link) {
+              const { latestGlovekCover } = await import("./glovek-content");
+              const gv = await latestGlovekCover(it.link).catch(() => null);
+              if (gv) {
+                const rg = await fetchExternalImage(gv, 6000);
+                status += rg ? " · glovek 재조회 OK(복구 가능)" : " · glovek 재조회 URL fetch 실패";
+              } else status += " · glovek 재조회 매칭 없음";
               const fresh = await fetchTikTokOembedThumb(it.link, 6000);
               if (!fresh) status += " · oEmbed 실패";
               else {

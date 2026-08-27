@@ -338,7 +338,7 @@ export function RefCard({ r, accent }: { r: MktReferenceItem; accent: string }) 
     // eslint-disable-next-line @next/next/no-img-element
     ? <img src={normalizeImageUrl(r.image_url)} alt={r.creator ?? ""} referrerPolicy="no-referrer" loading="lazy" onError={() => setBroken(true)}
         style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", background: "#f1f5f9" }} />
-    : <div style={{ height: "100%", background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.85em" }}>@{r.creator || "creator"}</div>;
+    : <div style={{ height: "100%", background: `linear-gradient(135deg,#f1f5f9,${accent}18)`, display: "grid", placeItems: "center", color: "#94a3b8", fontSize: "0.85em" }}>@{(r.creator || "creator").replace(/^@+/, "")}</div>;
   // 미디어 영역은 콘텐츠 실제 비율(틱톡 세로 9:16) 고정 — 슬라이드 높이에 따라 길어지지 않게.
   const mediaBox: React.CSSProperties = { aspectRatio: "9 / 16", maxHeight: "24em", width: "100%", display: "block", position: "relative", overflow: "hidden" };
   return (

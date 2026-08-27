@@ -15,7 +15,13 @@ export async function pinExternalImage(
   if (!src || !/^https?:\/\//i.test(src)) return null;
   let img = await fetchExternalImage(src, 6_000);
   if (!img && pageUrl) {
-    // 서명 만료 커버 — 틱톡 영상 링크로 현재 유효한 썸네일 재조회.
+    // 서명 만료 커버 보정 ①: glovek DB 의 "현재" cover_url 재조회(크롤러 재수집분 — 가장 확실).
+    const { latestGlovekCover } = await import("./glovek-content");
+    const gv = await latestGlovekCover(pageUrl).catch(() => null);
+    if (gv && gv !== src) img = await fetchExternalImage(gv, 6_000);
+  }
+  if (!img && pageUrl) {
+    // 보정 ②: 틱톡 oEmbed 로 현재 유효한 썸네일 재조회.
     const fresh = await fetchTikTokOembedThumb(pageUrl, 6_000);
     if (fresh) img = await fetchExternalImage(fresh, 6_000);
   }

@@ -260,6 +260,31 @@ export async function similarContentRefs(keywords: string[], limit = 8): Promise
   return out.length > 0 ? out : similarProductContent(kw, limit);
 }
 
+/** 영상 링크로 glovek DB 의 "현재" cover_url 재조회 — 크롤러 재수집으로 갱신된 최신 커버.
+ *  (문서에 저장된 커버 스냅샷이 서명 만료돼도, glovek 재수집분은 살아있는 경우가 대부분 —
+ *   glovek.space 사이트가 항상 뜨는 이유가 이것) */
+export async function latestGlovekCover(pageUrl: string): Promise<string | null> {
+  const link = (pageUrl ?? "").trim();
+  if (!link) return null;
+  const vCols = await columnsOf("videos");
+  if (!vCols.includes("cover_url") || !vCols.includes("url")) return null;
+  const order = vCols.includes("collected_at") ? "ORDER BY collected_at DESC NULLS LAST" : "";
+  let rows = await queryRo<{ cover_url: string | null }>(
+    `SELECT cover_url FROM videos WHERE url=$1 ${order} LIMIT 1`, [link],
+  ).catch(() => []);
+  if (rows.length === 0 && vCols.includes("video_id")) {
+    // URL 표기가 달라도 video_id 로 매칭(틱톡 영상 URL 의 /video/<숫자>).
+    const m = link.match(/\/video\/(\d{6,})/);
+    if (m) {
+      rows = await queryRo<{ cover_url: string | null }>(
+        `SELECT cover_url FROM videos WHERE video_id::text=$1 ${order} LIMIT 1`, [m[1]],
+      ).catch(() => []);
+    }
+  }
+  const cover = rows[0]?.cover_url?.trim();
+  return cover && /^https?:\/\//i.test(cover) ? cover : null;
+}
+
 /** glovek DB 의 실제 카테고리 값 목록(videos+products 합산, 건수 내림차순) —
  *  제안서 레퍼런스 검색에서 "실값 그대로 선택"할 수 있게 UI 에 제공. */
 export async function listGlovekCategories(limit = 60): Promise<{ value: string; count: number }[]> {
