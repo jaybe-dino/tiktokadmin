@@ -21,8 +21,11 @@ export function isImgTranslateLang(v: string): v is ImgTranslateLang {
   return v in IMG_TRANSLATE_LANGS;
 }
 
-// 텍스트 번역·재배치에 강한 이미지 편집 모델(일명 nano-banana). 필요 시 env 로 교체 가능.
-const MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
+// 이미지 편집 모델 — 기본은 최고 품질(Nano Banana Pro: 텍스트 렌더링·다국어 조판이 가장 정확).
+//   키/티어에서 미지원·한도 초과면 flash 로 자동 폴백. 비용 절감이 필요하면
+//   GEMINI_IMAGE_MODEL=gemini-2.5-flash-image 로 내릴 수 있다(장당 비용 약 1/3).
+const MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image-preview";
+const MODEL_FALLBACK = process.env.GEMINI_IMAGE_MODEL_FALLBACK || "gemini-2.5-flash-image";
 // 텍스트 감지(좌표)·번역용 텍스트 모델.
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash";
 
@@ -184,11 +187,16 @@ async function editBand(
     `Keep the exact same layout, background, product photos, graphics, colors and font styling. ` +
     `Do not add, remove or move any visual elements. Do not alter non-text areas. ` +
     `Do not translate brand names or logos. Output only the edited image with the same dimensions.`;
-  const parts = await geminiCall(key, MODEL, [
-    { inline_data: { mime_type: mime, data: crop.toString("base64") } },
-    { text: prompt },
-  ], 28_000).catch(() => null);
-  return partsImage(parts)?.bytes ?? null;
+  // 기본 모델(Pro) → 실패(미지원 404·한도 429 등) 시 flash 폴백 — 밴드 단위라 부분 성공 가능.
+  for (const model of [MODEL, ...(MODEL_FALLBACK !== MODEL ? [MODEL_FALLBACK] : [])]) {
+    const parts = await geminiCall(key, model, [
+      { inline_data: { mime_type: mime, data: crop.toString("base64") } },
+      { text: prompt },
+    ], 40_000).catch(() => null);
+    const img = partsImage(parts)?.bytes;
+    if (img) return img;
+  }
+  return null;
 }
 
 // ── 폴백: 기존 전체 이미지 편집(감지 실패·텍스트 좌표 미확보 시에만) ──
@@ -200,13 +208,19 @@ async function translateWholeImage(key: string, bytes: Buffer, mime: string, tar
     `Do not add, remove, or move any visual elements. Do not translate brand names or logos — keep them as-is. ` +
     `Output the edited image only.`;
   try {
-    const parts = await geminiCall(key, MODEL, [
-      { inline_data: { mime_type: mime, data: bytes.toString("base64") } },
-      { text: prompt },
-    ], 55_000);
-    const img = partsImage(parts);
-    if (img) return { ok: true, bytes: img.bytes, mime: img.mime, note: "텍스트 좌표 감지 실패 — 전체 편집 방식으로 처리됨" };
-    console.error("[image-translate] no image in response:", partsText(parts).slice(0, 200));
+    let lastErr: unknown = null;
+    for (const model of [MODEL, ...(MODEL_FALLBACK !== MODEL ? [MODEL_FALLBACK] : [])]) {
+      try {
+        const parts = await geminiCall(key, model, [
+          { inline_data: { mime_type: mime, data: bytes.toString("base64") } },
+          { text: prompt },
+        ], 55_000);
+        const img = partsImage(parts);
+        if (img) return { ok: true, bytes: img.bytes, mime: img.mime, note: "텍스트 좌표 감지 실패 — 전체 편집 방식으로 처리됨" };
+        console.error("[image-translate] no image in response:", partsText(parts).slice(0, 200));
+      } catch (e) { lastErr = e; }
+    }
+    if (lastErr) return httpError(lastErr);
     return { ok: false, error: "모델이 이미지를 반환하지 않았습니다 — 다시 시도하거나 다른 이미지로 시도하세요." };
   } catch (e) { return httpError(e); }
 }
@@ -264,7 +278,7 @@ export async function translateImage(bytes: Buffer, mime: string, lang: ImgTrans
     const bands = mergeBands(withT, W, H);
     if (bands.length === 0) return translateWholeImage(key, bytes, mime, target);
     const cropMime = "image/png"; // 크롭은 무손실로 보내 편집 입력 품질 유지
-    const results = await mapLimit(bands, 3, async (band) => {
+    const results = await mapLimit(bands, 4, async (band) => {
       const crop = await sharp(bytes).extract({ left: 0, top: band.top, width: W, height: band.height }).png().toBuffer();
       let edited = await editBand(key, crop, cropMime, target, band.texts);
       if (!edited) edited = await editBand(key, crop, cropMime, target, band.texts); // 재시도 1회

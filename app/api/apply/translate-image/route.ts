@@ -6,7 +6,8 @@ import { translateImage, isImgTranslateLang } from "@/lib/image-translate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// 밴드 파이프라인(감지→번역→밴드별 편집)은 최고품질 모델 기준 1~2분까지 걸릴 수 있다.
+export const maxDuration = 120;
 
 const MAX = 10 * 1024 * 1024; // 10MB
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/jpg", "image/webp"]);
