@@ -52,5 +52,5 @@ export async function POST(req: NextRequest) {
     [brandId, filename, `/api/brand/import-file/${row.id}`],
   ).catch(() => {});
 
-  return NextResponse.json({ ok: true, url: `/api/brand/import-file/${row.id}`, filename });
+  return NextResponse.json({ ok: true, url: `/api/brand/import-file/${row.id}`, filename, note: r.note });
 }

@@ -34,5 +34,5 @@ export async function POST(req: NextRequest) {
   const saved = await saveOnbFile(appId, `detail_page_${lang}`, `${base}.translated-${lang}.${ext}`, r.mime ?? "image/png", r.bytes, c.email);
   if (!saved.ok) return NextResponse.json({ ok: false, error: saved.error ?? "번역본 저장 실패" }, { status: 500 });
 
-  return NextResponse.json({ ok: true, url: saved.url, filename: `${base}.translated-${lang}.${ext}` });
+  return NextResponse.json({ ok: true, url: saved.url, filename: `${base}.translated-${lang}.${ext}`, note: r.note });
 }
