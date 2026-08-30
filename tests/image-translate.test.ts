@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeBands, nearestRatio, padToRatio, padBands, type TextBox } from "../lib/image-translate";
+import { mergeBands, nearestRatio, padToRatio, fitBandToRatio, fitBands, type TextBox } from "../lib/image-translate";
 
 const box = (ymin: number, ymax: number, text = "t"): TextBox => ({ ymin, xmin: 0, ymax, xmax: 1000, text });
 
@@ -69,25 +69,62 @@ describe("화면비 보정 (이미지 깨짐 방지)", () => {
     expect(padToRatio(500, 800, W, H)).toEqual({ top: 500, height: 800 });
   });
 
-  it("padBands — 확장 후 겹치는 밴드는 합쳐서 덮어쓰기 방지", () => {
-    const W = 900, H = 5000;
+});
+
+// 핵심 회귀 방지: 이미지 폭·높이는 제각각이므로, 어떤 조합에서도 크롭 비율이
+// "정확히" 지원 화면비여야 모델 출력과 어긋나지 않는다(어긋나면 되붙일 때 눌림).
+const RATIOS: Record<string, number> = {
+  "21:9": 21 / 9, "16:9": 16 / 9, "4:3": 4 / 3, "3:2": 3 / 2,
+  "1:1": 1, "2:3": 2 / 3, "3:4": 3 / 4, "9:16": 9 / 16,
+};
+
+describe("fitBandToRatio / fitBands (정확한 화면비 맞춤)", () => {
+  it("여러 이미지 폭·밴드 높이에서 항상 정확한 지원 비율로 확장", () => {
+    for (const W of [640, 750, 860, 900, 1080, 1242, 1500]) {
+      for (const h of [40, 90, 150, 300, 500, 900]) {
+        const H = 6000;
+        const f = fitBandToRatio(1500, h, W, H);
+        expect(f).not.toBeNull();
+        const got = RATIOS[f!.ratio];
+        expect(got).toBeDefined();
+        // 반올림 1px 오차 내에서 폭/높이가 지정 비율과 일치
+        expect(Math.abs(W / f!.height - got)).toBeLessThan(0.01);
+        // 텍스트를 잘라내지 않도록 확장만 하고, 이미지 밖으로 나가지 않는다
+        expect(f!.height).toBeGreaterThanOrEqual(h);
+        expect(f!.top).toBeGreaterThanOrEqual(0);
+        expect(f!.top + f!.height).toBeLessThanOrEqual(H);
+      }
+    }
+  });
+
+  it("이미지가 너무 짧아 어떤 비율도 못 담으면 null(호출부가 근사 폴백)", () => {
+    expect(fitBandToRatio(0, 300, 2000, 320)).toBeNull();
+  });
+
+  it("fitBands — 결과 밴드는 겹치지 않고 텍스트도 유실되지 않는다", () => {
+    const W = 900, H = 6000;
     const bands = [
-      { top: 1000, height: 60, texts: ["a"] },
-      { top: 1120, height: 60, texts: ["b"] }, // 확장하면 위 밴드와 겹침
-      { top: 4000, height: 60, texts: ["c"] },
+      { top: 500, height: 60, texts: ["a"] },
+      { top: 640, height: 60, texts: ["b"] },  // 확장하면 위와 겹침 → 병합
+      { top: 3000, height: 200, texts: ["c"] },
+      { top: 5800, height: 80, texts: ["d"] }, // 하단 경계
     ];
-    const out = padBands(bands, W, H);
-    expect(out.length).toBe(2);
-    expect(out[0].texts).toEqual(["a", "b"]);
-    expect(out[1].texts).toEqual(["c"]);
-    // 결과 구역끼리 겹치지 않는다
+    const out = fitBands(bands, W, H);
+    expect(out.flatMap((b) => b.texts).sort()).toEqual(["a", "b", "c", "d"]);
     for (let i = 0; i + 1 < out.length; i++) {
       expect(out[i].top + out[i].height).toBeLessThanOrEqual(out[i + 1].top);
     }
-    // 모든 구역이 이미지 범위 안
     for (const b of out) {
       expect(b.top).toBeGreaterThanOrEqual(0);
       expect(b.top + b.height).toBeLessThanOrEqual(H);
+      expect(RATIOS[b.ratio]).toBeDefined();
     }
+  });
+
+  it("fitBands — 병합되지 않은 밴드는 정확한 비율을 유지", () => {
+    const W = 1080, H = 9000;
+    const out = fitBands([{ top: 200, height: 100, texts: ["x"] }, { top: 6000, height: 100, texts: ["y"] }], W, H);
+    expect(out.length).toBe(2);
+    for (const b of out) expect(Math.abs(W / b.height - RATIOS[b.ratio])).toBeLessThan(0.01);
   });
 });

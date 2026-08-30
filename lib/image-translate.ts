@@ -141,10 +141,12 @@ async function translateTexts(key: string, texts: string[], target: string): Pro
 }
 
 // ── 화면비 보정 ──
-//   Gemini 이미지 모델은 지원 화면비로만 출력한다(가장 납작한 쪽이 21:9 ≈ 2.333).
-//   얇은 텍스트 띠(예: 7:1)를 그대로 보내면 다른 비율로 재조판돼 돌아오고, 이를 원래 띠에
-//   억지로 맞추면 글자가 눌려 깨진다. → ① 띠를 위아래로 넓혀 21:9 이내로 만들고(주변 픽셀은
-//   어차피 원본으로 되돌아가므로 손해 없음) ② 요청에 화면비를 명시해 같은 비율로 받는다.
+//   Gemini 이미지 모델은 "지원 화면비"로만 출력한다(21:9 ~ 9:16). 크롭 비율이 그 목록과
+//   조금이라도 다르면 출력도 다른 비율로 와서, 원래 자리에 되붙일 때 눌려 깨진다.
+//   (근사 비율로 보내는 것만으로는 부족 — 지원 비율 사이 간격 탓에 최대 15% 어긋난다.)
+//   해결: 밴드를 "정확히" 지원 화면비가 되는 높이까지 확장해서 보낸다. 이미지 폭은 제각각이라
+//   필요 높이(폭 ÷ 비율)를 이미지·밴드마다 계산하며, 확장한 픽셀은 원본 자리에 그대로
+//   되붙으므로 손실이 없다. 이러면 출력이 입력과 같은 비율 → 등비 축소만 하면 되어 왜곡이 없다.
 const SUPPORTED_RATIOS: { label: string; r: number }[] = [
   { label: "21:9", r: 21 / 9 }, { label: "16:9", r: 16 / 9 }, { label: "4:3", r: 4 / 3 },
   { label: "3:2", r: 3 / 2 }, { label: "1:1", r: 1 }, { label: "2:3", r: 2 / 3 },
@@ -172,22 +174,58 @@ export function padToRatio(top: number, height: number, width: number, imgH: num
   return { top: newTop, height: Math.min(newH, imgH - newTop) };
 }
 
-/** 밴드들을 화면비까지 확장한 뒤, 겹치는 구역은 합친다.
- *  겹친 채로 각각 편집해 되붙이면 나중 밴드가 앞 밴드의 번역을 원문으로 덮어쓸 수 있다. */
-export function padBands(bands: Band[], width: number, imgH: number): Band[] {
-  const padded = bands
-    .map((b) => ({ ...padToRatio(b.top, b.height, width, imgH), texts: b.texts }))
-    .sort((a, b) => a.top - b.top);
-  const out: typeof padded = [];
-  for (const p of padded) {
-    const last = out[out.length - 1];
-    if (last && p.top <= last.top + last.height) {
-      const bottom = Math.max(last.top + last.height, p.top + p.height);
-      last.height = bottom - last.top;
-      last.texts = [...last.texts, ...p.texts];
-    } else out.push({ ...p, texts: [...p.texts] });
+/** 밴드를 "정확히" 지원 화면비가 되는 높이로 확장(이미지 폭 기준으로 매번 계산).
+ *  텍스트를 잘라내지 않도록 확장만 하며(축소 없음), 이미지가 짧아 어떤 비율도 담을 수 없으면
+ *  null → 호출부가 근사 방식(padToRatio + nearestRatio)으로 폴백한다. */
+export function fitBandToRatio(
+  top: number, height: number, width: number, imgH: number,
+): { top: number; height: number; ratio: string } | null {
+  let pick: { label: string; need: number } | null = null;
+  for (const c of SUPPORTED_RATIOS) {
+    const need = Math.round(width / c.r);
+    // 텍스트를 담을 만큼 크고(확장만), 이미지 안에 들어가는 것 중 가장 작은 확장을 고른다.
+    if (need >= height && need <= imgH && (!pick || need < pick.need)) pick = { label: c.label, need };
   }
-  return out;
+  if (!pick) return null;
+  const grow = pick.need - height;
+  let newTop = top - Math.floor(grow / 2);
+  if (newTop < 0) newTop = 0;
+  if (newTop + pick.need > imgH) newTop = imgH - pick.need;
+  return { top: newTop, height: pick.need, ratio: pick.label };
+}
+
+export interface FittedBand extends Band { ratio: string }
+
+/** 밴드들을 지원 화면비에 맞춰 확장하고, 그 과정에서 겹친 구역은 합친다.
+ *  겹친 채로 각각 편집해 되붙이면 나중 밴드가 앞 밴드의 번역을 원문으로 덮어쓴다.
+ *  병합하면 높이가 달라져 비율이 깨지므로, 겹침이 사라질 때까지 확장·병합을 반복한다. */
+export function fitBands(bands: Band[], width: number, imgH: number): FittedBand[] {
+  let cur: Band[] = bands.map((b) => ({ ...b, texts: [...b.texts] }));
+  for (let iter = 0; iter < 6; iter++) {
+    const fitted: FittedBand[] = cur
+      .map((b) => {
+        const f = fitBandToRatio(b.top, b.height, width, imgH);
+        if (f) return { top: f.top, height: f.height, texts: b.texts, ratio: f.ratio };
+        const p = padToRatio(b.top, b.height, width, imgH);
+        return { top: p.top, height: p.height, texts: b.texts, ratio: nearestRatio(width, p.height) };
+      })
+      .sort((a, b) => a.top - b.top);
+    const merged: FittedBand[] = [];
+    let overlapped = false;
+    for (const p of fitted) {
+      const last = merged[merged.length - 1];
+      if (last && p.top <= last.top + last.height) {
+        last.height = Math.max(last.top + last.height, p.top + p.height) - last.top;
+        last.texts = [...last.texts, ...p.texts];
+        overlapped = true;
+      } else merged.push({ ...p, texts: [...p.texts] });
+    }
+    // 겹침이 없으면 각 밴드가 정확한 비율을 유지한 상태 — 확정.
+    if (!overlapped) return merged;
+    cur = merged.map((m) => ({ top: m.top, height: m.height, texts: m.texts }));
+  }
+  // 반복해도 안 끝나면(밴드가 이미지 전체를 덮는 경우 등) 근사 비율로 마무리.
+  return cur.map((b) => ({ ...b, ratio: nearestRatio(width, b.height) }));
 }
 
 // ── 밴드 계산 — 박스들을 "가로 전체 폭 띠"로 병합(상세페이지는 세로 스택 구조라 이음새가 깔끔). ──
@@ -336,20 +374,21 @@ export async function translateImage(bytes: Buffer, mime: string, lang: ImgTrans
     const withT = boxes.map((b, i) => ({ ...b, text: translated?.[i] ?? "" }));
 
     // ③ 밴드 편집 — 텍스트가 있는 가로 띠만 편집(동시 3, 실패 1회 재시도).
-    // 밴드 병합 → 화면비 확장 → 겹침 정리(겹친 채 되붙이면 번역이 원문으로 덮어써짐).
-    const bands = padBands(mergeBands(withT, W, H), W, H);
+    // 밴드 병합 → 정확한 지원 화면비로 확장 → 겹침 정리(겹친 채 되붙이면 번역이 원문으로 덮어써짐).
+    const bands = fitBands(mergeBands(withT, W, H), W, H);
     if (bands.length === 0) return translateWholeImage(key, bytes, mime, target);
     const cropMime = "image/png"; // 크롭은 무손실로 보내 편집 입력 품질 유지
     const results = await mapLimit(bands, 4, async (band) => {
-      const { top, height } = band; // 화면비 확장·겹침 정리는 padBands 에서 완료
-      const ratio = nearestRatio(W, height);
+      const { top, height, ratio } = band; // 화면비 확장·겹침 정리는 fitBands 에서 완료
       const crop = await sharp(bytes).extract({ left: 0, top, width: W, height }).png().toBuffer();
       let edited = await editBand(key, crop, cropMime, target, band.texts, ratio, W, height);
       if (!edited) edited = await editBand(key, crop, cropMime, target, band.texts, ratio, W, height); // 재시도 1회
       if (!edited) return null;
-      // 모델 출력 해상도는 입력과 다를 수 있음 — 밴드 크기에 맞춰 되붙인다.
-      //   화면비를 맞춰 보냈으므로 보통 등비 축소만 일어나고, lanczos3 로 선명도를 유지한다.
-      const fitted = await sharp(edited).resize(W, height, { fit: "fill", kernel: "lanczos3" }).png().toBuffer();
+      // 되붙이기 — 입력과 같은 비율로 받았으므로 등비 축소만 일어난다(lanczos3 로 선명도 유지).
+      //   혹시 모델이 다른 비율로 보내면 cover 로 중앙을 맞춰 잘라 넣는다(늘여서 눌리는 것보다 낫다).
+      const fitted = await sharp(edited)
+        .resize(W, height, { fit: "cover", position: "centre", kernel: "lanczos3" })
+        .png().toBuffer();
       return { top, buf: fitted };
     });
 
