@@ -42,10 +42,15 @@ interface GeminiPart { inline_data?: { mime_type?: string; data?: string }; inli
 
 async function geminiCall(
   key: string, model: string, parts: unknown[], timeoutMs: number, jsonOut = false,
+  imageConfig?: Record<string, unknown>,
 ): Promise<GeminiPart[] | null> {
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    const genCfg = {
+      ...(jsonOut ? { responseMimeType: "application/json" } : {}),
+      ...(imageConfig ? { imageConfig } : {}),
+    };
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       {
@@ -54,7 +59,7 @@ async function geminiCall(
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
         body: JSON.stringify({
           contents: [{ parts }],
-          ...(jsonOut ? { generationConfig: { responseMimeType: "application/json" } } : {}),
+          ...(Object.keys(genCfg).length ? { generationConfig: genCfg } : {}),
         }),
       },
     ).finally(() => clearTimeout(timer));
@@ -135,6 +140,56 @@ async function translateTexts(key: string, texts: string[], target: string): Pro
   return arr.map((s) => String(s ?? ""));
 }
 
+// ── 화면비 보정 ──
+//   Gemini 이미지 모델은 지원 화면비로만 출력한다(가장 납작한 쪽이 21:9 ≈ 2.333).
+//   얇은 텍스트 띠(예: 7:1)를 그대로 보내면 다른 비율로 재조판돼 돌아오고, 이를 원래 띠에
+//   억지로 맞추면 글자가 눌려 깨진다. → ① 띠를 위아래로 넓혀 21:9 이내로 만들고(주변 픽셀은
+//   어차피 원본으로 되돌아가므로 손해 없음) ② 요청에 화면비를 명시해 같은 비율로 받는다.
+const SUPPORTED_RATIOS: { label: string; r: number }[] = [
+  { label: "21:9", r: 21 / 9 }, { label: "16:9", r: 16 / 9 }, { label: "4:3", r: 4 / 3 },
+  { label: "3:2", r: 3 / 2 }, { label: "1:1", r: 1 }, { label: "2:3", r: 2 / 3 },
+  { label: "3:4", r: 3 / 4 }, { label: "9:16", r: 9 / 16 },
+];
+const MAX_RATIO = 21 / 9;
+
+/** 폭/높이 비에 가장 가까운 지원 화면비 라벨. */
+export function nearestRatio(width: number, height: number): string {
+  const r = width / Math.max(1, height);
+  let best = SUPPORTED_RATIOS[0];
+  for (const c of SUPPORTED_RATIOS) if (Math.abs(c.r - r) < Math.abs(best.r - r)) best = c;
+  return best.label;
+}
+
+/** 밴드를 21:9 보다 납작하지 않게 위·아래로 확장(이미지 경계 안에서). */
+export function padToRatio(top: number, height: number, width: number, imgH: number): { top: number; height: number } {
+  const need = Math.ceil(width / MAX_RATIO);
+  if (height >= need || imgH <= height) return { top, height };
+  const grow = Math.min(need, imgH) - height;
+  let newTop = top - Math.floor(grow / 2);
+  let newH = height + grow;
+  if (newTop < 0) newTop = 0;
+  if (newTop + newH > imgH) newTop = Math.max(0, imgH - newH);
+  return { top: newTop, height: Math.min(newH, imgH - newTop) };
+}
+
+/** 밴드들을 화면비까지 확장한 뒤, 겹치는 구역은 합친다.
+ *  겹친 채로 각각 편집해 되붙이면 나중 밴드가 앞 밴드의 번역을 원문으로 덮어쓸 수 있다. */
+export function padBands(bands: Band[], width: number, imgH: number): Band[] {
+  const padded = bands
+    .map((b) => ({ ...padToRatio(b.top, b.height, width, imgH), texts: b.texts }))
+    .sort((a, b) => a.top - b.top);
+  const out: typeof padded = [];
+  for (const p of padded) {
+    const last = out[out.length - 1];
+    if (last && p.top <= last.top + last.height) {
+      const bottom = Math.max(last.top + last.height, p.top + p.height);
+      last.height = bottom - last.top;
+      last.texts = [...last.texts, ...p.texts];
+    } else out.push({ ...p, texts: [...p.texts] });
+  }
+  return out;
+}
+
 // ── 밴드 계산 — 박스들을 "가로 전체 폭 띠"로 병합(상세페이지는 세로 스택 구조라 이음새가 깔끔). ──
 export interface Band { top: number; height: number; texts: string[] }
 
@@ -176,23 +231,29 @@ export function mergeBands(boxes: TextBox[], width: number, height: number, maxB
 // ── ③ 밴드 크롭 편집(번역문을 명시해 교체 — 이미지 모델의 즉석 번역보다 정확) ──
 async function editBand(
   key: string, crop: Buffer, mime: string, target: string, texts: string[],
+  ratio: string, width: number, height: number,
 ): Promise<Buffer | null> {
   const list = texts.filter(Boolean).length
     ? `Use these ${target} translations for the text blocks, in reading order:\n` +
       texts.filter(Boolean).map((t, i) => `${i + 1}. ${t}`).join("\n") + "\n"
     : "";
   const prompt =
-    `This image is a cropped horizontal section of a Korean product detail page. ` +
+    `This image is a cropped horizontal section of a Korean product detail page (${width}x${height} pixels). ` +
     `Replace ALL Korean text with natural, marketing-quality ${target}, in place. ${list}` +
-    `Keep the exact same layout, background, product photos, graphics, colors and font styling. ` +
+    `Keep the exact same layout, framing, background, product photos, graphics, colors and font styling. ` +
+    `Do not crop, zoom, rotate, rescale or reframe the image — the output must be pixel-aligned with the input. ` +
     `Do not add, remove or move any visual elements. Do not alter non-text areas. ` +
-    `Do not translate brand names or logos. Output only the edited image with the same dimensions.`;
+    `Do not translate brand names or logos. Output only the edited image at the same ${ratio} aspect ratio.`;
   // 기본 모델(Pro) → 실패(미지원 404·한도 429 등) 시 flash 폴백 — 밴드 단위라 부분 성공 가능.
+  //   화면비를 명시해 모델이 다른 비율로 재조판하는 것을 막는다(되붙일 때 눌림·깨짐 방지).
+  //   Pro 는 2K 출력을 지원해 텍스트가 훨씬 선명하다(flash 는 해당 필드 무시).
   for (const model of [MODEL, ...(MODEL_FALLBACK !== MODEL ? [MODEL_FALLBACK] : [])]) {
+    const cfg: Record<string, unknown> = { aspectRatio: ratio };
+    if (/pro/i.test(model)) cfg.imageSize = "2K";
     const parts = await geminiCall(key, model, [
       { inline_data: { mime_type: mime, data: crop.toString("base64") } },
       { text: prompt },
-    ], 40_000).catch(() => null);
+    ], 40_000, false, cfg).catch(() => null);
     const img = partsImage(parts)?.bytes;
     if (img) return img;
   }
@@ -275,24 +336,31 @@ export async function translateImage(bytes: Buffer, mime: string, lang: ImgTrans
     const withT = boxes.map((b, i) => ({ ...b, text: translated?.[i] ?? "" }));
 
     // ③ 밴드 편집 — 텍스트가 있는 가로 띠만 편집(동시 3, 실패 1회 재시도).
-    const bands = mergeBands(withT, W, H);
+    // 밴드 병합 → 화면비 확장 → 겹침 정리(겹친 채 되붙이면 번역이 원문으로 덮어써짐).
+    const bands = padBands(mergeBands(withT, W, H), W, H);
     if (bands.length === 0) return translateWholeImage(key, bytes, mime, target);
     const cropMime = "image/png"; // 크롭은 무손실로 보내 편집 입력 품질 유지
     const results = await mapLimit(bands, 4, async (band) => {
-      const crop = await sharp(bytes).extract({ left: 0, top: band.top, width: W, height: band.height }).png().toBuffer();
-      let edited = await editBand(key, crop, cropMime, target, band.texts);
-      if (!edited) edited = await editBand(key, crop, cropMime, target, band.texts); // 재시도 1회
+      const { top, height } = band; // 화면비 확장·겹침 정리는 padBands 에서 완료
+      const ratio = nearestRatio(W, height);
+      const crop = await sharp(bytes).extract({ left: 0, top, width: W, height }).png().toBuffer();
+      let edited = await editBand(key, crop, cropMime, target, band.texts, ratio, W, height);
+      if (!edited) edited = await editBand(key, crop, cropMime, target, band.texts, ratio, W, height); // 재시도 1회
       if (!edited) return null;
-      // 모델 출력 해상도는 입력과 다를 수 있음 — 밴드 크기에 정확히 맞춰 되붙인다.
-      const fitted = await sharp(edited).resize(W, band.height, { fit: "fill" }).png().toBuffer();
-      return { top: band.top, buf: fitted };
+      // 모델 출력 해상도는 입력과 다를 수 있음 — 밴드 크기에 맞춰 되붙인다.
+      //   화면비를 맞춰 보냈으므로 보통 등비 축소만 일어나고, lanczos3 로 선명도를 유지한다.
+      const fitted = await sharp(edited).resize(W, height, { fit: "fill", kernel: "lanczos3" }).png().toBuffer();
+      return { top, buf: fitted };
     });
 
     const done = results.filter(Boolean) as { top: number; buf: Buffer }[];
     if (done.length === 0) return translateWholeImage(key, bytes, mime, target);
     const composed = sharp(bytes).composite(done.map((d) => ({ input: d.buf, left: 0, top: d.top })));
     const outJpeg = mime === "image/jpeg" || mime === "image/jpg";
-    const outBytes = outJpeg ? await composed.jpeg({ quality: 92 }).toBuffer() : await composed.png().toBuffer();
+    // 텍스트 가장자리 보존을 위해 JPEG 품질을 높게(4:4:4 크로마 서브샘플링 해제).
+    const outBytes = outJpeg
+      ? await composed.jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer()
+      : await composed.png().toBuffer();
     const failed = results.length - done.length;
     return {
       ok: true, bytes: outBytes, mime: outJpeg ? "image/jpeg" : "image/png",
