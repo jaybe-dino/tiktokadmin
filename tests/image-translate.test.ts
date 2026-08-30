@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeBands, nearestRatio, padToRatio, fitBandToRatio, fitBands, type TextBox } from "../lib/image-translate";
+import { mergeBands, nearestRatio, padToRatio, fitBandToRatio, fitBands, tileRanges, dedupeBoxes, type TextBox } from "../lib/image-translate";
 
 const box = (ymin: number, ymax: number, text = "t"): TextBox => ({ ymin, xmin: 0, ymax, xmax: 1000, text });
 
@@ -126,5 +126,49 @@ describe("fitBandToRatio / fitBands (정확한 화면비 맞춤)", () => {
     const out = fitBands([{ top: 200, height: 100, texts: ["x"] }, { top: 6000, height: 100, texts: ["y"] }], W, H);
     expect(out.length).toBe(2);
     for (const b of out) expect(Math.abs(W / b.height - RATIOS[b.ratio])).toBeLessThan(0.01);
+  });
+});
+
+// 번역 누락 방지: 긴 상세페이지는 통으로 감지하면 축소돼 작은 글씨를 놓치므로
+// 세로 타일로 나눠 감지한다. 타일은 전 구간을 빠짐없이 덮고 서로 겹쳐야 한다.
+describe("tileRanges / dedupeBoxes (감지 누락 방지)", () => {
+  it("짧은 이미지는 통으로 1개", () => {
+    expect(tileRanges(900, 900)).toEqual([{ top: 0, height: 900 }]);
+  });
+
+  it("긴 이미지는 겹치는 타일로 나뉘고 전 구간을 덮는다", () => {
+    for (const [W, H] of [[750, 6000], [860, 12000], [1080, 3500], [640, 20000]] as const) {
+      const tiles = tileRanges(W, H);
+      expect(tiles.length).toBeGreaterThan(1);
+      // 시작·끝을 덮는다
+      expect(tiles[0].top).toBe(0);
+      const last = tiles[tiles.length - 1];
+      expect(last.top + last.height).toBe(H);
+      for (let i = 0; i + 1 < tiles.length; i++) {
+        const cur = tiles[i], nxt = tiles[i + 1];
+        // 빈틈 없음 + 경계 글자를 놓치지 않도록 겹침 존재
+        expect(nxt.top).toBeLessThan(cur.top + cur.height);
+      }
+      for (const t of tiles) {
+        expect(t.top).toBeGreaterThanOrEqual(0);
+        expect(t.top + t.height).toBeLessThanOrEqual(H);
+        expect(t.height).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("dedupeBoxes — 겹친 타일에서 중복 감지된 같은 글을 하나로 합친다", () => {
+    const boxes: TextBox[] = [
+      { ymin: 100, xmin: 0, ymax: 140, xmax: 900, text: "촉촉한 수분크림" },
+      { ymin: 120, xmin: 10, ymax: 160, xmax: 950, text: "촉촉한  수분크림" }, // 같은 글(공백 차이)
+      { ymin: 500, xmin: 0, ymax: 540, xmax: 900, text: "촉촉한 수분크림" },   // 다른 위치 — 유지
+      { ymin: 700, xmin: 0, ymax: 740, xmax: 900, text: "성분표" },
+    ];
+    const out = dedupeBoxes(boxes);
+    expect(out.length).toBe(3);
+    // 합쳐진 박스는 두 박스를 모두 포함
+    expect(out[0].ymin).toBe(100);
+    expect(out[0].ymax).toBe(160);
+    expect(out.map((b) => b.text)).toContain("성분표");
   });
 });

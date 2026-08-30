@@ -28,6 +28,9 @@ const MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image-preview";
 const MODEL_FALLBACK = process.env.GEMINI_IMAGE_MODEL_FALLBACK || "gemini-2.5-flash-image";
 // 텍스트 감지(좌표)·번역용 텍스트 모델.
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash";
+// 완성도 루프 예산 — 라우트 maxDuration(240s) 안에서 끝내도록 여유를 둔다.
+const BUDGET_MS = Number(process.env.IMG_TRANSLATE_BUDGET_MS ?? 210_000);
+const MAX_ROUNDS = Math.max(1, Number(process.env.IMG_TRANSLATE_ROUNDS ?? 3));
 
 export interface TranslateImageResult {
   ok: boolean;
@@ -102,11 +105,15 @@ export interface TextBox { ymin: number; xmin: number; ymax: number; xmax: numbe
 
 async function detectKoreanText(key: string, bytes: Buffer, mime: string): Promise<TextBox[] | null> {
   const prompt =
-    `Find every distinct block of Korean text in this product detail page image. ` +
+    `Find EVERY block of Korean text in this image, without exception. ` +
     `Return ONLY a JSON array: [{"box_2d":[ymin,xmin,ymax,xmax],"text":"<the Korean text>"}] ` +
-    `with coordinates normalized to 0-1000. Include ALL Korean text: headings, body copy, captions, ` +
-    `labels inside graphics and tables. Exclude text that is not Korean, and exclude brand names/logos. ` +
-    `If there is no Korean text, return [].`;
+    `with coordinates normalized to 0-1000. Be exhaustive — include headings, body copy, captions, ` +
+    `bullet lists, table cells, footnotes, small print, price/spec labels, badges, stickers, ` +
+    `text baked into product photos, illustrations and diagrams, text on buttons, and vertical text. ` +
+    `Even a single Korean word or a mixed Korean/English line counts — report it. ` +
+    `Split text into separate boxes when blocks are visually separated. ` +
+    `Exclude text that contains no Korean characters, and exclude brand names/logos. ` +
+    `If there is genuinely no Korean text, return [].`;
   const parts = await geminiCall(key, TEXT_MODEL, [
     { inline_data: { mime_type: mime, data: bytes.toString("base64") } },
     { text: prompt },
@@ -123,6 +130,72 @@ async function detectKoreanText(key: string, bytes: Buffer, mime: string): Promi
     out.push({ ymin, xmin, ymax, xmax, text: String(r.text ?? "").trim() });
   }
   return out;
+}
+
+// ── ①-b 타일 감지 — 긴 상세페이지는 통으로 넣으면 모델 입력 해상도에 맞춰 축소되면서
+//   작은 글씨를 놓친다(번역 누락의 주원인). 세로로 잘라 각 조각을 원해상도로 감지한 뒤
+//   좌표를 전체 기준으로 되돌린다. 경계에 걸친 글자를 놓치지 않도록 조각을 겹쳐 자른다.
+
+/** 감지용 세로 타일 구간(겹침 포함). 이미지가 짧으면 통으로 1개. */
+export function tileRanges(width: number, height: number, overlap = 0.12): { top: number; height: number }[] {
+  const tileH = Math.max(1, Math.round(width * 1.3));
+  if (height <= Math.round(tileH * 1.25)) return [{ top: 0, height }];
+  const step = Math.max(1, Math.round(tileH * (1 - overlap)));
+  const out: { top: number; height: number }[] = [];
+  for (let top = 0; top < height; top += step) {
+    const h = Math.min(tileH, height - top);
+    out.push({ top, height: h });
+    if (top + h >= height) break;
+  }
+  // 마지막 조각이 너무 얇으면 위로 늘려 흡수(얇은 조각은 감지 품질이 떨어진다).
+  const last = out[out.length - 1];
+  if (out.length > 1 && last.height < tileH * 0.3) {
+    last.top = Math.max(0, height - tileH);
+    last.height = height - last.top;
+  }
+  return out;
+}
+
+/** 겹친 타일에서 같은 글이 두 번 잡히는 것을 정리(세로 구간이 겹치고 글자가 같으면 하나로). */
+export function dedupeBoxes(boxes: TextBox[]): TextBox[] {
+  const out: TextBox[] = [];
+  for (const b of [...boxes].sort((a, z) => a.ymin - z.ymin)) {
+    const key = b.text.replace(/\s+/g, "");
+    const dup = key
+      ? out.find((o) => o.text.replace(/\s+/g, "") === key && Math.min(o.ymax, b.ymax) > Math.max(o.ymin, b.ymin))
+      : undefined;
+    if (dup) {
+      dup.ymin = Math.min(dup.ymin, b.ymin); dup.ymax = Math.max(dup.ymax, b.ymax);
+      dup.xmin = Math.min(dup.xmin, b.xmin); dup.xmax = Math.max(dup.xmax, b.xmax);
+      continue;
+    }
+    out.push({ ...b });
+  }
+  return out;
+}
+
+/** 전체 이미지의 한글 블록 감지 — 타일별 감지 결과를 전체 좌표(0~1000)로 합친다.
+ *  모든 타일이 실패하면 null(호출부가 전체 편집으로 폴백). */
+async function detectAllKorean(
+  key: string, bytes: Buffer, W: number, H: number,
+  sharpFn: (input: Buffer) => import("sharp").Sharp,
+): Promise<TextBox[] | null> {
+  const tiles = tileRanges(W, H);
+  if (tiles.length === 1) return detectKoreanText(key, bytes, "image/png");
+  const results = await mapLimit(tiles, 3, async (t) => {
+    const crop = await sharpFn(bytes).extract({ left: 0, top: t.top, width: W, height: t.height }).png().toBuffer();
+    const found = await detectKoreanText(key, crop, "image/png").catch(() => null);
+    if (!found) return null;
+    // 타일 로컬 좌표(0~1000) → 전체 좌표(0~1000)
+    return found.map((b) => ({
+      ...b,
+      ymin: ((t.top + (b.ymin / 1000) * t.height) / H) * 1000,
+      ymax: ((t.top + (b.ymax / 1000) * t.height) / H) * 1000,
+    }));
+  });
+  const okTiles = results.filter(Boolean) as TextBox[][];
+  if (okTiles.length === 0) return null;
+  return dedupeBoxes(okTiles.flat());
 }
 
 // ── ② 원문 일괄 번역(순서 보존) ──
@@ -358,52 +431,92 @@ export async function translateImage(bytes: Buffer, mime: string, lang: ImgTrans
   // 운영 중 문제 시 전체 편집 방식으로 즉시 되돌릴 수 있는 스위치.
   if (process.env.IMG_TRANSLATE_MODE === "whole") return translateWholeImage(key, bytes, mime, target);
 
+  const t0 = Date.now();
+  const msLeft = () => BUDGET_MS - (Date.now() - t0);
+
   try {
     const sharp = (await import("sharp")).default;
     const meta = await sharp(bytes).metadata();
     const W = meta.width ?? 0, H = meta.height ?? 0;
     if (!W || !H) return translateWholeImage(key, bytes, mime, target);
 
-    // ① 감지 — 실패(null)면 폴백. 성공했는데 0개면 "번역할 한글 없음" → 원본 그대로.
-    const boxes = await detectKoreanText(key, bytes, mime).catch((e) => { throw e; });
-    if (boxes === null) return translateWholeImage(key, bytes, mime, target);
-    if (boxes.length === 0) return { ok: true, bytes, mime, note: "이미지에서 한글 텍스트를 찾지 못했습니다 — 원본 그대로 저장" };
+    let cur = bytes;             // 라운드마다 갱신되는 현재 이미지
+    let verifiedClean = false;   // 감지 결과 "한글 0곳"으로 확인된 상태
+    let anyEdit = false;
+    let leftover = 0;            // 마지막 감지에서 남아 있던 한글 블록 수
 
-    // ② 정확 번역(실패해도 진행 — 편집 모델이 즉석 번역).
-    const translated = await translateTexts(key, boxes.map((b) => b.text), target).catch(() => null);
-    const withT = boxes.map((b, i) => ({ ...b, text: translated?.[i] ?? "" }));
+    // 완성도 루프 — 번역 후 다시 감지해서 남은 한글이 있으면 그 부분만 재작업한다.
+    //   (감지 모델이 한 번에 모든 글자를 잡지 못하는 것이 누락의 주원인이라, 확인·재시도가
+    //    프롬프트 개선보다 확실하다. 예산 안에서 최대 ROUNDS 회.)
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      // 한 라운드(감지+편집)를 돌릴 시간이 없으면 중단하고 지금까지 결과를 반환.
+      if (round > 0 && msLeft() < 35_000) break;
 
-    // ③ 밴드 편집 — 텍스트가 있는 가로 띠만 편집(동시 3, 실패 1회 재시도).
-    // 밴드 병합 → 정확한 지원 화면비로 확장 → 겹침 정리(겹친 채 되붙이면 번역이 원문으로 덮어써짐).
-    const bands = fitBands(mergeBands(withT, W, H), W, H);
-    if (bands.length === 0) return translateWholeImage(key, bytes, mime, target);
-    const cropMime = "image/png"; // 크롭은 무손실로 보내 편집 입력 품질 유지
-    const results = await mapLimit(bands, 4, async (band) => {
-      const { top, height, ratio } = band; // 화면비 확장·겹침 정리는 fitBands 에서 완료
-      const crop = await sharp(bytes).extract({ left: 0, top, width: W, height }).png().toBuffer();
-      let edited = await editBand(key, crop, cropMime, target, band.texts, ratio, W, height);
-      if (!edited) edited = await editBand(key, crop, cropMime, target, band.texts, ratio, W, height); // 재시도 1회
-      if (!edited) return null;
-      // 되붙이기 — 입력과 같은 비율로 받았으므로 등비 축소만 일어난다(lanczos3 로 선명도 유지).
-      //   혹시 모델이 다른 비율로 보내면 cover 로 중앙을 맞춰 잘라 넣는다(늘여서 눌리는 것보다 낫다).
-      const fitted = await sharp(edited)
-        .resize(W, height, { fit: "cover", position: "centre", kernel: "lanczos3" })
-        .png().toBuffer();
-      return { top, buf: fitted };
-    });
+      const boxes = await detectAllKorean(key, cur, W, H, sharp);
+      if (boxes === null) {
+        if (round === 0) return translateWholeImage(key, bytes, mime, target);
+        break; // 이미 일부 번역됨 — 감지 실패라도 지금까지 결과를 유지
+      }
+      leftover = boxes.length;
+      if (boxes.length === 0) {
+        // 첫 라운드면 애초에 한글이 없는 이미지, 이후 라운드면 남김없이 번역 완료.
+        if (round === 0) return { ok: true, bytes, mime, note: "이미지에서 한글 텍스트를 찾지 못했습니다 — 원본 그대로 저장" };
+        verifiedClean = true;
+        break;
+      }
 
-    const done = results.filter(Boolean) as { top: number; buf: Buffer }[];
-    if (done.length === 0) return translateWholeImage(key, bytes, mime, target);
-    const composed = sharp(bytes).composite(done.map((d) => ({ input: d.buf, left: 0, top: d.top })));
+      // ② 정확 번역(실패해도 진행 — 편집 모델이 즉석 번역).
+      const translated = await translateTexts(key, boxes.map((b) => b.text), target).catch(() => null);
+      const withT = boxes.map((b, i) => ({ ...b, text: translated?.[i] ?? "" }));
+
+      // ③ 밴드 편집 — 밴드 병합 → 정확한 지원 화면비로 확장 → 겹침 정리
+      //    (겹친 채 되붙이면 나중 밴드가 앞 밴드의 번역을 원문으로 덮어쓴다).
+      const bands = fitBands(mergeBands(withT, W, H), W, H);
+      if (bands.length === 0) {
+        if (round === 0) return translateWholeImage(key, bytes, mime, target);
+        break;
+      }
+      const src = cur; // 이번 라운드의 크롭 원본
+      const results = await mapLimit(bands, 4, async (band) => {
+        if (msLeft() < 12_000) return null; // 예산 초과분은 다음 실행에서 처리
+        const { top, height, ratio } = band;
+        const crop = await sharp(src).extract({ left: 0, top, width: W, height }).png().toBuffer();
+        let edited = await editBand(key, crop, "image/png", target, band.texts, ratio, W, height);
+        if (!edited && msLeft() > 15_000) {
+          edited = await editBand(key, crop, "image/png", target, band.texts, ratio, W, height); // 재시도 1회
+        }
+        if (!edited) return null;
+        // 되붙이기 — 입력과 같은 비율로 받았으므로 등비 축소만 일어난다(lanczos3 로 선명도 유지).
+        //   혹시 모델이 다른 비율로 보내면 cover 로 중앙을 맞춰 잘라 넣는다(늘여서 눌리는 것보다 낫다).
+        const fitted = await sharp(edited)
+          .resize(W, height, { fit: "cover", position: "centre", kernel: "lanczos3" })
+          .png().toBuffer();
+        return { top, buf: fitted };
+      });
+
+      const done = results.filter(Boolean) as { top: number; buf: Buffer }[];
+      if (done.length === 0) {
+        if (round === 0 && !anyEdit) return translateWholeImage(key, bytes, mime, target);
+        break;
+      }
+      anyEdit = true;
+      // 라운드 중간 결과는 무손실(PNG)로 유지 — 반복 저장에 따른 화질 열화 방지.
+      cur = await sharp(cur).composite(done.map((d) => ({ input: d.buf, left: 0, top: d.top }))).png().toBuffer();
+    }
+
+    if (!anyEdit) return translateWholeImage(key, bytes, mime, target);
+
     const outJpeg = mime === "image/jpeg" || mime === "image/jpg";
     // 텍스트 가장자리 보존을 위해 JPEG 품질을 높게(4:4:4 크로마 서브샘플링 해제).
     const outBytes = outJpeg
-      ? await composed.jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer()
-      : await composed.png().toBuffer();
-    const failed = results.length - done.length;
+      ? await sharp(cur).jpeg({ quality: 95, chromaSubsampling: "4:4:4" }).toBuffer()
+      : await sharp(cur).png().toBuffer();
     return {
       ok: true, bytes: outBytes, mime: outJpeg ? "image/jpeg" : "image/png",
-      note: failed > 0 ? `${failed}개 구역은 번역에 실패해 원문이 남았습니다 — 한 번 더 실행해 주세요.` : undefined,
+      note: verifiedClean
+        ? undefined
+        : `번역되지 않은 한글이 남아 있을 수 있습니다${leftover ? ` (마지막 확인 ${leftover}곳)` : ""} — ` +
+          `"이어서 번역"을 실행하면 남은 부분만 다시 처리합니다.`,
     };
   } catch (e) { return httpError(e); }
 }

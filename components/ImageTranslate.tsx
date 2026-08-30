@@ -20,7 +20,7 @@ export default function ImageTranslate({ endpoint, extra = {}, compact = false }
   const [lang, setLang] = useState("en");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [results, setResults] = useState<{ lang: string; url: string; filename: string }[]>([]);
+  const [results, setResults] = useState<{ lang: string; url: string; filename: string; note?: string }[]>([]);
 
   function pick(f: File | null) {
     setFile(f);
@@ -30,21 +30,46 @@ export default function ImageTranslate({ endpoint, extra = {}, compact = false }
     setSrcUrl(f ? URL.createObjectURL(f) : "");
   }
 
-  async function translate() {
-    if (!file || busy) return;
+  async function run(src: File, useLang: string) {
     setBusy(true); setErr("");
     try {
       const fd = new FormData();
-      fd.append("file", file);
-      fd.append("lang", lang);
+      fd.append("file", src);
+      fd.append("lang", useLang);
       for (const [k, v] of Object.entries(extra)) fd.append(k, v);
       const res = await fetch(endpoint, { method: "POST", body: fd });
       const j = await res.json().catch(() => ({ ok: false, error: "응답 해석 실패" }));
       if (!j.ok || !j.url) { setErr(j.error ?? "번역 실패"); return; }
-      setResults((rs) => [{ lang, url: j.url, filename: j.filename ?? "" }, ...rs.filter((r) => r.lang !== lang)]);
+      setResults((rs) => [
+        { lang: useLang, url: j.url, filename: j.filename ?? "", note: j.note },
+        ...rs.filter((r) => r.lang !== useLang),
+      ]);
     } catch {
       setErr("네트워크 오류 — 다시 시도해주세요.");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  function translate() {
+    if (!file || busy) return;
+    run(file, lang);
+  }
+
+  // 이어서 번역 — 번역본을 다시 입력으로 넣어 "남은 한글"만 처리한다.
+  //   감지는 한글만 찾으므로 이미 번역된 부분은 건드리지 않는다(반복할수록 완성도가 올라감).
+  async function continueTranslate(r: { lang: string; url: string; filename: string }) {
+    if (busy) return;
+    setBusy(true); setErr("");
+    try {
+      const res = await fetch(r.url);
+      if (!res.ok) { setErr("번역본을 다시 불러오지 못했습니다."); setBusy(false); return; }
+      const blob = await res.blob();
+      const f = new File([blob], r.filename || "translated.png", { type: blob.type || "image/png" });
+      setBusy(false);
+      await run(f, r.lang);
+    } catch {
+      setErr("이어서 번역 준비 중 오류가 발생했습니다.");
       setBusy(false);
     }
   }
@@ -63,7 +88,7 @@ export default function ImageTranslate({ endpoint, extra = {}, compact = false }
           {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
         </select>
         <button type="button" className="btn sm pri" onClick={translate} disabled={busy || !file}>
-          {busy ? "번역 중… (최대 1분)" : "🌐 번역하기"}
+          {busy ? "번역 중… (최대 2~3분)" : "🌐 번역하기"}
         </button>
         {!compact && (
           <span style={{ fontSize: 10.5, color: "var(--ink3)" }}>
@@ -90,13 +115,21 @@ export default function ImageTranslate({ endpoint, extra = {}, compact = false }
               </figcaption>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={r.url} alt={`번역본 ${r.lang}`} style={{ width: "100%", border: "1px solid #12b88655", borderRadius: 8, background: "#fff" }} />
+              {r.note && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: "#b25e02" }}>⚠ {r.note}</span>
+                  <button type="button" className="btn sm" disabled={busy} onClick={() => continueTranslate(r)}>
+                    ↻ 이어서 번역
+                  </button>
+                </div>
+              )}
             </figure>
           ))}
         </div>
       )}
       {results.length > 0 && (
         <div style={{ fontSize: 11, color: "var(--ink3)" }}>
-          번역본은 자동 저장되었습니다. 마음에 들지 않으면 같은 언어로 다시 번역하면 새 결과로 갱신됩니다.
+          번역본은 자동 저장되었습니다. 마음에 들지 않으면 같은 언어로 다시 번역하면 새 결과로 갱신됩니다.{" "}남은 한글이 있으면 “이어서 번역”을 눌러 그 부분만 반복 처리할 수 있습니다.
         </div>
       )}
     </div>
