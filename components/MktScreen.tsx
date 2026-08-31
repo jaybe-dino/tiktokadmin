@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { assignBrandOwnerAction } from "@/app/actions";
 import KanbanScroll from "@/components/KanbanScroll";
 import ContentBriefCard from "@/components/ContentBriefCard";
+import ContentBriefRef from "@/components/ContentBriefRef";
 import Link from "next/link";
 import {
   createMktProjectAction,
@@ -653,6 +654,9 @@ function RoutineCard({ p }: { p: RoutineProject }) {
           })}
         </div>
         {p.cycles.length === 0 && <div className="note" style={{ marginTop: 8 }}>회차가 없습니다 — 「+ 이번 달 회차」로 시작하세요. 완료 처리 시 다음 달 회차가 자동 개설됩니다.</div>}
+
+        {/* 회차 기획 시 브랜드 콘텐츠 브리프 응답 참조(선택) */}
+        <ContentBriefRef brandId={p.brand_id} compact />
         {msg && <div className="note" style={{ marginTop: 8, color: "var(--ok)" }}>{msg}</div>}
       </div>
     </div>

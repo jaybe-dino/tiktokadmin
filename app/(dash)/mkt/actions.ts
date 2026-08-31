@@ -620,3 +620,31 @@ export async function deleteContentBriefAction(surveyId: string): Promise<MktRes
   revalidatePath("/mkt");
   return { ok: true };
 }
+
+/** 전체 브랜드의 콘텐츠 브리프 목록(최신순) — 독립 메뉴(/content-briefs)용. */
+export async function listAllContentBriefsAction(): Promise<MktResult & {
+  briefs?: (ContentBriefRow & { brand_id: string; brand_name: string })[];
+}> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const { env } = await import("@/lib/env");
+  const rows = await query<{
+    id: string; token: string; brand_id: string; brand_name: string;
+    answers: Record<string, unknown> | null; sent_at: string | null; responded_at: string | null; created_at: string;
+  }>(
+    `SELECT s.id, s.token, s.brand_id, b.brand_name, s.answers, s.sent_at, s.responded_at, s.created_at
+       FROM surveys s JOIN brands b ON b.id = s.brand_id
+      WHERE s.kind='content_brief'
+      ORDER BY s.created_at DESC LIMIT 300`,
+  ).catch(() => []);
+  const briefs = rows.map((r) => {
+    const a = r.answers ?? {};
+    const label = String(a.product_name_kr ?? a.product_label ?? "").trim() || "(제품 미지정)";
+    return {
+      id: r.id, token: r.token, url: `${env.adminUrl}/s/${r.token}`, product_label: label,
+      sent_at: r.sent_at, responded_at: r.responded_at, created_at: r.created_at,
+      brand_id: r.brand_id, brand_name: r.brand_name,
+    };
+  });
+  return { ok: true, briefs };
+}

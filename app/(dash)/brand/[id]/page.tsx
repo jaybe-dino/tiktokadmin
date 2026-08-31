@@ -16,6 +16,7 @@ import Brand360Meetings, { type DraftRow, type MeetingRow } from "@/components/B
 import Brand360Products from "@/components/Brand360Products";
 import ImageTranslate from "@/components/ImageTranslate";
 import Brand360SurveyCard, { Brand360SurveyPanel } from "@/components/Brand360SurveyCard";
+import ContentBriefCard from "@/components/ContentBriefCard";
 import Brand360Compose from "@/components/Brand360Compose";
 import { getQuestions } from "@/lib/survey-db";
 import CustomerEmails from "@/components/CustomerEmails";
@@ -392,7 +393,11 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
   // 설문 — 전체 응답 상세(섹션별·겹침 없음). 문항 라벨은 DB 문항뱅크 사용.
   const panelSurvey = (
-    <Brand360SurveyPanel surveys={deep?.surveys ?? []} questionSets={questionSets} />
+    <>
+      <Brand360SurveyPanel surveys={deep?.surveys ?? []} questionSets={questionSets} />
+      {/* 콘텐츠 브리프 설문 — 마케팅 프로젝트 없이 브랜드 단위로도 발급·회수 */}
+      <ContentBriefCard brandId={brand.id} />
+    </>
   );
 
   const tabs: Brand360Tab[] = [

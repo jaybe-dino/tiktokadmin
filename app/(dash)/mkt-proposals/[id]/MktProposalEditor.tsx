@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import MktProposalView from "@/components/MktProposalView";
+import ContentBriefRef from "@/components/ContentBriefRef";
 import CategoryPicker from "@/components/CategoryPicker";
 import GlovekCategorySelect from "@/components/GlovekCategorySelect";
 import { COUNTRY_LABEL, computeBudgetPlan, PHASE_RATIO, type MktCountry, type Phase, type PhaseRatios, type MonthOverride } from "@/lib/mkt-proposal-engine";
@@ -431,6 +432,10 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
           ))}
           <button className="btn sm" onClick={() => setProducts([...products, { name: "", features: [] }])}>+ 제품 추가</button>
         </Card>
+
+        {/* 콘텐츠 브리프 참조(선택) — 브랜드가 제출한 설문 응답을 보며 제안 내용을 작성 */}
+
+        <ContentBriefRef brandId={brandId || null} />
 
         <Card title={`레퍼런스 (${refs.length})`}>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>

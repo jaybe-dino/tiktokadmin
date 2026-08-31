@@ -29,6 +29,7 @@ const GROUPS: Group[] = [
     { href: "/mkt", label: "마케팅 파이프라인", ic: "📣" },
     { href: "/mkt-proposals", label: "마케팅 제안서", ic: "📝" },
     { href: "/mkt-proposals2", label: "마케팅 제안서2", ic: "🤖" },
+    { href: "/content-briefs", label: "콘텐츠 브리프", ic: "📋" },
     { href: "/send", label: "발송 센터", ic: "📤" },
   ]},
   { title: "커뮤니케이션", items: [
