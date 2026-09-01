@@ -28,7 +28,7 @@ export async function listSurveyEligibleBrands(): Promise<SurveyEligibleBrand[]>
 
 interface SurveyRow { answers: Record<string, string>; responded_at: string }
 
-async function latestMarketingSurvey(brandId: string): Promise<SurveyRow | null> {
+export async function latestMarketingSurvey(brandId: string): Promise<SurveyRow | null> {
   return queryOne<SurveyRow>(
     `SELECT answers, responded_at::text AS responded_at FROM surveys
       WHERE brand_id=$1 AND kind='marketing_survey' AND responded_at IS NOT NULL
@@ -38,7 +38,7 @@ async function latestMarketingSurvey(brandId: string): Promise<SurveyRow | null>
 }
 
 /** answers(설문 문항 텍스트가 키) 에서 라벨 키워드를 모두 포함하는 값을 찾는다(문항 번호·문구가 조금 달라도 매칭). */
-function findAnswer(answers: Record<string, string>, ...keywords: string[]): string {
+export function findAnswer(answers: Record<string, string>, ...keywords: string[]): string {
   for (const [k, v] of Object.entries(answers)) {
     if (!v?.trim()) continue;
     if (keywords.every((kw) => k.includes(kw))) return v;
@@ -47,7 +47,7 @@ function findAnswer(answers: Record<string, string>, ...keywords: string[]): str
 }
 
 /** 텍스트에서 http(s) URL 을 모두 추출(끝의 괄호·구두점 제거). */
-function extractUrls(text: string): string[] {
+export function extractUrls(text: string): string[] {
   const matches = text.match(/https?:\/\/[^\s"'<>)\]]+/g) ?? [];
   return Array.from(new Set(matches.map((u) => u.replace(/[.,;:]+$/, "")))).slice(0, 5);
 }
@@ -131,6 +131,34 @@ const ACCENT_BY_KEYWORD: [RegExp, string][] = [
   [/푸드|간식|식품/, "#ea580c"],
   [/패션|의류|악세서리/, "#1e3a8a"],
 ];
+/** 설문(대표 상품 링크) 기반 제품 자동 수집 — 방식1(수동 생성)·방식2 공용.
+ *  A2 "대표 상품 링크"에 적힌 URL 만 대상으로 하며(브랜드 등록 제품 목록과 무관),
+ *  각 페이지를 스크레이핑해 제품명·대표 이미지를 채우고 A1(핵심 효능)을 특징으로 넣는다.
+ *  설문이 없거나 링크가 없으면 빈 배열 — 호출부가 기존 폴백(products_master)을 쓴다. */
+export async function productsFromSurvey(brandId: string): Promise<{ products: MktProductItem[]; note: string }> {
+  const survey = await latestMarketingSurvey(brandId).catch(() => null);
+  if (!survey) return { products: [], note: "설문 응답 없음" };
+  const answers = survey.answers ?? {};
+  const a2 = findAnswer(answers, "A2") || findAnswer(answers, "대표", "상품", "링크");
+  const a1 = findAnswer(answers, "A1") || findAnswer(answers, "핵심 효능");
+  const urls = extractUrls(a2).slice(0, 3);
+  if (urls.length === 0) return { products: [], note: "설문에 대표 상품 링크 없음" };
+
+  const scraped = await Promise.all(urls.map((u) => scrapeProductPage(u).catch(() => null)));
+  const products: MktProductItem[] = urls.map((u, i) => {
+    const s2 = scraped[i];
+    const desc = s2?.description?.trim() ?? "";
+    // og:description 이 법정 주의사항 등 상용구인 경우가 많아 걸러내고 설문 답변만 신뢰한다.
+    const descUsable = desc.length > 0 && desc.length <= 120 && !looksLikeCaution(desc);
+    return {
+      name: s2?.name || `제품 ${i + 1}`,
+      image_url: s2?.image_url ?? "",
+      features: [i === 0 ? a1 : "", descUsable ? desc : ""].filter(Boolean),
+    };
+  });
+  return { products, note: `설문 대표 상품 링크 ${urls.length}건 기준` };
+}
+
 export function guessAccentColor(category: string | null | undefined): string {
   const c = category ?? "";
   for (const [re, hex] of ACCENT_BY_KEYWORD) if (re.test(c)) return hex;

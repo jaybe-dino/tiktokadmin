@@ -13,6 +13,11 @@ const man = (n: number | null | undefined) => (n == null ? "" : Math.round(Numbe
 const stripPrice = (q: string | null | undefined) => (q || "").replace(/\s*[×xX*]\s*[\d,]+\s*(만원?|원)/g, "").trim();
 // hex 색상만 통과(그 외 null) — <style> 인라인 인젝션 방지.
 const safeHexColor = (v: string | null | undefined): string | null => (v && /^#[0-9a-fA-F]{3,8}$/.test(v.trim()) ? v.trim() : null);
+// "2026-10" → "2026년 10월" (형식이 어긋나면 표시하지 않음).
+const ymLabel = (v: string | null | undefined): string | null => {
+  const m = (v ?? "").trim().match(/^(\d{4})-(\d{1,2})$/);
+  return m ? `${m[1]}년 ${Number(m[2])}월` : null;
+};
 
 const TRACK_SUMMARY: Record<string, string> = { onboarding: "온보딩 트랙 제안 요약", mall: "멀티몰 트랙 제안 요약", marketing: "마케팅 트랙 제안 요약" };
 // value_items 가 비어 있어도 구성 항목(금액 없이)은 항상 노출 — 온보딩 표준 구성.
@@ -86,6 +91,7 @@ function Cover({ d, agency }: { d: ProposalDoc; agency: string }) {
       <div className="pp-cover-card">
         <h1>{d.title}</h1>
         <p className="pp-sub">{d.subtitle}</p>
+        {ymLabel(d.start_ym) && <p className="pp-start">운영 시작 {ymLabel(d.start_ym)}</p>}
         <p className="pp-en">TikTok Shop Marketing Proposal<br />Scaling Brands Through Creator Commerce</p>
         <div className="pp-rule" />
         <div className="pp-logos">
@@ -194,7 +200,8 @@ function OperationsSection({ d }: { d: ProposalDoc }) {
   if (!has) return null;
   return (
     <section className="pp-page">
-      <Eyebrow small="EXECUTION & IMPACT" title="실행 로드맵 & 기대 효과" />
+      <Eyebrow small="EXECUTION & IMPACT" title="실행 로드맵 & 기대 효과"
+        sub={ymLabel(d.start_ym) ? `${ymLabel(d.start_ym)} 운영 시작 기준` : undefined} />
       {d.roadmap_steps.length > 0 && (
         <div className="pp-steps">
           {d.roadmap_steps.map((s, i) => (
@@ -393,6 +400,7 @@ function css(accent: string, bg?: string | null): string {
   .pp-cover-card{position:relative;z-index:1;background:#fff;color:var(--ink);border-radius:22px;box-shadow:0 24px 70px rgba(0,0,0,.28);padding:60px 48px;text-align:center;max-width:640px;width:100%;}
   .pp-cover h1{font-size:32px;font-weight:900;letter-spacing:-.02em;margin:0;}
   .pp-cover .pp-sub{color:var(--acc);font-weight:800;font-size:18px;margin:14px 0 0;}
+  .pp-cover .pp-start{color:var(--ink2);font-weight:800;font-size:14px;margin:8px 0 0;}
   .pp-cover .pp-en{color:var(--ink3);font-weight:700;font-size:13px;line-height:1.6;margin:18px 0 0;}
   .pp-rule{height:1px;background:var(--line);margin:24px auto;max-width:420px;}
   .pp-logos{display:flex;gap:22px;align-items:center;justify-content:center;}

@@ -41,6 +41,7 @@ export interface ProposalDoc {
   creators: ProposalCreator[];
   accent: string | null;
   accent2?: string | null; // 배경색(0091, BUG-21) — NULL 이면 기본 핑크·보라 계열
+  start_ym?: string | null; // 운영 시작 연월 "YYYY-MM" (0093) — 제안서에 "언제부터"를 명시
   // v2 — 레퍼런스 데크 정합 필드.
   product_en: string | null;
   product_volume: string | null;
@@ -104,6 +105,7 @@ export interface ProposalInput {
   kpi_tier?: string | null; kpi_stage?: string | null; kpi_creator_content?: number | null; kpi_ad_spend?: string | null;
   products?: ProposalProduct[]; creators?: ProposalCreator[]; accent?: string | null;
   accent2?: string | null;
+  start_ym?: string | null;
   // v2
   product_en?: string | null; product_volume?: string | null;
   product_features?: ProposalFeature[]; product_tags?: string[];
@@ -151,13 +153,22 @@ export async function saveProposal(input: ProposalInput & { id?: string }, by: s
     // 0091(accent2 배경색) 포함 저장 → 미적용 DB 는 컬럼 없이 폴백.
     let row: { id: string; token: string } | null;
     try {
+      // 0091(accent2)·0093(start_ym) 포함 — 없는 컬럼은 단계적으로 빼고 재시도.
       row = await queryOne<{ id: string; token: string }>(
-        `UPDATE proposal_docs SET ${updSet}, accent2=$38, updated_at=now() WHERE id=$1 RETURNING id, token`,
-        [...updVals, input.accent2 ?? null]);
-    } catch (e) {
-      if (!/accent2/.test(e instanceof Error ? e.message : "")) throw e;
-      row = await queryOne<{ id: string; token: string }>(
-        `UPDATE proposal_docs SET ${updSet}, updated_at=now() WHERE id=$1 RETURNING id, token`, updVals);
+        `UPDATE proposal_docs SET ${updSet}, accent2=$38, start_ym=$39, updated_at=now() WHERE id=$1 RETURNING id, token`,
+        [...updVals, input.accent2 ?? null, input.start_ym ?? null]);
+    } catch (e1) {
+      const m1 = e1 instanceof Error ? e1.message : "";
+      if (!/accent2|start_ym/.test(m1)) throw e1;
+      try {
+        row = await queryOne<{ id: string; token: string }>(
+          `UPDATE proposal_docs SET ${updSet}, accent2=$38, updated_at=now() WHERE id=$1 RETURNING id, token`,
+          [...updVals, input.accent2 ?? null]);
+      } catch (e2) {
+        if (!/accent2/.test(e2 instanceof Error ? e2.message : "")) throw e2;
+        row = await queryOne<{ id: string; token: string }>(
+          `UPDATE proposal_docs SET ${updSet}, updated_at=now() WHERE id=$1 RETURNING id, token`, updVals);
+      }
     }
     if (!row) throw new Error("제안서를 찾을 수 없습니다.");
     return row;

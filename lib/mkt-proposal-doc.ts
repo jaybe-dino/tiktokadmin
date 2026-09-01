@@ -24,6 +24,7 @@ export interface MktProposalDocRow {
   goal_final: string;
   countries: string[];
   start_month: number;
+  start_year?: number | null; // 0093 — 시작 연도(해를 넘기는 일정 표기)
   months: number;
   monthly_budget: number;
   operation_fee: number;
@@ -63,7 +64,7 @@ export async function listMktProposals(opts?: { brandId?: string; genSource?: "a
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   // 0087(gen_source)·0089(category) 미적용 DB 방어 — 컬럼 없으면 필터 없이 폴백.
   return query<MktProposalDocRow>(
-    `SELECT ${COLS}, d.gen_source, d.category, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id ${whereSql} ORDER BY d.created_at DESC LIMIT 200`,
+    `SELECT ${COLS}, d.gen_source, d.category, d.start_year, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id ${whereSql} ORDER BY d.created_at DESC LIMIT 200`,
     args,
   ).catch(() =>
     query<MktProposalDocRow>(
@@ -75,16 +76,21 @@ export async function listMktProposals(opts?: { brandId?: string; genSource?: "a
 
 export async function getMktProposalById(id: string): Promise<MktProposalDocRow | null> {
   return queryOne<MktProposalDocRow>(
-    `SELECT ${COLS}, d.gen_source, d.category, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id WHERE d.id=$1`, [id],
+    `SELECT ${COLS}, d.gen_source, d.category, d.start_year, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id WHERE d.id=$1`, [id],
   ).catch(() =>
     queryOne<MktProposalDocRow>(`SELECT ${COLS}, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id WHERE d.id=$1`, [id]).catch(() => null),
   );
 }
 
 export async function getMktProposalByToken(token: string): Promise<MktProposalDocRow | null> {
+  // 0093(start_year) 미적용 DB 방어 — 컬럼 없으면 연도 없이 폴백.
   return queryOne<MktProposalDocRow>(
-    `SELECT ${COLS}, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id WHERE d.token=$1`, [token],
-  ).catch(() => null);
+    `SELECT ${COLS}, d.start_year, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id WHERE d.token=$1`, [token],
+  ).catch(() =>
+    queryOne<MktProposalDocRow>(
+      `SELECT ${COLS}, b.brand_name FROM mkt_proposal_docs d LEFT JOIN brands b ON b.id=d.brand_id WHERE d.token=$1`, [token],
+    ).catch(() => null),
+  );
 }
 
 export interface MktProposalInput {
@@ -100,6 +106,7 @@ export interface MktProposalInput {
   goal_final?: string;
   countries?: string[];
   start_month?: number;
+  start_year?: number | null;
   months?: number;
   monthly_budget?: number;
   operation_fee?: number;
@@ -148,17 +155,27 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
        references_json=$20, intro_note=$21, accent=$22,
        phase_ratios_json=$23, month_overrides_json=$24, accent2=$25, show_bundle_slide=$26`;
     let row: { token: string } | null;
+    const startYear = input.start_year == null ? null : Math.round(Number(input.start_year));
     try {
-      // 0089(category) 포함 — 미적용 DB 는 컬럼 없이 폴백.
+      // 0089(category)·0093(start_year) 포함 — 미적용 DB 는 없는 컬럼을 단계적으로 빼고 재시도.
       row = await queryOne<{ token: string }>(
-        `UPDATE mkt_proposal_docs SET ${updSet}, category=$27, updated_at=now() WHERE id=$1 RETURNING token`,
-        [...updVals, input.category ?? ""],
+        `UPDATE mkt_proposal_docs SET ${updSet}, category=$27, start_year=$28, updated_at=now() WHERE id=$1 RETURNING token`,
+        [...updVals, input.category ?? "", startYear],
       );
-    } catch (e) {
-      if (!/category/.test(e instanceof Error ? e.message : "")) throw e;
-      row = await queryOne<{ token: string }>(
-        `UPDATE mkt_proposal_docs SET ${updSet}, updated_at=now() WHERE id=$1 RETURNING token`, updVals,
-      );
+    } catch (e1) {
+      const m1 = e1 instanceof Error ? e1.message : "";
+      if (!/category|start_year/.test(m1)) throw e1;
+      try {
+        row = await queryOne<{ token: string }>(
+          `UPDATE mkt_proposal_docs SET ${updSet}, category=$27, updated_at=now() WHERE id=$1 RETURNING token`,
+          [...updVals, input.category ?? ""],
+        );
+      } catch (e2) {
+        if (!/category/.test(e2 instanceof Error ? e2.message : "")) throw e2;
+        row = await queryOne<{ token: string }>(
+          `UPDATE mkt_proposal_docs SET ${updSet}, updated_at=now() WHERE id=$1 RETURNING token`, updVals,
+        );
+      }
     }
     return { id: input.id, token: row!.token };
   }
@@ -189,10 +206,23 @@ export async function saveMktProposal(input: MktProposalInput, by: string): Prom
   // 0087(gen_source)·0089(category) 미적용 DB 방어 — 없는 컬럼을 단계적으로 제외하고 재시도.
   let row: { id: string; token: string } | null;
   try {
-    row = await insert(["gen_source", "category"], [input.gen_source ?? null, input.category ?? ""]);
+    row = await insert(["gen_source", "category", "start_year"],
+      [input.gen_source ?? null, input.category ?? "", input.start_year == null ? null : Math.round(Number(input.start_year))]);
   } catch (e1) {
     const m1 = e1 instanceof Error ? e1.message : "";
-    if (/category/.test(m1)) {
+    // 0093(start_year) 미적용이면 연도만 빼고 다시 시도.
+    if (/start_year/.test(m1)) {
+      try {
+        row = await insert(["gen_source", "category"], [input.gen_source ?? null, input.category ?? ""]);
+      } catch (e2) {
+        if (!/category/.test(e2 instanceof Error ? e2.message : "")) throw e2;
+        try { row = await insert(["gen_source"], [input.gen_source ?? null]); }
+        catch (e3) {
+          if (!/gen_source/.test(e3 instanceof Error ? e3.message : "")) throw e3;
+          row = await insert([], []);
+        }
+      }
+    } else if (/category/.test(m1)) {
       try {
         row = await insert(["gen_source"], [input.gen_source ?? null]);
       } catch (e2) {
@@ -256,15 +286,24 @@ export async function prefillMktProposal(brandId: string): Promise<MktProposalIn
   const b = await queryOne<{ brand_name: string; category: string | null }>(
     "SELECT brand_name, category FROM brands WHERE id=$1", [brandId],
   ).catch(() => null);
-  const products = await query<{ name_kr: string; name_en: string | null; main_image_url: string | null }>(
-    "SELECT name_kr, name_en, main_image_url FROM products_master WHERE brand_id=$1 ORDER BY created_at LIMIT 3", [brandId],
-  ).catch(() => []);
+  // 제품 출처 우선순위: ① 설문의 "대표 상품 링크"(담당자가 실제로 제안 대상으로 지정한 제품)
+  //   ② 브랜드 등록 제품(products_master). ①이 있으면 ②는 쓰지 않는다 —
+  //   설문에 링크를 1건만 넣었는데 등록 제품 3건이 딸려 들어오던 문제를 막는다.
+  const { productsFromSurvey } = await import("./mkt-proposal2");
+  const fromSurvey = await productsFromSurvey(brandId).catch(() => ({ products: [], note: "" }));
+  const products = fromSurvey.products.length
+    ? []
+    : await query<{ name_kr: string; name_en: string | null; main_image_url: string | null }>(
+        "SELECT name_kr, name_en, main_image_url FROM products_master WHERE brand_id=$1 ORDER BY created_at LIMIT 3", [brandId],
+      ).catch(() => []);
   const name = b?.brand_name ?? "브랜드";
   return {
     brand_id: brandId,
     title: `${name} 마케팅 협업 제안서`,
     subtitle: "TikTok Shop GMV 성장 전략 제안",
-    products_json: products.map((p) => ({ name: p.name_kr, name_en: p.name_en ?? "", image_url: p.main_image_url ?? "", features: [] })),
+    products_json: fromSurvey.products.length
+      ? fromSurvey.products
+      : products.map((p) => ({ name: p.name_kr, name_en: p.name_en ?? "", image_url: p.main_image_url ?? "", features: [] })),
     track: "standard",
     countries: ["US"],
     start_month: 9,

@@ -8,7 +8,8 @@ import CategoryPicker from "@/components/CategoryPicker";
 import GlovekCategorySelect from "@/components/GlovekCategorySelect";
 import { COUNTRY_LABEL, computeBudgetPlan, PHASE_RATIO, type MktCountry, type Phase, type PhaseRatios, type MonthOverride } from "@/lib/mkt-proposal-engine";
 import type { MktProposalDocRow, MktProductItem, MktReferenceItem, MktTemplateConfig } from "@/lib/mkt-proposal-doc";
-import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction, saveMktTemplateAction, loadMktTemplateAction, deleteMktTemplateAction, fillGlovekMktRefsAction, pinMktProposalImagesAction } from "../actions";
+import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction, saveMktTemplateAction, loadMktTemplateAction, deleteMktTemplateAction, fillGlovekMktRefsAction, pinMktProposalImagesAction, importOpsRefsAction } from "../actions";
+import { addMonths, currentYM, monthWindow, rangeFromSelection, inRange, ymKey, type YM } from "@/lib/month-window";
 
 const MAN = 10000;
 const toMan = (won: number) => Math.round((won || 0) / MAN);
@@ -31,7 +32,25 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
   const [showBundle, setShowBundle] = useState(doc.show_bundle_slide ?? true);
   const [countries, setCountries] = useState<string[]>(doc.countries?.length ? doc.countries : ["US"]);
   const [startMonth, setStartMonth] = useState(doc.start_month);
+  const [startYear, setStartYear] = useState<number>(doc.start_year ?? new Date().getFullYear());
   const [months, setMonths] = useState(doc.months);
+  // 기간 선택용 12개월 창 — 이번 달부터(지난 달로 시작할 일은 없다). 저장된 시작월이
+  //   창보다 앞서면 그 달부터 펼쳐 기존 제안서도 그대로 보이게 한다.
+  const winStart: YM = (() => {
+    const now = currentYM();
+    const saved: YM = { year: startYear, month: startMonth };
+    return saved.year * 12 + saved.month < now.year * 12 + now.month ? saved : now;
+  })();
+  const window12 = monthWindow(winStart, 12);
+  const pickRange = (s2: YM, n: number) => { setStartYear(s2.year); setStartMonth(s2.month); setMonths(n); };
+  function toggleMonth(v: YM) {
+    const cur = window12.filter((w) => inRange(w, { year: startYear, month: startMonth }, months));
+    const has = cur.some((c) => ymKey(c) === ymKey(v));
+    const next = has ? cur.filter((c) => ymKey(c) !== ymKey(v)) : [...cur, v];
+    const r = rangeFromSelection(next);
+    if (!r) return; // 전부 해제는 무시(최소 1개월)
+    pickRange(r.start, r.months);
+  }
   const [monthlyMan, setMonthlyMan] = useState(toMan(doc.monthly_budget));
   const [opFeeMan, setOpFeeMan] = useState(toMan(doc.operation_fee));
   const [gmvMinMan, setGmvMinMan] = useState(toMan(doc.gmv_reserve_min));
@@ -108,6 +127,23 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
       setTtMsg(`${r.refs?.length ? "✅ " : ""}${r.note ?? ""}${r.refs?.length ? " — 확인 후 [저장]을 눌러 반영하세요." : ""}`);
     } catch {
       setTtMsg("glovek 조회 중 오류 — 다시 시도해주세요.");
+    } finally {
+      setGvBusy(false);
+    }
+  }
+
+  // 운영 제안서 레퍼런스 가져오기 — 마케팅 제안은 보통 운영대행 제안 다음이라,
+  //   그때 나갔던 레퍼런스를 출발점으로 삼고 여기에 추가하는 흐름이 자연스럽다(중복은 자동 제외).
+  async function importOpsRefs() {
+    if (gvBusy) return;
+    setGvBusy(true); setTtMsg("");
+    try {
+      const r = await importOpsRefsAction(doc.id);
+      if (!r.ok) { setTtMsg(r.error ?? "가져오기 실패"); return; }
+      if (r.refs?.length) setRefs((prev) => [...r.refs!, ...prev]);
+      setTtMsg(`✅ ${r.note ?? "가져왔습니다."}`);
+    } catch {
+      setTtMsg("운영 제안서 레퍼런스 가져오기 중 오류 — 다시 시도해주세요.");
     } finally {
       setGvBusy(false);
     }
@@ -207,7 +243,7 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
   // 미리보기용 doc 재조립(만원 → 원).
   const preview: MktProposalDocRow = {
     ...doc, brand_id: brandId || null, title, subtitle, status, accent, accent2, show_bundle_slide: showBundle,
-    countries: countries.length ? countries : ["US"], start_month: startMonth, months,
+    countries: countries.length ? countries : ["US"], start_month: startMonth, start_year: startYear, months,
     monthly_budget: monthlyMan * MAN, operation_fee: opFeeMan * MAN,
     gmv_reserve_min: gmvMinMan * MAN, gmv_reserve_max: gmvMaxMan * MAN,
     first_month_seeding: firstSeed, commission_pct: commission,
@@ -323,22 +359,35 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
               </label>
             ))}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ flex: 1 }}><L>시작 월</L>
-              <select className="f" value={startMonth} onChange={(e) => setStartMonth(Number(e.target.value))}>
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{m}월</option>)}
-              </select>
-            </div>
-            <div style={{ flex: 1 }}><L>개월</L>
-              {/* BUG-27: +/- 로 월 추가·삭제 — 시작월부터 자동 계산(3~8월 등 어느 달이든 시작 가능). */}
-              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                <button type="button" className="btn sm" onClick={() => setMonths((m) => Math.max(1, m - 1))} title="마지막 월 삭제">−</button>
-                <input className="f" type="number" min={1} max={12} value={months} onChange={(e) => setMonths(Math.min(12, Math.max(1, Number(e.target.value) || 6)))} style={{ width: 56, textAlign: "center" }} />
-                <button type="button" className="btn sm" onClick={() => setMonths((m) => Math.min(12, m + 1))} title="월 추가">＋</button>
-              </div>
-            </div>
+          <L>진행 기간 (전체 월에서 선택)</L>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+            <button type="button" className="btn sm" onClick={() => pickRange(currentYM(new Date(), 1), 6)}>다음 달부터 6개월</button>
+            <button type="button" className="btn sm" onClick={() => pickRange(currentYM(new Date(), 2), 4)}>다다음 달부터 4개월</button>
+            <button type="button" className="btn sm" onClick={() => pickRange(currentYM(new Date(), 1), 12)}>다음 달부터 12개월</button>
           </div>
-          <div style={{ fontSize: 10.5, color: "var(--ink3)" }}>시작월부터 {months}개월이 자동 계산됩니다 — 월별 페이즈·이벤트는 선택 국가 시즌표 기준.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 4 }}>
+            {window12.map((w) => {
+              const on = inRange(w, { year: startYear, month: startMonth }, months);
+              const isStart = w.year === startYear && w.month === startMonth;
+              return (
+                <label key={ymKey(w)} title={isStart ? "시작 월" : undefined}
+                  style={{
+                    display: "flex", gap: 4, alignItems: "center", fontSize: 12, padding: "4px 6px", borderRadius: 6,
+                    border: `1px solid ${on ? "var(--acc, #c0326a)" : "var(--line)"}`,
+                    background: on ? "var(--tint, #fdeef5)" : "transparent", cursor: "pointer",
+                  }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleMonth(w)} />
+                  <span style={{ fontWeight: isStart ? 800 : 600 }}>
+                    {w.month === 1 || isStart ? `${String(w.year).slice(2)}.` : ""}{w.month}월
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--ink3)" }}>
+            {startYear}년 {startMonth}월부터 {months}개월 — 월별 페이즈·이벤트는 선택 국가 시즌표 기준.
+            중간 월만 빼는 것은 예산 엔진 구조상 불가해, 선택하면 처음~마지막 구간이 채워집니다.
+          </div>
           <L>월 캠페인 예산 (RFP · 만원) — 무가+유가</L>
           <input className="f" type="number" value={monthlyMan} onChange={(e) => setMonthlyMan(Number(e.target.value))} />
           <div style={{ display: "flex", gap: 8 }}>
@@ -379,7 +428,10 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
                   const ov = overrides[m.index] ?? null;
                   return (
                     <tr key={m.index}>
-                      <td style={{ padding: 3, fontWeight: 700 }}>{m.calendarMonth}월</td>
+                      <td style={{ padding: 3, fontWeight: 700, whiteSpace: "nowrap" }}>
+                        {(() => { const ym = addMonths({ year: startYear, month: startMonth }, m.index); 
+                          return `${ym.month === 1 || m.index === 0 ? `${String(ym.year).slice(2)}.` : ""}${m.calendarMonth}월`; })()}
+                      </td>
                       <td style={{ padding: 3 }}>
                         <select className="f" style={{ width: 92 }}
                           value={ov?.phase ?? ""}
@@ -441,6 +493,10 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <CategoryPicker value={category} onChange={setCategory} compact />
             <GlovekCategorySelect onPick={setCategory} />
+            <button className="btn sm" disabled={pending || ttBusy || gvBusy} onClick={importOpsRefs}
+              title="같은 브랜드의 최신 운영 제안서에 들어간 크리에이터 레퍼런스를 그대로 가져옵니다(중복 제외)">
+              📄 운영 제안서 레퍼런스 가져오기
+            </button>
             <button className="btn sm pri" disabled={pending || ttBusy || gvBusy} onClick={fetchGlovekRefs}
               title="선택한 카테고리(소분류 우선, 없으면 대분류)로 glovek.space 유사 제품 콘텐츠(썸네일·크리에이터·GMV) 검색">
               {gvBusy ? "glovek 조회 중…" : "🌏 glovek 유사 콘텐츠 불러오기"}

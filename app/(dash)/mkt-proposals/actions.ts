@@ -224,6 +224,53 @@ export async function pinMktProposalImagesAction(docId: string): Promise<R & {
 // 상태 매핑: 제안서 문서 status → 파이프라인 mkt_projects.proposal_status
 const PROJ_STATUS: Record<string, string> = { draft: "draft", sent: "sent", accepted: "won", rejected: "dropped" };
 
+// ── 운영 제안서 레퍼런스 가져오기 ─────────────────────────────
+//   마케팅 제안은 보통 운영대행 제안 다음에 나가므로, 그때 이미 나갔던 레퍼런스를
+//   출발점으로 삼고 여기에 추가하는 흐름이 맞다. 같은 브랜드의 최신 운영 제안서에서
+//   크리에이터 레퍼런스를 그대로 가져온다(이미 있는 항목은 링크·핸들 기준으로 중복 제외).
+export async function importOpsRefsAction(docId: string): Promise<R & { refs?: MktReferenceItem[]; note?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const doc = await getMktProposalById(docId);
+  if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+  if (!doc.brand_id) return { ok: false, error: "브랜드가 연결되지 않은 제안서입니다 — 브랜드 연결 후 실행하세요." };
+
+  const ops = await queryOne<{ id: string; title: string; creators: unknown; updated_at: string }>(
+    `SELECT id, title, creators, updated_at FROM proposal_docs
+      WHERE brand_id=$1 AND jsonb_array_length(COALESCE(creators,'[]'::jsonb)) > 0
+      ORDER BY updated_at DESC LIMIT 1`,
+    [doc.brand_id],
+  ).catch(() => null);
+  if (!ops) return { ok: false, error: "이 브랜드의 운영 제안서에 저장된 레퍼런스가 없습니다." };
+
+  const creators = Array.isArray(ops.creators) ? (ops.creators as Record<string, unknown>[]) : [];
+  // 중복 판정 키 — 콘텐츠 링크 우선, 없으면 핸들.
+  const keyOf = (link?: unknown, creator?: unknown) =>
+    (String(link ?? "").trim() || String(creator ?? "").trim().replace(/^@+/, "")).toLowerCase();
+  const have = new Set((doc.references_json ?? []).map((r) => keyOf(r.url, r.creator)).filter(Boolean));
+
+  const incoming: MktReferenceItem[] = [];
+  for (const c of creators) {
+    const k = keyOf(c.link, c.handle);
+    if (!k || have.has(k)) continue;
+    have.add(k);
+    incoming.push({
+      creator: String(c.handle ?? ""),
+      product: String(c.product ?? c.brand ?? ""),
+      gmv: String(c.revenue ?? "") || undefined,
+      roas: String(c.roas ?? "") || undefined,
+      engagement: String(c.engagement ?? "") || undefined,
+      image_url: String(c.thumb_url ?? "") || undefined,
+      url: String(c.link ?? "") || undefined,
+    });
+  }
+  if (incoming.length === 0) return { ok: false, error: "가져올 새 레퍼런스가 없습니다(이미 모두 반영됨)." };
+  return {
+    ok: true, refs: incoming,
+    note: `운영 제안서 '${ops.title}' 에서 ${incoming.length}건 가져옴 — 확인 후 [저장]을 눌러 반영하세요.`,
+  };
+}
+
 /** 파이프라인 연동 — 브랜드의 마케팅 프로젝트 카드를 만들거나 찾아 연결하고 상태를 반영. */
 export async function linkMktProposalToPipelineAction(id: string): Promise<R & { projectId?: string }> {
   const u = await currentUser();

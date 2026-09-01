@@ -33,7 +33,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         term_months: d.term_months, term_discount_pct: d.track === "onboarding" ? null : d.term_discount_pct, features: d.features,
         seeding_qty: d.seeding_qty, live_qty: d.live_qty, op_tags: d.op_tags,
         kpi_tier: d.kpi_tier, kpi_stage: d.kpi_stage, kpi_creator_content: d.kpi_creator_content, kpi_ad_spend: d.kpi_ad_spend,
-        products: d.products, creators: d.creators, accent: d.accent, accent2: d.accent2 ?? null,
+        products: d.products, creators: d.creators, accent: d.accent, accent2: d.accent2 ?? null, start_ym: d.start_ym ?? null,
         product_en: d.product_en, product_volume: d.product_volume, product_features: d.product_features, product_tags: d.product_tags,
         value_items: d.value_items, value_total: d.value_total,
         roadmap_steps: d.roadmap_steps, impacts: d.impacts, impact_banner: d.impact_banner,
@@ -178,6 +178,15 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
           <Sel label="트랙" v={d.track} opts={TRACKS} on={(v) => set("track", v)} />
           <F label="브랜드 로고 URL" v={d.brand_logo_url ?? ""} on={(v) => set("brand_logo_url", v || null)} />
           <F label="강조색(브랜드 오버라이드, 예: #1f7a4d)" v={d.accent ?? ""} on={(v) => set("accent", v || null)} placeholder="비우면 템플릿 기본색" />
+          {/* 운영 시작 시점 — 제안서에 "언제부터"를 명시(로드맵 기준월). */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>운영 시작 (연월)</div>
+            <input className="f" type="month" value={d.start_ym ?? ""}
+              onChange={(e) => set("start_ym", e.target.value || null)} style={{ width: 180 }} />
+            <div style={{ fontSize: 10.5, color: "var(--ink3)", marginTop: 3 }}>
+              비우면 제안서에 표시하지 않습니다 — 지정하면 표지·실행 로드맵에 시작 시점이 노출됩니다.
+            </div>
+          </div>
           <F label="배경색(표지·페이지 톤, 예: #1d4ed8)" v={d.accent2 ?? ""} on={(v) => set("accent2", v || null)} placeholder="비우면 기본(핑크·보라 계열)" />
         </Grid>
       </Card>
