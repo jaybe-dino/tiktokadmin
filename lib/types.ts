@@ -142,7 +142,8 @@ export interface Brand {
 
 export type AlertKind =
   | "sla_breach" | "gate_violation" | "doc_missing" | "pay_overdue" | "stale"
-  | "noshow_repeat" | "payment_confirmed" | "no_reply" | "inbound_fwd" | "reply_needed";
+  | "noshow_repeat" | "payment_confirmed" | "no_reply" | "inbound_fwd" | "reply_needed"
+  | "hold_recontact"; // 보류 7영업일 경과 — 재컨택 필요(BUG-29)
 
 // 목표국/인증국 옵션 (Notion 틱톡샵 DB 반영)
 export const COUNTRY_OPTIONS = ["미국", "베트남", "태국", "싱가포르", "필리핀", "말레이시아"] as const;

@@ -16,6 +16,7 @@ export const FORWARD_TRANSITIONS: Record<State, State[]> = {
   live_mall: ["settling"],
   live_onboarding: ["settling"],
   settling: [],
+  // 드랍 복귀는 isTransitionAllowed 에서 명시 처리(사유 필수) — 표는 전진 전이만 담는다.
   dropped: [],
   churned: [],
   // 보류 해제는 isTransitionAllowed 에서 명시 처리(어느 단계로든 복귀). 표는 참고용.
@@ -80,6 +81,14 @@ export function isTransitionAllowed(
   // 보류 해제: 파이프라인 어느 단계로든 복귀(사유 불필요). dropped/churned 는 위에서 처리됨.
   if (from === "hold") {
     return { allowed: true, requiresReason: false };
+  }
+
+  // 드랍 복귀(재활성) — 연락이 끊겨 드랍했던 건이 다시 연락·미팅으로 이어지는 경우,
+  //   영업 파이프라인으로 되돌린다(BUG-28). 되살리는 이동이므로 사유는 필수(감사 기록).
+  //   대상은 퍼널 서열 안의 단계만 — 폐지된 docs/setup·종료 상태로는 복귀하지 않는다.
+  if (from === "dropped") {
+    const ok = ORDINAL[to] >= 0;
+    return { allowed: ok, requiresReason: true, reason: ok ? undefined : `드랍에서 ${to} 로 복귀할 수 없습니다.` };
   }
 
   // 전진: 허용 전이표

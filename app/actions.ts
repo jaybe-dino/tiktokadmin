@@ -22,15 +22,37 @@ export interface ActionResult {
   failed?: { rule: string; label: string }[];
 }
 
-export async function transitionAction(brandId: string, to: State, reason?: string, force?: boolean): Promise<ActionResult & { needReason?: boolean }> {
+export async function transitionAction(brandId: string, to: State, reason?: string, force?: boolean, holdKind?: "recontact" | "handoff"): Promise<ActionResult & { needReason?: boolean }> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };
   // 강제 이동은 파트장/대표만.
   if (force && a.role !== "lead" && a.role !== "exec") return { ok: false, error: "강제 이동은 파트장/대표만 가능합니다." };
   const res = await opsTransition(a, { brand_id: brandId, to_state: to, reason, force });
+  // 보류 라인(재컨택/이관클로징) 기록 — 칸반 2라인 구분 + 자동 드랍 대상 판별에 사용.
+  //   0092 미적용 DB 에서도 이동 자체는 성공하도록 실패는 무시(스키마 드리프트 폴백).
+  if (res.ok && to === "hold" && holdKind) {
+    const { query } = await import("@/lib/db");
+    await query("UPDATE brands SET hold_kind=$2 WHERE id=$1", [brandId, holdKind]).catch(() => {});
+  }
   revalidatePath("/");
   revalidatePath(`/brand/${brandId}`);
   return { ok: res.ok, error: res.error, failed: res.failed, needReason: res.needReason };
+}
+
+/** 보류 라인만 변경(재컨택 ↔ 이관클로징) — 상태 전이 없이 hold_kind 만 갱신. */
+export async function setHoldKindAction(brandId: string, kind: "recontact" | "handoff"): Promise<ActionResult> {
+  const a = await actor();
+  if (!a) return { ok: false, error: "세션 만료" };
+  const { query } = await import("@/lib/db");
+  try {
+    await query("UPDATE brands SET hold_kind=$2 WHERE id=$1 AND state='hold'", [brandId, kind]);
+  } catch {
+    // 0092 미적용 DB — 컬럼이 없으면 라인 구분을 저장할 수 없다(설정 > 마이그레이션 적용 안내).
+    return { ok: false, error: "보류 라인 저장 실패 — 마이그레이션 0092 적용이 필요합니다." };
+  }
+  revalidatePath("/");
+  revalidatePath(`/brand/${brandId}`);
+  return { ok: true };
 }
 
 export async function dropAction(brandId: string, reason: string): Promise<ActionResult> {

@@ -55,6 +55,34 @@ export function checkSlaBreach(
 }
 
 // ─────────────────────────────────────────────────────────────
+// 보류(hold) 자동 처리 (BUG-29)
+//   보류 SLA 7영업일 → 재컨택 알림 → 다시 7영업일(누적 14) 경과 시 자동 드랍.
+//   대상은 '재컨택' 라인만 — '이관클로징(handoff)' 은 플로우링크 이관 대기라 자동 드랍하지 않는다.
+//   자동 드랍 건은 stage_history 사유로 식별해 CSV 로 전달한다(/api/export/hold-dropped).
+// ─────────────────────────────────────────────────────────────
+export const HOLD_SLA_DAYS = 7;              // 1차: 재컨택 알림
+export const HOLD_AUTO_DROP_DAYS = 14;       // 2차: 자동 드랍(1차로부터 다시 7영업일)
+export const HOLD_DROP_REASON = "장기 보류로 인한 드랍";
+
+/** 보류 라인 — 값이 없으면(레거시·0092 미적용) 재컨택으로 간주. */
+export function holdKindOf(b: Brand & { hold_kind?: string | null }): "recontact" | "handoff" {
+  return (b.hold_kind ?? "") === "handoff" ? "handoff" : "recontact";
+}
+
+/** 순수 판정: 보류 경과 영업일 → 아무것도 안 함 | 재컨택 알림 | 자동 드랍. */
+export function holdAction(
+  b: Brand & { hold_kind?: string | null },
+  now: Date = new Date(),
+): { kind: "none" | "recontact" | "drop"; elapsed: number } {
+  const elapsed = businessDaysBetween(new Date(b.stage_entered_at), now);
+  if (b.state !== "hold") return { kind: "none", elapsed };
+  if (holdKindOf(b) === "handoff") return { kind: "none", elapsed }; // 이관 대기 — 자동 드랍 제외
+  if (elapsed >= HOLD_AUTO_DROP_DAYS) return { kind: "drop", elapsed };
+  if (elapsed >= HOLD_SLA_DAYS) return { kind: "recontact", elapsed };
+  return { kind: "none", elapsed };
+}
+
+// ─────────────────────────────────────────────────────────────
 // /api/cron/sla-check — 매시 정각. 아이들럼포턴트.
 // ─────────────────────────────────────────────────────────────
 export async function runSlaCheck(now: Date = new Date()): Promise<{
@@ -63,6 +91,8 @@ export async function runSlaCheck(now: Date = new Date()): Promise<{
   docMissing: number;
   payOverdue: number;
   stale: number;
+  holdRecontact: number;
+  holdDropped: number;
 }> {
   const policies = await loadSlaPolicies();
   const brands = await query<Brand>(
@@ -72,8 +102,40 @@ export async function runSlaCheck(now: Date = new Date()): Promise<{
   let breaches = 0;
   let docMissing = 0;
   let stale = 0;
+  let holdRecontact = 0;
+  let holdDropped = 0;
 
   for (const b of brands) {
+    // 0) 보류 자동 처리(BUG-29) — 재컨택 알림 / 장기 보류 자동 드랍.
+    //    드랍된 건은 이후 로직(SLA·서류 등)을 탈 필요가 없으므로 바로 다음 브랜드로.
+    if (b.state === "hold") {
+      const h = holdAction(b as Brand & { hold_kind?: string | null }, now);
+      if (h.kind === "drop") {
+        const { transitionBrand } = await import("./transition");
+        const r = await transitionBrand({
+          brandId: b.id, to: "dropped", actor: "system:sla",
+          reason: `${HOLD_DROP_REASON} (보류 ${h.elapsed}영업일)`,
+        }).catch(() => ({ ok: false }));
+        if (r.ok) { holdDropped++; continue; }
+      } else if (h.kind === "recontact") {
+        holdRecontact++;
+        const alert = await upsertAlert(
+          b.id, "hold_recontact", 2,
+          `${b.brand_name} · 보류 ${h.elapsed}영업일 — 재컨택 필요(${HOLD_AUTO_DROP_DAYS}영업일 경과 시 자동 드랍)`,
+        );
+        if (!alert.slack_ts) {
+          const { notifySlaBreach } = await import("./lead-notify");
+          const ts = await notifySlaBreach(b, {
+            elapsed: h.elapsed, maxDays: HOLD_SLA_DAYS,
+            daysOver: h.elapsed - HOLD_SLA_DAYS, tier: 2,
+          }).catch(() => null);
+          if (ts) await query("UPDATE alerts SET slack_ts=$2 WHERE id=$1", [alert.id, ts]).catch(() => {});
+        }
+      } else {
+        await resolveAlert(b.id, "hold_recontact");
+      }
+    }
+
     // 1) SLA breach
     const breach = checkSlaBreach(b, policies, now);
     if (breach) {
@@ -137,7 +199,7 @@ export async function runSlaCheck(now: Date = new Date()): Promise<{
     console.warn("[sla] pay_overdue 스캔 스킵:", (err as Error).message);
   }
 
-  return { scanned: brands.length, breaches, docMissing, payOverdue, stale };
+  return { scanned: brands.length, breaches, docMissing, payOverdue, stale , holdRecontact, holdDropped };
 }
 
 /**

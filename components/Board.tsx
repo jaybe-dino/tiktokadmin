@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { transitionAction } from "@/app/actions";
+import { transitionAction, setHoldKindAction } from "@/app/actions";
 import { STATES, STATE_LABELS, SOURCE_LABELS, PLAN_LABELS, GRADES, type State } from "@/lib/types";
 import type { BoardCard } from "@/lib/repo/queries";
 import { businessDaysBetween } from "@/lib/time";
@@ -13,10 +13,12 @@ import KanbanScroll from "@/components/KanbanScroll";
 
 // v3.1 s-kanban → 기획 8절: 8컬럼 (계약완료→계약 검토에 합류, 정산중→운영 중에 통합 표시).
 // 상태 자체는 canonical enum 유지 — 표시만 병합.
-type ColDef = { key: string; label: string; part: string; dot: string; states: State[]; drop: State };
+type ColDef = { key: string; label: string; part: string; dot: string; states: State[]; drop: State; holdKind?: "recontact" | "handoff" };
 
 const COLS: ColDef[] = [
-  { key: "hold", label: "보류", part: "hold", dot: "#f59e0b", states: ["hold"], drop: "hold" },
+  // 보류는 2라인 — 재컨택(7영업일 후 알림, 14영업일 후 자동 드랍) / 이관클로징(플로우링크 이관 대기, 자동 드랍 없음).
+  { key: "hold", label: "보류: 재컨택", part: "hold", dot: "#f59e0b", states: ["hold"], drop: "hold", holdKind: "recontact" },
+  { key: "hold_handoff", label: "보류: 이관클로징", part: "hold", dot: "#a855f7", states: ["hold"], drop: "hold", holdKind: "handoff" },
   { key: "lead_new", label: "리드 확보", part: "mkt", dot: "var(--mkt)", states: ["lead_new"], drop: "lead_new" },
   { key: "seminar", label: "담당자배정", part: "mkt", dot: "var(--mkt)", states: ["seminar"], drop: "seminar" },
   { key: "meeting", label: "1:1 미팅", part: "sales", dot: "var(--sales)", states: ["meeting"], drop: "meeting" },
@@ -93,8 +95,15 @@ export default function Board({
       && (ownerId === "" || hasOwner(c, ownerId)),
   );
   // 보류 컬럼은 파트 필터와 무관하게 항상 맨 앞에 노출(어느 파트에서든 넣을 수 있어야 함).
-  const shownCols = COLS.filter((col) => col.key === "hold" || part === "" || col.part === part);
-  const inCol = (col: ColDef) => visible.filter((c) => col.states.includes(c.state));
+  const shownCols = COLS.filter((col) => col.part === "hold" || part === "" || col.part === part);
+  // 보류 컬럼은 라인(hold_kind)까지 일치해야 담긴다 — 값이 없으면 재컨택으로 간주(레거시·0092 미적용).
+  const inCol = (col: ColDef) =>
+    visible.filter((c) => {
+      if (!col.states.includes(c.state)) return false;
+      if (!col.holdKind) return true;
+      const kind = (c.hold_kind ?? "") === "handoff" ? "handoff" : "recontact";
+      return kind === col.holdKind;
+    });
   const selected = selectedId ? (cards.find((c) => c.id === selectedId) ?? null) : null;
 
   async function onDrop(col: ColDef) {
@@ -102,15 +111,30 @@ export default function Board({
     setDragId(null);
     if (!id) return;
     const card = cards.find((c) => c.id === id);
-    if (!card || col.states.includes(card.state)) return;
+    if (!card) return;
+    // 같은 상태여도 보류 라인이 다르면 이동(재컨택 ↔ 이관클로징) — 그 외 제자리 드롭은 무시.
+    const curKind = (card.hold_kind ?? "") === "handoff" ? "handoff" : "recontact";
+    const sameLine = col.holdKind ? card.state === "hold" && curKind === col.holdKind : col.states.includes(card.state);
+    if (sameLine) return;
+    // 보류 → 보류(라인만 변경): 상태 전이 없이 라인만 갱신.
+    if (col.holdKind && card.state === "hold") {
+      setCards((cs) => cs.map((c) => (c.id === id ? { ...c, hold_kind: col.holdKind! } : c)));
+      const r = await setHoldKindAction(id, col.holdKind);
+      if (!r.ok) { setCards(cards); alert(r.error ?? "라인 이동 실패"); }
+      router.refresh();
+      return;
+    }
     // 병합 컬럼의 실제 목적 상태 결정 (운영 중 → 계약 유형에 따라)
     const to: State =
       col.key === "live" ? (card.contract_type === "onboarding" ? "live_onboarding" : "live_mall") : col.drop;
 
     // 보류 이동은 메모(사유) 필수 — 나중에 왜 보류했는지 추적할 수 있게 타임라인에 기록된다.
     let holdReason: string | undefined;
-    if (col.key === "hold") {
-      const r = window.prompt(`'${card.brand_name}' 보류 사유를 입력하세요 (필수)\n예: 추후 재컨택 / 완전 보류 / 예산 확정 대기`, "");
+    if (col.holdKind) {
+      const guide = col.holdKind === "handoff"
+        ? "예: 플로우링크 이관 / 자사 진행 불가 — 이관클로징"
+        : "예: 추후 재컨택 / 예산 확정 대기 (7영업일 후 재컨택 알림 · 14영업일 후 자동 드랍)";
+      const r = window.prompt(`'${card.brand_name}' 보류 사유를 입력하세요 (필수)\n${guide}`, "");
       if (!r || !r.trim()) return; // 미입력·취소 → 이동하지 않음
       holdReason = r.trim();
     }
@@ -119,7 +143,7 @@ export default function Board({
     const prev = cards;
     setCards((cs) => cs.map((c) => (c.id === id ? { ...c, state: to } : c)));
 
-    let res = await transitionAction(id, to, holdReason);
+    let res = await transitionAction(id, to, holdReason, undefined, col.holdKind);
     // 뒤로 되돌리기(후퇴 전이) 등 사유가 필요한 경우 — 사유를 입력받아 재시도.
     if (!res.ok && res.needReason) {
       const reason = window.prompt(`'${STATE_LABELS[card.state]}' → '${STATE_LABELS[to]}' 단계 변경 사유를 입력하세요:`, "");
@@ -224,6 +248,10 @@ export default function Board({
                   {list.length}
                   {slaDays != null && ` · SLA ${slaDays}일`}
                 </span>
+                {col.key === "hold_handoff" && (
+                  <a href="/api/export/hold-dropped" title="장기 보류로 자동 드랍된 건 CSV 내려받기(플로우링크 전달용)"
+                    style={{ fontSize: 10.5, color: "var(--ink3)", textDecoration: "none", marginLeft: 4 }}>⬇ 자동드랍 CSV</a>
+                )}
                 {col.key === "hold" && (
                   <button onClick={toggleHold} title={holdCollapsed ? "보류 목록 펼치기" : "보류 목록 접기"}
                     style={{ marginLeft: "auto", border: "none", background: "none", cursor: "pointer", fontSize: 11, color: "var(--acc)", fontWeight: 700 }}>

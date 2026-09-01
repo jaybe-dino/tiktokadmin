@@ -8,6 +8,7 @@ import { STATE_LABELS, type Brand, type State } from "../types";
 
 export interface BoardCard extends Brand {
   has_breach: boolean;
+  hold_kind?: string | null; // 'recontact' | 'handoff' (0092) — 보류 2라인 구분
   has_reply_needed?: boolean; // 수신 메일 회신 필요(inbound_fwd/reply_needed 알림) — 워크큐 우선.
   owners_display: string | null;
 }
@@ -19,6 +20,7 @@ const REPLY_NEEDED_EXISTS =
 export async function boardCards(): Promise<BoardCard[]> {
   // 종료(dropped/churned)·테스트(is_test) 브랜드는 SQL 에서 제외 —
   //   JS 후필터/전행 전송 제거(성능) + KPI 격리 기준과 일치(테스트 데이터 미표시).
+  //   b.* 로 hold_kind(0092) 도 함께 오며, 미적용 DB 에서는 그냥 없는 값이 된다.
   return query<BoardCard>(
     `SELECT b.*,
             EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind='sla_breach' AND a.resolved_at IS NULL) AS has_breach,
