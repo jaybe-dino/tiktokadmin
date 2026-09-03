@@ -38,7 +38,9 @@ export interface Brand360 {
   paymentsManual: { id: string; plan: string; amount: number; method: string; paid_at: string; next_due: string | null; note: string }[];
   glovekSubs: { plan: string; amount: number | null; status: string; next_charge_at: string | null; failures: number | null }[];
   // link: 키워드 클릭 시 이동할 탭(및 스크롤 앵커) — 미팅·메일 등 커뮤 내용으로 점프.
-  timeline: { kind: string; text: string; at: string; actor: string; link?: { tab: string; anchor?: string } }[];
+  timeline: { kind: string; text: string; at: string; actor: string; link?: { tab: string; anchor?: string };
+    // 직접 입력 메모(brand_sources.event='note')만 수정·삭제 가능 — 자동 기록은 값이 없다(BUG-30).
+    noteId?: string; noteText?: string; noteBy?: string }[];
   // 원본 단계 이력(최근 30) — 페이지에서 moveHistory(성공 이동)를 파생해 중복 조회 제거.
   stageHistory: { from_state: string | null; to_state: string; actor: string; gate_passed: boolean; reason: string; at: string }[];
   alerts: { id: string; kind: string; tier: number; message: string; created_at: string }[];
@@ -72,8 +74,8 @@ export async function brand360(id: string): Promise<Brand360 | null> {
       "SELECT from_state, to_state, actor, gate_passed, reason, at FROM stage_history WHERE brand_id=$1 ORDER BY at DESC LIMIT 30",
       [id],
     )),
-    safe(query<{ site: string; event: string; source_url: string | null; payload: Record<string, unknown> | null; occurred_at: string }>(
-      "SELECT site, event, source_url, payload, occurred_at FROM brand_sources WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 40",
+    safe(query<{ id: string; site: string; event: string; source_url: string | null; payload: Record<string, unknown> | null; occurred_at: string }>(
+      "SELECT id, site, event, source_url, payload, occurred_at FROM brand_sources WHERE brand_id=$1 ORDER BY occurred_at DESC LIMIT 40",
       [id],
     )),
     safe(query<Brand360["alerts"][number]>(
@@ -136,12 +138,16 @@ export async function brand360(id: string): Promise<Brand360 | null> {
         // 이메일/메일 관련 커뮤 소스는 클릭 시 미팅·메일 탭으로 이동.
         const channel = typeof (s.payload as Record<string, unknown> | null)?.channel === "string" ? String((s.payload as Record<string, unknown>).channel) : "";
         const isMail = channel === "email" || channel === "mail" || s.event === "email" || s.event === "email_sent";
+        const pay = (s.payload ?? {}) as Record<string, unknown>;
+        // 담당자가 직접 남긴 메모만 수정·삭제 가능(자동 유입·발송 기록은 원본 이력이라 손대지 않는다).
+        const isNote = s.site === "admin" && s.event === "note" && typeof pay.text === "string";
         return {
           kind: "source",
           text: sourceText(s),
           at: s.occurred_at,
           actor: s.site,
           ...(isMail ? { link: { tab: "mm" } } : {}),
+          ...(isNote ? { noteId: String(s.id ?? ""), noteText: String(pay.text), noteBy: typeof pay.by === "string" ? pay.by : "" } : {}),
         };
       }),
     ...meetings.map((m) => ({

@@ -221,6 +221,60 @@ export async function addTimelineEntryAction(brandId: string, text: string): Pro
   return { ok: true };
 }
 
+// ── 타임라인 메모 수정·삭제(BUG-30) ──
+//   대상은 담당자가 직접 남긴 메모(brand_sources site='admin', event='note')뿐이다.
+//   상태 이동·미팅·메일 등 자동 기록은 원본 이력이라 여기서 건드리지 않는다.
+//   권한: 작성자 본인, 그리고 파트장/대표(다른 사람 기록 정정 필요 시).
+async function loadOwnNote(entryId: string): Promise<
+  { ok: true; payload: Record<string, unknown>; brandId: string } | { ok: false; error: string }
+> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!/^[0-9a-f-]{36}$/i.test(entryId)) return { ok: false, error: "잘못된 기록" };
+  const row = await queryOne<{ brand_id: string; site: string; event: string; payload: Record<string, unknown> | null }>(
+    "SELECT brand_id, site, event, payload FROM brand_sources WHERE id=$1", [entryId],
+  ).catch(() => null);
+  if (!row) return { ok: false, error: "기록을 찾을 수 없습니다." };
+  if (row.site !== "admin" || row.event !== "note") {
+    return { ok: false, error: "자동 기록(상태 이동·미팅·메일 등)은 수정·삭제할 수 없습니다." };
+  }
+  const payload = row.payload ?? {};
+  const author = typeof payload.by === "string" ? payload.by : "";
+  const canManage = author === u.id || u.role === "lead" || u.role === "exec";
+  if (!canManage) return { ok: false, error: "본인이 작성한 기록만 수정·삭제할 수 있습니다(파트장·대표는 전체 가능)." };
+  return { ok: true, payload, brandId: row.brand_id };
+}
+
+export async function updateTimelineEntryAction(entryId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const t = (text ?? "").trim();
+  if (!t) return { ok: false, error: "내용을 입력하세요." };
+  const found = await loadOwnNote(entryId);
+  if (!found.ok) return { ok: false, error: found.error };
+  // 수정 흔적을 남긴다(누가 언제 고쳤는지) — 작성자(by)는 그대로 유지.
+  const next = { ...found.payload, text: t, edited_by: u.id, edited_at: new Date().toISOString() };
+  try {
+    await query("UPDATE brand_sources SET payload=$2 WHERE id=$1", [entryId, JSON.stringify(next)]);
+  } catch {
+    return { ok: false, error: "수정에 실패했습니다. 잠시 후 다시 시도하세요." };
+  }
+  revalidatePath(`/brand/${found.brandId}`);
+  return { ok: true };
+}
+
+export async function deleteTimelineEntryAction(entryId: string): Promise<{ ok: boolean; error?: string }> {
+  const found = await loadOwnNote(entryId);
+  if (!found.ok) return { ok: false, error: found.error };
+  try {
+    await query("DELETE FROM brand_sources WHERE id=$1 AND site='admin' AND event='note'", [entryId]);
+  } catch {
+    return { ok: false, error: "삭제에 실패했습니다. 잠시 후 다시 시도하세요." };
+  }
+  revalidatePath(`/brand/${found.brandId}`);
+  return { ok: true };
+}
+
 // ── ④ 틱톡샵 계정 저장 + 개설 안내 발송(운영·정산) ──
 export async function saveTiktokAccountAction(brandId: string, input: {
   tiktok_shop_url?: string; tiktok_seller_id?: string; tiktok_seller_pw?: string;

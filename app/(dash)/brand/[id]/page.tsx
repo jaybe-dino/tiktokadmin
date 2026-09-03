@@ -34,6 +34,7 @@ import Brand360MeetingNotes from "@/components/Brand360MeetingNotes";
 import Brand360Danger from "@/components/Brand360Danger";
 import Brand360IntroSend from "@/components/Brand360IntroSend";
 import TimelineAddEntry from "./TimelineAddEntry";
+import TimelineNoteRow from "./TimelineNoteRow";
 import TimelineJump from "./TimelineJump";
 import { stageChecklist } from "@/lib/requirements";
 import { humanElapsed } from "@/lib/time";
@@ -294,7 +295,10 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
                     {t.actor && ` · ${t.actor}`}
                   </div>
                   {t.kind === "gate_fail" && <span className="chip red" style={{ marginRight: 6, fontSize: 10 }}>게이트 실패</span>}
-                  {t.link ? (
+                  {t.noteId ? (
+                    // 직접 입력 메모 — 인라인 수정·삭제(BUG-30). 자동 기록은 그대로 읽기 전용.
+                    <TimelineNoteRow noteId={t.noteId} text={t.noteText ?? t.text} />
+                  ) : t.link ? (
                     <TimelineJump tab={t.link.tab} anchor={t.link.anchor}>{t.text} ↗</TimelineJump>
                   ) : (
                     <span style={{ fontSize: 12.5 }}>{t.text}</span>
