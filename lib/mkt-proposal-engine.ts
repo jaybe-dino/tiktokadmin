@@ -123,6 +123,36 @@ export type PhaseRatios = Record<Phase, { organic: number; paid: number }>;
  *   phase: 그 달의 페이즈를 바꿈(GROWTH↔PEAK 등) → 비율도 그 페이즈로 재계산. */
 export interface MonthOverride { phase?: Phase; organic?: number; paid?: number; event?: string; note?: string }
 
+// 월별 수동 오버라이드는 국가마다 따로 잡는다 — 국가별로 시즌·페이즈가 달라(11.11 / Songkran / Tết)
+//   한 국가에서 조정한 금액을 다른 국가에 그대로 씌우면 전 국가가 같은 값으로 보인다.
+//   레거시(배열 하나)는 "기준 국가에만 적용"으로 읽어, 나머지 국가는 그 국가 캘린더대로 자동 계산된다.
+export type MonthOverrideMap = Record<string, (MonthOverride | null)[]>;
+
+export function isOverrideMap(v: unknown): v is MonthOverrideMap {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+/** 저장값(배열=레거시 | 국가별 맵) → 국가별 맵. baseCountry 는 레거시 배열의 귀속 국가. */
+export function normalizeOverrides(
+  raw: (MonthOverride | null)[] | MonthOverrideMap | null | undefined,
+  baseCountry: string,
+): MonthOverrideMap {
+  if (!raw) return {};
+  if (Array.isArray(raw)) return raw.length ? { [baseCountry]: raw } : {};
+  const out: MonthOverrideMap = {};
+  for (const [k, v] of Object.entries(raw)) if (Array.isArray(v)) out[k] = v as (MonthOverride | null)[];
+  return out;
+}
+
+/** 특정 국가의 오버라이드 배열(없으면 빈 배열 = 전부 자동). */
+export function overridesFor(
+  raw: (MonthOverride | null)[] | MonthOverrideMap | null | undefined,
+  country: string,
+  baseCountry: string,
+): (MonthOverride | null)[] {
+  return normalizeOverrides(raw, baseCountry)[country] ?? [];
+}
+
 export interface MktBudgetInput {
   monthlyBudget: number;      // RFP 월 캠페인 예산(무가+유가), 원
   country: MktCountry;

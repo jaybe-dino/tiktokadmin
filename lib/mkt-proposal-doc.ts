@@ -1,7 +1,7 @@
 // 마케팅 제안서 문서 저장/조회 (mkt_proposal_docs). 예산 입력값 저장 → 렌더 시 엔진 재계산.
 import { randomUUID } from "node:crypto";
 import { query, queryOne } from "./db";
-import type { MktCountry, PhaseRatios, MonthOverride } from "./mkt-proposal-engine";
+import type { MktCountry, PhaseRatios, MonthOverride, MonthOverrideMap } from "./mkt-proposal-engine";
 
 export interface MktProductItem { name: string; name_en?: string; volume?: string; image_url?: string; features?: string[] }
 export interface MktReferenceItem {
@@ -38,7 +38,8 @@ export interface MktProposalDocRow {
   accent2: string;
   show_bundle_slide: boolean;
   phase_ratios_json: Partial<PhaseRatios>;
-  month_overrides_json: (MonthOverride | null)[];
+  // 배열=레거시(기준 국가 전용) · 맵=국가별. 읽을 때 normalizeOverrides 로 통일한다.
+  month_overrides_json: (MonthOverride | null)[] | MonthOverrideMap;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -120,7 +121,7 @@ export interface MktProposalInput {
   accent2?: string;
   show_bundle_slide?: boolean;
   phase_ratios_json?: Partial<PhaseRatios>;
-  month_overrides_json?: (MonthOverride | null)[];
+  month_overrides_json?: (MonthOverride | null)[] | MonthOverrideMap;
   gen_source?: string | null; // 신규 생성 시에만 반영(수정 시에는 변경하지 않음).
   category?: string; // 제품 카테고리("대분류 > 소분류") — 0089.
 }

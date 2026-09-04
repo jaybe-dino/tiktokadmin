@@ -3,7 +3,7 @@
 //   (클라이언트 컴포넌트 — 이미지 로드 실패 시 placeholder 전환(onError) 때문. 데이터는 전부 props.)
 import { useState } from "react";
 import {
-  computeBudgetPlan, wonMan, COUNTRY_CALENDAR, COUNTRY_LABEL, PHASE_RATIO, PHASE_MEANING,
+  computeBudgetPlan, wonMan, COUNTRY_CALENDAR, COUNTRY_LABEL, PHASE_RATIO, PHASE_MEANING, overridesFor,
   type MktCountry, type Phase,
 } from "@/lib/mkt-proposal-engine";
 import type { MktProposalDocRow, MktProductItem, MktReferenceItem } from "@/lib/mkt-proposal-doc";
@@ -45,7 +45,9 @@ export default function MktProposalView({ doc }: { doc: MktProposalDocRow }) {
   const plans = countries.map((c) => ({ country: c, plan: computeBudgetPlan({
     monthlyBudget: doc.monthly_budget, country: c, startMonth: doc.start_month, months: doc.months,
     operationFee: doc.operation_fee, gmvReserveMin: doc.gmv_reserve_min, gmvReserveMax: doc.gmv_reserve_max,
-    firstMonthSeedingOnly: doc.first_month_seeding, phaseRatios: ratios, overrides: doc.month_overrides_json ?? [],
+    firstMonthSeedingOnly: doc.first_month_seeding, phaseRatios: ratios,
+    // 국가별 오버라이드 — 레거시(배열)는 기준 국가에만 적용되고 나머지는 그 국가 캘린더대로 자동.
+    overrides: overridesFor(doc.month_overrides_json, c, countries[0] ?? "US"),
   }) }));
   const products = (doc.products_json ?? []).filter((p) => p.name || p.image_url);
   const refs = (doc.references_json ?? []).filter((r) => r.creator || r.product || r.image_url || r.gmv);

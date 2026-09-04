@@ -224,6 +224,191 @@ export async function pinMktProposalImagesAction(docId: string): Promise<R & {
 // 상태 매핑: 제안서 문서 status → 파이프라인 mkt_projects.proposal_status
 const PROJ_STATUS: Record<string, string> = { draft: "draft", sent: "sent", accepted: "won", rejected: "dropped" };
 
+// ── 제품 유형별 레퍼런스 가져오기 ─────────────────────────────
+//   glovek 자동 검색으로 맞는 콘텐츠가 안 나와 담당자가 직접 찾아 넣는 경우가 많다.
+//   그렇게 쌓인 레퍼런스를 "제품 유형"(샴푸 등) 기준으로 다시 꺼내 쓴다 — 예: 볼벳(샴푸)에
+//   넣었던 레퍼런스를 산모희(임산부 샴푸) 제안서에서 그대로 재사용.
+//   검색 범위: 마케팅 제안서 references_json + 운영 제안서 creators(브랜드 무관, 전체 제안서).
+export async function importRefsByProductTypeAction(docId: string, keyword: string): Promise<R & {
+  refs?: MktReferenceItem[]; note?: string;
+}> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const kw = (keyword ?? "").trim();
+  if (kw.length < 2) return { ok: false, error: "제품 유형을 2글자 이상 입력하세요(예: 샴푸)." };
+  const doc = await getMktProposalById(docId);
+  if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+  const like = `%${kw}%`;
+
+  // 마케팅 제안서 — 카테고리·제품명·레퍼런스 텍스트 어디에든 유형이 걸리면 후보.
+  const mkt = await query<{ title: string; references_json: unknown }>(
+    `SELECT d.title, d.references_json FROM mkt_proposal_docs d
+      WHERE d.id <> $1
+        AND (COALESCE(d.category,'') ILIKE $2 OR d.products_json::text ILIKE $2 OR d.references_json::text ILIKE $2)
+      ORDER BY d.updated_at DESC LIMIT 20`,
+    [docId, like],
+  ).catch(() => []);
+  // 운영 제안서 — 크리에이터 레퍼런스(제품·브랜드명에 유형이 들어간 경우).
+  const ops = await query<{ title: string; creators: unknown }>(
+    `SELECT title, creators FROM proposal_docs
+      WHERE (products::text ILIKE $1 OR creators::text ILIKE $1)
+      ORDER BY updated_at DESC LIMIT 20`,
+    [like],
+  ).catch(() => []);
+
+  const keyOf = (url?: unknown, creator?: unknown) =>
+    (String(url ?? "").trim() || String(creator ?? "").trim().replace(/^@+/, "")).toLowerCase();
+  const have = new Set((doc.references_json ?? []).map((r) => keyOf(r.url, r.creator)).filter(Boolean));
+  const hit = (r: Record<string, unknown>) =>
+    [r.product, r.desc, r.creator, r.brand].some((v) => String(v ?? "").toLowerCase().includes(kw.toLowerCase()));
+
+  const out: MktReferenceItem[] = [];
+  const push = (r: MktReferenceItem) => {
+    const k = keyOf(r.url, r.creator);
+    if (!k || have.has(k)) return;
+    have.add(k); out.push(r);
+  };
+  for (const d of mkt) {
+    const arr = Array.isArray(d.references_json) ? (d.references_json as Record<string, unknown>[]) : [];
+    // 문서 전체가 그 유형이면 전부, 아니면 항목 단위로 유형이 걸린 것만.
+    const all = arr.filter(hit).length === 0;
+    for (const r of arr) {
+      if (!all && !hit(r)) continue;
+      push({
+        creator: String(r.creator ?? "") || undefined, product: String(r.product ?? "") || undefined,
+        gmv: String(r.gmv ?? "") || undefined, roas: String(r.roas ?? "") || undefined,
+        engagement: String(r.engagement ?? "") || undefined, desc: String(r.desc ?? "") || undefined,
+        image_url: String(r.image_url ?? "") || undefined, url: String(r.url ?? "") || undefined,
+      });
+    }
+  }
+  for (const d of ops) {
+    const arr = Array.isArray(d.creators) ? (d.creators as Record<string, unknown>[]) : [];
+    for (const c of arr) {
+      if (!hit({ product: c.product, desc: c.caption, creator: c.handle, brand: c.brand })) continue;
+      push({
+        creator: String(c.handle ?? "") || undefined, product: String(c.product ?? c.brand ?? "") || undefined,
+        gmv: String(c.revenue ?? "") || undefined, roas: String(c.roas ?? "") || undefined,
+        engagement: String(c.engagement ?? "") || undefined,
+        image_url: String(c.thumb_url ?? "") || undefined, url: String(c.link ?? "") || undefined,
+      });
+    }
+  }
+  if (out.length === 0) {
+    return { ok: false, error: `「${kw}」 유형으로 기존 제안서에서 찾은 레퍼런스가 없습니다 — 다른 표현(예: 헤어/두피)으로 시도해보세요.` };
+  }
+  return { ok: true, refs: out.slice(0, 12), note: `「${kw}」 유형 레퍼런스 ${Math.min(out.length, 12)}건 — 확인 후 [저장]을 눌러 반영하세요.` };
+}
+
+// ── 사전 설문 → 핵심 SKU USP 자동 채움 ────────────────────────
+//   마케팅 제안서는 운영대행 계약 "전"에 나가는 경우가 많아, 계약 후 작성하는 콘텐츠 브리프는
+//   참조할 수 없다. 대신 문의 단계에서 받은 '사전 설문'(pre_meeting)의 답변으로 제품명·특징을 채운다.
+//   특징 우선순위: 장점(q8) → 차별점(q9) → 핵심 메시지(q7) → 사용 상황(q10). 줄바꿈으로 구분해 저장.
+export async function fillProductUspFromSurveyAction(docId: string): Promise<R & {
+  products?: import("@/lib/mkt-proposal-doc").MktProductItem[]; note?: string;
+}> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const doc = await getMktProposalById(docId);
+  if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+  if (!doc.brand_id) return { ok: false, error: "브랜드가 연결되지 않은 제안서입니다 — 브랜드 연결 후 실행하세요." };
+
+  const sv = await queryOne<{ answers: Record<string, unknown> | null }>(
+    `SELECT answers FROM surveys
+      WHERE brand_id=$1 AND kind='pre_meeting' AND responded_at IS NOT NULL
+      ORDER BY responded_at DESC LIMIT 1`,
+    [doc.brand_id],
+  ).catch(() => null);
+  if (!sv) return { ok: false, error: "응답 완료된 사전 설문이 없습니다 — 브랜드 360 > 설문에서 발급·회수 후 다시 시도하세요." };
+
+  const a = sv.answers ?? {};
+  const str = (k: string) => {
+    const v = a[k];
+    return Array.isArray(v) ? v.join(", ") : typeof v === "string" ? v.trim() : "";
+  };
+  // 한 답변에 여러 줄로 적힌 장점은 줄 단위로 분해해 특징 카드로 쓴다.
+  const lines = (t: string) => t.split(/\r?\n|·|(?:^|\s)[①②③④⑤]\s*/).map((x) => x.trim()).filter((x) => x.length > 1);
+  const feats = [
+    ...lines(str("q8_benefits")),
+    ...lines(str("q9_difference")),
+    ...(str("q7_key_message") ? [str("q7_key_message")] : []),
+    ...lines(str("q10_situations")),
+  ];
+  const uniq: string[] = [];
+  for (const f of feats) if (!uniq.some((x) => x === f)) uniq.push(f);
+  const features = uniq.slice(0, 5);
+  const nameKr = str("product_name_kr") || str("q1_product") || "";
+  if (features.length === 0 && !nameKr) {
+    return { ok: false, error: "사전 설문에서 제품 특징을 찾지 못했습니다 — 설문 응답 내용을 확인해주세요." };
+  }
+
+  // 기존 제품이 있으면 첫 제품의 특징만 채우고(이름은 비어 있을 때만), 없으면 새로 만든다.
+  const products = (doc.products_json ?? []).map((p) => ({ ...p }));
+  if (products.length === 0) products.push({ name: nameKr || "핵심 SKU", features: [] });
+  products[0] = {
+    ...products[0],
+    name: products[0].name?.trim() || nameKr || products[0].name,
+    features: features.length ? features : products[0].features,
+  };
+  return {
+    ok: true, products,
+    note: `사전 설문 기준 특징 ${features.length}건 반영${nameKr ? ` · 제품명 「${nameKr}」` : ""} — 확인 후 [저장]을 눌러 반영하세요.`,
+  };
+}
+
+// ── 상품 링크 → 제품명·영문명·용량·특징 자동 채움 ──────────────
+//   설문이 없거나 부실한 경우의 보완 경로. 링크 페이지를 스크레이핑해 이름·이미지를 받고,
+//   AI 가 있으면 영문명·용량·특징까지 정리한다(없으면 스크레이핑 값만 채운다).
+export async function fillProductFromLinkAction(docId: string, index: number, url: string): Promise<R & {
+  product?: import("@/lib/mkt-proposal-doc").MktProductItem; note?: string;
+}> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  const link = (url ?? "").trim();
+  if (!/^https?:\/\//i.test(link)) return { ok: false, error: "상품 링크(http/https)를 입력하세요." };
+  const doc = await getMktProposalById(docId);
+  if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+
+  const { scrapeProductPage, looksLikeCaution } = await import("@/lib/mkt-proposal2");
+  const sc = await scrapeProductPage(link).catch(() => null);
+  if (!sc?.ok && !sc?.name) return { ok: false, error: "상품 페이지를 읽지 못했습니다 — 링크를 확인하거나 직접 입력해주세요." };
+
+  const base = (doc.products_json ?? [])[index] ?? {};
+  const desc = (sc.description ?? "").trim();
+  const descUsable = desc.length > 0 && desc.length <= 200 && !looksLikeCaution(desc);
+  const product: import("@/lib/mkt-proposal-doc").MktProductItem = {
+    ...base,
+    name: sc.name || base.name || "",
+    image_url: sc.image_url || base.image_url,
+    features: descUsable ? [desc] : (base.features ?? []),
+  };
+
+  // AI 가 있으면 영문명·용량·특징을 구조화(없으면 위 값 그대로).
+  const { aiText, aiEnabled } = await import("@/lib/ai");
+  if (aiEnabled()) {
+    const raw = await aiText({
+      system: "상품 페이지 정보를 구조화하는 도우미. 페이지에 없는 내용은 지어내지 않는다. JSON 만 출력한다.",
+      user:
+        `아래 상품 페이지 정보에서 JSON 으로만 답하세요.\n` +
+        `{"name_kr":"국문 제품명","name_en":"영문 제품명","volume":"용량(예: 100ml)","features":["핵심 특징 3개 이내"]}\n` +
+        `없는 값은 빈 문자열/빈 배열로 두세요.\n\n` +
+        `제품명: ${sc.name}\n설명: ${desc.slice(0, 600)}\nURL: ${link}`,
+    }).catch(() => null);
+    const m = (raw ?? "").match(/\{[\s\S]*\}/);
+    if (m) {
+      try {
+        const j = JSON.parse(m[0]) as { name_kr?: string; name_en?: string; volume?: string; features?: unknown };
+        if (j.name_kr?.trim()) product.name = j.name_kr.trim();
+        if (j.name_en?.trim()) product.name_en = j.name_en.trim();
+        if (j.volume?.trim()) product.volume = j.volume.trim();
+        const fs = Array.isArray(j.features) ? j.features.map((x) => String(x).trim()).filter(Boolean) : [];
+        if (fs.length) product.features = fs.slice(0, 5);
+      } catch { /* AI 응답이 깨지면 스크레이핑 값 유지 */ }
+    }
+  }
+  return { ok: true, product, note: `상품 링크에서 제품 정보를 불러왔습니다${aiEnabled() ? "" : " (AI 미설정 — 이름·이미지만)"}.` };
+}
+
 // ── 운영 제안서 레퍼런스 가져오기 ─────────────────────────────
 //   마케팅 제안은 보통 운영대행 제안 다음에 나가므로, 그때 이미 나갔던 레퍼런스를
 //   출발점으로 삼고 여기에 추가하는 흐름이 맞다. 같은 브랜드의 최신 운영 제안서에서

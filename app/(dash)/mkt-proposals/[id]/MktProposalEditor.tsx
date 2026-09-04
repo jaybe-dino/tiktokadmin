@@ -6,9 +6,9 @@ import MktProposalView from "@/components/MktProposalView";
 import ContentBriefRef from "@/components/ContentBriefRef";
 import CategoryPicker from "@/components/CategoryPicker";
 import GlovekCategorySelect from "@/components/GlovekCategorySelect";
-import { COUNTRY_LABEL, computeBudgetPlan, PHASE_RATIO, type MktCountry, type Phase, type PhaseRatios, type MonthOverride } from "@/lib/mkt-proposal-engine";
+import { COUNTRY_LABEL, computeBudgetPlan, PHASE_RATIO, normalizeOverrides, type MktCountry, type Phase, type PhaseRatios, type MonthOverride, type MonthOverrideMap } from "@/lib/mkt-proposal-engine";
 import type { MktProposalDocRow, MktProductItem, MktReferenceItem, MktTemplateConfig } from "@/lib/mkt-proposal-doc";
-import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction, saveMktTemplateAction, loadMktTemplateAction, deleteMktTemplateAction, fillGlovekMktRefsAction, pinMktProposalImagesAction, importOpsRefsAction } from "../actions";
+import { saveMktProposalDocAction, deleteMktProposalDocAction, linkMktProposalToPipelineAction, saveMktTemplateAction, loadMktTemplateAction, deleteMktTemplateAction, fillGlovekMktRefsAction, pinMktProposalImagesAction, importOpsRefsAction, fillProductUspFromSurveyAction, fillProductFromLinkAction, importRefsByProductTypeAction } from "../actions";
 import { addMonths, currentYM, monthWindow, rangeFromSelection, inRange, ymKey, type YM } from "@/lib/month-window";
 
 const MAN = 10000;
@@ -68,7 +68,13 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
     for (const p of PHASES) { const o = doc.phase_ratios_json?.[p]; if (o) r[p] = { organic: o.organic, paid: o.paid }; }
     return r;
   });
-  const [overrides, setOverrides] = useState<(MonthOverride | null)[]>(doc.month_overrides_json ?? []);
+  // 월별 오버라이드는 국가별로 따로 — 국가마다 시즌(11.11 · Songkran · Tết)이 달라 한 국가의 조정을
+  //   다른 국가에 그대로 씌우면 전 국가가 같은 값이 된다. 레거시(배열)는 기준 국가 것으로 읽는다.
+  const [ovMap, setOvMap] = useState<MonthOverrideMap>(
+    () => normalizeOverrides(doc.month_overrides_json, (doc.countries?.[0] ?? "US")),
+  );
+  const [ovCountry, setOvCountry] = useState<MktCountry>((doc.countries?.[0] ?? "US") as MktCountry);
+  const overrides = ovMap[ovCountry] ?? [];
   const [tpls, setTpls] = useState<TplItem[]>(templates);
   const [tplSel, setTplSel] = useState("");
   // 생성방식(0087)에 따라 목록 복귀 경로 분기 — 설문 자동생성(방식2)은 /mkt-proposals2 로.
@@ -149,6 +155,53 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
     }
   }
 
+  // 사전 설문 → 핵심 SKU USP — 마케팅 제안서는 운영대행 계약 전에 나가는 경우가 많아
+  //   (계약 후 작성되는) 콘텐츠 브리프 대신 문의 단계 사전 설문을 기준으로 삼는다.
+  async function fillUspFromSurvey() {
+    if (gvBusy) return;
+    setGvBusy(true); setTtMsg("");
+    try {
+      const r = await fillProductUspFromSurveyAction(doc.id);
+      if (!r.ok) { setTtMsg(r.error ?? "불러오기 실패"); return; }
+      if (r.products) setProducts(r.products);
+      setTtMsg(`✅ ${r.note ?? "반영됨"}`);
+    } catch { setTtMsg("사전 설문 조회 중 오류 — 다시 시도해주세요."); }
+    finally { setGvBusy(false); }
+  }
+
+  // 상품 링크 → 제품명·영문명·용량·특징 자동 채움(설문이 없거나 부실할 때의 보완 경로).
+  const [linkBusy, setLinkBusy] = useState<number | null>(null);
+  async function fillFromLink(i: number) {
+    const url = window.prompt("상품 링크를 입력하세요 (제품명·영문명·용량·특징을 자동으로 불러옵니다)", "");
+    if (!url?.trim()) return;
+    setLinkBusy(i); setTtMsg("");
+    try {
+      const r = await fillProductFromLinkAction(doc.id, i, url.trim());
+      if (!r.ok) { setTtMsg(r.error ?? "불러오기 실패"); return; }
+      if (r.product) setProducts((prev) => prev.map((p, idx) => (idx === i ? r.product! : p)));
+      setTtMsg(`✅ ${r.note ?? "반영됨"} — 확인 후 [저장]을 눌러 반영하세요.`);
+    } catch { setTtMsg("상품 링크 조회 중 오류 — 다시 시도해주세요."); }
+    finally { setLinkBusy(null); }
+  }
+
+  // 제품 유형(샴푸 등)으로 기존 제안서에서 직접 넣었던 레퍼런스를 다시 꺼내 쓴다.
+  async function importRefsByType() {
+    if (gvBusy) return;
+    const kw = window.prompt(
+      "제품 유형을 입력하세요 — 기존 제안서(마케팅·운영)에서 그 유형으로 넣었던 레퍼런스를 가져옵니다.\n예: 샴푸 / 앰플 / 선크림",
+      category.split(">").pop()?.trim() || "",
+    );
+    if (!kw?.trim()) return;
+    setGvBusy(true); setTtMsg("");
+    try {
+      const r = await importRefsByProductTypeAction(doc.id, kw.trim());
+      if (!r.ok) { setTtMsg(r.error ?? "가져오기 실패"); return; }
+      if (r.refs?.length) setRefs((prev) => [...r.refs!, ...prev]);
+      setTtMsg(`✅ ${r.note ?? "가져왔습니다."}`);
+    } catch { setTtMsg("유형별 레퍼런스 조회 중 오류 — 다시 시도해주세요."); }
+    finally { setGvBusy(false); }
+  }
+
   function toggleCountry(c: string) {
     setCountries((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]));
   }
@@ -157,14 +210,16 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
     setRatios((r) => ({ ...r, [p]: { organic: org, paid: 10 - org } }));
   }
   function setOv(i: number, patch: Partial<MonthOverride>) {
-    setOverrides((arr) => {
-      const next = arr.slice();
-      while (next.length <= i) next.push(null);
-      const cur = next[i] ?? {};
-      const merged = { ...cur, ...patch };
+    setOvMap((prev) => {
+      const arr = (prev[ovCountry] ?? []).slice();
+      while (arr.length <= i) arr.push(null);
+      const merged = { ...(arr[i] ?? {}), ...patch };
       // 모든 필드가 비면 null 로(자동 복귀).
       const empty = merged.organic == null && merged.paid == null && !merged.event && !merged.note && !merged.phase;
-      next[i] = empty ? null : merged;
+      arr[i] = empty ? null : merged;
+      const next = { ...prev, [ovCountry]: arr };
+      // 전부 비었으면 그 국가 키 자체를 제거(저장값을 깔끔하게 유지).
+      if (arr.every((x) => x == null)) delete next[ovCountry];
       return next;
     });
   }
@@ -235,8 +290,9 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
 
   // 오버라이드 표용 자동 베이스라인(오버라이드 제외, 첫 국가 기준).
   const baseCountry = (countries[0] ?? "US") as MktCountry;
+  // 월별 배분표의 자동값은 "지금 편집 중인 국가" 캘린더 기준으로 보여야 한다.
   const basePlan = computeBudgetPlan({
-    monthlyBudget: monthlyMan * MAN, country: baseCountry, startMonth, months,
+    monthlyBudget: monthlyMan * MAN, country: ovCountry, startMonth, months,
     firstMonthSeedingOnly: firstSeed, phaseRatios: ratios,
   });
 
@@ -249,7 +305,7 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
     first_month_seeding: firstSeed, commission_pct: commission,
     goal_first: goalFirst, goal_final: goalFinal, intro_note: intro,
     products_json: products, references_json: refs,
-    phase_ratios_json: ratios, month_overrides_json: overrides,
+    phase_ratios_json: ratios, month_overrides_json: ovMap,
     brand_name: brands.find((b) => b.id === brandId)?.brand_name ?? doc.brand_name,
   };
 
@@ -262,7 +318,7 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
       first_month_seeding: firstSeed, commission_pct: commission,
       goal_first: goalFirst, goal_final: goalFinal, intro_note: intro,
       products_json: products, references_json: refs,
-      phase_ratios_json: ratios, month_overrides_json: overrides,
+      phase_ratios_json: ratios, month_overrides_json: ovMap,
       category,
     });
     if (!r.ok) { setMsg(r.error ?? "저장 실패"); return false; }
@@ -417,7 +473,24 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
         </Card>
 
         <Card title="월별 배분 (수동 조정 · 그때그때 다르게)">
-          <div style={{ fontSize: 11, color: "var(--ink3)" }}>빈칸이면 자동(placeholder=자동값, 만원). 값을 넣으면 그 달만 덮어씁니다. {COUNTRY_LABEL[baseCountry]} 기준 · 모든 국가에 적용.</div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700 }}>국가별 배분</span>
+            {(countries.length ? countries : ["US"]).map((c) => {
+              const on = c === ovCountry;
+              const edited = (ovMap[c] ?? []).some((x) => x != null);
+              return (
+                <button key={c} type="button" className={`btn sm${on ? " pri" : ""}`} onClick={() => setOvCountry(c as MktCountry)}
+                  title={`${COUNTRY_LABEL[c as MktCountry]} 월별 배분 편집`}>
+                  {COUNTRY_LABEL[c as MktCountry]}{edited ? " •" : ""}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--ink3)" }}>
+            빈칸이면 자동(placeholder=자동값, 만원). 값을 넣으면 그 달만 덮어씁니다 —
+            <b> {COUNTRY_LABEL[ovCountry]}에만 적용</b>됩니다(국가마다 시즌·페이즈가 달라 따로 관리).
+            표시된 자동값도 {COUNTRY_LABEL[ovCountry]} 캘린더 기준입니다.
+          </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead><tr style={{ color: "var(--ink3)" }}>
@@ -460,7 +533,15 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
               </tbody>
             </table>
           </div>
-          <button className="btn sm" onClick={() => setOverrides([])} style={{ justifySelf: "start" }}>전체 자동으로 초기화</button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="btn sm" style={{ justifySelf: "start" }}
+              onClick={() => setOvMap((prev) => { const n = { ...prev }; delete n[ovCountry]; return n; })}>
+              {COUNTRY_LABEL[ovCountry]} 자동으로 초기화
+            </button>
+            {Object.keys(ovMap).length > 1 && (
+              <button className="btn sm" onClick={() => setOvMap({})}>전체 국가 초기화</button>
+            )}
+          </div>
         </Card>
 
         <Card title="목표">
@@ -470,6 +551,15 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
         </Card>
 
         <Card title={`제품 (${products.length})`}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+            <button className="btn sm pri" disabled={pending || gvBusy} onClick={fillUspFromSurvey}
+              title="문의 단계 '사전 설문' 응답(장점·차별점·핵심 메시지)으로 핵심 SKU 제품명·특징을 채웁니다">
+              📋 사전 설문에서 USP 불러오기
+            </button>
+            <span style={{ fontSize: 10.5, color: "var(--ink3)" }}>
+              콘텐츠 브리프는 계약·결제 후 작성되므로, 계약 전 제안서는 사전 설문을 기준으로 채웁니다.
+            </span>
+          </div>
           {products.map((p, i) => (
             <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 8, marginBottom: 6, display: "grid", gap: 4 }}>
               <input className="f" placeholder="제품명" value={p.name} onChange={(e) => setProducts(upd(products, i, { name: e.target.value }))} />
@@ -479,13 +569,20 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
               </div>
               <input className="f" placeholder="이미지 URL" value={p.image_url ?? ""} onChange={(e) => setProducts(upd(products, i, { image_url: e.target.value }))} />
               <textarea className="f" rows={2} placeholder="특징(줄바꿈으로 구분)" value={(p.features ?? []).join("\n")} onChange={(e) => setProducts(upd(products, i, { features: e.target.value.split("\n") }))} />
-              <button className="btn sm" onClick={() => setProducts(products.filter((_, j) => j !== i))} style={{ color: "#e03131", justifySelf: "start" }}>제거</button>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn sm" disabled={linkBusy === i} onClick={() => fillFromLink(i)}
+                  title="상품 링크에서 제품명·영문명·용량·특징을 자동으로 불러옵니다">
+                  {linkBusy === i ? "불러오는 중…" : "🔗 상품 링크에서 불러오기"}
+                </button>
+                <button className="btn sm" onClick={() => setProducts(products.filter((_, j) => j !== i))} style={{ color: "#e03131" }}>제거</button>
+              </div>
             </div>
           ))}
           <button className="btn sm" onClick={() => setProducts([...products, { name: "", features: [] }])}>+ 제품 추가</button>
         </Card>
 
-        {/* 콘텐츠 브리프 참조(선택) — 브랜드가 제출한 설문 응답을 보며 제안 내용을 작성 */}
+        {/* 콘텐츠 브리프 참조(선택·보조) — 이미 계약·결제까지 끝난 브랜드에서만 존재한다.
+            계약 전 제안서의 기준 자료는 위의 "사전 설문에서 USP 불러오기". */}
 
         <ContentBriefRef brandId={brandId || null} />
 
@@ -493,6 +590,10 @@ export default function MktProposalEditor({ doc, brands, templates = [] }: { doc
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <CategoryPicker value={category} onChange={setCategory} compact />
             <GlovekCategorySelect onPick={setCategory} />
+            <button className="btn sm" disabled={pending || ttBusy || gvBusy} onClick={importRefsByType}
+              title="기존 제안서(마케팅·운영)에서 같은 제품 유형(샴푸 등)으로 넣었던 레퍼런스를 가져옵니다">
+              🔁 제품 유형별 레퍼런스 가져오기
+            </button>
             <button className="btn sm" disabled={pending || ttBusy || gvBusy} onClick={importOpsRefs}
               title="같은 브랜드의 최신 운영 제안서에 들어간 크리에이터 레퍼런스를 그대로 가져옵니다(중복 제외)">
               📄 운영 제안서 레퍼런스 가져오기

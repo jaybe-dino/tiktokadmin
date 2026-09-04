@@ -93,3 +93,28 @@ describe("mkt-proposal budget engine", () => {
     }
   });
 });
+
+// 국가별 월별 오버라이드 — 한 국가의 수동 조정이 다른 국가로 번지면 안 된다(회의 지적 사항).
+import { normalizeOverrides, overridesFor } from "../lib/mkt-proposal-engine";
+
+describe("월별 오버라이드 국가 분리", () => {
+  it("레거시(배열)는 기준 국가에만 귀속 — 다른 국가는 자동 계산", () => {
+    const legacy = [{ organic: 5_000_000 }, null];
+    expect(normalizeOverrides(legacy, "US")).toEqual({ US: legacy });
+    expect(overridesFor(legacy, "US", "US")).toEqual(legacy);
+    expect(overridesFor(legacy, "VN", "US")).toEqual([]); // 미국 조정값이 베트남에 번지지 않음
+  });
+
+  it("국가별 맵은 각 국가 것만 반환", () => {
+    const map = { US: [{ paid: 1_000_000 }], VN: [{ paid: 2_000_000 }] };
+    expect(overridesFor(map, "US", "US")).toEqual(map.US);
+    expect(overridesFor(map, "VN", "US")).toEqual(map.VN);
+    expect(overridesFor(map, "TH", "US")).toEqual([]);
+  });
+
+  it("빈 값·빈 배열은 빈 맵", () => {
+    expect(normalizeOverrides(null, "US")).toEqual({});
+    expect(normalizeOverrides([], "US")).toEqual({});
+    expect(overridesFor(undefined, "US", "US")).toEqual([]);
+  });
+});
