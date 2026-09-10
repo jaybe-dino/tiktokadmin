@@ -187,7 +187,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
               비우면 제안서에 표시하지 않습니다 — 지정하면 표지·실행 로드맵에 시작 시점이 노출됩니다.
             </div>
           </div>
-          <F label="배경색(표지·페이지 톤, 예: #1d4ed8)" v={d.accent2 ?? ""} on={(v) => set("accent2", v || null)} placeholder="비우면 기본(핑크·보라 계열)" />
+          <F label="배경색(표지·페이지 톤, 예: #1d4ed8)" v={d.accent2 ?? ""} on={(v) => set("accent2", v || null)} placeholder="비우면 기본(무채색 · 색 없음)" />
         </Grid>
       </Card>
 

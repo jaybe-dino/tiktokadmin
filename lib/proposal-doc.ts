@@ -40,7 +40,7 @@ export interface ProposalDoc {
   products: ProposalProduct[];
   creators: ProposalCreator[];
   accent: string | null;
-  accent2?: string | null; // 배경색(0091, BUG-21) — NULL 이면 기본 핑크·보라 계열
+  accent2?: string | null; // 배경색(0091, BUG-21) — NULL 이면 무채색 기본(BUG-31)
   start_ym?: string | null; // 운영 시작 연월 "YYYY-MM" (0093) — 제안서에 "언제부터"를 명시
   // v2 — 레퍼런스 데크 정합 필드.
   product_en: string | null;

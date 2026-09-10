@@ -55,8 +55,11 @@ export default async function ProposalPage({ params, searchParams }: { params: P
   d.creators = d.creators.map((c) => ({ ...c, thumb_url: c.thumb_url ? proposalImageUrl(c.thumb_url, token) : c.thumb_url }));
   const tpl = await defaultTemplate();
   // accent 는 <style> 안에 인라인되므로 반드시 hex 만 허용(CSS/스크립트 인젝션 차단).
-  const accent = safeHexColor(d.accent) || safeHexColor(tpl?.accent) || "#ec4899";
-  // 배경색(BUG-21) — 지정 시 표지 다크 그라디언트·페이지 틴트 계열을 이 색 기준으로 파생. 미지정이면 기본 핑크·보라.
+  // 기본 강조색은 무채색(BUG-31) — 색을 지정하지 않았는데 핑크가 입혀지던 문제.
+  //   담당자가 넣은 값(문서 > 템플릿)이 있으면 그 색을 그대로 쓴다.
+  const accent = safeHexColor(d.accent) || safeHexColor(tpl?.accent) || "#1f2937";
+  // 배경색(BUG-21) — 지정 시 표지 다크 그라디언트·페이지 틴트 계열을 이 색 기준으로 파생.
+  //   미지정이면 무채색 기본(BUG-31).
   const bg = safeHexColor(d.accent2);
   const agency = tpl?.agency_name || "DINO STUDIO";
   const order = tpl?.sections?.length ? tpl.sections : ["cover", "product", "pricing", "operations", "kpi", "addon", "creators", "closing"];
@@ -360,24 +363,25 @@ function Eyebrow({ small, title, sub }: { small: string; title: string; sub?: st
 function css(accent: string, bg?: string | null): string {
   // 배경색(bg) 지정 시 틴트·라인·그라운드·다크 섹션을 그 색에서 파생(color-mix) — 미지정이면 기존 기본값 유지.
   const mix = (pct: number, base = "#ffffff") => (bg ? `color-mix(in srgb, ${bg} ${pct}%, ${base})` : null);
-  const tint = mix(8) ?? "#fdeef5";
-  const tint2 = mix(18) ?? "#fbdcea";
-  const line = mix(15) ?? "#f3dbe7";
-  const ground = bg ? `linear-gradient(180deg,${mix(6)},${mix(12)})` : "linear-gradient(180deg,#fdf1f7,#fbe8f1)";
+  // 배경색 미지정 시 기본 팔레트는 무채색(BUG-31) — 색은 담당자가 지정할 때만 입혀진다.
+  const tint = mix(8) ?? "#f6f7f9";
+  const tint2 = mix(18) ?? "#e9ecf1";
+  const line = mix(15) ?? "#e2e6ec";
+  const ground = bg ? `linear-gradient(180deg,${mix(6)},${mix(12)})` : "linear-gradient(180deg,#f7f8fa,#eef0f4)";
   const darkBg = bg
     ? `radial-gradient(circle at 32% 42%, ${mix(55)} 0%, ${bg} 34%, color-mix(in srgb, ${bg} 55%, #000) 62%, color-mix(in srgb, ${bg} 22%, #000) 88%)`
-    : `radial-gradient(circle at 32% 42%, #ff5fa0 0%, #b12768 34%, #4d1230 62%, #1a0a13 88%)`;
-  const darkBase = bg ? `color-mix(in srgb, ${bg} 30%, #000)` : "#160a10";
+    : `radial-gradient(circle at 32% 42%, #4b5563 0%, #374151 34%, #1f2937 62%, #0f141b 88%)`;
+  const darkBase = bg ? `color-mix(in srgb, ${bg} 30%, #000)` : "#0f141b";
   return `
-  .pp-root{--acc:${accent};--hot:#f6339a;--ink:#17121a;--ink2:#5b4b55;--ink3:#9b8791;--tint:${tint};--tint2:${tint2};--line:${line};
+  .pp-root{--acc:${accent};--hot:${accent};--ink:#111827;--ink2:#4b5563;--ink3:#9aa3af;--tint:${tint};--tint2:${tint2};--line:${line};
     background:${ground};min-height:100vh;
     font-family:-apple-system,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif;color:var(--ink);
     /* 인쇄/PDF 시 배경색·그라디언트·다크 섹션이 유지되도록 강제. */
     -webkit-print-color-adjust:exact;print-color-adjust:exact;}
   .pp-root *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   .pp-doc{max-width:1040px;margin:0 auto;padding:0 18px 60px;}
-  .pp-page{background:var(--tint);border-radius:22px;box-shadow:0 10px 40px rgba(160,30,90,.08);padding:40px 40px;margin:22px 0;}
-  .pp-card{background:#fff;border-radius:18px;padding:26px;box-shadow:0 6px 22px rgba(160,30,90,.06);}
+  .pp-page{background:var(--tint);border-radius:22px;box-shadow:0 10px 40px rgba(15,23,42,.08);padding:40px 40px;margin:22px 0;}
+  .pp-card{background:#fff;border-radius:18px;padding:26px;box-shadow:0 6px 22px rgba(15,23,42,.06);}
   .pp-2col{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
   /* 공통 헤더 */
   .pp-head{margin-bottom:22px;}
@@ -389,7 +393,7 @@ function css(accent: string, bg?: string | null): string {
   .pp-badge{display:inline-block;font-weight:800;font-size:12px;padding:6px 13px;border-radius:999px;}
   .pp-badge.soft{background:var(--tint2);color:var(--acc);}
   .pp-badge.hot{background:var(--acc);color:#fff;}
-  .pp-badge.dark{background:#2a1620;color:#fff;}
+  .pp-badge.dark{background:#1f2937;color:#fff;}
   .pp-tags{display:flex;flex-wrap:wrap;gap:8px;}
   .pp-tag{display:inline-block;background:var(--tint2);color:var(--acc);font-weight:800;font-size:13px;padding:6px 12px;border-radius:999px;}
   /* dark 섹션(표지·마무리) */
@@ -405,25 +409,25 @@ function css(accent: string, bg?: string | null): string {
   .pp-rule{height:1px;background:var(--line);margin:24px auto;max-width:420px;}
   .pp-logos{display:flex;gap:22px;align-items:center;justify-content:center;}
   .pp-agency{font-weight:900;letter-spacing:.02em;font-size:19px;white-space:pre-line;}
-  .pp-x{color:#d9b9cb;font-size:16px;}
+  .pp-x{color:#cbd5e1;font-size:16px;}
   .pp-brand{font-weight:900;font-size:26px;color:var(--acc);font-style:italic;}
   .pp-brandlogo{max-height:44px;max-width:200px;object-fit:contain;}
   /* 히어로 제품 */
   .pp-hero{display:grid;grid-template-columns:1fr 1.15fr;gap:24px;align-items:start;}
-  .pp-hero-img{background:#fff;border-radius:18px;padding:8px;box-shadow:0 6px 22px rgba(160,30,90,.06);}
+  .pp-hero-img{background:#fff;border-radius:18px;padding:8px;box-shadow:0 6px 22px rgba(15,23,42,.06);}
   .pp-hero-img img{width:100%;height:340px;object-fit:contain;display:block;}
   .pp-hero-ph{height:340px;display:grid;place-items:center;color:var(--ink3);font-weight:800;}
   .pp-hero-name{font-size:26px;font-weight:900;margin:12px 0 2px;}
   .pp-hero-en{color:var(--ink3);font-weight:700;font-size:14px;margin:0 0 14px;}
   .pp-featcards{display:flex;flex-direction:column;gap:10px;}
-  .pp-featcard{background:#fff;border-radius:12px;padding:14px 16px;box-shadow:0 4px 14px rgba(160,30,90,.05);}
+  .pp-featcard{background:#fff;border-radius:12px;padding:14px 16px;box-shadow:0 4px 14px rgba(15,23,42,.05);}
   .pp-featcard b{display:block;font-size:15px;margin-bottom:3px;}
   .pp-featcard span{font-size:13px;color:var(--ink2);line-height:1.55;}
   .pp-hero-body .pp-tags{margin-top:16px;}
   /* 가격 */
   .pp-track{display:inline-block;background:var(--acc);color:#fff;font-weight:800;font-size:12px;letter-spacing:.06em;padding:8px 16px;border-radius:999px;}
   .pp-price-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:20px 0 0;}
-  .pp-list{font-size:20px;font-weight:800;color:#c9a7b8;text-decoration:line-through;}
+  .pp-list{font-size:20px;font-weight:800;color:#94a3b8;text-decoration:line-through;}
   .pp-per{font-size:13px;color:var(--ink3);font-weight:700;}
   .pp-amount{font-size:44px;font-weight:900;letter-spacing:-.02em;line-height:1;flex-basis:100%;margin-top:4px;}
   .pp-amount small{font-size:18px;font-weight:800;color:var(--ink2);margin-left:6px;}
@@ -435,10 +439,10 @@ function css(accent: string, bg?: string | null): string {
   /* 상당 구성 가치 */
   .pp-value-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid var(--line);}
   .pp-value-head b{font-size:17px;font-weight:900;}
-  .pp-value-strike{color:#c9a7b8;font-weight:800;font-size:14px;}
+  .pp-value-strike{color:#94a3b8;font-weight:800;font-size:14px;}
   .pp-value-strike s{text-decoration:line-through;}
   .pp-value-list{margin:6px 0;}
-  .pp-value-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid #f7e6ef;}
+  .pp-value-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);}
   .pp-value-label{font-weight:700;font-size:14px;}
   .pp-value-qty{color:var(--ink3);font-size:12px;}
   .pp-value-total{display:flex;justify-content:space-between;align-items:center;background:var(--acc);color:#fff;border-radius:12px;padding:14px 18px;margin-top:12px;font-weight:900;}
@@ -463,7 +467,7 @@ function css(accent: string, bg?: string | null): string {
   .pp-impact b{display:block;font-size:15px;}
   .pp-impact span{display:block;font-size:13px;color:var(--ink2);line-height:1.5;margin-top:2px;}
   /* 배너 */
-  .pp-banner{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;background:linear-gradient(135deg,#f472b6,var(--acc));color:#fff;border-radius:14px;padding:18px 24px;margin-top:18px;}
+  .pp-banner{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;background:linear-gradient(135deg,color-mix(in srgb,var(--acc) 72%,#fff),var(--acc));color:#fff;border-radius:14px;padding:18px 24px;margin-top:18px;}
   .pp-banner-l{font-weight:800;font-size:15px;}
   .pp-banner-r{font-weight:900;font-size:17px;margin-left:auto;}
   /* KPI */
@@ -474,7 +478,7 @@ function css(accent: string, bg?: string | null): string {
   .pp-kpi-box{background:var(--tint);border-radius:14px;padding:22px;text-align:center;}
   .pp-kpi-box b{display:block;font-size:32px;font-weight:900;color:var(--acc);}
   .pp-kpi-box span{color:var(--ink3);font-weight:700;font-size:13px;margin-top:6px;display:block;}
-  .pp-kpi-hot{background:linear-gradient(135deg,#f472b6,var(--acc));color:#fff;}
+  .pp-kpi-hot{background:linear-gradient(135deg,color-mix(in srgb,var(--acc) 72%,#fff),var(--acc));color:#fff;}
   .pp-kpi-hot .pp-badge.dark{background:rgba(0,0,0,.28);}
   .pp-kpi-hot .pp-kpi-box{background:rgba(255,255,255,.18);}
   .pp-kpi-hot .pp-kpi-box b,.pp-kpi-hot .pp-kpi-box span{color:#fff;}
@@ -482,7 +486,7 @@ function css(accent: string, bg?: string | null): string {
   .pp-bench-wrap{overflow-x:auto;margin-top:20px;}
   .pp-bench{width:100%;border-collapse:collapse;font-size:14px;min-width:640px;border-radius:12px;overflow:hidden;}
   .pp-bench th,.pp-bench td{padding:14px 12px;text-align:center;}
-  .pp-bench thead th{background:#2a1620;color:#fff;font-weight:800;}
+  .pp-bench thead th{background:#1f2937;color:#fff;font-weight:800;}
   .pp-bench thead th:first-child{text-align:left;}
   .pp-bench thead th em{display:block;font-style:normal;font-weight:600;font-size:11px;opacity:.7;margin-top:3px;}
   .pp-bench tbody td{border-bottom:1px solid var(--line);background:#fff;font-weight:800;}
@@ -500,8 +504,8 @@ function css(accent: string, bg?: string | null): string {
   .pp-addon-badges{display:flex;gap:8px;flex-wrap:wrap;}
   /* 레퍼런스 케이스 */
   .pp-creators{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;}
-  .pp-creator{border-radius:16px;overflow:hidden;background:#fff;box-shadow:0 6px 22px rgba(160,30,90,.07);}
-  .pp-cr-media{position:relative;aspect-ratio:9/12;background:#f2d7e5;}
+  .pp-creator{border-radius:16px;overflow:hidden;background:#fff;box-shadow:0 6px 22px rgba(15,23,42,.07);}
+  .pp-cr-media{position:relative;aspect-ratio:9/12;background:#e2e8f0;}
   .pp-cr-media img{width:100%;height:100%;object-fit:cover;display:block;}
   .pp-cr-ph{width:100%;height:100%;}
   .pp-cr-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:44px;height:44px;border-radius:999px;background:rgba(255,255,255,.82);color:var(--acc);display:grid;place-items:center;font-size:15px;padding-left:3px;}
@@ -528,7 +532,7 @@ function css(accent: string, bg?: string | null): string {
   .pp-foot{text-align:center;color:var(--ink3);font-size:12px;margin-top:24px;}
   /* printbar */
   .pp-printbar{position:sticky;top:0;z-index:20;display:flex;justify-content:flex-end;max-width:1040px;margin:0 auto;padding:14px 18px 0;}
-  .pp-printbar button{color:#fff;font-weight:800;font-size:14px;border:none;border-radius:12px;padding:11px 18px;cursor:pointer;box-shadow:0 6px 18px rgba(160,30,90,.2);}
+  .pp-printbar button{color:#fff;font-weight:800;font-size:14px;border:none;border-radius:12px;padding:11px 18px;cursor:pointer;box-shadow:0 6px 18px rgba(15,23,42,.2);}
   @media print{
     @page{size:A4;margin:10mm;}
     .no-print{display:none!important;}
