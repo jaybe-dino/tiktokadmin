@@ -360,7 +360,8 @@ async function editBand(
   //   Pro 는 2K 출력을 지원해 텍스트가 훨씬 선명하다(flash 는 해당 필드 무시).
   for (const model of [MODEL, ...(MODEL_FALLBACK !== MODEL ? [MODEL_FALLBACK] : [])]) {
     const cfg: Record<string, unknown> = { aspectRatio: ratio };
-    if (/pro/i.test(model)) cfg.imageSize = "2K";
+    // 출력이 크롭보다 작으면 되붙일 때 확대되어 글자가 뭉개진다 — 긴 변 기준으로 등급을 올린다.
+    if (/pro/i.test(model)) cfg.imageSize = Math.max(width, height) > 2048 ? "4K" : "2K";
     const parts = await geminiCall(key, model, [
       { inline_data: { mime_type: mime, data: crop.toString("base64") } },
       { text: prompt },
@@ -369,6 +370,71 @@ async function editBand(
     if (img) return img;
   }
   return null;
+}
+
+// ── 변경 영역만 합성(화질 보존) ─────────────────────────────
+//   편집 모델은 띠 전체를 "다시 그려서" 돌려준다. 그 띠 안에 글자가 없는 제품 사진·그래픽까지
+//   재생성 픽셀로 덮이면 원본보다 흐려진다(특히 모델 출력 해상도가 크롭보다 작을 때).
+//   해결: 원본 크롭과 편집 결과를 픽셀 단위로 비교해 "실제로 바뀐 곳(=글자 자리)"만 가져오고,
+//   나머지는 원본 픽셀을 그대로 둔다. 경계는 마스크를 흐려 부드럽게 섞는다.
+
+/** 변경 마스크 판정 임계값 — 채널 합 기준. 글자 교체는 값이 크게 튀고, 재렌더링에 따른
+ *  미세한 색 흔들림은 이 아래로 떨어져 원본이 유지된다. */
+export const DIFF_THRESHOLD = 96;
+
+/** 마스크 비율에 따른 합성 전략(순수 — 테스트 가능).
+ *  거의 안 바뀜 → 원본 유지 · 대부분 바뀜 → 편집본 통째 · 그 사이 → 부분 합성. */
+export function blendStrategy(changedRatio: number): "keep" | "replace" | "blend" {
+  if (changedRatio < 0.001) return "keep";     // 모델이 사실상 아무것도 바꾸지 않음
+  if (changedRatio > 0.6) return "replace";    // 배경까지 새로 그린 경우 — 부분 합성은 얼룩진다
+  return "blend";
+}
+
+/** 원본 크롭 + 편집 결과 → 바뀐 곳만 반영한 버퍼. 실패 시 편집본을 그대로 반환. */
+export async function blendChangedOnly(
+  sharpFn: (input: Buffer, opts?: Record<string, unknown>) => import("sharp").Sharp,
+  origCrop: Buffer, edited: Buffer, W: number, H: number,
+): Promise<Buffer> {
+  const fitted = await sharpFn(edited)
+    .resize(W, H, { fit: "cover", position: "centre", kernel: "lanczos3" })
+    .removeAlpha().raw().toBuffer()
+    .catch(() => null);
+  const orig = await sharpFn(origCrop).removeAlpha().raw().toBuffer().catch(() => null);
+  if (!fitted || !orig || fitted.length !== orig.length) {
+    return sharpFn(edited).resize(W, H, { fit: "cover", position: "centre", kernel: "lanczos3" }).png().toBuffer();
+  }
+
+  const px = W * H;
+  const mask = Buffer.alloc(px);
+  let changed = 0;
+  for (let i = 0, p = 0; i < px; i++, p += 3) {
+    const d = Math.abs(orig[p] - fitted[p]) + Math.abs(orig[p + 1] - fitted[p + 1]) + Math.abs(orig[p + 2] - fitted[p + 2]);
+    if (d > DIFF_THRESHOLD) { mask[i] = 255; changed++; }
+  }
+  const strategy = blendStrategy(changed / px);
+  if (strategy === "keep") return sharpFn(origCrop).png().toBuffer();
+  if (strategy === "replace") {
+    return sharpFn(Buffer.from(fitted), { raw: { width: W, height: H, channels: 3 } }).png().toBuffer();
+  }
+
+  // 글자 획 주변까지 넉넉히 덮도록 마스크를 흐려 확장(번역문이 원문보다 길어지는 경우 대비)
+  //   + 경계 계단 현상 방지. 반경은 띠 높이에 비례하되 하한을 둔다.
+  const radius = Math.max(2, Math.round(H * 0.006));
+  const soft = await sharpFn(mask, { raw: { width: W, height: H, channels: 1 } })
+    .blur(radius).raw().toBuffer().catch(() => null);
+  if (!soft || soft.length < px) return sharpFn(Buffer.from(fitted), { raw: { width: W, height: H, channels: 3 } }).png().toBuffer();
+  // sharp 는 1채널 raw 를 흐리게 하면 3채널로 돌려주기도 한다 — 실제 채널 수로 보폭을 잡는다.
+  const stride = Math.max(1, Math.floor(soft.length / px));
+
+  const out = Buffer.alloc(px * 3);
+  for (let i = 0, p = 0; i < px; i++, p += 3) {
+    // 흐린 마스크를 증폭해 글자 영역은 확실히 편집본, 먼 곳은 원본이 되게 한다.
+    const a = Math.min(255, soft[i * stride] * 3) / 255;
+    out[p] = orig[p] + (fitted[p] - orig[p]) * a;
+    out[p + 1] = orig[p + 1] + (fitted[p + 1] - orig[p + 1]) * a;
+    out[p + 2] = orig[p + 2] + (fitted[p + 2] - orig[p + 2]) * a;
+  }
+  return sharpFn(out, { raw: { width: W, height: H, channels: 3 } }).png().toBuffer();
 }
 
 // ── 폴백: 기존 전체 이미지 편집(감지 실패·텍스트 좌표 미확보 시에만) ──
@@ -486,11 +552,9 @@ export async function translateImage(bytes: Buffer, mime: string, lang: ImgTrans
           edited = await editBand(key, crop, "image/png", target, band.texts, ratio, W, height); // 재시도 1회
         }
         if (!edited) return null;
-        // 되붙이기 — 입력과 같은 비율로 받았으므로 등비 축소만 일어난다(lanczos3 로 선명도 유지).
-        //   혹시 모델이 다른 비율로 보내면 cover 로 중앙을 맞춰 잘라 넣는다(늘여서 눌리는 것보다 낫다).
-        const fitted = await sharp(edited)
-          .resize(W, height, { fit: "cover", position: "centre", kernel: "lanczos3" })
-          .png().toBuffer();
+        // 되붙이기 — 띠 전체를 편집본으로 덮지 않고, 원본과 비교해 "실제로 바뀐 곳(글자 자리)"만
+        //   가져온다. 글자가 없는 제품 사진·그래픽은 원본 픽셀 그대로 남아 화질이 유지된다.
+        const fitted = await blendChangedOnly(sharp, crop, edited, W, height);
         return { top, buf: fitted };
       });
 
