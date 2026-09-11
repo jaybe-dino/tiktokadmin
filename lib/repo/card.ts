@@ -310,6 +310,10 @@ export async function submitSurveyResponse(token: string, answers: Record<string
       "UPDATE brand_contacts SET marketing_consent=$2, consent_at=now() WHERE brand_id=$1 AND is_primary",
       [s.brand_id, mc]).catch((e) => console.error("[survey] 마케팅 동의 전파 실패", e));
   }
+  // 브랜드사가 설문을 제출하면 Slack 알림(사전·콘텐츠 브리프·마케팅 공통).
+  //   알림 실패가 제출을 막지 않도록 catch — 응답 저장은 이미 확정된 상태.
+  const { notifySurveySubmitted } = await import("../submit-notify");
+  await notifySurveySubmitted(token).catch(() => {});
   return true;
 }
 function randomToken(): string {

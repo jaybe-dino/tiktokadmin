@@ -85,6 +85,10 @@ export const env = {
       get daily() {
         return opt("SLACK_CH_DAILY");
       },
+      // 브랜드사 제출 알림(설문·온보딩·제품) 전용 채널 — 미설정이면 onboard→leads→intake 로 폴백.
+      get forms() {
+        return opt("SLACK_CH_FORMS");
+      },
     },
   },
   get anthropicKey() {
@@ -155,6 +159,8 @@ export function slackChannel(key: string): string {
     pay: env.slack.channels.pay,
     leads: env.slack.channels.leads,
     daily: env.slack.channels.daily,
+    // 제출 알림 — 전용 채널이 없으면 기존 채널로 흘려보낸다(설정 없이도 알림이 뜨도록).
+    forms: env.slack.channels.forms || env.slack.channels.onboard || env.slack.channels.leads || env.slack.channels.intake,
   };
   return map[key] ?? "";
 }

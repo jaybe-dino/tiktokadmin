@@ -181,6 +181,9 @@ export async function submitStep(applicationId: string, stepNo: number): Promise
     "UPDATE onb_steps SET status='submitted', submitted_at=now() WHERE application_id=$1 AND step_no=$2 AND status IN ('unlocked','rejected') RETURNING step_no",
     [applicationId, stepNo]).catch(() => null);
   if (!r) return { ok: false, error: "제출할 수 없는 상태입니다." };
+  // 담당자가 바로 검토에 들어갈 수 있도록 Slack 알림(실패해도 제출은 유효).
+  const { notifyOnbStepSubmitted } = await import("./submit-notify");
+  await notifyOnbStepSubmitted(applicationId, stepNo).catch(() => {});
   return { ok: true };
 }
 

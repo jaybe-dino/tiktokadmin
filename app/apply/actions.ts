@@ -56,7 +56,13 @@ export async function setCountryLogisticsDetailAction(code: string, d: { local_a
 // Step4 — 제품
 export async function addProductAction(p: Partial<OnbProduct>) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
-  const r = await addProduct(app.id, p); revalidatePath("/apply"); revalidatePath("/apply/products"); return r;
+  const r = await addProduct(app.id, p); revalidatePath("/apply"); revalidatePath("/apply/products");
+  // 브랜드사가 제품을 등록하면 Slack 알림(승인 대기 건을 놓치지 않도록).
+  if (r.ok) {
+    const { notifyOnbProductSubmitted } = await import("@/lib/submit-notify");
+    await notifyOnbProductSubmitted(app.id, String(p.name ?? "")).catch(() => {});
+  }
+  return r;
 }
 export async function updateProductAction(id: string, p: Partial<OnbProduct>) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
