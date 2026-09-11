@@ -51,6 +51,7 @@ const LEAD_STATE: Record<string, State> = {
   tp_ebook: "lead_new",
   referrer: "lead_new",
   apply_seminar: "lead_new",
+  jp_preorder: "lead_new",   // 일본 진출 사전 신청 — 리드 확보에서 시작
   tp_seminar: "lead_new",
 };
 

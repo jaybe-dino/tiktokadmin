@@ -20,6 +20,7 @@ export function middleware(req: NextRequest) {
       // 공개 제안서의 이미지 서빙 경로 — 제안서 페이지가 이 호스트로 발급되므로 함께 허용해야
       // 썸네일이 뜬다(각 라우트가 토큰→문서→브랜드 일치 + image/* MIME 만 자체 검증).
       pathname.startsWith("/api/proposal-asset/") || pathname.startsWith("/api/proposal-img/") ||
+      pathname.startsWith("/jp") ||    // 일본 진출 사전 신청(공개 폼)
       pathname.startsWith("/faq") ||   // 외부 공개 FAQ(QnA) — 포털 호스트에서 열람 허용
       // 토큰(CRON_SECRET) 보호 마이그레이션 엔드포인트 — 포털 호스트에서도 접근 허용(스키마 반영용).
       pathname.startsWith("/api/admin/migrate");
@@ -40,6 +41,7 @@ export function middleware(req: NextRequest) {
     pathname.startsWith("/f/") ||       // 쇼트링크 리다이렉트(수신자 클릭, 로그인 불필요)
     pathname.startsWith("/proposal/") || // 공개 제안서 열람(고객 링크, 로그인 불필요)
     pathname.startsWith("/mkt-proposal/") || // 공개 마케팅 제안서 열람(고객 링크, 로그인 불필요)
+    pathname.startsWith("/jp") ||       // 일본 진출 사전 신청(공개 폼, 로그인 불필요)
     pathname.startsWith("/faq") ||      // 외부 공개 FAQ(QnA, 로그인 불필요)
     pathname.startsWith("/apply") ||    // 고객 온보딩 포털(자체 onb_session, 36)
     pathname.startsWith("/portal") ||   // 브랜드 포털(자체 gportal 세션, 16)
