@@ -344,9 +344,10 @@ export async function insightsData(): Promise<{
          FROM brands GROUP BY state`,
     ),
     query<{ source: string; total: number; reached_contract: number }>(
+      // 테스트 브랜드는 제외 — 보드·KPI 와 같은 기준으로 계산해야 전환율이 실제 값이 된다.
       `SELECT source, count(*)::int total,
               count(*) FILTER (WHERE state IN ('contract_done','docs','setup','live_mall','live_onboarding','settling'))::int reached_contract
-         FROM brands GROUP BY source ORDER BY total DESC`,
+         FROM brands WHERE coalesce(is_test,false)=false GROUP BY source ORDER BY total DESC`,
     ),
     query<{ week: string; metric: string; finding: string; proposed_action: string; approved: boolean | null; id: string }>(
       "SELECT id, week, metric, finding, proposed_action, approved FROM insights ORDER BY week DESC, created_at DESC LIMIT 50",

@@ -145,8 +145,12 @@ export const CONTENT_BRIEF_QUESTIONS: SurveyQuestion[] = [
     help: "분야·팔로워 규모·언어·지역·말투·화면 분위기. 기준이 없으면 '추천 필요'라고 적어 주세요." },
   { key: "q33_creator_exclude", label: "33. 피해야 할 크리에이터 유형 또는 브랜드 안전 기준이 있나요?", type: "text", section: S6, optional: true },
   { key: "q34_collab_terms", label: "34. 협업 운영 조건을 알려 주세요.", type: "text", section: S6, optional: true,
-    help: "크리에이터에게 제공하는 것 — 제공 제품·수량·커미션 비율 등.",
-    example: "제품 제공: 홍삼액 선물세트 30포 1개 + 쇼핑백 / 커미션: 20%" },
+    help: "크리에이터에게 제공하는 것 — 제공 제품·수량 등.",
+    example: "제품 제공: 홍삼액 선물세트 30포 1개 + 쇼핑백" },
+  // 커미션율은 크리에이터 모집 시트·제안서에 바로 쓰이므로 별도 문항으로 분리해 받는다.
+  { key: "q35_commission_rate", label: "35. 크리에이터에게 지급할 커미션율(%)을 알려 주세요.", type: "short", section: S6,
+    help: "판매 1건당 크리에이터에게 지급되는 비율입니다. 제품별로 다르면 제품명과 함께 적어 주세요.",
+    example: "20%  (또는: 클렌징밤 20% / 세럼 15%)" },
 ];
 
 /** surveys.kind → 문항 세트. 알 수 없는 kind 는 기존(미팅 후) 문항 유지. */

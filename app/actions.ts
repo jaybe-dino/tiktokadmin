@@ -247,20 +247,28 @@ export async function setNextActionAction(brandId: string, nextAction: string, d
 
 export async function createBrandAction(
   input: ImportRecord,
-): Promise<ActionResult & { brand_id?: string; created?: boolean; revived?: boolean }> {
+): Promise<ActionResult & { brand_id?: string; created?: boolean; revived?: boolean; welcome?: string }> {
   const a = await actor();
   if (!a) return { ok: false, error: "세션 만료" };
   const { importBrandRecord } = await import("@/lib/import");
   // 수동 단건 등록은 종료(드랍/해지) 브랜드를 리드로 되살린다(자동 동기화는 되살리지 않음).
   const res = await importBrandRecord(a.actor, input, { reviveTerminal: true });
   if (res.ok) {
-    // 신규 리드 자동 안내(문자·메일) — welcome_config 활성 + 대상 소스일 때 1회
+    // 신규 리드 자동 안내(문자·메일) — welcome_config 활성 + 대상 소스일 때 1회.
+    //   발송/미발송 사유를 화면에 돌려준다 — 조용히 건너뛰면 "수동 입력은 자동발송이 안 된다"고
+    //   오해하게 된다(실제 원인은 대부분 '자동안내 대상 소스' 미포함).
+    let welcome: string | undefined;
     if (res.created && res.brand_id) {
       const { maybeAutoWelcome } = await import("@/lib/welcome");
-      await maybeAutoWelcome(res.brand_id, String(input.source ?? "etc")).catch(() => {});
+      const wr = await maybeAutoWelcome(res.brand_id, String(input.source ?? "etc")).catch(() => null);
+      welcome = !wr
+        ? "자동안내 확인 불가"
+        : wr.sent?.length
+          ? `자동안내 ${wr.sent.map((x) => (x === "sms" ? "문자" : "이메일")).join("·")} 발송됨`
+          : `자동안내 미발송 — ${wr.skipped ?? wr.error ?? "발송 수단 없음"}`;
     }
     revalidatePath("/");
-    return { ok: true, brand_id: res.brand_id, created: res.created, revived: res.revived };
+    return { ok: true, brand_id: res.brand_id, created: res.created, revived: res.revived, welcome };
   }
   return { ok: false, error: res.error };
 }

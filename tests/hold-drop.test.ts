@@ -63,3 +63,27 @@ describe("보류 자동 처리(BUG-29)", () => {
     expect(holdAction(b).kind).toBe("none");
   });
 });
+
+// 계약 입금 예정일 알림(최재영 요청) — D-3 예고 → 당일 → 연체 단계.
+import { paymentDueStage, PAYMENT_DUE_LEAD_DAYS } from "../lib/sla";
+
+describe("paymentDueStage (입금 예정일 알림)", () => {
+  it("예정일이 멀면 알리지 않는다", () => {
+    expect(paymentDueStage(10)).toBeNull();
+    expect(paymentDueStage(PAYMENT_DUE_LEAD_DAYS + 1)).toBeNull();
+  });
+
+  it("D-3 이내는 예고, 당일은 한 단계 높게", () => {
+    expect(paymentDueStage(PAYMENT_DUE_LEAD_DAYS)?.stage).toBe("soon");
+    expect(paymentDueStage(1)?.stage).toBe("soon");
+    const today = paymentDueStage(0);
+    expect(today?.stage).toBe("today");
+    expect(today!.tier).toBeGreaterThan(paymentDueStage(1)!.tier);
+  });
+
+  it("지나면 연체, 일주일 넘으면 최고 단계", () => {
+    expect(paymentDueStage(-1)).toEqual({ stage: "overdue", tier: 2 });
+    expect(paymentDueStage(-7)).toEqual({ stage: "overdue", tier: 3 });
+    expect(paymentDueStage(-30)?.tier).toBe(3);
+  });
+});

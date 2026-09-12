@@ -93,6 +93,7 @@ export async function runSlaCheck(now: Date = new Date()): Promise<{
   stale: number;
   holdRecontact: number;
   holdDropped: number;
+  paymentDue: number;
 }> {
   const policies = await loadSlaPolicies();
   const brands = await query<Brand>(
@@ -199,7 +200,61 @@ export async function runSlaCheck(now: Date = new Date()): Promise<{
     console.warn("[sla] pay_overdue 스캔 스킵:", (err as Error).message);
   }
 
-  return { scanned: brands.length, breaches, docMissing, payOverdue, stale , holdRecontact, holdDropped };
+  // 계약 입금 예정일 알림(매월) — 실패해도 나머지 SLA 결과는 그대로 반환.
+  let paymentDue = 0;
+  try {
+    paymentDue = await scanPaymentDue(now);
+  } catch (err) {
+    console.warn("[sla] payment_due 스캔 스킵:", (err as Error).message);
+  }
+
+  return { scanned: brands.length, breaches, docMissing, payOverdue, stale, holdRecontact, holdDropped, paymentDue };
+}
+
+// ── 계약 입금 예정일 알림 ──────────────────────────────────
+//   브랜드별 다음 입금일(payments_manual.next_due)을 매일 확인해 미리 알린다.
+//   D-3 예고 → 당일 → 지난 뒤 연체로 단계가 올라간다(연체는 tier 를 높여 눈에 띄게).
+export const PAYMENT_DUE_LEAD_DAYS = 3;
+
+/** 순수: 입금 예정일까지 남은 일수 → 알림 단계. null 이면 알리지 않는다. */
+export function paymentDueStage(daysLeft: number): { stage: "soon" | "today" | "overdue"; tier: number } | null {
+  if (daysLeft < 0) return { stage: "overdue", tier: daysLeft <= -7 ? 3 : 2 };
+  if (daysLeft === 0) return { stage: "today", tier: 2 };
+  if (daysLeft <= PAYMENT_DUE_LEAD_DAYS) return { stage: "soon", tier: 1 };
+  return null;
+}
+
+const DUE_LABEL: Record<string, string> = { soon: "입금 예정", today: "입금일 당일", overdue: "입금 지연" };
+
+/** 브랜드별 최신 결제의 next_due 를 보고 payment_due 알림을 만든다. 반환: 알림 건수. */
+async function scanPaymentDue(now: Date): Promise<number> {
+  // 브랜드마다 가장 최근 결제 1건의 next_due 만 본다(과거 회차의 지난 예정일은 무시).
+  const rows = await query<{ brand_id: string; brand_name: string; plan: string; amount: number; next_due: string }>(
+    `SELECT DISTINCT ON (p.brand_id) p.brand_id, b.brand_name, p.plan, p.amount, p.next_due::text AS next_due
+       FROM payments_manual p JOIN brands b ON b.id = p.brand_id
+      WHERE p.next_due IS NOT NULL
+        AND b.state NOT IN ('dropped','churned')
+        AND coalesce(b.is_test,false)=false
+      ORDER BY p.brand_id, p.paid_at DESC, p.created_at DESC`,
+  ).catch(() => []);
+
+  let n = 0;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  for (const r of rows) {
+    const due = new Date(`${r.next_due}T00:00:00`).getTime();
+    if (!Number.isFinite(due)) continue;
+    const daysLeft = Math.round((due - today) / 86_400_000);
+    const st = paymentDueStage(daysLeft);
+    if (!st) { await resolveAlert(r.brand_id, "payment_due"); continue; }
+    const won = Number(r.amount ?? 0).toLocaleString("ko-KR");
+    const when = st.stage === "overdue" ? `${Math.abs(daysLeft)}일 지남` : st.stage === "today" ? "오늘" : `D-${daysLeft}`;
+    await upsertAlert(
+      r.brand_id, "payment_due", st.tier,
+      `${r.brand_name} · ${DUE_LABEL[st.stage]} ${when} (${r.next_due} · ${r.plan} ${won}원)`,
+    );
+    n++;
+  }
+  return n;
 }
 
 /**

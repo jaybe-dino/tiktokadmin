@@ -294,19 +294,33 @@ export async function saveTiktokAccountAction(brandId: string, input: {
     if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
     if (!b.tiktok_shop_url || !b.tiktok_seller_id) return { ok: false, error: "셀러센터 링크·ID를 먼저 입력하세요." };
     const name = b.contact_name || b.brand_name;
-    const lines = [
-      `[GloveK] ${b.brand_name} 틱톡샵 개설 안내`,
-      `${name}님, 틱톡샵 셀러 계정이 개설되었습니다.`,
-      `• 셀러센터: ${b.tiktok_shop_url}`,
-      `• 아이디: ${b.tiktok_seller_id}`,
-      `• 비밀번호: ${b.tiktok_seller_pw}`,
-      `로그인 후 초기 비밀번호를 변경해 주세요.`,
-    ];
+    // 본문은 설정 > 템플릿의 'tiktok_open_guide' 를 우선 사용 — 기본 세팅 안내 문구를 미리
+    //   작성해두고 여기서는 클릭만 하면 되도록(매번 새로 쓰지 않게). 없으면 기본 문구.
+    //   사용 가능한 변수: {브랜드명} {담당자명} {셀러센터} {아이디} {비밀번호}
+    const { getTemplate, renderTemplate } = await import("@/lib/templates");
+    const tpl = await getTemplate("tiktok_open_guide").catch(() => null);
+    const vars = {
+      "브랜드명": b.brand_name, "담당자명": name,
+      "셀러센터": b.tiktok_shop_url, "아이디": b.tiktok_seller_id, "비밀번호": b.tiktok_seller_pw,
+    };
+    const subject = tpl?.subject?.trim()
+      ? renderTemplate(tpl.subject, vars)
+      : `[GloveK] ${b.brand_name} 틱톡샵 개설 안내`;
+    const body = tpl?.body?.trim()
+      ? renderTemplate(tpl.body, vars)
+      : [
+          `${name}님, 틱톡샵 셀러 계정이 개설되었습니다.`,
+          `• 셀러센터: ${b.tiktok_shop_url}`,
+          `• 아이디: ${b.tiktok_seller_id}`,
+          `• 비밀번호: ${b.tiktok_seller_pw}`,
+          `로그인 후 초기 비밀번호를 변경해 주세요.`,
+        ].join("\n");
+    const lines = [subject, body];
     sent = [];
     const { sendSms } = await import("@/lib/sms");
     const { sendEmail } = await import("@/lib/mailer");
     if (b.phone) { const r = await sendSms({ receiver: b.phone, msg: lines.join("\n") }).catch(() => ({ ok: false })); if (r.ok) sent.push("sms"); }
-    if (b.email) { const r = await sendEmail({ to: b.email, subject: `[GloveK] ${b.brand_name} 틱톡샵 개설 안내`, text: lines.join("\n") }).catch(() => ({ ok: false })); if (r.ok) sent.push("email"); }
+    if (b.email) { const r = await sendEmail({ to: b.email, subject, text: body }).catch(() => ({ ok: false })); if (r.ok) sent.push("email"); }
     if (sent.length) {
       await query("UPDATE brands SET tiktok_sent_at=now(), tiktok_opened_at=COALESCE(tiktok_opened_at, now()), last_contact_at=now() WHERE id=$1", [brandId]).catch(() => {});
       await query(`INSERT INTO brand_sources (brand_id, site, event, payload, occurred_at) VALUES ($1,'admin','contact_logged',$2,now())`,

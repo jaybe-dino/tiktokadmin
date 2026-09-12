@@ -160,6 +160,8 @@ export interface RegisterLeadResult {
   ai?: boolean;
   /** 이전에 드랍(보류)/해지된 브랜드를 리드로 되살린 경우 true. */
   revived?: boolean;
+  /** 회사소개 자동안내(메일·문자) 결과 — 미발송이면 사유 포함. */
+  welcome?: string;
 }
 
 /** 수동 등록 — 등록 → 사전분석 실행. 중복 판정 키(이메일/전화) 하나만 받아 병합 게이트 경유. */
@@ -222,5 +224,6 @@ export async function registerLeadAction(input: {
 
   revalidatePath("/");
   revalidatePath("/import");
-  return { ok: true, brand_id: res.brand_id, briefed: brief.analyzed > 0, ai: brief.ai, revived: res.revived };
+  // 자동안내(회사소개 메일·문자) 발송 여부를 그대로 전달 — 미발송이면 사유까지 화면에 보인다.
+  return { ok: true, brand_id: res.brand_id, briefed: brief.analyzed > 0, ai: brief.ai, revived: res.revived, welcome: res.welcome };
 }

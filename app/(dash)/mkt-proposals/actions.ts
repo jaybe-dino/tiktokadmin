@@ -123,13 +123,18 @@ export async function fillGlovekMktRefsAction(
   }
   if (sources.length === 0) return { ok: false, error: "검색 기준이 없습니다 — 설문/제품을 먼저 넣거나 카테고리를 선택하세요." };
 
+  // 이미 담긴 레퍼런스는 제외 — 같은 카테고리로 다시 불러도 같은 크리에이터가 또 나오던 문제.
+  const exclude = {
+    handles: (doc.references_json ?? []).map((r) => r.creator ?? "").filter(Boolean),
+    links: (doc.references_json ?? []).map((r) => r.url ?? "").filter(Boolean),
+  };
   let usedLabel = sources[0].label;
   let used: string[] = [];
   let glovek: Awaited<ReturnType<typeof similarContentRefs>> = [];
   outer: for (const src of sources) {
     for (const tier of src.tiers) {
       usedLabel = src.label; used = tier;
-      glovek = await similarContentRefs(tier, 8).catch(() => []);
+      glovek = await similarContentRefs(tier, 8, exclude).catch(() => []);
       if (glovek.length > 0) break outer;
     }
   }

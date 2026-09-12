@@ -165,9 +165,27 @@ const fmtCount = (n: number): string => {
  *   (videos 에는 제목 컬럼이 없어 직접 키워드 검색이 불가 — 제품 경유가 정답)
  *   product_ref/cover_url 컬럼이 없는 스키마면 기존 일반 검색으로 폴백.
  */
-export async function similarContentRefs(keywords: string[], limit = 8): Promise<GlovekContent[]> {
+/** 이미 제안서에 담긴 크리에이터·링크 — 재호출 시 같은 사람이 또 나오지 않도록 제외한다. */
+export interface RefExclude { handles?: string[]; links?: string[] }
+
+const normHandle = (v?: string | null) => String(v ?? "").trim().replace(/^@+/, "").toLowerCase();
+const normLink = (v?: string | null) => String(v ?? "").trim().toLowerCase();
+
+export async function similarContentRefs(
+  keywords: string[], limit = 8, exclude?: RefExclude,
+): Promise<GlovekContent[]> {
   const kw = keywords.map((k) => k.trim()).filter(Boolean).slice(0, 6);
   if (kw.length === 0) return [];
+  // 제외 대상이 있으면 그만큼 넉넉히 받아 걸러낸 뒤 limit 을 채운다(빈손 방지).
+  const exHandles = new Set((exclude?.handles ?? []).map(normHandle).filter(Boolean));
+  const exLinks = new Set((exclude?.links ?? []).map(normLink).filter(Boolean));
+  const hasExclude = exHandles.size > 0 || exLinks.size > 0;
+  if (hasExclude) {
+    const wide = await similarContentRefs(keywords, limit + exHandles.size + exLinks.size + 12);
+    const kept = wide.filter((g) =>
+      !exHandles.has(normHandle(g.handle)) && !exLinks.has(normLink(g.link)));
+    return kept.slice(0, limit);
+  }
   const pCols = await columnsOf("products");
   const vCols = await columnsOf("videos");
   const canJoin = pCols.includes("product_id") && vCols.includes("product_ref") && vCols.includes("cover_url");

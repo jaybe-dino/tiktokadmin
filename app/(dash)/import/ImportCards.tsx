@@ -197,7 +197,9 @@ export function ManualRegisterCard({ today, groups }: { today: string; groups: G
             t: (res.revived ? "이전 드랍(보류) 브랜드를 리드로 되살렸습니다 · " : "") +
               (res.briefed
                 ? `등록·병합 완료 — ${res.ai ? "AI 1차 분석" : "규칙기반"} 브리프 생성`
-                : "등록·병합 완료 (기존 브리프 유지)"),
+                : "등록·병합 완료 (기존 브리프 유지)") +
+              // 회사소개 메일·문자 자동 발송 결과 — 미발송이면 사유(대상 소스 미포함 등)까지 표시.
+              (res.welcome ? ` · ${res.welcome}` : ""),
             bad: false, id: res.brand_id,
           });
           router.refresh();

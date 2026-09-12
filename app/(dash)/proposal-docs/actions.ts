@@ -436,10 +436,15 @@ export async function fillReferencesByCategoryAction(proposalId: string, categor
   }
   if (sources.length === 0) return { ok: false, error: "검색 기준이 없습니다 — 카테고리를 선택하거나 핵심 SKU 제품명을 먼저 넣어주세요." };
 
+  // 이미 담긴 크리에이터는 제외 — 재호출 시 같은 인물이 반복되지 않게.
+  const exclude = {
+    handles: (doc.creators ?? []).map((c) => c.handle ?? "").filter(Boolean),
+    links: (doc.creators ?? []).map((c) => c.link ?? "").filter(Boolean),
+  };
   let glovek: Awaited<ReturnType<typeof similarContentRefs>> = [];
   outer: for (const tiers of sources) {
     for (const tier of tiers) {
-      glovek = await similarContentRefs(tier, 8).catch(() => []);
+      glovek = await similarContentRefs(tier, 8, exclude).catch(() => []);
       if (glovek.length > 0) break outer;
     }
   }
