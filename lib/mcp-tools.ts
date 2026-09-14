@@ -581,6 +581,83 @@ export const TOOLS: Record<string, ToolDef> = {
       return { ok: true, kind, brand_id: brandId, total: items.length, items: out };
     },
   },
+  onb_docs_diag: {
+    description: "온보딩 신청서 서류 진단 — 고객(이메일·id)이나 신청서 id 로 단계별 상태와 '들어온 서류 / 안 들어온 서류'를 실측한다.",
+    inputSchema: { type: "object", properties: { id: { type: "string", description: "고객 id·이메일 또는 신청서 id" } }, required: ["id"] },
+    async handler(a) {
+      const key = String(a.id ?? "").trim();
+      if (!key) return { ok: false, error: "고객 id·이메일 또는 신청서 id 를 입력하세요." };
+
+      // 고객 id / 이메일 / 신청서 id 어느 쪽으로 와도 신청서를 찾는다.
+      const app = await queryOne<{
+        app_id: string; customer_id: string; email: string; brand_id: string | null; brand_name: string | null; status: string;
+      }>(
+        `SELECT a.id AS app_id, c.id AS customer_id, c.email, a.brand_id, b.brand_name, a.status
+           FROM onb_applications a
+           JOIN onb_customers c ON c.id = a.customer_id
+           LEFT JOIN brands b ON b.id = a.brand_id
+          WHERE c.id::text=$1 OR a.id::text=$1 OR lower(c.email)=lower($1)
+          ORDER BY a.created_at DESC LIMIT 1`,
+        [key],
+      ).catch(() => null);
+      if (!app) return { ok: false, error: "해당 고객·신청서를 찾을 수 없습니다(고객 id·이메일·신청서 id 확인)." };
+
+      // 서류 성격의 필드(라벨)만 추려 '들어옴/안 들어옴'을 판정한다.
+      const DOC_FIELDS: { col: string; label: string; step: number }[] = [
+        { col: "doc_biz_reg_en_url", label: "사업자등록증(영문)", step: 1 },
+        { col: "doc_biz_reg_kr_url", label: "사업자등록증(국문)", step: 1 },
+        { col: "doc_corp_reg_kr_url", label: "법인등기부등본(국문)", step: 1 },
+        { col: "brand_logo_url", label: "브랜드 로고", step: 1 },
+        { col: "ubo_signature_data", label: "수권서(LOA) 서명", step: 2 },
+        { col: "rep_passport_front_url", label: "대표자 여권(앞)", step: 3 },
+        { col: "rep_passport_back_url", label: "대표자 여권(뒤)", step: 3 },
+        { col: "rep_address_proof_url", label: "대표자 주소증빙", step: 3 },
+        { col: "ownership_structure", label: "지분구조", step: 3 },
+      ];
+      const cols = DOC_FIELDS.map((d) => d.col).join(", ");
+      const row = await queryOne<Record<string, unknown>>(
+        `SELECT ${cols} FROM onb_applications WHERE id=$1`, [app.app_id],
+      ).catch(() => null);
+
+      const have: string[] = [];
+      const missing: string[] = [];
+      for (const d of DOC_FIELDS) {
+        const v = String(row?.[d.col] ?? "").trim();
+        (v ? have : missing).push(`${d.label}(${d.step}단계)`);
+      }
+
+      const steps = await query<{ step_no: number; status: string; submitted_at: string | null; admin_feedback: string }>(
+        "SELECT step_no, status, submitted_at, COALESCE(admin_feedback,'') AS admin_feedback FROM onb_steps WHERE application_id=$1 ORDER BY step_no",
+        [app.app_id],
+      ).catch(() => []);
+
+      // 실제 업로드된 파일(onb_files) — 필드별 최신 파일명.
+      const files = await query<{ field: string; filename: string; created_at: string }>(
+        "SELECT field, filename, created_at FROM onb_files WHERE application_id=$1 ORDER BY created_at DESC LIMIT 50",
+        [app.app_id],
+      ).catch(() => []);
+
+      // 제품·물류는 별도 테이블이라 건수로 확인.
+      const cnt = await queryOne<{ products: string; countries: string; logistics: string }>(
+        `SELECT (SELECT count(*) FROM onb_products WHERE application_id=$1)::text AS products,
+                (SELECT count(*) FROM onb_countries WHERE application_id=$1)::text AS countries,
+                (SELECT count(*) FROM onb_countries WHERE application_id=$1 AND COALESCE(logistics_contract_url,'')<>'')::text AS logistics`,
+        [app.app_id],
+      ).catch(() => null);
+
+      return {
+        ok: true,
+        brand: app.brand_name ?? "(브랜드 미연결)", email: app.email, application_id: app.app_id, status: app.status,
+        steps: steps.map((st) => ({ 단계: st.step_no, 상태: st.status, 제출: st.submitted_at, 피드백: st.admin_feedback || undefined })),
+        들어온_서류: have,
+        안_들어온_서류: missing,
+        업로드_파일: files.map((f) => `${f.field}: ${f.filename}`),
+        제품수: Number(cnt?.products ?? 0),
+        입점국가수: Number(cnt?.countries ?? 0),
+        물류계약서_등록국가수: Number(cnt?.logistics ?? 0),
+      };
+    },
+  },
   glovek_diag: {
     description: "glovek 콘텐츠 DB(레퍼런스 검색용) 연동 진단 — GLOVEK_DB_URL_RO 설정 여부, videos/products 행수, 카테고리 실값 분포, 이름 샘플. 선택: q(검색어)로 실검색 테스트.",
     inputSchema: { type: "object", properties: { q: { type: "string" } } },
@@ -589,6 +666,7 @@ export const TOOLS: Record<string, ToolDef> = {
       // 우회 호출 — MCP 클라이언트가 도구 목록을 캐시해 proposal_img_diag 가 아직 안 보일 때,
       // q="imgdiag:<제안서 id 또는 token>" 으로 이미 노출된 이 도구를 통해 같은 진단을 실행한다.
       if (/^imgdiag:/i.test(q0)) return TOOLS.proposal_img_diag.handler({ id: q0.replace(/^imgdiag:/i, "").trim() }, actorName);
+      if (/^onbdiag:/i.test(q0)) return TOOLS.onb_docs_diag.handler({ id: q0.replace(/^onbdiag:/i, "").trim() }, actorName);
       const { glovekDataProfile, similarContentRefs } = await import("./glovek-content");
       const profile = await glovekDataProfile();
       const q = q0;
@@ -608,5 +686,5 @@ export const READ_ONLY_TOOLS = new Set([
   "list_brands", "get_brand_360", "find_sla_breaches", "find_gate_violations",
   "find_missing_docs", "draft_reminder", "compute_funnel_metrics",
   "get_customer_card", "list_products", "find_cert_risks", "list_meetings",
-  "suggest_assignee", "list_no_reply", "list_bug_reports", "glovek_diag", "proposal_img_diag",
+  "suggest_assignee", "list_no_reply", "list_bug_reports", "glovek_diag", "proposal_img_diag", "onb_docs_diag",
 ]);
