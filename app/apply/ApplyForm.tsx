@@ -30,7 +30,9 @@ export default function ApplyForm(props: Props) {
   const [active, setActive] = useState(0);
   const steps = props.steps.length ? props.steps : [1, 2, 3, 4, 5].map((n) => ({ step_no: n, status: [1, 2, 5].includes(n) ? "unlocked" : "locked", admin_feedback: "" }));
   const step = steps[active];
-  const editable = step.status === "unlocked" || step.status === "rejected" || step.status === "draft";
+  // BUG-32: 검토중(submitted)에도 수정 가능 — 서류를 잘못 올렸을 때 고칠 수 있어야 한다.
+  //   승인(approved)·잠금(locked)만 읽기 전용(승인 건은 담당자 승인취소 후 수정).
+  const editable = step.status === "unlocked" || step.status === "rejected" || step.status === "draft" || step.status === "submitted";
   const locked = step.status === "locked";
   const submitted = step.status === "submitted";
   const approved = step.status === "approved";
@@ -90,8 +92,8 @@ export default function ApplyForm(props: Props) {
 
       {step.status === "rejected" && step.admin_feedback && <Banner tone="warn">관리자 반려 사유: {step.admin_feedback}</Banner>}
       {locked && <Banner tone="mute">이전 단계가 승인되면 열립니다.</Banner>}
-      {submitted && <Banner tone="info">⏳ 검토중 — 관리자가 확인하고 있습니다. (수정 불가)</Banner>}
-      {approved && <Banner tone="ok">✅ 이 단계는 승인되었습니다.</Banner>}
+      {submitted && <Banner tone="info">⏳ 검토중 — 관리자가 확인하고 있습니다. 내용·서류를 수정하면 담당자에게 다시 전달되며, 수정 후 「다시 제출」을 눌러주세요.</Banner>}
+      {approved && <Banner tone="ok">✅ 이 단계는 승인되었습니다. 수정이 필요하면 담당 매니저에게 알려주세요.</Banner>}
 
       {!locked && (
         <>
@@ -106,7 +108,7 @@ export default function ApplyForm(props: Props) {
             <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
               <a href="#" onClick={(e) => { e.preventDefault(); }} style={{ display: "none" }} />
               <button disabled={busy} onClick={() => onSaveOrSubmit(active, "save")} style={btnGray}>임시저장</button>
-              <button disabled={busy} onClick={() => onSaveOrSubmit(active, "submit")} style={{ ...btnPri, marginLeft: "auto" }}>Step {active + 1} 제출 (검토 요청)</button>
+              <button disabled={busy} onClick={() => onSaveOrSubmit(active, "submit")} style={{ ...btnPri, marginLeft: "auto" }}>{submitted ? `Step ${active + 1} 다시 제출` : `Step ${active + 1} 제출 (검토 요청)`}</button>
             </div>
           )}
         </>

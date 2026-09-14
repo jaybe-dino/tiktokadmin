@@ -77,6 +77,27 @@ export async function notifyOnbStepSubmitted(applicationId: string, stepNo: numb
   ]);
 }
 
+/** 제출(검토중) 단계를 브랜드사가 수정한 경우 — 담당자가 옛 내용으로 검토하지 않도록 알린다. */
+export async function notifyOnbStepEdited(applicationId: string, stepNo: number): Promise<void> {
+  const r = await queryOne<{ brand_id: string | null; brand_name: string | null; email: string | null }>(
+    `SELECT a.brand_id, b.brand_name, c.email
+       FROM onb_applications a
+       LEFT JOIN brands b ON b.id = a.brand_id
+       LEFT JOIN onb_customers c ON c.id = a.customer_id
+      WHERE a.id = $1`,
+    [applicationId],
+  ).catch(() => null);
+
+  const who = r?.brand_name || r?.email || "(브랜드 확인 필요)";
+  const link = r?.brand_id ? `${adminUrl()}/brand/${r.brand_id}` : `${adminUrl()}/onboarding`;
+  const text = `✏️ ${who} — 온보딩 ${stepNo}단계 내용 수정(검토중)`;
+
+  post(text, [
+    section(`*✏️ 검토중 단계 수정됨*\n*${who}* · ${stepNo}단계`),
+    context(`제출 후 내용이 바뀌었습니다 — 최신 내용으로 다시 확인하세요 · <${link}|어드민에서 열기 ↗>`),
+  ]);
+}
+
 /** 브랜드사 제품 등록(온보딩 포털). */
 export async function notifyOnbProductSubmitted(applicationId: string, productName: string): Promise<void> {
   const r = await queryOne<{ brand_id: string | null; brand_name: string | null; email: string | null }>(

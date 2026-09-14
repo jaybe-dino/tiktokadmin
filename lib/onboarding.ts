@@ -154,13 +154,17 @@ const STEP_FIELDS: Record<number, string[]> = {
   5: [],
 };
 
-/** 스텝 필드 저장(화이트리스트 컬럼만). 잠금·검토중 스텝은 저장 거부. */
+/** 스텝 필드 저장(화이트리스트 컬럼만).
+ *  BUG-32: 제출(검토중) 단계도 수정 허용 — 서류를 잘못 올렸을 때 고칠 방법이 없었다.
+ *  잠금(locked)은 이전 단계 미승인, 승인(approved)은 담당자 승인취소가 필요하므로 그대로 거부. */
 export async function saveStepFields(applicationId: string, stepNo: number, values: Record<string, string>): Promise<{ ok: boolean; error?: string }> {
   const cols = STEP_FIELDS[stepNo] ?? [];
   const step = await queryOne<{ status: string }>("SELECT status FROM onb_steps WHERE application_id=$1 AND step_no=$2", [applicationId, stepNo]).catch(() => null);
   if (!step) return { ok: false, error: "스텝을 찾을 수 없습니다." };
   if (step.status === "locked") return { ok: false, error: "아직 잠긴 단계입니다." };
-  if (step.status === "submitted" || step.status === "approved") return { ok: false, error: "제출/승인된 단계는 수정할 수 없습니다." };
+  if (step.status === "approved") {
+    return { ok: false, error: "이미 승인된 단계입니다 — 수정이 필요하면 담당 매니저에게 승인취소를 요청해주세요." };
+  }
   const set: string[] = []; const params: unknown[] = [applicationId]; let i = 2;
   for (const c of cols) {
     if (c in values) { set.push(`${c}=$${i++}`); params.push(values[c] ?? null); }
@@ -171,6 +175,11 @@ export async function saveStepFields(applicationId: string, stepNo: number, valu
   if (set.length === 0) return { ok: true };
   try {
     await query(`UPDATE onb_applications SET ${set.join(", ")}, updated_at=now() WHERE id=$1`, params);
+    // 이미 제출된 단계를 고친 경우 — 담당자가 예전 내용으로 검토하지 않도록 알린다.
+    if (step.status === "submitted") {
+      const { notifyOnbStepEdited } = await import("./submit-notify");
+      await notifyOnbStepEdited(applicationId, stepNo).catch(() => {});
+    }
     return { ok: true };
   } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "저장 실패" }; }
 }
@@ -178,7 +187,8 @@ export async function saveStepFields(applicationId: string, stepNo: number, valu
 /** 고객: 스텝 제출 → submitted. */
 export async function submitStep(applicationId: string, stepNo: number): Promise<{ ok: boolean; error?: string }> {
   const r = await queryOne<{ step_no: number }>(
-    "UPDATE onb_steps SET status='submitted', submitted_at=now() WHERE application_id=$1 AND step_no=$2 AND status IN ('unlocked','rejected') RETURNING step_no",
+    // 검토중(submitted)에서도 재제출 허용 — 수정 후 다시 검토 요청할 수 있어야 한다(BUG-32).
+    "UPDATE onb_steps SET status='submitted', submitted_at=now() WHERE application_id=$1 AND step_no=$2 AND status IN ('unlocked','rejected','submitted') RETURNING step_no",
     [applicationId, stepNo]).catch(() => null);
   if (!r) return { ok: false, error: "제출할 수 없는 상태입니다." };
   // 담당자가 바로 검토에 들어갈 수 있도록 Slack 알림(실패해도 제출은 유효).
