@@ -58,15 +58,19 @@ export default function ApplyForm(props: Props) {
     if (ok) flash("저장되었습니다."); else flash(r.error ?? "저장 실패");
     return ok;
   }
+  // 필수 항목이 비어 제출이 막히면 무엇이 빠졌는지 화면에 남겨둔다(토스트는 곧 사라짐).
+  const [missing, setMissing] = useState<string[]>([]);
   async function submit(stepNo: number, keys: string[], extra?: () => Promise<boolean>) {
-    if (!confirm("제출하면 관리자 검토가 시작되며 이 단계는 수정할 수 없습니다. 제출할까요?")) return;
+    // 제출 후에도 수정할 수 있으므로(BUG-32) 겁주는 문구 대신 사실대로 안내한다.
+    if (!confirm("제출하면 관리자 검토가 시작됩니다. 제출 후에도 내용·서류는 수정할 수 있습니다. 제출할까요?")) return;
     const ok = await saveStep(stepNo, keys, extra);
     if (!ok) return;
     setBusy(true);
     const r = await submitStepAction(stepNo);
     setBusy(false);
-    if (r.ok) { flash("제출되었습니다. 검토를 기다려주세요."); router.refresh(); }
-    else flash(r.error ?? "제출 실패");
+    if (r.ok) { setMissing([]); flash("제출되었습니다. 검토를 기다려주세요."); router.refresh(); return; }
+    setMissing(r.missing ?? []);
+    flash(r.error ?? "제출 실패");
   }
   async function logout() { await fetch("/api/apply/logout", { method: "POST" }); router.replace("/apply/login"); router.refresh(); }
 
@@ -102,6 +106,17 @@ export default function ApplyForm(props: Props) {
           {active === 2 && <Step3 v={v} set={set} disabled={!editable} />}
           {active === 3 && <Step4 disabled={!editable} countries={props.countries} products={props.products} productCountries={props.productCountries} onChange={() => router.refresh()} flash={flash} />}
           {active === 4 && <Step5 disabled={!editable} countries={props.countries} onChange={() => router.refresh()} flash={flash} />}
+
+          {/* 누락 필수 항목 — 제출이 막힌 이유를 화면에 그대로 남긴다. */}
+          {missing.length > 0 && (
+            <div style={{ marginTop: 16, border: "1px solid #f3c2c2", background: "#fef4f4", borderRadius: 12, padding: "12px 14px" }}>
+              <b style={{ fontSize: 13, color: "#c92a2a" }}>아직 등록하지 않은 필수 항목 {missing.length}건</b>
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 13, lineHeight: 1.8, color: "#7a2b2b" }}>
+                {missing.map((m) => <li key={m}>{m}</li>)}
+              </ul>
+              <div style={{ fontSize: 12, color: "#9b6a6a", marginTop: 6 }}>위 항목을 채운 뒤 다시 제출해주세요.</div>
+            </div>
+          )}
 
           {/* 제출 바 */}
           {editable && (

@@ -154,6 +154,65 @@ const STEP_FIELDS: Record<number, string[]> = {
   5: [],
 };
 
+// ── 제출 전 필수 항목 검사(BUG-32 후속) ────────────────────
+//   서류를 하나도 올리지 않아도 제출이 되던 탓에, 빈 신청서가 '검토중'으로 넘어가고
+//   브랜드사는 그 뒤 잠금 때문에 서류를 못 올리는 상황이 벌어졌다.
+//   목록은 고객 화면의 필수(*) 표시와 동일하게 유지한다 — 화면에 없는 조건으로 막지 않는다.
+const STEP_REQUIRED: Record<number, { col: string; label: string }[]> = {
+  1: [
+    { col: "company_name_kr", label: "회사명(한글)" },
+    { col: "company_name_en", label: "회사명(영문)" },
+    { col: "company_reg_date", label: "법인 등록일" },
+    { col: "company_reg_number", label: "사업자등록번호" },
+    { col: "contact_name", label: "담당자 이름" },
+    { col: "contact_email", label: "담당자 이메일" },
+    { col: "contact_phone", label: "담당자 연락처" },
+    { col: "address_kr", label: "등록 주소(한글)" },
+    { col: "address_en", label: "등록 주소(영문)" },
+    { col: "shop_name_kr", label: "브랜드명(한글)" },
+    { col: "shop_name_en", label: "브랜드명(영문)" },
+    { col: "product_category", label: "제품 카테고리" },
+    { col: "sales_channel_url", label: "대표 판매 채널 링크" },
+    { col: "brand_logo_url", label: "브랜드 로고" },
+    { col: "ubo_full_name", label: "대표자 성명(영문)" },
+    { col: "ubo_title", label: "대표자 직책" },
+    { col: "doc_biz_reg_en_url", label: "사업자등록증(영문)" },
+    { col: "doc_biz_reg_kr_url", label: "사업자등록증(한글)" },
+    { col: "doc_corp_reg_kr_url", label: "법인등기부등본(한글)" },
+  ],
+  2: [{ col: "ubo_signature_data", label: "수권서(LOA) 서명" }],
+  3: [
+    { col: "rep_passport_front_url", label: "대표자 여권 사진면" },
+    { col: "rep_address_proof_url", label: "대표자 거주지 증명서류" },
+  ],
+  4: [], // 제품은 별도 테이블 — 아래에서 건수로 확인
+  5: [], // 물류 계약서는 국가·시점에 따라 달라 제출 조건으로 두지 않는다
+};
+
+/** 해당 단계에서 아직 비어 있는 필수 항목 라벨 목록. 빈 배열이면 제출 가능. */
+export async function missingRequired(applicationId: string, stepNo: number): Promise<string[]> {
+  const reqs = STEP_REQUIRED[stepNo] ?? [];
+  const missing: string[] = [];
+  if (reqs.length > 0) {
+    const cols = reqs.map((r) => r.col).join(", ");
+    const row = await queryOne<Record<string, unknown>>(
+      `SELECT ${cols} FROM onb_applications WHERE id=$1`, [applicationId],
+    ).catch(() => null);
+    // 조회 자체가 실패하면(컬럼 드리프트 등) 제출을 막지 않는다 — 검사 때문에 업무가 멈추면 안 된다.
+    if (!row) return [];
+    for (const r of reqs) {
+      if (String(row[r.col] ?? "").trim() === "") missing.push(r.label);
+    }
+  }
+  if (stepNo === 4) {
+    const c = await queryOne<{ n: string }>(
+      "SELECT count(*)::text AS n FROM onb_products WHERE application_id=$1", [applicationId],
+    ).catch(() => null);
+    if (c && Number(c.n) === 0) missing.push("제품 1건 이상 등록");
+  }
+  return missing;
+}
+
 /** 스텝 필드 저장(화이트리스트 컬럼만).
  *  BUG-32: 제출(검토중) 단계도 수정 허용 — 서류를 잘못 올렸을 때 고칠 방법이 없었다.
  *  잠금(locked)은 이전 단계 미승인, 승인(approved)은 담당자 승인취소가 필요하므로 그대로 거부. */
@@ -185,7 +244,15 @@ export async function saveStepFields(applicationId: string, stepNo: number, valu
 }
 
 /** 고객: 스텝 제출 → submitted. */
-export async function submitStep(applicationId: string, stepNo: number): Promise<{ ok: boolean; error?: string }> {
+export async function submitStep(applicationId: string, stepNo: number): Promise<{ ok: boolean; error?: string; missing?: string[] }> {
+  // 필수 항목·서류가 비어 있으면 제출을 막고 무엇이 빠졌는지 알려준다.
+  const missing = await missingRequired(applicationId, stepNo).catch(() => [] as string[]);
+  if (missing.length > 0) {
+    return {
+      ok: false, missing,
+      error: `아직 등록되지 않은 필수 항목이 있습니다 (${missing.length}건): ${missing.join(" · ")}`,
+    };
+  }
   const r = await queryOne<{ step_no: number }>(
     // 검토중(submitted)에서도 재제출 허용 — 수정 후 다시 검토 요청할 수 있어야 한다(BUG-32).
     "UPDATE onb_steps SET status='submitted', submitted_at=now() WHERE application_id=$1 AND step_no=$2 AND status IN ('unlocked','rejected','submitted') RETURNING step_no",
