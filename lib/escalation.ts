@@ -99,8 +99,8 @@ export async function runEscalate(): Promise<{ dm: number; leads: number; exec: 
       await slackPostDM(slackId, { text: "오늘 처리할 일", blocks: [sectionText(`${header}\n${slackLines}`)] });
       dm++;
     } else {
-      // 담당 미지정 → 파트장 채널로
-      await slackPost({ channelKey: "leads", blocks: [sectionText(`*담당 미지정 · 처리 필요 ${list.length}건*\n${slackLines}`)] });
+      // 담당 미지정 SLA 지연 → SLA 채널(기본 데일리). 리드 채널은 신규 리드 전용.
+      await slackPost({ channelKey: "sla", blocks: [sectionText(`*담당 미지정 · 처리 필요 ${list.length}건*\n${slackLines}`)] });
     }
     // Slack 외 이메일 병행(담당자 회사 메일 = admin_users.id). RESEND 미설정 시 조용히 스킵.
     if (ownerId !== "__unassigned__" && ownerId.includes("@")) {
@@ -119,17 +119,17 @@ export async function runEscalate(): Promise<{ dm: number; leads: number; exec: 
     for (const a of list) {
       if (a.slack_ts) continue;
       const posted = await slackPost({
-        channelKey: "intake",
+        channelKey: "sla",
         blocks: brandAlertCard(a.brand, { headline: a.message, alertId: a.id }),
       });
       if (posted.ok && posted.ts && posted.channel) await setAlertSlack(a.id, posted.ts, posted.channel);
     }
   }
 
-  // tier2 → 파트장 채널
+  // tier2 알림 → SLA 채널(기본 데일리)
   for (const a of leadsAlerts) {
     const posted = await slackPost({
-      channelKey: "leads",
+      channelKey: "sla",
       blocks: brandAlertCard(a.brand, { headline: `[T2] ${a.message}`, alertId: a.id }),
     });
     if (posted.ok && posted.ts && posted.channel) await setAlertSlack(a.id, posted.ts, posted.channel);
@@ -139,7 +139,7 @@ export async function runEscalate(): Promise<{ dm: number; leads: number; exec: 
   // tier3 → exec + 데일리 적색
   if (execAlerts.length) {
     const lines = execAlerts.map((a) => `🔴 ${a.brand.brand_name} · ${a.message}`).join("\n");
-    await slackPost({ channelKey: "daily", blocks: [sectionText(`*[T3 · 대표 확인 필요] ${execAlerts.length}건*\n${lines}`)] });
+    await slackPost({ channelKey: "sla", blocks: [sectionText(`*[T3 · 대표 확인 필요] ${execAlerts.length}건*\n${lines}`)] });
     execCount = execAlerts.length;
   }
 

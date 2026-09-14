@@ -85,9 +85,14 @@ export const env = {
       get daily() {
         return opt("SLACK_CH_DAILY");
       },
-      // 브랜드사 제출 알림(설문·온보딩·제품) 전용 채널 — 미설정이면 onboard→leads→intake 로 폴백.
+      // 브랜드사 제출 알림(설문·온보딩·제품) 전용 채널 — 미설정이면 onboard→intake→daily 로 폴백.
+      //   리드 채널로는 흘리지 않는다(리드 채널은 신규 리드 알림 전용).
       get forms() {
         return opt("SLACK_CH_FORMS");
+      },
+      // SLA 지연·알림 전용 채널 — 미설정이면 daily 로 간다(리드 채널과 분리).
+      get sla() {
+        return opt("SLACK_CH_SLA");
       },
     },
   },
@@ -160,7 +165,10 @@ export function slackChannel(key: string): string {
     leads: env.slack.channels.leads,
     daily: env.slack.channels.daily,
     // 제출 알림 — 전용 채널이 없으면 기존 채널로 흘려보낸다(설정 없이도 알림이 뜨도록).
-    forms: env.slack.channels.forms || env.slack.channels.onboard || env.slack.channels.leads || env.slack.channels.intake,
+    //   리드 채널(leads)은 제외 — 그 채널은 신규 리드 알림만 받는다.
+    forms: env.slack.channels.forms || env.slack.channels.onboard || env.slack.channels.intake || env.slack.channels.daily,
+    // SLA 지연·알림 — 전용 채널이 없으면 데일리 채널로. 리드 채널로는 가지 않는다.
+    sla: env.slack.channels.sla || env.slack.channels.daily,
   };
   return map[key] ?? "";
 }

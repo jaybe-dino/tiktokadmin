@@ -48,7 +48,9 @@ export async function notifySlaBreach(
     { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "브랜드 카드 열기", emoji: true }, url: link, style: "primary" }] },
   ];
   const summary = `⏰ SLA 초과: ${brand.brand_name} · ${stageLabel} +${breach.daysOver}일`;
-  const r = await slackPost({ channelKey: route.channel, text: summary, blocks }).catch(() => ({ ok: false } as { ok: boolean; ts?: string }));
+  // SLA 초과 알림은 SLA 채널(기본 데일리)로 — 단계별 채널로 흩어지면 지연 현황을
+  //   한곳에서 볼 수 없고, 리드 채널에 섞이는 문제도 생긴다. 담당자 @멘션은 본문에 유지.
+  const r = await slackPost({ channelKey: "sla", text: summary, blocks }).catch(() => ({ ok: false } as { ok: boolean; ts?: string }));
   return r.ok && r.ts ? r.ts : null;
 }
 
