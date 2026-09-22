@@ -3,6 +3,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveProposalDocAction, deleteProposalDocAction, generateProposalContentAction, generateProductUspAction, fillReferencesByCategoryAction, pinProposalImagesAction, listBrandOpsQuotesAction, type OpsQuoteForDoc } from "../actions";
 import type { ProposalDoc, ProposalProduct, ProposalCreator, ProposalFeature, ProposalValueItem, ProposalStep, ProposalImpact, ProposalAddon } from "@/lib/proposal-doc";
+// 벤치마크 값은 DB 의존이 없는 모듈에서 — 클라이언트 번들에 pg 가 끌려오지 않게.
+import { benchOf, BENCH_DEFAULT, BENCH_TIERS, type ProposalBench } from "@/lib/proposal-bench";
+import { OPS_COUNTRIES } from "@/lib/quote";
 import CategoryPicker from "@/components/CategoryPicker";
 import GlovekCategorySelect from "@/components/GlovekCategorySelect";
 
@@ -21,6 +24,13 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
   const [quotes, setQuotes] = useState<OpsQuoteForDoc[] | null>(null);  // 불러온 운영 견적 목록
   const [showQuotes, setShowQuotes] = useState(false);
   const set = <K extends keyof ProposalDoc>(k: K, v: ProposalDoc[K]) => setD((p) => ({ ...p, [k]: v }));
+  // 정가와 "상당 구성 가치 합계"는 같은 금액을 두 군데 저장하는 구조라, 정가만 고치면 옆 칸이
+  // 옛 금액으로 남아 있었다(BUG-37). 둘이 같았거나 합계가 비어 있으면 함께 따라가게 한다.
+  //   일부러 다르게 넣어둔 경우(합계 ≠ 정가)에는 건드리지 않는다.
+  const setListAmount = (v: number | null) =>
+    setD((p) => (p.value_total == null || p.value_total === p.list_amount
+      ? { ...p, list_amount: v, value_total: v }
+      : { ...p, list_amount: v }));
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
   const publicUrl = `${publicBase}/proposal/${d.token}`;
 
@@ -34,6 +44,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         seeding_qty: d.seeding_qty, live_qty: d.live_qty, op_tags: d.op_tags,
         kpi_tier: d.kpi_tier, kpi_stage: d.kpi_stage, kpi_creator_content: d.kpi_creator_content, kpi_ad_spend: d.kpi_ad_spend,
         products: d.products, creators: d.creators, accent: d.accent, accent2: d.accent2 ?? null, start_ym: d.start_ym ?? null,
+        countries: d.countries ?? [], bench: benchOf(d.bench),
         product_en: d.product_en, product_volume: d.product_volume, product_features: d.product_features, product_tags: d.product_tags,
         value_items: d.value_items, value_total: d.value_total,
         roadmap_steps: d.roadmap_steps, impacts: d.impacts, impact_banner: d.impact_banner,
@@ -88,7 +99,13 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
   // 상품정보 → USP(특징 카드)·태그·영문명·용량 생성.
   async function genUsp() {
     setBusy(true);
-    let r; try { r = await generateProductUspAction(d.id, uspInfo || undefined); }
+    // 저장 전 입력값(제품명·설명·영문명·용량)을 함께 넘긴다 — 저장 안 했다고 오류나지 않게(BUG-34).
+    let r; try {
+      r = await generateProductUspAction(d.id, uspInfo || undefined, {
+        name: d.products[0]?.name, desc: d.products[0]?.desc,
+        product_en: d.product_en, product_volume: d.product_volume,
+      });
+    }
     catch (e) { flash((e as Error).message || "USP 생성 실패"); setBusy(false); return; }
     setBusy(false);
     if (!r.ok) { flash(r.error ?? "USP 생성 실패"); return; }
@@ -133,17 +150,20 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
     setShowQuotes(true);
     if ((r.quotes ?? []).length === 0) flash("이 브랜드로 생성된 운영 견적이 없습니다 — 제안서(견적) 화면에서 먼저 생성하세요.");
   }
-  // 선택한 견적을 가격조건 필드에 반영(수기 수정 가능). 기능 체크리스트에는 제안견적 항목을 추가한다.
+  // 선택한 견적을 가격조건 필드에 반영(수기 수정 가능).
+  //   기능 체크리스트는 제안서에서 빠졌으므로(BUG-40) 항목 문구는 더 이상 옮기지 않는다.
+  //   견적에 국가가 있으면 진행 국가로 함께 채운다(BUG-36).
   function applyQuote(qz: OpsQuoteForDoc) {
     setD((p) => {
-      const merged = [...p.features];
-      for (const line of qz.featureLines) if (!merged.includes(line)) merged.push(line);
+      const total = qz.total || p.list_amount;
       return {
         ...p,
         monthly_amount: qz.monthly || p.monthly_amount,
         term_months: qz.months || p.term_months,
-        list_amount: qz.total || p.list_amount,
-        features: merged,
+        list_amount: total,
+        // 정가와 합계를 같이 쓰던 문서는 함께 갱신(BUG-37).
+        value_total: p.value_total == null || p.value_total === p.list_amount ? total : p.value_total,
+        countries: (p.countries ?? []).length > 0 ? p.countries : qz.countries,
       };
     });
     setShowQuotes(false);
@@ -197,7 +217,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10, padding: 10, border: "1px dashed var(--line)", borderRadius: 8, background: "var(--bg)" }}>
           <span style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>📄 운영 견적 불러오기</span>
           <button className="btn sm" disabled={busy} onClick={loadQuotes}>이 브랜드 견적 불러오기</button>
-          <span style={{ fontSize: 11, color: "var(--ink3)" }}>선택 시 월 금액·약정 개월·계약총액이 채워지고, 견적 항목이 기능 체크리스트에 추가됩니다(수기 수정 가능).</span>
+          <span style={{ fontSize: 11, color: "var(--ink3)" }}>선택 시 월 금액·약정 개월·계약총액이 채워집니다(수기 수정 가능).</span>
         </div>
         {showQuotes && quotes && quotes.length > 0 && (
           <div style={{ marginBottom: 10, border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
@@ -219,7 +239,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
           </div>
         )}
         <Grid>
-          <F label="정가(list, 원)" v={d.list_amount?.toString() ?? ""} on={(v) => set("list_amount", numOrNull(v))} />
+          <F label="정가(list, 원)" v={d.list_amount?.toString() ?? ""} on={(v) => setListAmount(numOrNull(v))} />
           <F label="월 금액(원)" v={d.monthly_amount?.toString() ?? ""} on={(v) => set("monthly_amount", numOrNull(v))} />
           <F label="판매 수수료(%)" v={d.fee_pct?.toString() ?? ""} on={(v) => set("fee_pct", numOrNull(v))} />
           <F label="약정 개월" v={d.term_months?.toString() ?? ""} on={(v) => set("term_months", numOrNull(v))} />
@@ -228,7 +248,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
             ? <F label="약정 추가할인(%)" v={d.term_discount_pct?.toString() ?? ""} on={(v) => set("term_discount_pct", numOrNull(v))} />
             : <div style={{ fontSize: 11, color: "var(--ink3)", alignSelf: "end", paddingBottom: 6 }}>온보딩 트랙은 약정 할인 없음(픽스가)</div>}
         </Grid>
-        <ListEditor label="기능 체크리스트 (한 줄에 하나)" items={d.features} on={(v) => set("features", v)} placeholder="예: 크리에이터 시딩 20건 · 라이브 4건" />
+        <CountriesEditor items={d.countries ?? []} on={(v) => set("countries", v)} />
       </Card>
 
       {/* 운영 · 콘텐츠 */}
@@ -237,7 +257,6 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
           <F label="무가 시딩 수량(건)" v={d.seeding_qty?.toString() ?? ""} on={(v) => set("seeding_qty", numOrNull(v))} />
           <F label="라이브 수량(건)" v={d.live_qty?.toString() ?? ""} on={(v) => set("live_qty", numOrNull(v))} />
         </Grid>
-        <ListEditor label="운영 태그 (한 줄에 하나, # 제외)" items={d.op_tags} on={(v) => set("op_tags", v)} placeholder="예: 콘텐츠기획" />
       </Card>
 
       {/* KPI */}
@@ -256,13 +275,16 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
           <F label="크리에이터 콘텐츠 수" v={d.kpi_year_creator_content?.toString() ?? ""} on={(v) => set("kpi_year_creator_content", numOrNull(v))} />
           <F label="샵 광고비(참고, 예: $14K)" v={d.kpi_year_ad_spend ?? ""} on={(v) => set("kpi_year_ad_spend", v || null)} />
         </Grid>
-        <div style={{ fontSize: 11, color: "var(--ink3)", marginTop: 10 }}>· 벤치마크 표(T1~Beyond)와 하단 주석은 업계 고정값으로 자동 표기됩니다.</div>
+        <BenchEditor value={benchOf(d.bench)} on={(v) => set("bench", v)} />
       </Card>
 
       {/* 핵심 SKU (히어로 제품) */}
       <Card title="핵심 SKU (표지 다음 제품 섹션)">
-        <div style={{ fontSize: 11, color: "var(--ink3)", marginBottom: 8 }}>제품 이미지·이름은 아래 &lt;제품 레퍼런스&gt;의 첫 제품을 사용합니다. 여기서는 상세 정보만 추가합니다.</div>
+        <div style={{ fontSize: 11, color: "var(--ink3)", marginBottom: 8 }}>제품명·이미지는 아래 &lt;제품 레퍼런스&gt;의 첫 제품과 같은 값입니다 — 여기서 고쳐도 같이 반영됩니다.</div>
         <Grid>
+          {/* 제품명을 여기서도 바로 고칠 수 있게(BUG-34) — 첫 제품이 없으면 만들어서 넣는다. */}
+          <F label="제품명(국문)" v={d.products[0]?.name ?? ""} placeholder="예: 볼라보 피니시 래핑젤"
+            on={(v) => setD((p) => ({ ...p, products: p.products.length > 0 ? p.products.map((x, i) => (i === 0 ? { ...x, name: v } : x)) : [{ name: v }] }))} />
           <F label="영문명(예: Bollabo Finish Wrapping Gel)" v={d.product_en ?? ""} on={(v) => set("product_en", v || null)} />
           <F label="용량/규격(예: 50ml)" v={d.product_volume ?? ""} on={(v) => set("product_volume", v || null)} />
         </Grid>
@@ -323,6 +345,72 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
       </Card>
 
       {msg && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#111", color: "#fff", padding: "11px 18px", borderRadius: 10, fontSize: 13, zIndex: 50 }}>{msg}</div>}
+    </div>
+  );
+}
+
+// ── 진행 국가(BUG-36) — 지정하면 공개 제안서의 "(국가 당)" 자리에 국가명이 표기된다 ──
+function CountriesEditor({ items, on }: { items: string[]; on: (v: string[]) => void }) {
+  const toggle = (label: string) => on(items.includes(label) ? items.filter((x) => x !== label) : [...items, label]);
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>진행 국가 (선택)</div>
+      <div style={{ fontSize: 11, color: "var(--ink3)", margin: "2px 0 6px" }}>
+        선택하면 제안서 금액 옆에 <b>국가명</b>이 표기됩니다(여러 국가 진행 브랜드용). 비우면 기존처럼 &quot;(국가 당)&quot;으로만 표기됩니다.
+        <br />※ 표기만 바뀌고 금액은 합산하지 않습니다 — 국가당 단가 그대로입니다.
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {OPS_COUNTRIES.map((c) => (
+          <button key={c.code} type="button" className={`btn sm${items.includes(c.label) ? " primary" : ""}`} onClick={() => toggle(c.label)}>
+            {c.label}
+          </button>
+        ))}
+        {items.filter((x) => !OPS_COUNTRIES.some((c) => c.label === x)).map((x) => (
+          <button key={x} type="button" className="btn sm primary" onClick={() => toggle(x)}>{x} ✕</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 시딩 벤치마크 표(BUG-35) — 국가·카테고리마다 수치가 달라 문서별로 고친다 ──
+function BenchEditor({ value, on }: { value: ProposalBench; on: (v: ProposalBench) => void }) {
+  const [open, setOpen] = useState(false);
+  const row = (k: "content" | "adspend", i: number, v: string) => on({ ...value, [k]: value[k].map((x, j) => (j === i ? v : x)) });
+  return (
+    <div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>시딩 벤치마크 표 (T1~Beyond)</span>
+        <span style={{ fontSize: 11, color: "var(--ink3)" }}>현재 기준: {value.country} · {value.category}</span>
+        <button type="button" className="btn sm" onClick={() => setOpen((v) => !v)}>{open ? "닫기" : "수정"}</button>
+        {open && <button type="button" className="btn sm" onClick={() => on({ ...BENCH_DEFAULT })}>베트남 기본값으로 되돌리기</button>}
+      </div>
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: "var(--ink3)", marginBottom: 6 }}>
+            기본값은 <b>베트남 · Beauty · 30일</b> 실측치입니다. 다른 국가로 제안할 때는 그 국가 기준 수치로 바꿔주세요(빈칸은 기본값이 그대로 들어갑니다).
+          </div>
+          <Grid>
+            <F label="기준 국가(표기)" v={value.country} on={(v) => on({ ...value, country: v })} placeholder="예: 미국(US)" />
+            <F label="기준 카테고리(표기)" v={value.category} on={(v) => on({ ...value, category: v })} placeholder="예: Beauty" />
+          </Grid>
+          <div style={{ overflowX: "auto", marginTop: 8 }}>
+            <table className="t" style={{ fontSize: 12, minWidth: 560 }}>
+              <thead><tr><th style={{ minWidth: 110 }}>티어</th>{BENCH_TIERS.map((t) => <th key={t}>{t}</th>)}</tr></thead>
+              <tbody>
+                <tr>
+                  <td>크리에이터 콘텐츠</td>
+                  {value.content.map((v, i) => <td key={i}><input className="f" value={v} onChange={(e) => row("content", i, e.target.value)} style={{ width: 70, fontSize: 12 }} /></td>)}
+                </tr>
+                <tr>
+                  <td>샵 광고비(USD)</td>
+                  {value.adspend.map((v, i) => <td key={i}><input className="f" value={v} onChange={(e) => row("adspend", i, e.target.value)} style={{ width: 70, fontSize: 12 }} /></td>)}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -461,11 +549,24 @@ function Sel({ label, v, opts, on }: { label: string; v: string; opts: [string, 
     </label>
   );
 }
+// 한 줄에 하나씩 적는 목록 입력.
+//   예전엔 입력 즉시 trim + 빈 줄 제거를 하고 그 결과를 다시 value 로 되돌려서,
+//   엔터를 쳐도 새 줄이 사라지고 단어 사이 공백조차 남지 않아 사실상 작성이 불가능했다(BUG-38).
+//   → 편집 중에는 사용자가 친 원문을 그대로 유지하고, 줄 나누기는 부모에 넘길 때만 한다.
 function ListEditor({ label, items, on, placeholder }: { label: string; items: string[]; on: (v: string[]) => void; placeholder?: string }) {
+  const joined = items.join("\n");
+  const [text, setText] = useState(joined);
+  const [editing, setEditing] = useState(false);
+  // 바깥에서 값이 바뀐 경우(AI 생성 등)에는 화면도 따라간다 — 편집 중일 때는 덮어쓰지 않는다.
+  if (!editing && text !== joined) setText(joined);
+  const commit = (v: string) => on(v.split("\n").map((x) => x.trim()).filter(Boolean));
   return (
     <label style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600, display: "block", marginTop: 12 }}>
       {label}
-      <textarea className="f" value={items.join("\n")} onChange={(e) => on(e.target.value.split("\n").map((s) => s.trim()).filter(Boolean))}
+      <textarea className="f" value={text}
+        onFocus={() => setEditing(true)}
+        onChange={(e) => { setText(e.target.value); commit(e.target.value); }}
+        onBlur={(e) => { setEditing(false); commit(e.target.value); }}
         rows={4} placeholder={placeholder} style={{ marginTop: 4, width: "100%", boxSizing: "border-box", resize: "vertical" }} />
     </label>
   );

@@ -374,9 +374,20 @@ const CUSTOMER_SORTS: Record<string, string> = {
   name: "b.brand_name ASC",
 };
 
+/** 유입일(등록일) 범위 조건 — 목록과 CSV 가 같은 규칙을 쓰도록 공용(BUG-41). */
+export function customerDateWhere(f: { from?: string; to?: string }, p: unknown[]): string[] {
+  const ymd = /^\d{4}-\d{2}-\d{2}$/;
+  const out: string[] = [];
+  if (f.from && ymd.test(f.from)) { p.push(f.from); out.push(`b.created_at >= $${p.length}::date`); }
+  // 종료일은 그날 하루를 모두 포함한다(< 다음날 00:00).
+  if (f.to && ymd.test(f.to)) { p.push(f.to); out.push(`b.created_at < ($${p.length}::date + 1)`); }
+  return out;
+}
+
 export async function customersList(f: {
   q?: string; state?: string; source?: string; grade?: string;
   plan?: string; owner?: string; country?: string; breach?: boolean; sort?: string; page?: number;
+  from?: string; to?: string;   // 유입일(등록일) 범위 "YYYY-MM-DD" — BUG-41
 }): Promise<{ rows: CustomerRow[]; total: number; page: number; pages: number }> {
   const where: string[] = ["1=1"];
   const p: unknown[] = [];
@@ -413,6 +424,8 @@ export async function customersList(f: {
   if (f.breach) {
     where.push(`EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind='sla_breach' AND a.resolved_at IS NULL)`);
   }
+  // 유입일 범위 — 종료일은 그날 하루를 모두 포함(< 다음날 00:00).
+  for (const c of customerDateWhere(f, p)) where.push(c);
 
   const whereSql = where.join(" AND ");
   const countRow = await queryOne<{ n: string }>(`SELECT count(*)::text n FROM brands b WHERE ${whereSql}`, p);

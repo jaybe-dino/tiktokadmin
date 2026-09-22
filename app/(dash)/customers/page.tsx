@@ -24,7 +24,7 @@ const SORT_OPTS: [string, string][] = [
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; state?: string; source?: string; grade?: string; plan?: string; owner?: string; country?: string; breach?: string; sort?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; state?: string; source?: string; grade?: string; plan?: string; owner?: string; country?: string; breach?: string; sort?: string; page?: string; from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
   const breachOn = sp.breach === "1";
@@ -33,6 +33,7 @@ export default async function CustomersPage({
     customersList({
       q: sp.q, state: sp.state, source: sp.source, grade: sp.grade,
       plan: sp.plan, owner: sp.owner, country: sp.country, breach: breachOn, sort,
+      from: sp.from, to: sp.to,
       page: sp.page ? Number(sp.page) : 1,
     }),
     currentUser(),
@@ -42,7 +43,7 @@ export default async function CustomersPage({
   const admins = await adminUserList().catch(() => []);
   const ownerOptions = admins.filter((a) => a.name).map((a) => ({ id: a.id, name: a.name }));
 
-  const baseParams = { q: sp.q, state: sp.state, source: sp.source, grade: sp.grade, plan: sp.plan, owner: sp.owner, country: sp.country, breach: sp.breach, sort: sp.sort };
+  const baseParams = { q: sp.q, state: sp.state, source: sp.source, grade: sp.grade, plan: sp.plan, owner: sp.owner, country: sp.country, breach: sp.breach, sort: sp.sort, from: sp.from, to: sp.to };
   const qs = (over: Record<string, string | number | undefined>) => {
     const params = new URLSearchParams();
     const merged = { ...baseParams, ...over };
@@ -57,7 +58,7 @@ export default async function CustomersPage({
     <div className="max-w-6xl">
       <ScreenHeader
         title="브랜드 원장"
-        desc={`${total}개 브랜드 · 1브랜드 = 1행 · 중복 0${canEdit ? " · 체크 후 일괄 삭제 가능" : ""}`}
+        desc={`${total}개 브랜드${sp.from || sp.to ? ` · 유입일 ${sp.from || "처음"} ~ ${sp.to || "오늘"}` : ""} · 1브랜드 = 1행 · 중복 0${canEdit ? " · 체크 후 일괄 삭제 가능" : ""}`}
         right={
           <div style={{ display: "flex", gap: 8 }}>
             <CsvExportButton filter={baseParams} />
@@ -89,6 +90,12 @@ export default async function CustomersPage({
           <option value="">유입 전체</option>
           {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s] ?? s}</option>)}
         </select>
+        {/* 유입일(등록일) 범위 — 이 구간만 CSV 로 뽑을 수 있다(BUG-41) */}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }} title="유입일(리드 등록일) 범위">
+          <input type="date" name="from" defaultValue={sp.from ?? ""} style={{ width: 138 }} aria-label="유입일 시작" />
+          <span style={{ color: "var(--ink3)", fontSize: 12 }}>~</span>
+          <input type="date" name="to" defaultValue={sp.to ?? ""} style={{ width: 138 }} aria-label="유입일 종료" />
+        </span>
         <select name="country" defaultValue={sp.country ?? ""} style={{ width: 120 }} title="진행국가">
           <option value="">진행국가 전체</option>
           {COUNTRY_FILTER_OPTS.map((c) => <option key={c} value={c}>{c}</option>)}

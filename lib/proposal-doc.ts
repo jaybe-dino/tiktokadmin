@@ -14,6 +14,9 @@ export interface ProposalValueItem { label: string; qty?: string; amount: number
 export interface ProposalStep { title: string; desc?: string }            // 실행 로드맵 STEP
 export interface ProposalImpact { title: string; desc?: string }          // 기대 효과
 export interface ProposalAddon { label?: string; title: string; desc?: string }    // 별도 제안(애드온)
+// 시딩 벤치마크(BUG-35)는 클라이언트 편집 화면에서도 쓰므로 DB 의존 없는 모듈에 두고 재수출한다.
+export { BENCH_DEFAULT, BENCH_TIERS, benchOf, type ProposalBench } from "./proposal-bench";
+import type { ProposalBench } from "./proposal-bench";
 
 export interface ProposalDoc {
   id: string;
@@ -42,6 +45,8 @@ export interface ProposalDoc {
   accent: string | null;
   accent2?: string | null; // 배경색(0091, BUG-21) — NULL 이면 무채색 기본(BUG-31)
   start_ym?: string | null; // 운영 시작 연월 "YYYY-MM" (0093) — 제안서에 "언제부터"를 명시
+  countries?: string[] | null;      // 진행 국가 라벨(0094, BUG-36) — 비면 "(국가 당)" 표기 유지
+  bench?: ProposalBench | null;     // 시딩 벤치마크 표(0094, BUG-35) — 비면 BENCH_DEFAULT
   // v2 — 레퍼런스 데크 정합 필드.
   product_en: string | null;
   product_volume: string | null;
@@ -106,6 +111,8 @@ export interface ProposalInput {
   products?: ProposalProduct[]; creators?: ProposalCreator[]; accent?: string | null;
   accent2?: string | null;
   start_ym?: string | null;
+  countries?: string[] | null;
+  bench?: ProposalBench | null;
   // v2
   product_en?: string | null; product_volume?: string | null;
   product_features?: ProposalFeature[]; product_tags?: string[];
@@ -115,6 +122,28 @@ export interface ProposalInput {
   kpi_year_creator_content?: number | null; kpi_year_ad_spend?: string | null;
   addons?: ProposalAddon[];
   status?: "draft" | "published";
+}
+
+// 뒤늦게 추가된(=마이그레이션 미적용 DB 에는 없을 수 있는) 컬럼 목록.
+//   스키마를 한 번 확인해 캐시하고, 존재하는 것만 INSERT/UPDATE 에 붙인다.
+//   json 컬럼은 값이 안 넘어왔을 때(부분 저장) 기존 값을 지우지 않도록 COALESCE 로 둔다.
+const OPTIONAL_COLS: { col: string; json?: boolean; insDefault?: string; val: (i: ProposalInput) => unknown }[] = [
+  { col: "accent2", val: (i) => i.accent2 ?? null },
+  { col: "start_ym", val: (i) => i.start_ym ?? null },
+  { col: "countries", json: true, insDefault: "'[]'", val: (i) => (i.countries ? JSON.stringify(i.countries) : null) },
+  { col: "bench", json: true, val: (i) => (i.bench ? JSON.stringify(i.bench) : null) },
+];
+let optionalColsCache: Set<string> | null = null;
+async function optionalCols(): Promise<Set<string>> {
+  if (optionalColsCache) return optionalColsCache;
+  const rows = await query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_name='proposal_docs' AND column_name = ANY($1::text[])`,
+    [OPTIONAL_COLS.map((c) => c.col)],
+  ).catch(() => null);
+  // 스키마 조회 자체가 실패하면(권한 등) 컬럼이 다 있다고 보고 진행 — 평소 동작을 막지 않는다.
+  optionalColsCache = new Set(rows ? rows.map((r) => r.column_name) : OPTIONAL_COLS.map((c) => c.col));
+  return optionalColsCache;
 }
 
 /** 생성/수정 upsert. id 있으면 수정, 없으면 생성(token 발급). */
@@ -150,30 +179,35 @@ export async function saveProposal(input: ProposalInput & { id?: string }, by: s
        input.kpi_year_tier ?? null, input.kpi_year_stage ?? null,
        input.kpi_year_creator_content ?? null, input.kpi_year_ad_spend ?? null,
        input.addons ? JSON.stringify(input.addons) : null];
-    // 0091(accent2 배경색) 포함 저장 → 미적용 DB 는 컬럼 없이 폴백.
-    let row: { id: string; token: string } | null;
-    try {
-      // 0091(accent2)·0093(start_ym) 포함 — 없는 컬럼은 단계적으로 빼고 재시도.
-      row = await queryOne<{ id: string; token: string }>(
-        `UPDATE proposal_docs SET ${updSet}, accent2=$38, start_ym=$39, updated_at=now() WHERE id=$1 RETURNING id, token`,
-        [...updVals, input.accent2 ?? null, input.start_ym ?? null]);
-    } catch (e1) {
-      const m1 = e1 instanceof Error ? e1.message : "";
-      if (!/accent2|start_ym/.test(m1)) throw e1;
-      try {
-        row = await queryOne<{ id: string; token: string }>(
-          `UPDATE proposal_docs SET ${updSet}, accent2=$38, updated_at=now() WHERE id=$1 RETURNING id, token`,
-          [...updVals, input.accent2 ?? null]);
-      } catch (e2) {
-        if (!/accent2/.test(e2 instanceof Error ? e2.message : "")) throw e2;
-        row = await queryOne<{ id: string; token: string }>(
-          `UPDATE proposal_docs SET ${updSet}, updated_at=now() WHERE id=$1 RETURNING id, token`, updVals);
-      }
-    }
+    // 나중에 추가된 컬럼(0091 accent2 · 0093 start_ym · 0094 countries·bench)은
+    // 마이그레이션 미적용 DB 에도 저장이 되도록, 실제 존재하는 것만 SET 에 붙인다.
+    const have = await optionalCols();
+    const extraVals: unknown[] = [];
+    const extraSet = OPTIONAL_COLS.filter((c) => have.has(c.col)).map((c) => {
+      extraVals.push(c.val(input));
+      const ph = `$${updVals.length + extraVals.length}`;
+      return c.json ? `${c.col}=COALESCE(${ph}::jsonb,${c.col})` : `${c.col}=${ph}`;
+    });
+    const row = await queryOne<{ id: string; token: string }>(
+      `UPDATE proposal_docs SET ${updSet}${extraSet.length ? ", " + extraSet.join(", ") : ""}, updated_at=now()
+        WHERE id=$1 RETURNING id, token`,
+      [...updVals, ...extraVals]);
     if (!row) throw new Error("제안서를 찾을 수 없습니다.");
     return row;
   }
   const token = randomBytes(9).toString("base64url");
+  // 신규 생성도 뒤늦은 컬럼(accent2·start_ym·countries·bench)을 함께 넣는다 — 존재하는 것만.
+  const have = await optionalCols();
+  const insCols: string[] = [];
+  const insVals: unknown[] = [];
+  const insPh: string[] = [];
+  for (const c of OPTIONAL_COLS) {
+    if (!have.has(c.col)) continue;
+    insCols.push(c.col);
+    insVals.push(c.val(input));
+    const ph = `$${39 + insVals.length}`;
+    insPh.push(c.insDefault ? `COALESCE(${ph}::jsonb,${c.insDefault})` : c.json ? `${ph}::jsonb` : ph);
+  }
   const row = await queryOne<{ id: string; token: string }>(
     `INSERT INTO proposal_docs
        (brand_id, token, title, subtitle, brand_name, brand_logo_url, track,
@@ -182,13 +216,13 @@ export async function saveProposal(input: ProposalInput & { id?: string }, by: s
         products, creators, accent, status, created_by,
         product_en, product_volume, product_features, product_tags, value_items, value_total,
         roadmap_steps, impacts, impact_banner, kpi_year_tier, kpi_year_stage,
-        kpi_year_creator_content, kpi_year_ad_spend, addons)
+        kpi_year_creator_content, kpi_year_ad_spend, addons${insCols.length ? ", " + insCols.join(", ") : ""})
      VALUES ($1,$2,COALESCE($3,'틱톡샵 운영대행 제안서'),COALESCE($4,'크리에이터 커머스 운영대행을 통한 브랜드 성장'),
         COALESCE($5,''),$6,COALESCE($7,'onboarding'),
         $8,$9,$10,$11,$12,COALESCE($13::jsonb,'[]'),$14,$15,COALESCE($16::jsonb,'[]'),$17,$18,$19,$20,
         COALESCE($21::jsonb,'[]'),COALESCE($22::jsonb,'[]'),$23,COALESCE($24,'draft'),$25,
         $26,$27,COALESCE($28::jsonb,'[]'),COALESCE($29::jsonb,'[]'),COALESCE($30::jsonb,'[]'),$31,
-        COALESCE($32::jsonb,'[]'),COALESCE($33::jsonb,'[]'),$34,$35,$36,$37,$38,COALESCE($39::jsonb,'[]'))
+        COALESCE($32::jsonb,'[]'),COALESCE($33::jsonb,'[]'),$34,$35,$36,$37,$38,COALESCE($39::jsonb,'[]')${insPh.length ? ", " + insPh.join(", ") : ""})
      RETURNING id, token`,
     [input.brand_id ?? null, token, input.title, input.subtitle, input.brand_name, input.brand_logo_url ?? null, input.track,
      input.list_amount ?? null, input.monthly_amount ?? null, input.fee_pct ?? null, input.term_months ?? null, input.term_discount_pct ?? null,
@@ -202,7 +236,7 @@ export async function saveProposal(input: ProposalInput & { id?: string }, by: s
      input.roadmap_steps ? JSON.stringify(input.roadmap_steps) : null, input.impacts ? JSON.stringify(input.impacts) : null,
      input.impact_banner ?? null, input.kpi_year_tier ?? null, input.kpi_year_stage ?? null,
      input.kpi_year_creator_content ?? null, input.kpi_year_ad_spend ?? null,
-     input.addons ? JSON.stringify(input.addons) : null]);
+     input.addons ? JSON.stringify(input.addons) : null, ...insVals]);
   if (!row) throw new Error("제안서 생성 실패");
   return row;
 }

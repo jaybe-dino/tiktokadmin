@@ -431,7 +431,7 @@ export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash
       <div style={{ overflowX: "auto", marginTop: 6 }}>
         <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", minWidth: 720 }}>
           <thead><tr style={{ color: "#8b93a1", textAlign: "left" }}>
-            <th style={thc}>국가</th><th style={thc}>단가</th><th style={thc}>통화</th><th style={thc}>인증</th><th style={thc}>인증 메모</th><th style={thc}>인증 첨부</th><th style={thc}>상세페이지(한글)</th>
+            <th style={thc}>국가</th><th style={thc}>단가</th><th style={thc}>통화</th><th style={thc}>인증</th><th style={thc}>인증 메모</th><th style={thc}>인증 첨부</th><th style={thc}>상세페이지(한글)<div style={{ fontWeight: 400, color: "#9ca3af" }}>이미지·PDF 업로드</div></th>
           </tr></thead>
           <tbody>
             {countries.map((c) => {
@@ -444,7 +444,7 @@ export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash
                   <td style={tdc}><select value={r.cert_status ?? "none"} disabled={disabled} onChange={(e) => updPc(c.country_code, { cert_status: e.target.value })} style={cellInp}>{READINESS.map(([sv2, sl]) => <option key={sv2} value={sv2}>{sl}</option>)}</select></td>
                   <td style={tdc}><input value={r.cert_note ?? ""} disabled={disabled} onChange={(e) => updPc(c.country_code, { cert_note: e.target.value })} style={{ ...cellInp, minWidth: 110 }} /></td>
                   <td style={tdc}><InlineFile field={`cert_${c.country_code}`} url={r.cert_file_url} disabled={disabled} onDone={(u) => updPc(c.country_code, { cert_file_url: u })} /></td>
-                  <td style={tdc}><textarea value={r.detail_page_kr ?? ""} disabled={disabled} onChange={(e) => updPc(c.country_code, { detail_page_kr: e.target.value })} rows={2} style={{ ...cellInp, minWidth: 200 }} /></td>
+                  <td style={tdc}><DetailPageField country={c.country_code} value={r.detail_page_kr ?? ""} disabled={disabled} onChange={(v) => updPc(c.country_code, { detail_page_kr: v })} /></td>
                 </tr>
               );
             })}
@@ -546,6 +546,27 @@ function InlineFile({ field, url, disabled, onDone }: { field: string; url?: str
       {!disabled && <input type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={busy} onChange={onPick} style={{ fontSize: 12, maxWidth: 150 }} />}
       {busy && <div style={{ fontSize: 11, color: "#6b7280" }}>업로드 중…</div>}
       {url && <div style={{ fontSize: 11, color: "#0b7a52", marginTop: 2 }}>✓ <a href={url} target="_blank" rel="noreferrer" style={{ color: ACC }}>보기</a></div>}
+    </div>
+  );
+}
+
+// ══════════ 상세페이지(한글) — 업로드 방식 ══════════
+// 예전엔 상세페이지 내용을 직접 타이핑하는 칸이었는데, 실제로는 이미지·PDF 로 갖고 있어
+// 옮겨 적기 어려웠다(BUG-33) → 파일 업로드로 받는다.
+// 이미 글로 적어 보낸 값이 있으면 지우지 않고 그대로 보여주고, 원하면 파일로 교체할 수 있다.
+function DetailPageField({ country, value, disabled, onChange }: { country: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const isFile = /^(https?:\/\/|\/api\/)/.test(value);
+  return (
+    <div style={{ minWidth: 190 }}>
+      {!disabled && <InlineFile field={`detail_${country}`} url={isFile ? value : undefined} disabled={disabled} onDone={onChange} />}
+      {disabled && isFile && <a href={value} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: ACC }}>파일 보기 ↗</a>}
+      {!isFile && value && (
+        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+          기존 입력: <span style={{ color: "#374151" }}>{value.slice(0, 60)}{value.length > 60 ? "…" : ""}</span>
+          {!disabled && <button type="button" onClick={() => onChange("")} style={{ marginLeft: 6, fontSize: 11, border: "1px solid #e2e6eb", background: "#fff", borderRadius: 6, padding: "1px 6px", cursor: "pointer" }}>지우기</button>}
+        </div>
+      )}
+      {!value && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>이미지/PDF 업로드</div>}
     </div>
   );
 }

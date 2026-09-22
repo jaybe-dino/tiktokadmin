@@ -364,21 +364,30 @@ export interface UspResult {
   product_en?: string; product_volume?: string;
   product_features?: ProposalFeature[]; product_tags?: string[];
 }
-export async function generateProductUspAction(proposalId: string, productInfo?: string): Promise<UspResult> {
+/** 편집 화면에서 아직 저장하지 않은 입력값 — 저장 전에도 USP 생성이 되도록 함께 넘긴다(BUG-34). */
+export interface UspDraft { name?: string; desc?: string; product_en?: string | null; product_volume?: string | null }
+
+export async function generateProductUspAction(proposalId: string, productInfo?: string, draft?: UspDraft): Promise<UspResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!aiEnabled()) return { ok: false, error: "ANTHROPIC_API_KEY 미설정" };
   const doc = await getProposalById(proposalId);
   if (!doc) return { ok: false, error: "제안서를 찾을 수 없습니다." };
+  // 저장된 문서보다 "지금 화면에 입력한 값"이 우선 — 예전엔 저장 전 제품명을 못 읽어
+  // 제품명을 넣어도 "제품 정보를 입력하세요" 오류가 계속 났다(BUG-34).
   const p0 = doc.products[0];
+  const name = (draft?.name ?? "").trim() || p0?.name || "";
+  const desc = (draft?.desc ?? "").trim() || p0?.desc || "";
+  const nameEn = (draft?.product_en ?? "").trim() || doc.product_en || "";
+  const volume = (draft?.product_volume ?? "").trim() || doc.product_volume || "";
   const ctx = [
-    p0?.name ? `제품명: ${p0.name}` : "",
-    doc.product_en ? `영문명: ${doc.product_en}` : "",
-    doc.product_volume ? `용량/규격: ${doc.product_volume}` : "",
-    p0?.desc ? `분류/설명: ${p0.desc}` : "",
+    name ? `제품명: ${name}` : "",
+    nameEn ? `영문명: ${nameEn}` : "",
+    volume ? `용량/규격: ${volume}` : "",
+    desc ? `분류/설명: ${desc}` : "",
     (productInfo ?? "").trim() ? `추가 상품 정보:\n${(productInfo ?? "").trim()}` : "",
   ].filter(Boolean).join("\n");
-  if (!ctx) return { ok: false, error: "제품 정보를 입력하세요(핵심 SKU 제품명·설명 또는 아래 상품정보 칸)." };
+  if (!ctx) return { ok: false, error: "제품 정보가 없습니다 — 아래 〈제품 레퍼런스〉에 제품명을 넣거나, 상품정보 칸에 설명을 붙여넣어 주세요." };
 
   const system =
     "너는 글로벌 커머스 대행사 GloveK 의 B2B 세일즈 카피라이터다. 주어진 상품 정보에서 소비자에게 통하는 " +

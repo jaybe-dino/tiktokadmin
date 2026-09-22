@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getProposalByToken, defaultTemplate, type ProposalDoc, type ProposalTemplate } from "@/lib/proposal-doc";
+import { benchOf, BENCH_TIERS, perCountryLabel } from "@/lib/proposal-bench";
 import { proposalImageUrl } from "@/lib/asset-url";
 import PrintBar from "./PrintBar";
 import { RefCard } from "@/components/MktProposalView";
@@ -27,14 +28,8 @@ const DEFAULT_VALUE_ITEMS: { label: string; qty?: string }[] = [
 ];
 const TRACK_BADGE: Record<string, string> = { onboarding: "ONBOARDING TRACK", mall: "MULTI-MALL TRACK", marketing: "MARKETING TRACK" };
 
-// 틱톡샵 시딩 벤치마크(베트남 · Beauty · 30일) — 업계 고정 상수(담당자 편집 대상 아님).
-const BENCH = {
-  cols: ["T1", "T2", "T3", "T4", "T5", "Beyond"],
-  content: ["204", "992", "2,776", "6,327", "22,470", "82,509"],
-  adspend: ["$1.4K", "$14K", "$30K", "$137K", "$438K", "$4.6M"],
-};
-const BENCH_NOTE =
-  "기본 시딩은 최소 20건/월 기준 6개월 120건 · 12개월 240건이나, T2 기준 크리에이터 콘텐츠 992개에 맞춰 실제 운영은 누적 1,000건 이상을 목표로 확대합니다. GMV KPI 역시 단계별로 상향 조정합니다.";
+const benchNote = (t2: string) =>
+  `기본 시딩은 최소 20건/월 기준 6개월 120건 · 12개월 240건이나, T2 기준 크리에이터 콘텐츠 ${t2}개에 맞춰 실제 운영은 누적 1,000건 이상을 목표로 확대합니다. GMV KPI 역시 단계별로 상향 조정합니다.`;
 
 export async function generateMetadata({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -143,18 +138,19 @@ function ProductSection({ d }: { d: ProposalDoc }) {
 // ── 트랙 제안 요약(가격 + 상당 구성 가치) ──
 function PricingSection({ d }: { d: ProposalDoc }) {
   // 가격·기능·가치표가 모두 비면(예: 마케팅/멀티몰 프리필 없음) 섹션 자체를 생략(빈 카드 방지).
-  if (d.monthly_amount == null && d.list_amount == null && d.features.length === 0 &&
+  // 기능 체크리스트(features)는 제안서에서 제거됨(BUG-40) — 표기·판정 모두 제외.
+  if (d.monthly_amount == null && d.list_amount == null &&
       d.value_items.length === 0 && d.value_total == null) return null;
   return (
     <section className="pp-page">
       <Eyebrow small={`${TRACK_BADGE[d.track] ?? d.track.toUpperCase()} · SUMMARY`} title={TRACK_SUMMARY[d.track] ?? "제안 요약"}
         sub="시딩·라이브 콘텐츠부터 인증·물류·CS·발주까지 운영 전반을 대행합니다." />
       <div className="pp-2col">
-        <div className="pp-card">
+        <div className="pp-card pp-price-card">
           <span className="pp-track">{TRACK_BADGE[d.track] ?? d.track.toUpperCase()}</span>
           <div className="pp-price-row">
             {d.list_amount ? <span className="pp-list">{won(d.list_amount)}</span> : null}
-            {d.list_amount ? <span className="pp-per">(국가 당)</span> : null}
+            {d.list_amount ? <span className="pp-per">{perCountryLabel(d.countries)}</span> : null}
             <span className="pp-amount">{won(d.monthly_amount)}<small>/ 월</small></span>
           </div>
           {(d.fee_pct != null || d.term_discount_pct != null) && (
@@ -164,9 +160,6 @@ function PricingSection({ d }: { d: ProposalDoc }) {
               {d.term_discount_pct != null ? `${d.term_months ?? 6}개월 약정 시 ${d.term_discount_pct}% 추가 할인` : ""}
             </div>
           )}
-          <ul className="pp-features">
-            {d.features.map((f, i) => <li key={i}><span className="pp-ck">✓</span>{f}</li>)}
-          </ul>
         </div>
         {(() => {
           // value_items 가 있으면 그대로, 없으면(온보딩) 표준 구성 항목(금액 없이)으로 폴백 — 항목은 항상 노출.
@@ -199,14 +192,15 @@ function PricingSection({ d }: { d: ProposalDoc }) {
 
 // ── 실행 로드맵 & 기대 효과 ──
 function OperationsSection({ d }: { d: ProposalDoc }) {
-  const has = d.roadmap_steps.length > 0 || d.impacts.length > 0 || d.seeding_qty != null || d.live_qty != null || d.op_tags.length > 0;
+  // 운영 태그(op_tags)는 제안서에서 제거됨(BUG-39).
+  const has = d.roadmap_steps.length > 0 || d.impacts.length > 0 || d.seeding_qty != null || d.live_qty != null;
   if (!has) return null;
   return (
     <section className="pp-page">
       <Eyebrow small="EXECUTION & IMPACT" title="실행 로드맵 & 기대 효과"
         sub={ymLabel(d.start_ym) ? `${ymLabel(d.start_ym)} 운영 시작 기준` : undefined} />
       {d.roadmap_steps.length > 0 && (
-        <div className="pp-steps">
+        <div className={`pp-steps${d.roadmap_steps.length > 4 ? " many" : ""}`}>
           {d.roadmap_steps.map((s, i) => (
             <div key={i} className="pp-step">
               <span className="pp-step-label">STEP {String(i + 1).padStart(2, "0")}</span>
@@ -222,9 +216,6 @@ function OperationsSection({ d }: { d: ProposalDoc }) {
           <div className="pp-subhead">운영 &amp; 콘텐츠 <i>OPERATIONS</i></div>
           {d.seeding_qty != null && <div className="pp-op-row"><b>{d.seeding_qty}</b><i>건</i><span>크리에이터 시딩</span></div>}
           {d.live_qty != null && <div className="pp-op-row"><b>{d.live_qty}</b><i>건</i><span>라이브 커머스</span></div>}
-          {d.op_tags.length > 0 && (
-            <div className="pp-tags" style={{ marginTop: 14 }}>{d.op_tags.map((t, i) => <span key={i} className="pp-tag">#{t}</span>)}</div>
-          )}
         </div>
         <div className="pp-card">
           <div className="pp-subhead">기대 효과 <i>IMPACT</i></div>
@@ -249,10 +240,12 @@ function OperationsSection({ d }: { d: ProposalDoc }) {
 function KpiSection({ d }: { d: ProposalDoc }) {
   const has = d.kpi_creator_content != null || d.kpi_tier || d.kpi_year_creator_content != null || d.kpi_year_tier;
   if (!has) return null;
+  // 벤치마크는 국가·카테고리마다 달라 문서별로 편집한다(BUG-35) — 미입력 시 기본값(베트남·Beauty).
+  const bench = benchOf(d.bench);
   return (
     <section className="pp-page">
       <Eyebrow small="KPI ROADMAP" title="6개월 · 1년 KPI 로드맵"
-        sub="틱톡샵 시딩 벤치마크(베트남 · Beauty) 기준, 6개월 내 T1 · 1년 내 T2 티어 달성을 목표로 합니다." />
+        sub={`틱톡샵 시딩 벤치마크(${bench.country} · ${bench.category}) 기준, 6개월 내 ${d.kpi_tier || "T1"} · 1년 내 ${d.kpi_year_tier || "T2"} 티어 달성을 목표로 합니다.`} />
       <div className="pp-2col">
         <div className="pp-card pp-kpi">
           <div className="pp-kpi-head"><span className="pp-badge dark">6개월 KPI</span>{d.kpi_tier ? <b className="pp-tier">{d.kpi_tier}</b> : null}</div>
@@ -274,15 +267,15 @@ function KpiSection({ d }: { d: ProposalDoc }) {
       <div className="pp-bench-wrap">
         <table className="pp-bench">
           <thead>
-            <tr><th>TikTok Shop 시딩 벤치마크<em>베트남(VN) · Beauty · 30일 기준</em></th>{BENCH.cols.map((c) => <th key={c}>{c}</th>)}</tr>
+            <tr><th>TikTok Shop 시딩 벤치마크<em>{bench.country} · {bench.category} · 30일 기준</em></th>{BENCH_TIERS.map((c) => <th key={c}>{c}</th>)}</tr>
           </thead>
           <tbody>
-            <tr><td><span className="pp-bench-tag">추천 기준</span>크리에이터 콘텐츠</td>{BENCH.content.map((v, i) => <td key={i} className="pp-bench-hot">{v}</td>)}</tr>
-            <tr><td>샵 광고비 <em>(참고, USD)</em></td>{BENCH.adspend.map((v, i) => <td key={i}>{v}</td>)}</tr>
+            <tr><td><span className="pp-bench-tag">추천 기준</span>크리에이터 콘텐츠</td>{bench.content.map((v, i) => <td key={i} className="pp-bench-hot">{v}</td>)}</tr>
+            <tr><td>샵 광고비 <em>(참고, USD)</em></td>{bench.adspend.map((v, i) => <td key={i}>{v}</td>)}</tr>
           </tbody>
         </table>
       </div>
-      <p className="pp-note">{BENCH_NOTE}</p>
+      <p className="pp-note">{benchNote(bench.content[1])}</p>
     </section>
   );
 }
@@ -432,10 +425,10 @@ function css(accent: string, bg?: string | null): string {
   .pp-amount{font-size:44px;font-weight:900;letter-spacing:-.02em;line-height:1;flex-basis:100%;margin-top:4px;}
   .pp-amount small{font-size:18px;font-weight:800;color:var(--ink2);margin-left:6px;}
   .pp-terms{background:var(--tint);color:var(--acc);font-weight:800;font-size:14px;padding:12px 16px;border-radius:12px;margin:16px 0 0;}
-  .pp-features{list-style:none;margin:18px 0 0;padding:0;}
-  .pp-features li{display:flex;align-items:center;gap:12px;font-weight:700;font-size:15px;padding:12px 2px;border-top:1px solid var(--line);}
-  .pp-features li:first-child{border-top:none;}
-  .pp-ck{width:24px;height:24px;border-radius:999px;background:var(--tint2);color:var(--acc);display:grid;place-items:center;font-size:12px;font-weight:900;flex:0 0 auto;}
+  /* 체크리스트를 뺀 뒤 가격 카드가 옆 카드보다 짧아지므로, 내용을 위아래로 벌려 빈 여백이 뭉치지 않게 한다. */
+  .pp-price-card{display:flex;flex-direction:column;}
+  .pp-price-card .pp-price-row{margin-top:auto;}
+  .pp-price-card .pp-terms{margin-bottom:0;}
   /* 상당 구성 가치 */
   .pp-value-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid var(--line);}
   .pp-value-head b{font-size:17px;font-weight:900;}
@@ -449,6 +442,13 @@ function css(accent: string, bg?: string | null): string {
   .pp-value-total b{font-size:20px;}
   /* 로드맵 스텝 */
   .pp-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px;}
+  /* 단계가 많으면(5개 이상) 2열 가로형 — 4열에 넣으면 칸이 좁아 설명이 뭉친다. */
+  .pp-steps.many{grid-template-columns:1fr 1fr;gap:12px 20px;}
+  .pp-steps.many .pp-step{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;align-items:start;padding:12px 0;border-top:1px solid var(--line);}
+  .pp-steps.many .pp-step-label{grid-column:2;}
+  .pp-steps.many .pp-step-head{grid-row:1 / span 3;margin:0;}
+  .pp-steps.many .pp-step-title{font-size:14.5px;}
+  .pp-steps.many .pp-step-desc{font-size:12px;}
   .pp-step-label{font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--acc);}
   .pp-step-head{margin:8px 0 10px;}
   .pp-step-no{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--acc);color:#fff;font-weight:900;font-size:15px;}
@@ -550,7 +550,7 @@ function css(accent: string, bg?: string | null): string {
   }
   @media(max-width:820px){
     .pp-2col,.pp-hero{grid-template-columns:1fr;}
-    .pp-steps{grid-template-columns:1fr 1fr;}
+    .pp-steps,.pp-steps.many{grid-template-columns:1fr 1fr;}
     .pp-amount{font-size:36px;}.pp-kpi-grid{grid-template-columns:1fr 1fr;}
     .pp-page{padding:28px 22px;}
   }

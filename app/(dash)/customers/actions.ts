@@ -1,6 +1,7 @@
 "use server";
 
 import { query } from "@/lib/db";
+import { customerDateWhere } from "@/lib/repo/queries";
 import { currentUser } from "@/lib/auth";
 import {
   PLAN_LABELS, PAY_STATUS_LABELS, SOURCE_LABELS, STATE_LABELS,
@@ -20,6 +21,8 @@ export interface CsvExportResult {
 interface CsvFilter {
   q?: string; state?: string; source?: string; grade?: string;
   plan?: string; owner?: string; breach?: string;
+  country?: string;            // 진행국가 — 화면 필터와 같은 조건으로 맞춘다
+  from?: string; to?: string;  // 유입일 범위 "YYYY-MM-DD" (BUG-41)
 }
 
 // CSV 셀 이스케이프 (콤마·따옴표·개행 안전).
@@ -55,6 +58,26 @@ export async function exportCustomersCsvAction(f: CsvFilter): Promise<CsvExportR
   if (f.breach === "1") {
     where.push(`EXISTS(SELECT 1 FROM alerts a WHERE a.brand_id=b.id AND a.kind='sla_breach' AND a.resolved_at IS NULL)`);
   }
+  // 진행국가 — 목록 화면과 동일 판정(목표국·운영견적·물류·온보딩 KYC 중 하나라도 포함).
+  //   예전엔 이 조건이 빠져 있어 국가로 걸러 놓고 내보내면 전체가 나왔다.
+  if (f.country) {
+    const { normCountry, codeForLabel } = await import("@/lib/progress-countries");
+    const label = normCountry(f.country);
+    const code = codeForLabel(label);
+    p.push(label); const pl = p.length;
+    p.push(code); const pc = p.length;
+    where.push(`(
+      b.countries @> ARRAY[$${pl}]::text[]
+      OR EXISTS(SELECT 1 FROM proposals pr WHERE pr.brand_id=b.id AND pr.countries && ARRAY[$${pc}]::text[])
+      OR EXISTS(SELECT 1 FROM logistics_contracts lc WHERE lc.brand_id=b.id AND lc.country=$${pc})
+      OR EXISTS(SELECT 1 FROM onb_applications oa JOIN onb_countries oc ON oc.application_id=oa.id
+                 WHERE oa.brand_id=b.id AND (oc.country_name=$${pl} OR oc.country_code=$${pc}))
+    )`);
+  }
+  // 유입일 범위(BUG-41) — 목록과 같은 헬퍼를 쓴다.
+  for (const c of customerDateWhere(f, p)) where.push(c);
+  // 상태 미지정이면 종료(드랍·이탈) 제외 — 목록 화면과 같은 행이 나오게.
+  if (!f.state) where.push(`b.state NOT IN ('dropped','churned')`);
 
   const rows = await query<{
     brand_name: string; brand_name_en: string | null; state: State;
@@ -102,10 +125,11 @@ export async function exportCustomersCsvAction(f: CsvFilter): Promise<CsvExportR
   }
 
   const stamp = new Date().toISOString().slice(0, 10);
+  const range = f.from || f.to ? `_${f.from || "처음"}~${f.to || "오늘"}` : "";
   return {
     ok: true,
     csv: lines.join("\r\n"),
-    filename: `customers_${stamp}.csv`,
+    filename: `customers${range}_${stamp}.csv`,
     count: rows.length,
   };
 }
