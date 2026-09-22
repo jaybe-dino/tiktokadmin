@@ -5,6 +5,7 @@ import { saveProposalDocAction, deleteProposalDocAction, generateProposalContent
 import type { ProposalDoc, ProposalProduct, ProposalCreator, ProposalFeature, ProposalValueItem, ProposalStep, ProposalImpact, ProposalAddon } from "@/lib/proposal-doc";
 // 벤치마크 값은 DB 의존이 없는 모듈에서 — 클라이언트 번들에 pg 가 끌려오지 않게.
 import { benchOf, BENCH_DEFAULT, BENCH_TIERS, type ProposalBench } from "@/lib/proposal-bench";
+import { SECTION_DEFS, sectionMap, sectionOn } from "@/lib/proposal-sections";
 import { OPS_COUNTRIES } from "@/lib/quote";
 import CategoryPicker from "@/components/CategoryPicker";
 import GlovekCategorySelect from "@/components/GlovekCategorySelect";
@@ -44,7 +45,7 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         seeding_qty: d.seeding_qty, live_qty: d.live_qty, op_tags: d.op_tags,
         kpi_tier: d.kpi_tier, kpi_stage: d.kpi_stage, kpi_creator_content: d.kpi_creator_content, kpi_ad_spend: d.kpi_ad_spend,
         products: d.products, creators: d.creators, accent: d.accent, accent2: d.accent2 ?? null, start_ym: d.start_ym ?? null,
-        countries: d.countries ?? [], bench: benchOf(d.bench),
+        countries: d.countries ?? [], bench: benchOf(d.bench), show_sections: sectionMap(d.show_sections),
         product_en: d.product_en, product_volume: d.product_volume, product_features: d.product_features, product_tags: d.product_tags,
         value_items: d.value_items, value_total: d.value_total,
         roadmap_steps: d.roadmap_steps, impacts: d.impacts, impact_banner: d.impact_banner,
@@ -211,6 +212,14 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
         </Grid>
       </Card>
 
+      {/* 표시 섹션 — 제안서마다 넣고 뺄 칸을 직접 고른다 */}
+      <Card title="제안서에 넣을 칸 고르기">
+        <div style={{ fontSize: 11, color: "var(--ink3)", marginBottom: 10 }}>
+          브랜드마다 필요한 칸이 달라서, 빼고 싶은 칸은 여기서 끄면 됩니다. 끈 칸의 <b>입력값은 지워지지 않으니</b> 언제든 다시 켤 수 있어요.
+        </div>
+        <SectionToggles value={sectionMap(d.show_sections)} on={(v) => set("show_sections", v)} />
+      </Card>
+
       {/* 가격 조건 */}
       <Card title="가격 조건">
         {/* 운영 견적(#2) 불러오기 — 없으면 수기 입력 그대로. */}
@@ -249,15 +258,23 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
             : <div style={{ fontSize: 11, color: "var(--ink3)", alignSelf: "end", paddingBottom: 6 }}>온보딩 트랙은 약정 할인 없음(픽스가)</div>}
         </Grid>
         <CountriesEditor items={d.countries ?? []} on={(v) => set("countries", v)} />
+        {sectionOn(d.show_sections, "features") && (
+          <ListEditor label="기능 체크리스트 (한 줄에 하나)" items={d.features} on={(v) => set("features", v)} placeholder="예: 크리에이터 시딩 20건 · 라이브 4건" />
+        )}
       </Card>
 
-      {/* 운영 · 콘텐츠 */}
-      <Card title="운영 · 콘텐츠">
-        <Grid>
-          <F label="무가 시딩 수량(건)" v={d.seeding_qty?.toString() ?? ""} on={(v) => set("seeding_qty", numOrNull(v))} />
-          <F label="라이브 수량(건)" v={d.live_qty?.toString() ?? ""} on={(v) => set("live_qty", numOrNull(v))} />
-        </Grid>
-      </Card>
+      {/* 운영 · 콘텐츠 — 「넣을 칸 고르기」에서 켰을 때만 노출 */}
+      {sectionOn(d.show_sections, "ops") && (
+        <Card title="운영 · 콘텐츠">
+          <Grid>
+            <F label="무가 시딩 수량(건)" v={d.seeding_qty?.toString() ?? ""} on={(v) => set("seeding_qty", numOrNull(v))} />
+            <F label="라이브 수량(건)" v={d.live_qty?.toString() ?? ""} on={(v) => set("live_qty", numOrNull(v))} />
+          </Grid>
+          {sectionOn(d.show_sections, "op_tags") && (
+            <ListEditor label="운영 태그 (한 줄에 하나, # 제외)" items={d.op_tags} on={(v) => set("op_tags", v)} placeholder="예: 콘텐츠기획" />
+          )}
+        </Card>
+      )}
 
       {/* KPI */}
       <Card title="KPI 로드맵 (6개월 · 1년)">
@@ -345,6 +362,41 @@ export default function ProposalEditor({ doc, publicBase }: { doc: ProposalDoc; 
       </Card>
 
       {msg && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#111", color: "#fff", padding: "11px 18px", borderRadius: 10, fontSize: 13, zIndex: 50 }}>{msg}</div>}
+    </div>
+  );
+}
+
+// ── 제안서에 넣을 칸 고르기 — 켜고 끄면 공개 제안서에서 그 칸이 나타나고 사라진다 ──
+function SectionToggles({ value, on }: { value: Record<string, boolean>; on: (v: Record<string, boolean>) => void }) {
+  // 어느 페이지의 칸인지 묶어서 보여준다 — 목록만 나열하면 어디 칸인지 찾기 어렵다.
+  const groups: [string, typeof SECTION_DEFS][] = [];
+  for (const d of SECTION_DEFS) {
+    const g = groups.find(([w]) => w === d.where);
+    if (g) g[1].push(d); else groups.push([d.where, [d]]);
+  }
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {groups.map(([where, defs]) => (
+        <div key={where}>
+          <div style={{ fontSize: 11, color: "var(--ink3)", fontWeight: 700, marginBottom: 4 }}>{where}</div>
+          <div style={{ display: "grid", gap: 4 }}>
+            {defs.map((def) => {
+              // 운영 태그는 운영·콘텐츠 칸 안에 있어서, 부모가 꺼져 있으면 켜도 보이지 않는다.
+              const parentOff = def.key === "op_tags" && !value.ops;
+              return (
+                <label key={def.key} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, opacity: parentOff ? 0.5 : 1 }}>
+                  <input type="checkbox" checked={!!value[def.key]} disabled={parentOff}
+                    onChange={(e) => on({ ...value, [def.key]: e.target.checked })} style={{ marginTop: 2 }} />
+                  <span>
+                    <b style={{ fontWeight: 600 }}>{def.label}</b>
+                    <span style={{ color: "var(--ink3)", marginLeft: 6, fontSize: 11 }}>{def.desc}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

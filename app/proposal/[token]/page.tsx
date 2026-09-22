@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getProposalByToken, defaultTemplate, type ProposalDoc, type ProposalTemplate } from "@/lib/proposal-doc";
 import { benchOf, BENCH_TIERS, perCountryLabel } from "@/lib/proposal-bench";
+import { sectionOn } from "@/lib/proposal-sections";
 import { proposalImageUrl } from "@/lib/asset-url";
 import PrintBar from "./PrintBar";
 import { RefCard } from "@/components/MktProposalView";
@@ -138,15 +139,17 @@ function ProductSection({ d }: { d: ProposalDoc }) {
 // ── 트랙 제안 요약(가격 + 상당 구성 가치) ──
 function PricingSection({ d }: { d: ProposalDoc }) {
   // 가격·기능·가치표가 모두 비면(예: 마케팅/멀티몰 프리필 없음) 섹션 자체를 생략(빈 카드 방지).
-  // 기능 체크리스트(features)는 제안서에서 제거됨(BUG-40) — 표기·판정 모두 제외.
-  if (d.monthly_amount == null && d.list_amount == null &&
-      d.value_items.length === 0 && d.value_total == null) return null;
+  // 어떤 칸을 넣을지는 제안서마다 담당자가 켜고 끈다(표시 섹션 옵션).
+  const onFeatures = sectionOn(d.show_sections, "features") && d.features.length > 0;
+  const onValue = sectionOn(d.show_sections, "value");
+  if (d.monthly_amount == null && d.list_amount == null && !onFeatures &&
+      (!onValue || (d.value_items.length === 0 && d.value_total == null))) return null;
   return (
     <section className="pp-page">
       <Eyebrow small={`${TRACK_BADGE[d.track] ?? d.track.toUpperCase()} · SUMMARY`} title={TRACK_SUMMARY[d.track] ?? "제안 요약"}
         sub="시딩·라이브 콘텐츠부터 인증·물류·CS·발주까지 운영 전반을 대행합니다." />
-      <div className="pp-2col">
-        <div className="pp-card pp-price-card">
+      <div className={`pp-2col${onValue ? "" : " one"}`}>
+        <div className={`pp-card${onFeatures ? "" : " pp-price-card"}`}>
           <span className="pp-track">{TRACK_BADGE[d.track] ?? d.track.toUpperCase()}</span>
           <div className="pp-price-row">
             {d.list_amount ? <span className="pp-list">{won(d.list_amount)}</span> : null}
@@ -160,8 +163,14 @@ function PricingSection({ d }: { d: ProposalDoc }) {
               {d.term_discount_pct != null ? `${d.term_months ?? 6}개월 약정 시 ${d.term_discount_pct}% 추가 할인` : ""}
             </div>
           )}
+          {onFeatures && (
+            <ul className="pp-features">
+              {d.features.map((f, i) => <li key={i}><span className="pp-ck">✓</span>{f}</li>)}
+            </ul>
+          )}
         </div>
         {(() => {
+          if (!onValue) return null;
           // value_items 가 있으면 그대로, 없으면(온보딩) 표준 구성 항목(금액 없이)으로 폴백 — 항목은 항상 노출.
           const items = d.value_items.length > 0 ? d.value_items : (d.track === "onboarding" ? DEFAULT_VALUE_ITEMS : []);
           if (items.length === 0 && d.value_total == null) return null;
@@ -192,14 +201,18 @@ function PricingSection({ d }: { d: ProposalDoc }) {
 
 // ── 실행 로드맵 & 기대 효과 ──
 function OperationsSection({ d }: { d: ProposalDoc }) {
-  // 운영 태그(op_tags)는 제안서에서 제거됨(BUG-39).
-  const has = d.roadmap_steps.length > 0 || d.impacts.length > 0 || d.seeding_qty != null || d.live_qty != null;
-  if (!has) return null;
+  // 어떤 칸을 넣을지는 제안서마다 담당자가 켜고 끈다(표시 섹션 옵션).
+  const onRoadmap = sectionOn(d.show_sections, "roadmap") && d.roadmap_steps.length > 0;
+  const onOps = sectionOn(d.show_sections, "ops") && (d.seeding_qty != null || d.live_qty != null);
+  const onTags = onOps && sectionOn(d.show_sections, "op_tags") && d.op_tags.length > 0;
+  const onImpact = sectionOn(d.show_sections, "impact") && d.impacts.length > 0;
+  const onBanner = sectionOn(d.show_sections, "banner") && (d.value_total != null || !!d.impact_banner);
+  if (!onRoadmap && !onOps && !onImpact && !onBanner) return null;
   return (
     <section className="pp-page">
       <Eyebrow small="EXECUTION & IMPACT" title="실행 로드맵 & 기대 효과"
         sub={ymLabel(d.start_ym) ? `${ymLabel(d.start_ym)} 운영 시작 기준` : undefined} />
-      {d.roadmap_steps.length > 0 && (
+      {onRoadmap && (
         <div className={`pp-steps${d.roadmap_steps.length > 4 ? " many" : ""}`}>
           {d.roadmap_steps.map((s, i) => (
             <div key={i} className="pp-step">
@@ -211,22 +224,31 @@ function OperationsSection({ d }: { d: ProposalDoc }) {
           ))}
         </div>
       )}
-      <div className="pp-2col">
-        <div className="pp-card">
-          <div className="pp-subhead">운영 &amp; 콘텐츠 <i>OPERATIONS</i></div>
-          {d.seeding_qty != null && <div className="pp-op-row"><b>{d.seeding_qty}</b><i>건</i><span>크리에이터 시딩</span></div>}
-          {d.live_qty != null && <div className="pp-op-row"><b>{d.live_qty}</b><i>건</i><span>라이브 커머스</span></div>}
+      {(onOps || onImpact) && (
+        <div className={`pp-2col${onOps && onImpact ? "" : " one"}`}>
+          {onOps && (
+            <div className="pp-card">
+              <div className="pp-subhead">운영 &amp; 콘텐츠 <i>OPERATIONS</i></div>
+              {d.seeding_qty != null && <div className="pp-op-row"><b>{d.seeding_qty}</b><i>건</i><span>크리에이터 시딩</span></div>}
+              {d.live_qty != null && <div className="pp-op-row"><b>{d.live_qty}</b><i>건</i><span>라이브 커머스</span></div>}
+              {onTags && (
+                <div className="pp-tags" style={{ marginTop: 14 }}>{d.op_tags.map((t, i) => <span key={i} className="pp-tag">#{t}</span>)}</div>
+              )}
+            </div>
+          )}
+          {onImpact && (
+            <div className="pp-card">
+              <div className="pp-subhead">기대 효과 <i>IMPACT</i></div>
+              <div className="pp-impacts">
+                {d.impacts.map((m, i) => (
+                  <div key={i} className="pp-impact"><span className="pp-impact-ic">↗</span><div><b>{m.title}</b>{m.desc ? <span>{m.desc}</span> : null}</div></div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-        <div className="pp-card">
-          <div className="pp-subhead">기대 효과 <i>IMPACT</i></div>
-          <div className="pp-impacts">
-            {d.impacts.map((m, i) => (
-              <div key={i} className="pp-impact"><span className="pp-impact-ic">↗</span><div><b>{m.title}</b>{m.desc ? <span>{m.desc}</span> : null}</div></div>
-            ))}
-          </div>
-        </div>
-      </div>
-      {(d.value_total != null || d.impact_banner) && (
+      )}
+      {onBanner && (
         <div className="pp-banner">
           {d.value_total != null && <span className="pp-banner-l">{won(d.value_total)} 상당 구성</span>}
           {d.impact_banner && <span className="pp-banner-r">{d.impact_banner}</span>}
@@ -242,10 +264,13 @@ function KpiSection({ d }: { d: ProposalDoc }) {
   if (!has) return null;
   // 벤치마크는 국가·카테고리마다 달라 문서별로 편집한다(BUG-35) — 미입력 시 기본값(베트남·Beauty).
   const bench = benchOf(d.bench);
+  const onBench = sectionOn(d.show_sections, "bench");
   return (
     <section className="pp-page">
       <Eyebrow small="KPI ROADMAP" title="6개월 · 1년 KPI 로드맵"
-        sub={`틱톡샵 시딩 벤치마크(${bench.country} · ${bench.category}) 기준, 6개월 내 ${d.kpi_tier || "T1"} · 1년 내 ${d.kpi_year_tier || "T2"} 티어 달성을 목표로 합니다.`} />
+        sub={onBench
+          ? `틱톡샵 시딩 벤치마크(${bench.country} · ${bench.category}) 기준, 6개월 내 ${d.kpi_tier || "T1"} · 1년 내 ${d.kpi_year_tier || "T2"} 티어 달성을 목표로 합니다.`
+          : `6개월 내 ${d.kpi_tier || "T1"} · 1년 내 ${d.kpi_year_tier || "T2"} 티어 달성을 목표로 합니다.`} />
       <div className="pp-2col">
         <div className="pp-card pp-kpi">
           <div className="pp-kpi-head"><span className="pp-badge dark">6개월 KPI</span>{d.kpi_tier ? <b className="pp-tier">{d.kpi_tier}</b> : null}</div>
@@ -264,6 +289,7 @@ function KpiSection({ d }: { d: ProposalDoc }) {
           </div>
         </div>
       </div>
+      {onBench && (<>
       <div className="pp-bench-wrap">
         <table className="pp-bench">
           <thead>
@@ -276,13 +302,14 @@ function KpiSection({ d }: { d: ProposalDoc }) {
         </table>
       </div>
       <p className="pp-note">{benchNote(bench.content[1])}</p>
+      </>)}
     </section>
   );
 }
 
 // ── 별도 제안 예정 항목 ──
 function AddonSection({ d }: { d: ProposalDoc }) {
-  if (d.addons.length === 0) return null;
+  if (d.addons.length === 0 || !sectionOn(d.show_sections, "addon")) return null;
   return (
     <section className="pp-page">
       <Eyebrow small="ADD-ON SCOPE" title="별도 제안 예정 항목"
@@ -304,7 +331,7 @@ function AddonSection({ d }: { d: ProposalDoc }) {
 
 // ── 레퍼런스 케이스 — 마케팅 데크와 "동일한 컴포넌트(RefCard)"로 렌더(이미지 로직 단일화). ──
 function CreatorsSection({ d, accent }: { d: ProposalDoc; accent: string }) {
-  if (d.creators.length === 0) return null;
+  if (d.creators.length === 0 || !sectionOn(d.show_sections, "creators")) return null;
   return (
     <section className="pp-page">
       <Eyebrow small="REFERENCE CASES" title="크리에이터 콘텐츠 레퍼런스" />
@@ -376,6 +403,8 @@ function css(accent: string, bg?: string | null): string {
   .pp-page{background:var(--tint);border-radius:22px;box-shadow:0 10px 40px rgba(15,23,42,.08);padding:40px 40px;margin:22px 0;}
   .pp-card{background:#fff;border-radius:18px;padding:26px;box-shadow:0 6px 22px rgba(15,23,42,.06);}
   .pp-2col{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  /* 두 칸 중 하나를 껐으면 남은 칸이 폭을 다 쓰게 — 옆에 빈 자리가 남지 않도록. */
+  .pp-2col.one{grid-template-columns:1fr;}
   /* 공통 헤더 */
   .pp-head{margin-bottom:22px;}
   .pp-eye{font-size:12px;font-weight:800;letter-spacing:.2em;color:var(--acc);margin-bottom:8px;}
@@ -425,7 +454,11 @@ function css(accent: string, bg?: string | null): string {
   .pp-amount{font-size:44px;font-weight:900;letter-spacing:-.02em;line-height:1;flex-basis:100%;margin-top:4px;}
   .pp-amount small{font-size:18px;font-weight:800;color:var(--ink2);margin-left:6px;}
   .pp-terms{background:var(--tint);color:var(--acc);font-weight:800;font-size:14px;padding:12px 16px;border-radius:12px;margin:16px 0 0;}
-  /* 체크리스트를 뺀 뒤 가격 카드가 옆 카드보다 짧아지므로, 내용을 위아래로 벌려 빈 여백이 뭉치지 않게 한다. */
+  .pp-features{list-style:none;margin:18px 0 0;padding:0;}
+  .pp-features li{display:flex;align-items:center;gap:12px;font-weight:700;font-size:15px;padding:12px 2px;border-top:1px solid var(--line);}
+  .pp-features li:first-child{border-top:none;}
+  .pp-ck{width:24px;height:24px;border-radius:999px;background:var(--tint2);color:var(--acc);display:grid;place-items:center;font-size:12px;font-weight:900;flex:0 0 auto;}
+  /* 체크리스트를 껐을 때 가격 카드가 옆 카드보다 짧아지므로, 내용을 위아래로 벌려 빈 여백이 뭉치지 않게 한다. */
   .pp-price-card{display:flex;flex-direction:column;}
   .pp-price-card .pp-price-row{margin-top:auto;}
   .pp-price-card .pp-terms{margin-bottom:0;}

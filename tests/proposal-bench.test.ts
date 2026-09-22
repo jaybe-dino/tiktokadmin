@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { benchOf, perCountryLabel, BENCH_DEFAULT } from "../lib/proposal-bench";
 import { customerDateWhere } from "../lib/repo/queries";
+import { sectionOn, sectionMap, SECTION_DEFS } from "../lib/proposal-sections";
 
 describe("benchOf (시딩 벤치마크 · BUG-35)", () => {
   it("미입력이면 베트남 기본값", () => {
@@ -53,5 +54,30 @@ describe("customerDateWhere (유입일 범위 · BUG-41)", () => {
     expect(w[0]).toBe("b.created_at >= $2::date");
     expect(w[1]).toBe("b.created_at < ($3::date + 1)");
     expect(p).toEqual(["기존값", "2026-09-01", "2026-09-22"]);
+  });
+});
+
+// ── 제안서에 넣을 칸 고르기(표시 섹션 옵션) ──
+describe("sectionOn / sectionMap (표시 섹션 옵션)", () => {
+  it("저장값이 없으면 기본값 — 운영·콘텐츠와 체크리스트·태그는 꺼진 상태", () => {
+    expect(sectionOn(null, "ops")).toBe(false);
+    expect(sectionOn(null, "features")).toBe(false);
+    expect(sectionOn(null, "op_tags")).toBe(false);
+    expect(sectionOn(null, "impact")).toBe(true);
+    expect(sectionOn(null, "roadmap")).toBe(true);
+    expect(sectionOn(undefined, "creators")).toBe(true);
+  });
+  it("저장값이 있으면 그 값을 따른다(다시 켤 수 있다)", () => {
+    expect(sectionOn({ ops: true }, "ops")).toBe(true);
+    expect(sectionOn({ impact: false }, "impact")).toBe(false);
+  });
+  it("모르는 키는 표시로 본다(칸이 통째로 사라지지 않게)", () => {
+    expect(sectionOn({}, "없는칸")).toBe(true);
+  });
+  it("sectionMap 은 모든 칸의 현재 상태를 채워 준다", () => {
+    const m = sectionMap({ ops: true });
+    expect(m.ops).toBe(true);
+    expect(m.features).toBe(false);
+    expect(Object.keys(m).length).toBe(SECTION_DEFS.length);
   });
 });

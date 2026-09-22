@@ -17,6 +17,8 @@ export interface ProposalAddon { label?: string; title: string; desc?: string } 
 // 시딩 벤치마크(BUG-35)는 클라이언트 편집 화면에서도 쓰므로 DB 의존 없는 모듈에 두고 재수출한다.
 export { BENCH_DEFAULT, BENCH_TIERS, benchOf, type ProposalBench } from "./proposal-bench";
 import type { ProposalBench } from "./proposal-bench";
+// 섹션 표시 옵션(0095) — 담당자가 제안서마다 칸을 켜고 끈다.
+export { SECTION_DEFS, sectionOn, sectionMap } from "./proposal-sections";
 
 export interface ProposalDoc {
   id: string;
@@ -47,6 +49,7 @@ export interface ProposalDoc {
   start_ym?: string | null; // 운영 시작 연월 "YYYY-MM" (0093) — 제안서에 "언제부터"를 명시
   countries?: string[] | null;      // 진행 국가 라벨(0094, BUG-36) — 비면 "(국가 당)" 표기 유지
   bench?: ProposalBench | null;     // 시딩 벤치마크 표(0094, BUG-35) — 비면 BENCH_DEFAULT
+  show_sections?: Record<string, boolean> | null; // 섹션 표시 옵션(0095) — 비면 코드 기본값
   // v2 — 레퍼런스 데크 정합 필드.
   product_en: string | null;
   product_volume: string | null;
@@ -113,6 +116,7 @@ export interface ProposalInput {
   start_ym?: string | null;
   countries?: string[] | null;
   bench?: ProposalBench | null;
+  show_sections?: Record<string, boolean> | null;
   // v2
   product_en?: string | null; product_volume?: string | null;
   product_features?: ProposalFeature[]; product_tags?: string[];
@@ -132,6 +136,7 @@ const OPTIONAL_COLS: { col: string; json?: boolean; insDefault?: string; val: (i
   { col: "start_ym", val: (i) => i.start_ym ?? null },
   { col: "countries", json: true, insDefault: "'[]'", val: (i) => (i.countries ? JSON.stringify(i.countries) : null) },
   { col: "bench", json: true, val: (i) => (i.bench ? JSON.stringify(i.bench) : null) },
+  { col: "show_sections", json: true, val: (i) => (i.show_sections ? JSON.stringify(i.show_sections) : null) },
 ];
 let optionalColsCache: Set<string> | null = null;
 async function optionalCols(): Promise<Set<string>> {
