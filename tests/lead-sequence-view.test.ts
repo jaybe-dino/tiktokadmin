@@ -40,31 +40,67 @@ describe("표시 상태 판정(toViewStatus)", () => {
 });
 
 describe("수단별 결과(channelResult)", () => {
-  it("나간 수단은 발송(접수)으로 표시", () => {
-    expect(channelResult("sms", ["sms", "email"], "")).toBe("sent");
-    expect(channelResult("email", ["sms", "email"], "")).toBe("sent");
+  // 핵심: 아직 처리 안 한 건을 "대상 아님"으로 적으면 고객이 제외된 것처럼 읽힌다.
+  it("예정(queued) — 양쪽 모두 '발송 대기'", () => {
+    const row = { status: "queued", channels: [], note: "" };
+    expect(channelResult("sms", row)).toBe("pending");
+    expect(channelResult("email", row)).toBe("pending");
+    expect(CHANNEL_RESULT_LABEL.pending).toBe("발송 대기");
+    expect(CHANNEL_RESULT_LABEL.pending).not.toContain("미발송");
+    expect(CHANNEL_RESULT_LABEL.pending).not.toContain("대상 아님");
+  });
+  it("중단(canceled) — 대기·대상 아님과 구분", () => {
+    const row = { status: "canceled", channels: [], note: "단계 진전(meeting)" };
+    expect(channelResult("sms", row)).toBe("canceled");
+    expect(channelResult("email", row)).toBe("canceled");
+    expect(CHANNEL_RESULT_LABEL.canceled).toBe("중단");
+  });
+  it("발송 완료 — 나간 수단은 '발송(접수)'", () => {
+    const row = { status: "sent", channels: ["sms", "email"], note: "" };
+    expect(channelResult("sms", row)).toBe("sent");
+    expect(channelResult("email", row)).toBe("sent");
     expect(CHANNEL_RESULT_LABEL.sent).toBe("발송(접수)");   // 수신 확인이 아님을 라벨로 명시
   });
-  it("부분 실패 — 문자는 발송, 메일은 실패로 각각 표시", () => {
-    expect(channelResult("sms", ["sms"], "메일 실패")).toBe("sent");
-    expect(channelResult("email", ["sms"], "메일 실패")).toBe("failed");
+  it("부분 실패 — 문자는 발송, 메일은 실패로 각각", () => {
+    const row = { status: "sent", channels: ["sms"], note: "메일 실패" };
+    expect(channelResult("sms", row)).toBe("sent");
+    expect(channelResult("email", row)).toBe("failed");
   });
   it("반대 방향도 같다", () => {
-    expect(channelResult("sms", ["email"], "문자 실패")).toBe("failed");
-    expect(channelResult("email", ["email"], "문자 실패")).toBe("sent");
+    const row = { status: "sent", channels: ["email"], note: "문자 실패" };
+    expect(channelResult("sms", row)).toBe("failed");
+    expect(channelResult("email", row)).toBe("sent");
   });
-  it("둘 다 실패", () => {
-    expect(channelResult("sms", [], "문자 실패 · 메일 실패")).toBe("failed");
-    expect(channelResult("email", [], "문자 실패 · 메일 실패")).toBe("failed");
+  it("둘 다 실패(failed)", () => {
+    const row = { status: "failed", channels: [], note: "문자 실패 · 메일 실패" };
+    expect(channelResult("sms", row)).toBe("failed");
+    expect(channelResult("email", row)).toBe("failed");
   });
-  it("애초에 대상이 아니면 미발송 — 실패로 보이게 하지 않는다", () => {
-    expect(channelResult("sms", [], "연락처 없음")).toBe("none");
-    expect(channelResult("email", ["sms"], "")).toBe("none");
-    expect(channelResult("sms", null, null)).toBe("none");
+  it("테스트 모드 — 실제로 안 나갔음을 라벨로 드러낸다", () => {
+    const row = { status: "sent", channels: ["sms", "email"], note: "테스트 모드 — 실제 발송 없음" };
+    expect(channelResult("sms", row)).toBe("test");
+    expect(channelResult("email", row)).toBe("test");
+    expect(CHANNEL_RESULT_LABEL.test).toContain("미발송");
   });
-  it("예정(미처리) 건은 양쪽 모두 미발송", () => {
-    expect(channelResult("sms", [], "")).toBe("none");
-    expect(channelResult("email", [], "")).toBe("none");
+  it("건너뜀(skipped) — 처리했으나 대상이 아니었던 경우만 '대상 아님'", () => {
+    const row = { status: "skipped", channels: [], note: "연락처 없음" };
+    expect(channelResult("sms", row)).toBe("none");
+    expect(channelResult("email", row)).toBe("none");
+    expect(CHANNEL_RESULT_LABEL.none).toBe("대상 아님");
+  });
+  it("한쪽만 대상이었던 건 — 나간 쪽만 발송, 다른 쪽은 대상 아님", () => {
+    const row = { status: "sent", channels: ["email"], note: "" };
+    expect(channelResult("sms", row)).toBe("none");
+    expect(channelResult("email", row)).toBe("sent");
+  });
+  it("값이 비어 있어도 안전하다", () => {
+    expect(channelResult("sms", { status: "skipped" })).toBe("none");
+    expect(channelResult("email", { status: "queued", channels: null, note: null })).toBe("pending");
+  });
+  it("모든 표시값에 라벨이 있다", () => {
+    for (const k of ["pending", "sent", "failed", "test", "canceled", "none"] as const) {
+      expect(CHANNEL_RESULT_LABEL[k].length).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -147,5 +183,39 @@ describe("SQL 판정 ↔ 화면 판정 일치", () => {
     for (const banned of ["runDueSequence", "saveSeqStep", "saveSeqConfig", "cancelLead", "sendSms", "sendEmail"]) {
       expect(page, `${banned} 호출됨`).not.toContain(banned);
     }
+  });
+});
+
+describe("목록 화면 사용성", () => {
+  const page = readFileSync(new URL("../app/(dash)/channels/[id]/sequence/page.tsx", import.meta.url), "utf8");
+  const view = readFileSync(new URL("../lib/lead-sequence-view.ts", import.meta.url), "utf8");
+
+  it("회차 카드는 기본 접힘 — 요약(회차·시각·제목·문자/메일)은 접힌 상태에서도 보인다", () => {
+    expect(page).toContain("<details className=\"card\" open={open}");
+    expect(page).toContain('open={sp.open === "1"}');        // 기본값은 접힘
+    expect(page).toContain("<summary");
+    expect(page).toContain("step.email_subject.trim()");     // 제목이 summary 안
+    expect(page).toContain("문자 {smsOn ? \"ON\" : \"—\"}");
+    expect(page).toContain("내용보기");
+  });
+  it("본문은 펼쳤을 때 제한 높이 안에서 스크롤한다", () => {
+    expect(page).toContain("overflowY: \"auto\"");
+    expect(page).toContain("whiteSpace: \"pre-wrap\"");
+  });
+  it("대상 목록 바로가기 앵커가 있다", () => {
+    expect(page).toContain('data-testid="goto-targets"');
+    expect(page).toContain('href="#targets"');
+    expect(page).toContain('id="targets"');
+  });
+  it("모두 펼치기 토글이 있다", () => {
+    expect(page).toContain('data-testid="toggle-all-steps"');
+  });
+  it("예정 필터는 가까운 날짜 우선으로 정렬한다", () => {
+    expect(view).toContain('status === "queued" ? "ASC" : "DESC"');
+  });
+  it("하단 설명이 '발송 대기'와 '대상 아님'을 구분해 설명한다", () => {
+    expect(page).toContain("아직 처리 전");
+    expect(page).toContain("제외된 것이 아니며");
+    expect(page).toContain("처리했으나");
   });
 });

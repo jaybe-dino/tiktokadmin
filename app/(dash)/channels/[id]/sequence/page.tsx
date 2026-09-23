@@ -29,6 +29,10 @@ const TONE: Record<string, { bg: string; fg: string }> = {
   bad: { bg: "#fff5f5", fg: "#c92a2a" },
   off: { bg: "#f1f3f5", fg: "#6b7280" },
 };
+// 수단별 표시 색 — 대기는 파랑(처리 전), 성공 초록, 실패 빨강, 나머지 회색.
+const chColor = (r: string): string =>
+  r === "failed" ? "#c92a2a" : r === "sent" ? "#0b7a52" : r === "pending" ? "#3b5bdb" : "var(--ink3)";
+
 const toneOf = (k: string) => TONE[VIEW_STATUS.find((s) => s.key === k)?.tone ?? "off"] ?? TONE.off;
 
 /** 본문 — 줄바꿈 유지 + 링크 클릭 가능 + 길면 제한 높이 안에서 스크롤. */
@@ -48,28 +52,30 @@ function Body({ text, max = 260 }: { text: string; max?: number }) {
   );
 }
 
-function StepCard({ step, baseHour }: { step: SeqStep; baseHour: number }) {
+function StepCard({ step, baseHour, open }: { step: SeqStep; baseHour: number; open: boolean }) {
   const hour = step.send_hour ?? baseHour;
   const links = [...new Set([...extractLinks(step.email_body), ...extractLinks(step.sms_body)])];
   const smsOn = step.send_sms && step.sms_body.trim().length > 0;
   const mailOn = step.send_email && step.email_body.trim().length > 0;
   return (
-    <div className="card" style={{ padding: 0 }}>
-      <div className="hd" style={{ gap: 8, flexWrap: "wrap" }}>
-        <b>유입 {step.day_no}일차</b>
-        <span className="pill" style={{ fontSize: 10 }}>유입일 +{step.day_no}일 · KST {hour}시</span>
-        {!step.enabled && <span className="pill" style={{ fontSize: 10, background: "#f1f3f5", color: "#6b7280" }}>회차 꺼짐</span>}
-        <span style={{ fontSize: 11, color: "var(--ink3)", marginLeft: "auto" }}>
-          문자 {smsOn ? "ON" : "—"} · 메일 {mailOn ? "ON" : "—"}
-        </span>
-      </div>
-      <div className="bd" style={{ display: "grid", gap: 10 }}>
-        <div>
-          <div style={{ fontSize: 11, color: "var(--ink3)", marginBottom: 3 }}>메일 제목</div>
-          <div style={{ fontSize: 13, fontWeight: 600, wordBreak: "break-word" }}>
-            {step.email_subject.trim() || <span style={{ color: "#c92a2a", fontWeight: 400 }}>제목 없음</span>}
-          </div>
+    <details className="card" open={open} data-testid={`step-${step.day_no}`} style={{ padding: 0 }}>
+      {/* 접힌 상태에서도 회차·시각·제목·문자/메일 ON 은 보인다 — 4회차를 한눈에 비교. */}
+      <summary style={{ listStyle: "none", cursor: "pointer", padding: "10px 14px", display: "grid", gap: 4 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <b>유입 {step.day_no}일차</b>
+          <span className="pill" style={{ fontSize: 10 }}>유입일 +{step.day_no}일 · KST {hour}시</span>
+          {!step.enabled && <span className="pill" style={{ fontSize: 10, background: "#f1f3f5", color: "#6b7280" }}>회차 꺼짐</span>}
+          <span className="pill" style={{ fontSize: 10, background: smsOn ? "#e9f8ef" : "#f1f3f5", color: smsOn ? "#0b7a52" : "#6b7280" }}>문자 {smsOn ? "ON" : "—"}</span>
+          <span className="pill" style={{ fontSize: 10, background: mailOn ? "#e9f8ef" : "#f1f3f5", color: mailOn ? "#0b7a52" : "#6b7280" }}>메일 {mailOn ? "ON" : "—"}</span>
+          {links.length > 0 && <span className="pill" style={{ fontSize: 10 }}>링크 {links.length}</span>}
+          <span className="btn btn-sm" style={{ marginLeft: "auto" }}>내용보기</span>
         </div>
+        <div style={{ fontSize: 12, color: "var(--ink2)", wordBreak: "break-word" }}>
+          {step.email_subject.trim() || <span style={{ color: "#c92a2a" }}>메일 제목 없음</span>}
+        </div>
+      </summary>
+
+      <div className="bd" style={{ display: "grid", gap: 10, borderTop: "1px solid var(--line)" }}>
         <div>
           <div style={{ fontSize: 11, color: "var(--ink3)", marginBottom: 3 }}>메일 본문</div>
           <Body text={step.email_body} max={300} />
@@ -92,7 +98,7 @@ function StepCard({ step, baseHour }: { step: SeqStep; baseHour: number }) {
           </div>
         )}
       </div>
-    </div>
+    </details>
   );
 }
 
@@ -112,7 +118,7 @@ function Who({ r }: { r: SeqSendRow }) {
 
 export default async function ChannelSequenceListPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ status?: string; page?: string }>;
+  searchParams: Promise<{ status?: string; page?: string; open?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
@@ -130,7 +136,7 @@ export default async function ChannelSequenceListPage({ params, searchParams }: 
   const sends = await loadSeqSends(id, { status: sp.status, page: sp.page ? Number(sp.page) : 1 });
   const qs = (over: Record<string, string | number | undefined>) => {
     const p = new URLSearchParams();
-    const merged = { status: sp.status, page: sp.page, ...over };
+    const merged = { status: sp.status, page: sp.page, open: sp.open, ...over };
     for (const [k, v] of Object.entries(merged)) if (v) p.set(k, String(v));
     const s = p.toString();
     return `/channels/${id}/sequence${s ? `?${s}` : ""}`;
@@ -176,7 +182,16 @@ export default async function ChannelSequenceListPage({ params, searchParams }: 
       </div>
 
       {/* ① 회차별 문구 */}
-      <div style={{ fontSize: 13, fontWeight: 700, margin: "0 0 6px" }}>회차별 발송 내용</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", margin: "0 0 6px" }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>회차별 발송 내용</span>
+        <span style={{ fontSize: 11, color: "var(--ink3)" }}>「내용보기」로 각 회차를 펼칩니다</span>
+        <Link href={qs({ open: sp.open === "1" ? undefined : "1" })} className="btn btn-sm" data-testid="toggle-all-steps">
+          {sp.open === "1" ? "모두 접기" : "모두 펼치기"}
+        </Link>
+        <a href="#targets" className="btn btn-sm btn-primary" data-testid="goto-targets" style={{ marginLeft: "auto" }}>
+          대상 목록 바로가기 ↓{sends.ok ? ` (${totalAll}건)` : ""}
+        </a>
+      </div>
       <div className="note" style={{ fontSize: 11.5, marginBottom: 8, lineHeight: 1.6 }}>
         아래는 <b>지금 저장된 설정값</b>입니다. 발송 당시 본문을 따로 보관하지 않으므로,
         이미 나간 건의 <b>실제 발송 내용과 다를 수 있습니다</b>(문구를 나중에 고친 경우). 실제 발송본이 아닌 <b>현재 설정 참고용</b>입니다.
@@ -190,12 +205,12 @@ export default async function ChannelSequenceListPage({ params, searchParams }: 
         <div className="card" style={{ padding: 14, fontSize: 12.5, color: "var(--ink3)" }}>설정된 회차가 없습니다.</div>
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
-          {steps.map((s) => <StepCard key={s.day_no} step={s} baseHour={cfg?.hour ?? 10} />)}
+          {steps.map((s) => <StepCard key={s.day_no} step={s} baseHour={cfg?.hour ?? 10} open={sp.open === "1"} />)}
         </div>
       )}
 
       {/* ② 대상별 예정·이력 */}
-      <div style={{ fontSize: 13, fontWeight: 700, margin: "18px 0 6px" }}>
+      <div id="targets" style={{ fontSize: 13, fontWeight: 700, margin: "18px 0 6px", scrollMarginTop: 12 }}>
         대상별 예정 · 발송 이력 {sends.ok && <span style={{ fontWeight: 400, color: "var(--ink3)" }}>· 전체 {totalAll}건</span>}
       </div>
 
@@ -239,8 +254,8 @@ export default async function ChannelSequenceListPage({ params, searchParams }: 
               </thead>
               <tbody>
                 {sends.data.rows.map((r) => {
-                  const sms = channelResult("sms", r.channels, r.note);
-                  const mail = channelResult("email", r.channels, r.note);
+                  const sms = channelResult("sms", r);
+                  const mail = channelResult("email", r);
                   const t = toneOf(r.view_status);
                   return (
                     <tr key={r.id}>
@@ -248,8 +263,8 @@ export default async function ChannelSequenceListPage({ params, searchParams }: 
                       <td style={{ whiteSpace: "nowrap" }}>{r.day_no}일차</td>
                       <td style={{ whiteSpace: "nowrap" }}>{KST(r.due_at)}</td>
                       <td style={{ whiteSpace: "nowrap", color: r.sent_at ? undefined : "var(--ink3)" }}>{KST(r.sent_at)}</td>
-                      <td style={{ color: sms === "failed" ? "#c92a2a" : sms === "sent" ? "#0b7a52" : "var(--ink3)" }}>{CHANNEL_RESULT_LABEL[sms]}</td>
-                      <td style={{ color: mail === "failed" ? "#c92a2a" : mail === "sent" ? "#0b7a52" : "var(--ink3)" }}>{CHANNEL_RESULT_LABEL[mail]}</td>
+                      <td style={{ whiteSpace: "nowrap", color: chColor(sms) }}>{CHANNEL_RESULT_LABEL[sms]}</td>
+                      <td style={{ whiteSpace: "nowrap", color: chColor(mail) }}>{CHANNEL_RESULT_LABEL[mail]}</td>
                       <td><span className="pill" style={{ fontSize: 10, background: t.bg, color: t.fg, whiteSpace: "nowrap" }}>{viewStatusLabel(r.view_status)}</span></td>
                       <td style={{ color: "var(--ink3)", maxWidth: 220, wordBreak: "break-word" }}>{r.note || "—"}</td>
                     </tr>
@@ -262,6 +277,7 @@ export default async function ChannelSequenceListPage({ params, searchParams }: 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 4px", fontSize: 11.5, color: "var(--ink3)" }}>
             <span>
               {(sends.data.page - 1) * PAGE_SIZE + 1}–{Math.min(sends.data.page * PAGE_SIZE, sends.data.total)} / {sends.data.total}건
+            {sp.status === "queued" ? " · 가까운 예정 순" : " · 최근 순"}
               {sends.data.pages > 1 ? ` · ${sends.data.page}/${sends.data.pages} 쪽` : ""}
             </span>
             {sends.data.pages > 1 && (
@@ -275,9 +291,12 @@ export default async function ChannelSequenceListPage({ params, searchParams }: 
       )}
 
       <div className="note" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.7 }}>
-        · <b>발송 완료</b>는 문자·메일이 <b>공급자(알리고·Resend)에 접수</b>된 상태입니다. 수신자가 실제로 받았는지(도달·열람)는 확인하지 않습니다.<br />
+        · <b>발송 대기</b>는 <b>아직 처리 전</b>이라는 뜻입니다 — 제외된 것이 아니며, 예정 시각이 되면 처리됩니다.
+        실제로 무엇이 나갈지는 처리 시점의 설정·연락처에 따라 정해지므로 여기서 미리 단정하지 않습니다.<br />
+        · <b>발송(접수)</b>은 문자·메일이 <b>공급자(알리고·Resend)에 접수</b>된 상태입니다. 수신자가 실제로 받았는지(도달·열람)는 확인하지 않습니다.<br />
         · 한쪽만 나간 건은 <b>부분 실패</b>로 따로 표시합니다 — 완료로 뭉뚱그리지 않습니다.<br />
-        · <b>미발송</b>은 당시 그 수단이 대상이 아니었다는 뜻입니다(회차에서 껐거나 연락처·문구 없음).<br />
+        · <b>대상 아님</b>은 <b>처리했으나</b> 그 수단이 대상이 아니었다는 뜻입니다(회차에서 껐거나 연락처·문구 없음). 처리 전 대기와 다릅니다.<br />
+        · <b>중단</b>은 처리 전에 취소된 건입니다(단계 진전·수신거부·드랍 등). 사유는 비고에 있습니다.<br />
         · 이 화면에서는 발송·재발송·취소를 하지 않습니다. 남은 회차 중단은 /channels 의 「📅 연속 안내」에서 합니다.
       </div>
     </div>

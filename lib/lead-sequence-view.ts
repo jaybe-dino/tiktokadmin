@@ -25,33 +25,52 @@ export function viewStatusLabel(k: string): string {
   return VIEW_STATUS.find((s) => s.key === k)?.label ?? k;
 }
 
-// 발송 실패는 워커가 note 에 이 문구로 남긴다(lib/lead-sequence.ts).
+/**
+ * 수단(문자·메일)별 표시값.
+ *   pending  아직 처리 전 — 발송될지 여부는 처리 시점에 정해진다
+ *   sent     공급자에 접수됨
+ *   failed   시도했으나 실패
+ *   test     테스트 모드 — 실제로 보내지 않음
+ *   canceled 처리 전에 중단됨
+ *   none     처리했으나 이 수단은 대상이 아니었음(회차 꺼짐·연락처/문구 없음)
+ */
+// 발송 실패·테스트는 워커가 note 에 이 문구로 남긴다(lib/lead-sequence.ts).
 const SMS_FAIL = "문자 실패";
 const MAIL_FAIL = "메일 실패";
 const TEST_NOTE = "테스트 모드";
 
-export type ChannelResult = "sent" | "failed" | "none";
+export type ChannelResult = "pending" | "sent" | "failed" | "test" | "canceled" | "none";
+
+export const CHANNEL_RESULT_LABEL: Record<ChannelResult, string> = {
+  pending: "발송 대기",
+  sent: "발송(접수)",
+  failed: "실패",
+  test: "테스트(미발송)",
+  canceled: "중단",
+  none: "대상 아님",
+};
 
 /**
  * 수단별 결과 — 저장값만으로 판정한다.
- *   · channels 에 들어 있으면 그 수단은 나갔다(공급자 접수).
- *   · note 에 실패 문구가 있으면 시도했으나 실패.
- *   · 둘 다 아니면 애초에 대상이 아니었다(회차에서 껐거나 연락처·문구 없음).
+ *   ※ 처리 전(queued)·중단(canceled) 은 "대상 아님"과 반드시 구분한다.
+ *     아직 안 보낸 건을 "미발송/대상 아님"으로 적으면 고객이 제외된 것처럼 읽힌다.
  */
-export function channelResult(kind: "sms" | "email", channels: string[] | null, note: string | null): ChannelResult {
-  const list = channels ?? [];
-  if (list.includes(kind)) return "sent";
-  const n = note ?? "";
+export function channelResult(
+  kind: "sms" | "email",
+  row: { status: string; channels?: string[] | null; note?: string | null },
+): ChannelResult {
+  // 아직 처리되지 않은 건 — 저장된 결과가 없다.
+  if (row.status === "queued") return "pending";
+  if (row.status === "canceled") return "canceled";
+
+  const list = row.channels ?? [];
+  const n = row.note ?? "";
+  const isTest = n.includes(TEST_NOTE);
+  if (list.includes(kind)) return isTest ? "test" : "sent";
   if (kind === "sms" && n.includes(SMS_FAIL)) return "failed";
   if (kind === "email" && n.includes(MAIL_FAIL)) return "failed";
-  return "none";
+  return "none";   // 처리했지만 이 수단은 대상이 아니었다
 }
-
-export const CHANNEL_RESULT_LABEL: Record<ChannelResult, string> = {
-  sent: "발송(접수)",
-  failed: "실패",
-  none: "미발송",
-};
 
 /** 저장 status + note → 목록 표시 상태. */
 export function toViewStatus(status: string, note: string | null): ViewStatus {
@@ -136,7 +155,7 @@ export async function listSeqSends(channelId: string, opts: { status?: string; p
             b.brand_name, b.contact_name, b.email, b.phone, b.state
        FROM lead_sequence_sends q JOIN brands b ON b.id = q.brand_id
       WHERE ${where}
-      ORDER BY q.due_at DESC, q.day_no
+      ORDER BY q.due_at ${status === "queued" ? "ASC" : "DESC"}, q.day_no
       LIMIT $${args.length - 1} OFFSET $${args.length}`, args);
 
   return {
