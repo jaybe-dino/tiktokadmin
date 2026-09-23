@@ -99,10 +99,18 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
         "SELECT id, kind, to_email, subject, body_md, created_at FROM email_drafts WHERE brand_id=$1 AND status='draft' ORDER BY created_at DESC LIMIT 5",
         [brand.id])),
       safe(query<MeetingRow>(
+        // 0097(Zoom 수집 상태) 포함 — 미적용 DB 는 아래 폴백 쿼리로.
         `SELECT id, topic, status, started_at, scheduled_at, duration_min, recording_url,
-                left(transcript, 20000) AS transcript, summary_md
+                left(transcript, 20000) AS transcript, summary_md,
+                transcript_status, transcript_source, transcript_error, recording_share_url,
+                host_email, attendees
            FROM meetings WHERE brand_id=$1
-          ORDER BY COALESCE(started_at, scheduled_at, created_at) DESC LIMIT 8`, [brand.id])),
+          ORDER BY COALESCE(started_at, scheduled_at, created_at) DESC LIMIT 8`, [brand.id])
+        .catch(() => query<MeetingRow>(
+          `SELECT id, topic, status, started_at, scheduled_at, duration_min, recording_url,
+                  left(transcript, 20000) AS transcript, summary_md
+             FROM meetings WHERE brand_id=$1
+            ORDER BY COALESCE(started_at, scheduled_at, created_at) DESC LIMIT 8`, [brand.id]))),
     ]),
     buildGateContext(brand).catch(() => null),
   ]);
@@ -316,7 +324,13 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   const panelMeetingNotes = (
     <Brand360MeetingNotes
       brandId={brand.id}
-      meetings={meetings.map((m) => ({ id: m.id, topic: m.topic, status: m.status, started_at: m.started_at, scheduled_at: m.scheduled_at, summary_md: m.summary_md, transcript: m.transcript }))}
+      meetings={meetings.map((m) => ({
+        id: m.id, topic: m.topic, status: m.status, started_at: m.started_at, scheduled_at: m.scheduled_at,
+        summary_md: m.summary_md, transcript: m.transcript,
+        transcript_status: m.transcript_status, transcript_source: m.transcript_source,
+        transcript_error: m.transcript_error, recording_share_url: m.recording_share_url,
+        host_email: m.host_email, attendees: m.attendees, duration_min: m.duration_min,
+      }))}
       notes={meetingNotes}
     />
   );

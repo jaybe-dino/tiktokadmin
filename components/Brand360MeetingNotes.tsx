@@ -9,7 +9,23 @@ export interface AutoMeeting {
   id: string; topic: string | null; status: string;
   started_at: string | null; scheduled_at: string | null;
   summary_md: string | null; transcript: string | null;
+  // Zoom 자동 수집(0097) — 미적용 DB 에서는 undefined.
+  transcript_status?: string | null;
+  transcript_source?: string | null;
+  transcript_error?: string | null;
+  recording_share_url?: string | null;
+  host_email?: string | null;
+  attendees?: { name?: string; email?: string }[] | null;
+  duration_min?: number | null;
 }
+
+// 전사 수집 상태 표시.
+const COLLECT: Record<string, { label: string; color: string }> = {
+  ready: { label: "전사 수집됨", color: "#0b7a52" },
+  pending: { label: "전사 대기 중", color: "#c25400" },
+  recording_only: { label: "녹음만 있음 · 전사 없음", color: "#c25400" },
+  failed: { label: "전사 수집 실패", color: "#c92a2a" },
+};
 
 const ymd = (s: string | null): string => (s ? s.slice(0, 10) : "");
 
@@ -28,7 +44,9 @@ export default function Brand360MeetingNotes({ brandId, meetings, notes }: {
     | { t: "note"; date: string; n: MeetingNote };
   const rows: Row[] = [
     ...meetings
-      .filter((m) => (m.summary_md && m.summary_md.trim()) || (m.transcript && m.transcript.trim()))
+      // 요약·전사가 있거나, Zoom 녹화가 잡혀 수집 상태가 있는 회의(대기·녹음만 포함)를 보여준다.
+      .filter((m) => (m.summary_md && m.summary_md.trim()) || (m.transcript && m.transcript.trim())
+        || (m.transcript_status && m.transcript_status !== "none"))
       .map((m) => ({ t: "auto" as const, date: ymd(m.started_at || m.scheduled_at), m })),
     ...notes.map((n) => ({ t: "note" as const, date: n.note_date, n })),
   ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
@@ -89,15 +107,43 @@ export default function Brand360MeetingNotes({ brandId, meetings, notes }: {
         {rows.length === 0 && <div className="note">회의록이 없습니다. 미팅 요약이 처리되거나, 위에서 직접 회의록을 추가하면 날짜별로 표시됩니다.</div>}
         {rows.map((r) => r.t === "auto" ? (
           <div key={`a-${r.m.id}`} style={{ borderLeft: "3px solid var(--acc)", paddingLeft: 10 }}>
-            <div style={{ fontSize: 12, color: "var(--ink3)" }}>
-              <span className="pill" style={{ fontSize: 10 }}>{r.date || "날짜 미상"}</span> 자동 · {r.m.topic || "미팅"}
+            <div style={{ fontSize: 12, color: "var(--ink3)", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span className="pill" style={{ fontSize: 10 }}>{r.date || "날짜 미상"}</span>
+              <span>자동 · {r.m.topic || "미팅"}</span>
+              {r.m.duration_min ? <span>· {r.m.duration_min}분</span> : null}
+              {(() => {
+                const c = r.m.transcript_status ? COLLECT[r.m.transcript_status] : null;
+                return c ? <span style={{ color: c.color, fontWeight: 600 }}>· {c.label}</span> : null;
+              })()}
+              {r.m.transcript_source === "zoom" && <span>· 출처 Zoom 전사</span>}
             </div>
-            {r.m.summary_md && <pre style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.6, fontFamily: "inherit", marginTop: 4 }}>{r.m.summary_md}</pre>}
+            {/* 참석자 — 확인 가능한 범위만(초대·참가자 기록에 남은 사람). */}
+            {(r.m.attendees?.length || r.m.host_email) && (
+              <div style={{ fontSize: 11, color: "var(--ink3)", marginTop: 2 }}>
+                참석: {[r.m.host_email, ...(r.m.attendees ?? []).map((a) => a.name || a.email)].filter(Boolean).join(", ")}
+              </div>
+            )}
+            {r.m.transcript_status === "recording_only" && (
+              <div style={{ fontSize: 11.5, color: "#c25400", marginTop: 3 }}>
+                {r.m.transcript_error || "Zoom 전사 파일이 없습니다 — 계정의 오디오 자동 전사 설정·지원 언어를 확인해 주세요."}
+              </div>
+            )}
+            {r.m.summary_md && (
+              <div style={{ marginTop: 4 }}>
+                <div style={{ fontSize: 10.5, color: "var(--ink3)" }}>AI 정리 — 원문은 아래 「전사 전문」에서 확인하세요.</div>
+                <pre style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.6, fontFamily: "inherit", marginTop: 2 }}>{r.m.summary_md}</pre>
+              </div>
+            )}
             {r.m.transcript && (
               <details style={{ marginTop: 4 }}>
-                <summary style={{ cursor: "pointer", fontSize: 11.5, color: "var(--ink3)" }}>전사 전문 보기</summary>
+                <summary style={{ cursor: "pointer", fontSize: 11.5, color: "var(--ink3)" }}>전사 전문 보기 (원문)</summary>
                 <pre style={{ whiteSpace: "pre-wrap", fontSize: 11.5, lineHeight: 1.5, fontFamily: "inherit", color: "var(--ink2)" }}>{r.m.transcript}</pre>
               </details>
+            )}
+            {r.m.recording_share_url && (
+              <a className="btn btn-sm" style={{ marginTop: 4 }} href={r.m.recording_share_url} target="_blank" rel="noreferrer">
+                🎥 Zoom 녹화 열기
+              </a>
             )}
           </div>
         ) : (

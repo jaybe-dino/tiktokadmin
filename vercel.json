@@ -10,6 +10,7 @@
     { "path": "/api/cron/gmail-sync", "schedule": "0 * * * *" },
     { "path": "/api/cron/bulk-send", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/lead-sequence", "schedule": "0 * * * *" },
+    { "path": "/api/cron/zoom-ingest", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/cycle-open", "schedule": "0 2 1 * *" },
     { "path": "/api/cron/cycle-close", "schedule": "0 1 1 * *" }
   ],

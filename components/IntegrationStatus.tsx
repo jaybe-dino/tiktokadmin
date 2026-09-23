@@ -20,6 +20,8 @@ const ROWS: Row[] = [
   { label: "Slack Bot", feature: "알림·SLA 멘션", names: ["SLACK_BOT_TOKEN"] },
   { label: "Aligo", feature: "문자 발송", names: ["ALIGO_API_KEY"] },
   { label: "glovek DB(RO)", feature: "glovek 원본 동기화", names: ["GLOVEK_DB_URL_RO"] },
+  { label: "Zoom 웹훅", feature: "회의 녹화·전사 수신(서명 검증)", names: ["ZOOM_WEBHOOK_SECRET"] },
+  { label: "Zoom API", feature: "전사 파일 수집·과거 회의 가져오기", names: ["ZOOM_ACCOUNT_ID"], extra: ["ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET"] },
 ];
 
 export default function IntegrationStatus() {

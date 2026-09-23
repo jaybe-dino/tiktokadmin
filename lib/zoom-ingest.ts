@@ -1,0 +1,434 @@
+// Zoom 웹훅 수집 파이프라인 — 빠른 접수(원장 저장) → 워커에서 처리.
+//   웹훅은 받자마자 zoom_webhook_events 에 넣고 200 을 돌려준다(재전송·지연 방지).
+//   실제 처리(브랜드 매핑·전사 내려받기)는 워커에서 하며, 언제 다시 돌려도 안전하다.
+//
+//   녹화 완료와 전사 완료는 별개로 온다:
+//     recording.completed            → 회의·녹화 파일 기록, 전사 없으면 pending(대기)
+//     recording.transcript_completed → 전사 파일 내려받아 저장 → ready
+//   전사가 끝내 오지 않으면(전사 기능·언어·요금제) 일정 시간 뒤 recording_only 로 표시한다.
+import { query, queryOne } from "./db";
+import { matchBrand, zoomIdFromUrl, type BookingRow } from "./zoom-match";
+import { vttToTranscript, vttSpeakers } from "./zoom-vtt";
+import { downloadZoomFile, getMeetingRecordings, zoomApiConfigured, type ZoomRecordingFile } from "./zoom-api";
+
+export const TRANSCRIPT_FILE_TYPES = new Set(["TRANSCRIPT", "CC"]);
+
+/**
+ * 이미 있는 전사를 그대로 둘지 판단.
+ *   사람이 직접 넣었거나 이전에 수집한 전사는 덮어쓰지 않는다(원문 보존·재처리 안전).
+ *   비어 있거나 재수집 대상으로 표시된 것만 새로 채운다.
+ */
+export function keepExistingTranscript(cur: { transcript?: string | null; transcript_source?: string | null } | null): boolean {
+  const t = (cur?.transcript ?? "").trim();
+  if (!t) return false;
+  return cur?.transcript_source !== "zoom_retry";
+}
+/** 녹화만 오고 전사가 이만큼 지나도 안 오면 "녹음만 있음"으로 표시한다. */
+export const TRANSCRIPT_WAIT_HOURS = 24;
+export const MAX_TRANSCRIPT_ATTEMPTS = 6;
+
+export interface ZoomEventPayload {
+  event?: string;
+  event_ts?: number;
+  payload?: {
+    plainToken?: string;
+    download_token?: string;
+    object?: {
+      uuid?: string; id?: number | string; topic?: string; host_email?: string; host_id?: string;
+      start_time?: string; duration?: number; share_url?: string; timezone?: string;
+      participants?: { name?: string; email?: string }[];
+      registrant_email?: string;
+      recording_files?: ZoomRecordingFile[];
+    };
+  };
+}
+
+/** 이벤트 고유키 — 같은 웹훅 재전송을 한 행으로 묶는다(회의 인스턴스 + 파일 식별자까지). */
+export function dedupeKey(evt: ZoomEventPayload): string {
+  const o = evt.payload?.object ?? {};
+  const files = (o.recording_files ?? []).map((f) => f.id ?? `${f.file_type ?? ""}:${f.recording_start ?? ""}`).sort().join(",");
+  return [evt.event ?? "", o.uuid ?? "", files].join("|");
+}
+
+/** 웹훅 접수 — 원장에 넣기만 한다(빠른 200 응답). 중복이면 저장하지 않는다. */
+export async function enqueueZoomEvent(evt: ZoomEventPayload): Promise<{ queued: boolean; id?: string; duplicate?: boolean }> {
+  const key = dedupeKey(evt);
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO zoom_webhook_events (event, dedupe_key, zoom_uuid, event_ts, payload)
+     VALUES ($1,$2,$3,$4,$5) ON CONFLICT (dedupe_key) DO NOTHING RETURNING id`,
+    [evt.event ?? "", key, evt.payload?.object?.uuid ?? null, evt.event_ts ?? null, JSON.stringify(evt)],
+  ).catch(() => null);
+  if (!row) return { queued: false, duplicate: true };
+  return { queued: true, id: row.id };
+}
+
+export interface ZoomRunResult { processed: number; done: number; failed: number; skipped: number; transcriptsRetried: number }
+
+/** 대기 중인 웹훅 이벤트 처리 + 전사 재시도. 크론에서 호출(여러 번 돌아도 안전). */
+export async function runZoomIngest(limit = 20): Promise<ZoomRunResult> {
+  const res: ZoomRunResult = { processed: 0, done: 0, failed: 0, skipped: 0, transcriptsRetried: 0 };
+  const rows = await query<{ id: string; event: string; payload: ZoomEventPayload; attempts: number }>(
+    `UPDATE zoom_webhook_events SET status='processing', attempts=attempts+1
+      WHERE id IN (SELECT id FROM zoom_webhook_events
+                    WHERE status IN ('queued','failed') AND attempts < 5
+                    ORDER BY received_at LIMIT $1)
+      RETURNING id, event, payload, attempts`, [limit]).catch(() => []);
+
+  for (const r of rows) {
+    res.processed++;
+    try {
+      const out = await handleZoomEvent(r.payload);
+      await query("UPDATE zoom_webhook_events SET status=$2, error=$3, processed_at=now() WHERE id=$1",
+        [r.id, out.handled ? "done" : "skipped", out.note.slice(0, 300)]).catch(() => {});
+      if (out.handled) res.done++; else res.skipped++;
+    } catch (e) {
+      await query("UPDATE zoom_webhook_events SET status='failed', error=$2, processed_at=now() WHERE id=$1",
+        [r.id, (e as Error).message.slice(0, 300)]).catch(() => {});
+      res.failed++;
+    }
+  }
+  res.transcriptsRetried = await retryPendingTranscripts();
+  return res;
+}
+
+/** 이벤트 1건 처리. */
+export async function handleZoomEvent(evt: ZoomEventPayload): Promise<{ handled: boolean; note: string }> {
+  const o = evt.payload?.object;
+  if (!o?.uuid) return { handled: false, note: "회의 UUID 없음" };
+
+  switch (evt.event) {
+    case "recording.completed":
+      return upsertFromRecording(evt, false);
+    case "recording.transcript_completed":
+      return upsertFromRecording(evt, true);
+    default:
+      return { handled: false, note: `처리 대상 아닌 이벤트(${evt.event ?? "?"})` };
+  }
+}
+
+/** 녹화/전사 이벤트 → 회의 행 확보 → 파일 기록 → (전사면) 본문 수집. */
+async function upsertFromRecording(evt: ZoomEventPayload, isTranscriptEvent: boolean): Promise<{ handled: boolean; note: string }> {
+  const o = evt.payload!.object!;
+  const uuid = o.uuid!;
+  const zoomMeetingId = o.id != null ? String(o.id) : null;
+  const startedAt = o.start_time ?? null;
+  const files = o.recording_files ?? [];
+
+  const meeting = await ensureMeetingRow({
+    uuid, zoomMeetingId, topic: o.topic ?? "", hostEmail: o.host_email ?? null,
+    startedAt, duration: o.duration ?? null, shareUrl: o.share_url ?? null,
+    participants: o.participants ?? (o.registrant_email ? [{ email: o.registrant_email }] : []),
+  });
+
+  // 파일 목록 기록 — 같은 파일이 다시 와도 UNIQUE(zoom_uuid, zoom_file_id) 로 중복 저장되지 않는다.
+  for (const f of files) await recordFile(meeting.id, uuid, f);
+  await query("UPDATE meetings SET recording_files_count=(SELECT count(*) FROM meeting_recordings WHERE meeting_id=$1) WHERE id=$1",
+    [meeting.id]).catch(() => {});
+
+  const transcriptFile = files.find((f) => TRANSCRIPT_FILE_TYPES.has((f.file_type ?? "").toUpperCase()));
+  if (transcriptFile) {
+    const got = await collectTranscript(meeting.id, uuid, transcriptFile, evt.payload?.download_token ?? null);
+    return { handled: true, note: got.note };
+  }
+
+  if (isTranscriptEvent) {
+    // 전사 완료 이벤트인데 파일이 안 왔다 — API 로 한 번 더 확인(늦은 반영 대비).
+    const again = await fetchTranscriptViaApi(meeting.id, uuid);
+    return { handled: true, note: again.note };
+  }
+
+  // 녹화만 도착 — 전사 대기로 둔다. 이미 전사가 있으면 건드리지 않는다.
+  await query(
+    `UPDATE meetings SET transcript_status=CASE WHEN transcript_status='ready' THEN 'ready' ELSE 'pending' END,
+       transcript_next_try=now() + interval '20 minutes'
+     WHERE id=$1`, [meeting.id]).catch(() => {});
+  return { handled: true, note: "녹화 수집 · 전사 대기" };
+}
+
+interface EnsureInput {
+  uuid: string; zoomMeetingId: string | null; topic: string; hostEmail: string | null;
+  startedAt: string | null; duration: number | null; shareUrl: string | null;
+  participants: { name?: string; email?: string }[];
+}
+
+/**
+ * 회의 행 확보. 순서:
+ *   1) 같은 UUID 행이 이미 있으면 그 행(이벤트 역순 도착에도 한 회의로 모인다)
+ *   2) 없으면 브랜드 매핑을 판정하고, 예약으로 만들어 둔 행이 있으면 그 행을 이 회차로 승격
+ *   3) 그것도 없으면 새 행 생성
+ * 수동으로 정해 둔 브랜드(match_method='manual')는 절대 덮어쓰지 않는다.
+ */
+async function ensureMeetingRow(input: EnsureInput): Promise<{ id: string; brandId: string | null }> {
+  const existing = await queryOne<{ id: string; brand_id: string | null; match_method: string | null }>(
+    "SELECT id, brand_id, match_method FROM meetings WHERE zoom_uuid=$1", [input.uuid]).catch(() => null);
+
+  if (existing) {
+    await query(
+      `UPDATE meetings SET topic=COALESCE(NULLIF($2,''),topic), host_email=COALESCE(host_email,$3),
+         started_at=COALESCE(started_at,$4), duration_min=COALESCE(duration_min,$5),
+         recording_share_url=COALESCE($6,recording_share_url),
+         status=CASE WHEN status IN ('scheduled','unmatched') AND brand_id IS NOT NULL THEN 'received' ELSE status END
+       WHERE id=$1`,
+      [existing.id, input.topic, input.hostEmail, input.startedAt, input.duration, input.shareUrl]).catch(() => {});
+    return { id: existing.id, brandId: existing.brand_id };
+  }
+
+  // 참석자 이메일 → 브랜드 후보(보조 근거)
+  const emailBrandIds: string[] = [];
+  for (const p of input.participants) {
+    if (!p.email) continue;
+    if (input.hostEmail && p.email.toLowerCase() === input.hostEmail.toLowerCase()) continue;
+    const b = await brandByEmail(p.email);
+    if (b) emailBrandIds.push(b);
+  }
+
+  // 같은 숫자 회의 ID 로 잡아둔 예약들(브랜드 지정된 것만)
+  const bookings = input.zoomMeetingId ? await findBookings(input.zoomMeetingId) : [];
+  const m = matchBrand({ zoomMeetingId: input.zoomMeetingId, startedAt: input.startedAt, bookings, emailBrandIds });
+
+  // 예약 행이 있으면 그 행을 이번 회차로 쓴다 — 예약 때 남긴 브랜드·제목·담당자를 잇는다.
+  if (m.bookingMeetingId) {
+    await query(
+      `UPDATE meetings SET zoom_uuid=$2, zoom_meeting_id=COALESCE(NULLIF($3,''),zoom_meeting_id),
+         topic=COALESCE(NULLIF($4,''),topic), host_email=COALESCE(host_email,$5),
+         started_at=COALESCE($6,started_at), duration_min=COALESCE(duration_min,$7),
+         recording_share_url=$8, status='received',
+         match_method='booking', match_note=$9, match_candidates='[]'::jsonb
+       WHERE id=$1`,
+      [m.bookingMeetingId, input.uuid, input.zoomMeetingId ?? "", input.topic, input.hostEmail,
+       input.startedAt, input.duration, input.shareUrl, m.reason]).catch(() => {});
+    await logBrandLink(m.bookingMeetingId, m.brandId, null, "booking", m.reason, "system:zoom");
+    return { id: m.bookingMeetingId, brandId: m.brandId };
+  }
+
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO meetings (brand_id, zoom_meeting_id, zoom_uuid, topic, host_email, participants,
+       started_at, scheduled_at, duration_min, recording_share_url, status,
+       match_method, match_note, match_candidates, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,$12,$13,'zoom-webhook')
+     RETURNING id`,
+    [m.brandId, input.zoomMeetingId ?? "", input.uuid, input.topic, input.hostEmail,
+     JSON.stringify(input.participants), input.startedAt, input.duration, input.shareUrl,
+     m.brandId ? "received" : "unmatched", m.method, m.reason, JSON.stringify(m.candidates)]);
+  if (!row) throw new Error("회의 저장 실패");
+  await logBrandLink(row.id, m.brandId, null, m.method, m.reason, "system:zoom");
+  return { id: row.id, brandId: m.brandId };
+}
+
+/** 같은 숫자 회의 ID 를 가진 "브랜드가 지정된" 예약 행들. */
+async function findBookings(zoomMeetingId: string): Promise<BookingRow[]> {
+  return query<BookingRow>(
+    `SELECT id, brand_id, topic, scheduled_at::text AS scheduled_at, zoom_join_url, zoom_meeting_id
+       FROM meetings
+      WHERE brand_id IS NOT NULL
+        AND status IN ('scheduled','no_show')
+        AND (zoom_meeting_id=$1 OR zoom_join_url LIKE '%/j/' || $1 || '%')
+      ORDER BY scheduled_at DESC LIMIT 20`, [zoomMeetingId]).catch(() => []);
+}
+
+async function brandByEmail(email: string): Promise<string | null> {
+  const alias = await queryOne<{ brand_id: string }>(
+    "SELECT brand_id FROM brand_email_aliases WHERE lower(email)=lower($1) LIMIT 1", [email]).catch(() => null);
+  if (alias) return alias.brand_id;
+  const b = await queryOne<{ id: string }>(
+    "SELECT id FROM brands WHERE lower(email)=lower($1) LIMIT 1", [email]).catch(() => null);
+  return b?.id ?? null;
+}
+
+async function logBrandLink(meetingId: string, brandId: string | null, prev: string | null, method: string, reason: string, by: string): Promise<void> {
+  await query(
+    `INSERT INTO meeting_brand_links (meeting_id, brand_id, prev_brand_id, method, reason, by_admin)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [meetingId, brandId, prev, method, reason.slice(0, 400), by]).catch(() => {});
+}
+
+/** 녹화 파일 1건 기록(중복 무시). 다운로드 토큰이 붙은 URL 은 저장하지 않는다. */
+async function recordFile(meetingId: string, uuid: string, f: ZoomRecordingFile): Promise<void> {
+  const fileId = f.id ?? `${f.file_type ?? "FILE"}:${f.recording_start ?? ""}`;
+  await query(
+    `INSERT INTO meeting_recordings (meeting_id, zoom_uuid, zoom_file_id, file_type, recording_type,
+       file_extension, file_size, play_url, recording_start, recording_end)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     ON CONFLICT (zoom_uuid, zoom_file_id) DO UPDATE SET meeting_id=COALESCE(meeting_recordings.meeting_id, EXCLUDED.meeting_id)`,
+    [meetingId, uuid, fileId, (f.file_type ?? "").toUpperCase(), f.recording_type ?? "",
+     (f.file_extension ?? "").toUpperCase(), f.file_size ?? null, f.play_url ?? null,
+     f.recording_start ?? null, f.recording_end ?? null]).catch(() => {});
+}
+
+/** 전사 파일 내려받아 meetings.transcript 에 저장. 수동으로 적어둔 전사는 덮어쓰지 않는다. */
+async function collectTranscript(meetingId: string, uuid: string, f: ZoomRecordingFile, downloadToken: string | null):
+  Promise<{ ok: boolean; note: string }> {
+  const cur = await queryOne<{ transcript: string | null; transcript_source: string | null }>(
+    "SELECT transcript, transcript_source FROM meetings WHERE id=$1", [meetingId]).catch(() => null);
+  // 사람이 넣었거나 이미 Zoom 전사가 들어온 회의는 다시 덮지 않는다(재처리 안전).
+  if (keepExistingTranscript(cur)) {
+    await markTranscriptReady(meetingId);
+    return { ok: true, note: "이미 전사 있음 — 보존" };
+  }
+  if (!f.download_url) return { ok: false, note: "전사 다운로드 주소 없음" };
+
+  const dl = await downloadZoomFile(f.download_url, downloadToken);
+  if (!dl.ok || !dl.text) {
+    await failTranscript(meetingId, dl.error ?? "전사 다운로드 실패");
+    return { ok: false, note: dl.error ?? "전사 다운로드 실패" };
+  }
+  const text = vttToTranscript(dl.text);
+  if (!text.trim()) {
+    await failTranscript(meetingId, "전사 파일이 비어 있음");
+    return { ok: false, note: "전사 파일이 비어 있음" };
+  }
+  const speakers = vttSpeakers(dl.text);
+  await query(
+    `UPDATE meetings SET transcript=$2, transcript_source='zoom', transcript_status='ready',
+       transcript_fetched_at=now(), transcript_error=NULL, transcript_next_try=NULL,
+       status=CASE WHEN status IN ('scheduled','received','transcribing') THEN 'received' ELSE status END
+     WHERE id=$1`, [meetingId, text]).catch(() => {});
+  await query(
+    "UPDATE meeting_recordings SET collected=true, collected_at=now() WHERE zoom_uuid=$1 AND zoom_file_id=$2",
+    [uuid, f.id ?? ""]).catch(() => {});
+  return { ok: true, note: `전사 수집 완료(${text.length}자${speakers.length ? ` · 화자 ${speakers.length}명` : ""})` };
+}
+
+async function markTranscriptReady(meetingId: string): Promise<void> {
+  await query(
+    `UPDATE meetings SET transcript_status='ready', transcript_fetched_at=COALESCE(transcript_fetched_at,now()),
+       transcript_error=NULL, transcript_next_try=NULL WHERE id=$1`, [meetingId]).catch(() => {});
+}
+
+async function failTranscript(meetingId: string, err: string): Promise<void> {
+  // 지수 백오프(20분 → 최대 12시간).
+  await query(
+    `UPDATE meetings SET transcript_status='failed', transcript_error=$2,
+       transcript_attempts=transcript_attempts+1,
+       transcript_next_try=now() + (least(720, 20 * power(2, least(transcript_attempts,5))) || ' minutes')::interval
+     WHERE id=$1`, [meetingId, err.slice(0, 300)]).catch(() => {});
+}
+
+/** API 로 전사 파일을 다시 찾아 수집(웹훅 토큰 만료·늦은 반영 대비). */
+export async function fetchTranscriptViaApi(meetingId: string, uuid: string): Promise<{ ok: boolean; note: string }> {
+  const r = await getMeetingRecordings(uuid);
+  if (!r.ok) {
+    await failTranscript(meetingId, r.error ?? "녹화 조회 실패");
+    return { ok: false, note: r.error ?? "녹화 조회 실패" };
+  }
+  const files = r.data?.recording_files ?? [];
+  for (const f of files) await recordFile(meetingId, uuid, f);
+  const t = files.find((f) => TRANSCRIPT_FILE_TYPES.has((f.file_type ?? "").toUpperCase()));
+  if (!t) {
+    await query(
+      `UPDATE meetings SET transcript_status='pending', transcript_error=NULL,
+         transcript_attempts=transcript_attempts+1,
+         transcript_next_try=now() + interval '2 hours' WHERE id=$1`, [meetingId]).catch(() => {});
+    return { ok: false, note: "아직 전사 파일 없음 — 대기" };
+  }
+  return collectTranscript(meetingId, uuid, t, null);
+}
+
+/**
+ * 전사 대기·실패 회의 재시도.
+ *   · 예정 시각이 된 것만(백오프)
+ *   · 너무 오래 기다린 녹화는 "녹음만 있음"으로 확정 표시해 대기함이 계속 쌓이지 않게 한다.
+ */
+export async function retryPendingTranscripts(limit = 10): Promise<number> {
+  // 오래 기다린 건 → recording_only 로 확정(전사 기능·언어·요금제 문제로 안 나오는 경우).
+  await query(
+    `UPDATE meetings SET transcript_status='recording_only',
+       transcript_error=COALESCE(NULLIF(transcript_error,''), '전사 파일이 생성되지 않음 — Zoom 오디오 자동 전사 설정·지원 언어·요금제 확인 필요')
+      WHERE transcript_status IN ('pending','failed')
+        AND (transcript IS NULL OR transcript='')
+        AND started_at IS NOT NULL
+        AND started_at < now() - ($1 || ' hours')::interval
+        AND transcript_attempts >= $2`, [TRANSCRIPT_WAIT_HOURS, MAX_TRANSCRIPT_ATTEMPTS]).catch(() => {});
+
+  if (!zoomApiConfigured()) return 0;
+  const rows = await query<{ id: string; zoom_uuid: string }>(
+    `SELECT id, zoom_uuid FROM meetings
+      WHERE transcript_status IN ('pending','failed')
+        AND (transcript IS NULL OR transcript='')
+        AND zoom_uuid NOT LIKE 'manual:%' AND zoom_uuid NOT LIKE 'ics:%'
+        AND (transcript_next_try IS NULL OR transcript_next_try <= now())
+        AND transcript_attempts < $2
+      ORDER BY transcript_next_try NULLS FIRST LIMIT $1`, [limit, MAX_TRANSCRIPT_ATTEMPTS]).catch(() => []);
+  let n = 0;
+  for (const r of rows) { await fetchTranscriptViaApi(r.id, r.zoom_uuid).catch(() => null); n++; }
+  return n;
+}
+
+// ── 운영 화면용 ───────────────────────────────────────────────
+export interface ZoomIngestStatus {
+  configured: boolean; webhookSecretSet: boolean;
+  lastEventAt: string | null; lastTranscriptAt: string | null;
+  queued: number; failedEvents: number;
+  pendingTranscripts: number; recordingOnly: number; failedTranscripts: number; unmatched: number;
+}
+
+export async function getZoomIngestStatus(): Promise<ZoomIngestStatus> {
+  const { env } = await import("./env");
+  const one = async <T extends Record<string, unknown>>(sql: string): Promise<T | null> => queryOne<T>(sql).catch(() => null);
+  const ev = await one<{ last: string | null; queued: string; failed: string }>(
+    `SELECT max(received_at)::text AS last,
+            count(*) FILTER (WHERE status IN ('queued','processing'))::text AS queued,
+            count(*) FILTER (WHERE status='failed')::text AS failed
+       FROM zoom_webhook_events`);
+  const mt = await one<{ last: string | null; pending: string; rec_only: string; failed: string; unmatched: string }>(
+    `SELECT max(transcript_fetched_at)::text AS last,
+            count(*) FILTER (WHERE transcript_status='pending')::text AS pending,
+            count(*) FILTER (WHERE transcript_status='recording_only')::text AS rec_only,
+            count(*) FILTER (WHERE transcript_status='failed')::text AS failed,
+            count(*) FILTER (WHERE status='unmatched' AND NOT COALESCE(match_dismissed,false))::text AS unmatched
+       FROM meetings`);
+  return {
+    configured: zoomApiConfigured(),
+    webhookSecretSet: Boolean(env.zoom.webhookSecret),
+    lastEventAt: ev?.last ?? null,
+    lastTranscriptAt: mt?.last ?? null,
+    queued: Number(ev?.queued ?? 0),
+    failedEvents: Number(ev?.failed ?? 0),
+    pendingTranscripts: Number(mt?.pending ?? 0),
+    recordingOnly: Number(mt?.rec_only ?? 0),
+    failedTranscripts: Number(mt?.failed ?? 0),
+    unmatched: Number(mt?.unmatched ?? 0),
+  };
+}
+
+export interface ZoomFailureRow {
+  kind: "event" | "meeting";
+  id: string; label: string; detail: string; at: string | null;
+}
+/** 실패·대기 내역(재처리 버튼용). */
+export async function listZoomFailures(limit = 20): Promise<ZoomFailureRow[]> {
+  const events = await query<{ id: string; event: string; error: string | null; received_at: string; zoom_uuid: string | null }>(
+    `SELECT id, event, error, received_at::text AS received_at, zoom_uuid FROM zoom_webhook_events
+      WHERE status='failed' ORDER BY received_at DESC LIMIT $1`, [limit]).catch(() => []);
+  const meets = await query<{ id: string; topic: string | null; transcript_status: string; transcript_error: string | null; started_at: string | null }>(
+    `SELECT id, topic, transcript_status, transcript_error, started_at::text AS started_at FROM meetings
+      WHERE transcript_status IN ('failed','pending','recording_only')
+      ORDER BY COALESCE(started_at, created_at) DESC LIMIT $1`, [limit]).catch(() => []);
+  return [
+    ...events.map((e): ZoomFailureRow => ({
+      kind: "event", id: e.id, label: `웹훅 ${e.event}`, detail: e.error ?? "처리 실패", at: e.received_at,
+    })),
+    ...meets.map((m): ZoomFailureRow => ({
+      kind: "meeting", id: m.id,
+      label: m.topic || "(제목 없음)",
+      detail: m.transcript_status === "pending" ? "전사 대기 중"
+        : m.transcript_status === "recording_only" ? (m.transcript_error || "녹음만 있음 — 전사 없음")
+        : (m.transcript_error || "전사 수집 실패"),
+      at: m.started_at,
+    })),
+  ];
+}
+
+/** 실패한 웹훅 이벤트 다시 처리 — 큐로 되돌린다(중복 저장은 구조상 막혀 있다). */
+export async function requeueZoomEvent(eventId: string): Promise<boolean> {
+  const r = await query("UPDATE zoom_webhook_events SET status='queued', attempts=0, error=NULL WHERE id=$1", [eventId]).catch(() => null);
+  return Boolean(r);
+}
+
+/** 회의 1건 전사 재수집 — 백오프를 지우고 즉시 대상에 올린다. */
+export async function requeueMeetingTranscript(meetingId: string): Promise<boolean> {
+  const r = await query(
+    `UPDATE meetings SET transcript_status='pending', transcript_attempts=0,
+       transcript_error=NULL, transcript_next_try=now() WHERE id=$1`, [meetingId]).catch(() => null);
+  return Boolean(r);
+}

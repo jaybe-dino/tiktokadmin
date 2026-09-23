@@ -147,14 +147,32 @@ export async function connectMeetingBrandAction(
   );
   if (!meeting) return { ok: false, error: "존재하지 않는 미팅입니다." };
 
+  // 이전 브랜드를 남겨 이력에 기록한다(누가 무엇을 무엇으로 바꿨는지).
+  const before = await queryOne<{ brand_id: string | null }>(
+    "SELECT brand_id FROM meetings WHERE id=$1", [meetingId]).catch(() => null);
+
   // 브랜드 연결. unmatched 상태였다면 파이프라인 진입 상태(received)로 전진.
+  //   수동 지정은 이후 자동 매핑이 덮어쓰지 않도록 match_method='manual' 로 고정한다.
   await query(
     `UPDATE meetings
         SET brand_id=$2,
-            status=CASE WHEN status='unmatched' THEN 'received' ELSE status END
+            status=CASE WHEN status='unmatched' THEN 'received' ELSE status END,
+            match_method='manual', match_note=$3, match_candidates='[]'::jsonb
       WHERE id=$1`,
-    [meetingId, brandId],
-  );
+    [meetingId, brandId, `담당자 수동 연결 (${u.id})`],
+  ).catch(async () => {
+    // 0097 미적용 DB — 매핑 근거 컬럼 없이 연결만.
+    await query(
+      `UPDATE meetings SET brand_id=$2,
+          status=CASE WHEN status='unmatched' THEN 'received' ELSE status END
+        WHERE id=$1`, [meetingId, brandId]);
+  });
+
+  await query(
+    `INSERT INTO meeting_brand_links (meeting_id, brand_id, prev_brand_id, method, reason, by_admin)
+     VALUES ($1,$2,$3,'manual',$4,$5)`,
+    [meetingId, brandId, before?.brand_id ?? null,
+     before?.brand_id ? "담당자가 브랜드를 정정" : "담당자가 미매핑 회의를 연결", u.id]).catch(() => {});
 
   // 접촉 기록(미팅) + 최근 접촉 시각 — 다른 화면과 동일한 원장 반영.
   await query(

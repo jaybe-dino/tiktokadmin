@@ -1,6 +1,8 @@
 import Link from "next/link";
 import ScreenHeader from "@/components/ScreenHeader";
+import ZoomIngestPanel from "@/components/ZoomIngestPanel";
 import { query } from "@/lib/db";
+import { currentUser } from "@/lib/auth";
 import ConnectBrand from "./ConnectBrand";
 import MeetingEditor, { type CalendarMeeting } from "./MeetingEditor";
 import MeetingMappings, { type MappedMeeting } from "./MeetingMappings";
@@ -104,6 +106,9 @@ function monthGrid(anchorYmd: string): { weeks: { ymd: string; day: number; inMo
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 9); // 09~19시
 
 export default async function MeetingsPage({ searchParams }: { searchParams: Promise<{ view?: string; d?: string }> }) {
+  // 재처리·과거 가져오기는 파트장·대표만(쓰기 동작).
+  const me = await currentUser();
+  const canEditMeetings = me?.role === "lead" || me?.role === "exec";
   const sp = await searchParams;
   const view = sp.view === "month" ? "month" : "week";
   const anchor = sp.d && /^\d{4}-\d{2}-\d{2}$/.test(sp.d) ? sp.d : todayYmdKST();
@@ -449,6 +454,9 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Pro
           </div>
         </div>
       </div>
+
+      {/* Zoom 녹화·전사 수집 상태 · 재처리 · 과거 가져오기 */}
+      <ZoomIngestPanel canEdit={canEditMeetings} />
 
       {/* 브랜드 맵핑 리스트 관리 */}
       <MeetingMappings rows={mapped} brands={brandList} />

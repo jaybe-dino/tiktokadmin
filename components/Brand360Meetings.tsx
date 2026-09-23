@@ -13,6 +13,10 @@ import { setMeetingStatusAction } from "@/app/(dash)/brand360/actions";
 export interface MeetingRow {
   id: string; topic: string; status: string; started_at: string | null; scheduled_at: string | null;
   duration_min: number | null; recording_url: string | null; transcript: string | null; summary_md: string | null;
+  // Zoom 자동 수집(0097) — 마이그레이션 미적용 DB 에서는 undefined.
+  transcript_status?: string | null; transcript_source?: string | null; transcript_error?: string | null;
+  recording_share_url?: string | null; host_email?: string | null;
+  attendees?: { name?: string; email?: string }[] | null;
 }
 interface AttendeeInput { name: string; email: string }
 interface HostOption { id: string; name: string; role: string; email: string }
