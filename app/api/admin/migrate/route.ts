@@ -10,6 +10,7 @@ export const maxDuration = 60;
 //   POST /api/admin/migrate  (Authorization: Bearer <CRON_SECRET>)
 //   또는 GET /api/admin/migrate?token=<CRON_SECRET>
 //   상태만 확인: GET /api/admin/migrate?token=<CRON_SECRET>&mode=status  (적용 안 함)
+//   고른 것만 적용: ...&only=0096_lead_sequence.sql  (쉼표로 여러 개 — 관계없는 변경을 함께 올리지 않는다)
 // migrations/*.sql 을 순서대로 적용하고 schema_migrations 로 추적(재호출 안전).
 // CRON_SECRET 미설정 시 거부(무보호 DDL 방지).
 
@@ -32,8 +33,11 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true, ...state });
     }
     const force = req.nextUrl.searchParams.get("force") === "1";
-    const result = await applyMigrations(force);
-    return NextResponse.json({ ok: true, force, ...result });
+    // only=파일명[,파일명] — 지정하면 그 파일만 적용한다(미지정이면 미적용 전체).
+    const only = (req.nextUrl.searchParams.get("only") ?? "")
+      .split(",").map((x) => x.trim()).filter(Boolean);
+    const result = await applyMigrations(force, only);
+    return NextResponse.json({ ok: true, force, only, ...result });
   } catch (err) {
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 500 });
   }
