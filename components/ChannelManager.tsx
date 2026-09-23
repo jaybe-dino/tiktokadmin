@@ -99,6 +99,10 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
               <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => copyUrl(c)} title="이 채널 전용 POST URL 복사(선택 칼럼 포함)">📋 POST URL</button>
               <button className="btn btn-sm" onClick={() => setHistId(histId === c.id ? null : c.id)}>{histId === c.id ? "접기" : "📊 발송내역"}</button>
               {canEdit && <button className="btn btn-sm" onClick={() => setEditId(editId === c.id ? null : c.id)}>{editId === c.id ? "접기" : "✏️ 내용"}</button>}
+              <a className="btn btn-sm" href={`/channels/${c.id}/sequence`}
+                title="이 루트의 1~4일차 발송 내용과 대상별 예정·이력을 한 화면에서 봅니다(조회 전용)">
+                📋 목록보기
+              </a>
               <button className="btn btn-sm" onClick={() => setSeqId(seqId === c.id ? null : c.id)}
                 title="유입 다음 날부터 며칠간 보낼 문자·메일(즉시 발송은 「내용」)">
                 {seqId === c.id ? "접기" : `📅 연속 안내${seqOf(c.id).enabled ? ` · 1~${seqOf(c.id).days}일차` : ""}`}
