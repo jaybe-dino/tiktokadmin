@@ -287,9 +287,8 @@ async function handleEvent(
         //   그 소스에 연결된 키 중 켜진 것이 하나일 때만 그 일정으로 예약한다.
         //   (키를 아는 /api/leadhook 은 그쪽에서 키 기준으로 직접 예약한다.)
         {
-          const { enrollLeadBySource, markImmediateSent } = await import("./lead-sequence");
+          const { enrollLeadBySource } = await import("./lead-sequence");
           await enrollLeadBySource(brand.id, source).catch(() => null);
-          if (wr?.sent.length) await markImmediateSent(brand.id, wr.sent).catch(() => {});
         }
         if (!opts?.skipLeadNotify) {
           const reason = !wr

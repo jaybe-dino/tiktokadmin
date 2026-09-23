@@ -4,23 +4,22 @@
 
 export const KST_OFFSET_MIN = 9 * 60;
 export const MAX_SEQ_DAYS = 30;
-/** 유입 직후 회차의 day_no. 1 이상은 "유입 N일차". */
-export const DAY_IMMEDIATE = 0;
-/** 회차 이름 — 화면·로그 공통. */
+/** 회차 이름 — 화면·로그 공통. 회차는 1일차부터다.
+ *  유입 즉시 발송은 기존 1회성 자동안내(키의 「내용」)가 담당하므로 여기서 다루지 않는다. */
 export function dayLabel(n: number): string {
-  return n === DAY_IMMEDIATE ? "유입 직후" : `유입 ${n}일차`;
+  return `유입 ${n}일차`;
 }
 
 export interface SeqConfig {
   channel_id: string;
   enabled: boolean;
-  days: number;              // 몇 일차까지(유입 직후 회차는 별도)
+  days: number;              // 몇 일차까지
   hour: number;              // 기본 발송 시각(KST 시)
   stopOnProgress: boolean;   // 상담·미팅 등 단계가 진전되면 중단
 }
 
 export interface SeqStep {
-  channel_id: string; day_no: number;   // 0 = 유입 직후
+  channel_id: string; day_no: number;   // 1 = 유입 1일차
   enabled: boolean;
   send_sms: boolean; send_email: boolean;
   send_hour: number | null;  // 이 일차만의 발송 시각(없으면 키 기본 시각)
@@ -54,16 +53,15 @@ export interface PlanInput {
 }
 
 /**
- * 회차별 예정 시각.
- *   · 유입 직후(day 0) — 유입 시각 그대로.
- *   · 유입 N일차(day N) — 유입일로부터 N일 뒤, 그 회차 시각(없으면 기본 시각).
+ * 회차별 예정 시각 — 유입 N일차 = 유입일로부터 N일 뒤, 그 회차 시각(없으면 기본 시각).
+ *   유입 당일(즉시) 발송은 기존 1회성 자동안내가 이미 하므로 여기엔 없다.
  */
 export function planSchedule(from: Date, s: PlanInput): { day_no: number; due_at: Date }[] {
   const hourOf = (d: number): number => {
     const h = s.hourByDay?.[d];
     return h == null ? clampHour(s.hour) : clampHour(h);
   };
-  const out: { day_no: number; due_at: Date }[] = [{ day_no: DAY_IMMEDIATE, due_at: new Date(from) }];
+  const out: { day_no: number; due_at: Date }[] = [];
   for (let d = 1; d <= clampDays(s.days); d++) {
     out.push({ day_no: d, due_at: kstSlot(from, d, hourOf(d)) });
   }

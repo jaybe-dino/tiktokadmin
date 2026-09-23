@@ -137,11 +137,6 @@ export async function POST(req: NextRequest) {
           const { enrollLead } = await import("@/lib/lead-sequence");
           await enrollLead(brandId, channel.id).catch(() => null);
         }
-        // 채널 자체 문구로 유입 직후분이 나갔으면 연속 안내의 「유입 직후」 예약을 닫는다(중복 방지).
-        if (welcome?.sent?.length) {
-          const { markImmediateSent } = await import("@/lib/lead-sequence");
-          await markImmediateSent(brandId, welcome.sent).catch(() => {});
-        }
       }
       await notifyNewLead(brandId, {
         channelName: channel?.name ?? null,

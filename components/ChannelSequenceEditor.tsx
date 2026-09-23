@@ -1,12 +1,12 @@
 "use client";
 // 유입 소스 키별 연속 안내(드립) — 그 키로 들어온 리드에게 N일간 매일 문자·메일.
 //   키 한 줄 안에서 펼쳐 쓰도록 만든 편집기(채널 관리 화면에 붙는다).
-//   회차: 「유입 직후」 + 「유입 1일차」 … 「유입 N일차」
+//   회차: 「유입 1일차」 … 「유입 N일차」 — 유입 즉시 발송은 기존 「내용」(1회성 자동안내)이 담당한다.
 //   설정: 몇 일차까지 · 기본 시각 · 단계 진전 시 중단
 //         + 회차별 on/off · 문자/메일 각각 · 회차마다 다른 시각 · 문구
 import { useEffect, useState, useTransition } from "react";
 import type { SeqConfig, SeqStep, SeqQueueRow } from "@/lib/lead-sequence";
-import { dayLabel, DAY_IMMEDIATE } from "@/lib/lead-sequence-plan";
+import { dayLabel } from "@/lib/lead-sequence-plan";
 import {
   saveSeqConfigAction, saveSeqStepAction, listSeqStepsAction, listSeqQueueAction,
   previewSeqScheduleAction, copySeqStepsAction, cancelSeqAction, runSeqNowAction,
@@ -92,7 +92,8 @@ export default function ChannelSequenceEditor({ channelId, config, canEdit, othe
   return (
     <div style={{ marginTop: 8, padding: 10, border: "1px dashed var(--line)", borderRadius: 8, background: "var(--bg)", display: "grid", gap: 10 }}>
       <div style={{ fontSize: 11.5, color: "var(--ink2)", lineHeight: 1.6 }}>
-        이 키로 들어온 리드에게 <b>유입 직후</b> 한 번, 그다음 <b>유입 1일차 · 2일차 …</b> 로 정해진 시각에 보냅니다.
+        이 키로 들어온 리드에게 <b>유입 1일차 · 2일차 …</b> 로 정해진 시각에 보냅니다.
+        <b>유입 즉시 발송은 위 「✏️ 내용」(1회성 자동안내)</b>이 그대로 담당하고, 여기는 그다음 날부터입니다.
         꺼진 회차와 문구가 빈 회차는 건너뜁니다. <b>상담·미팅 등 단계가 진전되면 남은 안내는 자동 중단</b>됩니다.
       </div>
 
@@ -104,7 +105,7 @@ export default function ChannelSequenceEditor({ channelId, config, canEdit, othe
         <label style={{ fontSize: 12, display: "flex", gap: 5, alignItems: "center" }}>
           회차
           <select className="f" value={c.days} disabled={!canEdit} onChange={(e) => set("days", Number(e.target.value))} style={{ width: 130 }}>
-            {DAY_OPTS.map((d) => <option key={d} value={d}>직후 + {d}일차까지</option>)}
+            {DAY_OPTS.map((d) => <option key={d} value={d}>1~{d}일차</option>)}
           </select>
         </label>
         <label style={{ fontSize: 12, display: "flex", gap: 5, alignItems: "center" }}>
@@ -150,18 +151,13 @@ export default function ChannelSequenceEditor({ channelId, config, canEdit, othe
               <div key={st.day_no} style={{ border: "1px solid var(--line)", borderRadius: 6, background: "var(--card)" }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "5px 8px", flexWrap: "wrap" }}>
                   <span className={`tgl ${st.enabled ? "on" : ""}`} onClick={() => canEdit && setStep(st.day_no, { enabled: !st.enabled })} />
-                  <b style={{ fontSize: 12, minWidth: 74, color: st.day_no === DAY_IMMEDIATE ? "var(--acc)" : undefined }}>{dayLabel(st.day_no)}</b>
-                  {/* 유입 직후는 유입 시각에 바로 나가므로 시각 선택이 없다. */}
-                  {st.day_no === DAY_IMMEDIATE ? (
-                    <span style={{ fontSize: 11, color: "var(--ink3)", width: 96 }}>유입 즉시</span>
-                  ) : (
-                    <select className="f" disabled={!canEdit} value={st.send_hour == null ? "" : String(st.send_hour)}
-                      onChange={(e) => setStep(st.day_no, { send_hour: e.target.value === "" ? null : Number(e.target.value) })}
-                      style={{ width: 96, fontSize: 11 }} title="이 회차의 발송 시각(비우면 기본 시각)">
-                      <option value="">기본 {c.hour}시</option>
-                      {HOURS.map((h) => <option key={h} value={h}>{h}시</option>)}
-                    </select>
-                  )}
+                  <b style={{ fontSize: 12, minWidth: 74 }}>{dayLabel(st.day_no)}</b>
+                  <select className="f" disabled={!canEdit} value={st.send_hour == null ? "" : String(st.send_hour)}
+                    onChange={(e) => setStep(st.day_no, { send_hour: e.target.value === "" ? null : Number(e.target.value) })}
+                    style={{ width: 96, fontSize: 11 }} title="이 회차의 발송 시각(비우면 기본 시각)">
+                    <option value="">기본 {c.hour}시</option>
+                    {HOURS.map((h) => <option key={h} value={h}>{h}시</option>)}
+                  </select>
                   <label style={{ display: "flex", gap: 4, alignItems: "center", fontSize: 11.5 }}>
                     <span className={`tgl ${st.send_sms ? "on" : ""}`} onClick={() => canEdit && setStep(st.day_no, { send_sms: !st.send_sms })} /> 문자
                   </label>

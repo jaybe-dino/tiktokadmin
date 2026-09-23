@@ -99,8 +99,8 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
               <button className="btn btn-sm" onClick={() => setHistId(histId === c.id ? null : c.id)}>{histId === c.id ? "접기" : "📊 발송내역"}</button>
               {canEdit && <button className="btn btn-sm" onClick={() => setEditId(editId === c.id ? null : c.id)}>{editId === c.id ? "접기" : "✏️ 내용"}</button>}
               <button className="btn btn-sm" onClick={() => setSeqId(seqId === c.id ? null : c.id)}
-                title="이 키로 들어온 리드에게 며칠간 매일 보낼 문자·메일">
-                {seqId === c.id ? "접기" : `📅 연속 안내${seqOf(c.id).enabled ? ` · 직후+${seqOf(c.id).days}일차` : ""}`}
+                title="유입 다음 날부터 며칠간 보낼 문자·메일(즉시 발송은 「내용」)">
+                {seqId === c.id ? "접기" : `📅 연속 안내${seqOf(c.id).enabled ? ` · 1~${seqOf(c.id).days}일차` : ""}`}
               </button>
               {canEdit && <button className="btn btn-sm" disabled={pending} onClick={() => start(async () => { if (confirm(`'${c.name}' 채널 삭제?`)) { await deleteChannelAction(c.id); router.refresh(); } })}>삭제</button>}
             </div>
@@ -123,7 +123,7 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
               </label>
               {seqOf(c.id).enabled && (
                 <span className="pill chip-grn" style={{ fontSize: 10 }}>
-                  연속 안내 · 직후+{seqOf(c.id).days}일차 · {seqOf(c.id).hour}시
+                  연속 안내 · 1~{seqOf(c.id).days}일차 · {seqOf(c.id).hour}시
                 </span>
               )}
             </div>
@@ -191,7 +191,7 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
             )}
             {editId === c.id && canEdit && <ChannelEditor channel={c} onSaved={() => { setEditId(null); router.refresh(); }} />}
 
-            {/* 이 키의 연속 안내(드립) — 유입 직후 + N일차 회차별 문구·시각 */}
+            {/* 이 키의 연속 안내(드립) — 유입 1일차부터 회차별 문구·시각(즉시 발송은 「내용」 담당) */}
             {seqId === c.id && (
               <ChannelSequenceEditor
                 channelId={c.id}

@@ -7,13 +7,13 @@
 import { query, queryOne } from "./db";
 import { renderTemplate } from "./templates";
 import {
-  clampDays, clampHour, defaultSeqConfig, planSchedule, DAY_IMMEDIATE, MAX_SEQ_DAYS as MAX_DAYS,
+  clampDays, clampHour, defaultSeqConfig, planSchedule, MAX_SEQ_DAYS as MAX_DAYS,
   type SeqConfig, type SeqStep,
 } from "./lead-sequence-plan";
 
 // 순수 계산부는 DB 없는 모듈에 두고 그대로 재수출한다(클라이언트 화면도 같은 규칙을 쓴다).
 export {
-  KST_OFFSET_MIN, MAX_SEQ_DAYS, DAY_IMMEDIATE, dayLabel,
+  KST_OFFSET_MIN, MAX_SEQ_DAYS, dayLabel,
   defaultSeqConfig, kstSlot, planSchedule,
   type SeqConfig, type SeqStep, type PlanInput,
 } from "./lead-sequence-plan";
@@ -58,13 +58,15 @@ export async function listSeqSteps(channelId: string, days: number): Promise<Seq
     `SELECT channel_id, day_no, enabled, send_sms, send_email, send_hour, sms_body, email_subject, email_body
        FROM lead_sequence_steps WHERE channel_id=$1 ORDER BY day_no`, [channelId]).catch(() => []);
   const byDay = new Map(rows.map((r) => [r.day_no, r]));
-  // 0(유입 직후) + 1…days 회차를 항상 채워서 돌려준다.
-  return Array.from({ length: clampDays(days) + 1 }, (_, d) =>
-    byDay.get(d) ?? {
-      channel_id: channelId, day_no: d, enabled: d === DAY_IMMEDIATE,
+  // 1…days 회차를 항상 채워서 돌려준다.
+  return Array.from({ length: clampDays(days) }, (_, i) => {
+    const d = i + 1;
+    return byDay.get(d) ?? {
+      channel_id: channelId, day_no: d, enabled: d === 1,
       send_sms: true, send_email: true, send_hour: null,
       sms_body: "", email_subject: "", email_body: "",
-    });
+    };
+  });
 }
 
 export async function saveSeqStep(s: SeqStep, by: string): Promise<void> {
@@ -76,7 +78,7 @@ export async function saveSeqStep(s: SeqStep, by: string): Promise<void> {
        send_email=EXCLUDED.send_email, send_hour=EXCLUDED.send_hour, sms_body=EXCLUDED.sms_body,
        email_subject=EXCLUDED.email_subject, email_body=EXCLUDED.email_body,
        updated_by=EXCLUDED.updated_by, updated_at=now()`,
-    [s.channel_id, Math.min(MAX_DAYS, Math.max(0, s.day_no)), s.enabled, s.send_sms, s.send_email,
+    [s.channel_id, Math.min(MAX_DAYS, Math.max(1, s.day_no)), s.enabled, s.send_sms, s.send_email,
      s.send_hour == null ? null : clampHour(s.send_hour),
      s.sms_body ?? "", s.email_subject ?? "", s.email_body ?? "", by]);
 }
@@ -126,14 +128,6 @@ export async function enrollLeadBySource(brandId: string, source: string, from =
     return { ok: true, scheduled: 0, skipped: rows.length === 0 ? "이 소스에 켜진 연속 안내 없음" : "이 소스에 켜진 키가 여러 개 — 자동 예약 보류" };
   }
   return enrollLead(brandId, rows[0].id, from);
-}
-
-/** 유입 직후 회차를 기존 1회성 자동안내가 이미 보냈을 때 — 그 예약을 닫아 중복을 막는다. */
-export async function markImmediateSent(brandId: string, channels: string[]): Promise<void> {
-  await query(
-    `UPDATE lead_sequence_sends SET status='sent', channels=$2, sent_at=now(), note='자동안내(유입 직후)로 발송됨'
-      WHERE brand_id=$1 AND day_no=$3 AND status='queued'`,
-    [brandId, channels, DAY_IMMEDIATE]).catch(() => {});
 }
 
 /** 남은 예약 중단 — 수신거부·단계 진전·드랍 등. */
