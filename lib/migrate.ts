@@ -48,9 +48,19 @@ export async function getMigrationState(): Promise<MigrationState> {
   }
 }
 
-/** 미적용 마이그레이션을 순서대로 적용. force=true 면 기록 무시하고 전부 재적용(IF NOT EXISTS 라 안전). */
-export async function applyMigrations(force = false): Promise<MigrationApplyResult> {
-  const files = migrationFiles();
+/**
+ * 마이그레이션 적용.
+ *   · only 를 주면 그 파일들만 적용한다(관계없는 변경을 함께 올리지 않기 위함).
+ *     파일명 순서대로 적용하며, 각 파일은 독립 트랜잭션이라 하나가 실패해도 앞선 것은 남는다.
+ *   · force=true 면 기록을 무시하고 재적용(모든 스크립트가 IF NOT EXISTS 기반이라 안전).
+ */
+export async function applyMigrations(force = false, only?: string[]): Promise<MigrationApplyResult> {
+  const all = migrationFiles();
+  if (only && only.length) {
+    const unknown = only.filter((f) => !all.includes(f));
+    if (unknown.length) throw new Error(`없는 마이그레이션 파일: ${unknown.join(", ")}`);
+  }
+  const files = only && only.length ? all.filter((f) => only.includes(f)) : all;
   const client = await getPool().connect();
   const applied: string[] = [];
   const skipped: string[] = [];

@@ -26,8 +26,8 @@ export default async function ChannelsPage() {
     channelSendCounts(ids).catch(() => ({})),
   ]);
 
-  // 키별 연속 안내(0096) — 미적용 DB 에서는 전부 꺼짐으로 표시된다.
-  const seqConfigs = await listSeqConfigs();
+  // 키별 연속 안내(0096). 조회 실패(마이그레이션 미적용 등)는 숨기지 않고 화면에 띄운다.
+  const { configs: seqConfigs, error: seqError } = await listSeqConfigs();
 
   const active = channels.filter((c) => c.enabled).length;
   const totalLeads = channels.reduce((s, c) => s + (c.lead_count ?? 0), 0);
@@ -47,7 +47,7 @@ export default async function ChannelsPage() {
         <div className="tile"><div className="tile-k">누적 유입</div><div className="tile-v">{totalLeads}</div></div>
       </div>
 
-      <ChannelManager channels={channels} canEdit={canEdit} sends={sends} sendCounts={sendCounts} sources={sourceOpts} seqConfigs={seqConfigs} />
+      <ChannelManager channels={channels} canEdit={canEdit} sends={sends} sendCounts={sendCounts} sources={sourceOpts} seqConfigs={seqConfigs} seqError={seqError} />
 
       <div style={{ marginTop: 14 }}>
         <IntakeSourceManager sources={sources} canEdit={canEdit} />

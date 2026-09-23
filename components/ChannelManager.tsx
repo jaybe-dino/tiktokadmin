@@ -15,11 +15,12 @@ function originOf(): string {
   return "https://tiktokadmin.vercel.app";
 }
 
-export default function ChannelManager({ channels, canEdit, sends = {}, sendCounts = {}, sources = [], seqConfigs = {} }: {
+export default function ChannelManager({ channels, canEdit, sends = {}, sendCounts = {}, sources = [], seqConfigs = {}, seqError }: {
   channels: IntakeChannel[]; canEdit: boolean;
   sends?: Record<string, ChannelSend[]>; sendCounts?: Record<string, { sms: number; email: number }>;
   sources?: { key: string; label: string }[];
   seqConfigs?: Record<string, SeqConfig>;   // 키별 연속 안내 설정(0096)
+  seqError?: string;                        // 연속 안내 설정 조회 실패 사유(있으면 그대로 표시)
 }) {
   const router = useRouter();
   // 소스 목록은 DB(intake_sources)에서 주입 — 하드코딩 서브셋 대신 전체 노출.

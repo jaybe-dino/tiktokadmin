@@ -18,6 +18,26 @@ export {
   type SeqConfig, type SeqStep, type PlanInput,
 } from "./lead-sequence-plan";
 
+
+// ── DB 오류를 사람이 읽을 수 있게 ────────────────────────────
+/** 이 기능이 필요로 하는 마이그레이션 파일. 미적용이면 저장·조회가 모두 실패한다. */
+export const SEQ_MIGRATION = "0096_lead_sequence.sql";
+
+/**
+ * 스키마가 없어서 난 오류인지 판별해 안내 문구로 바꾼다.
+ *   42P01 = 테이블 없음, 42703 = 컬럼 없음 → 마이그레이션 미적용.
+ * 그 외 오류는 원문을 남겨 원인 파악이 되게 한다(빈 값으로 숨기지 않는다).
+ */
+export function seqDbError(e: unknown): string {
+  const err = e as { code?: string; message?: string };
+  const code = err?.code ?? "";
+  const msg = err?.message ?? String(e);
+  if (code === "42P01" || code === "42703" || /relation .* does not exist|column .* does not exist/i.test(msg)) {
+    return `DB 준비 안 됨 — 설정 → DB 마이그레이션에서 ${SEQ_MIGRATION} 을 적용해 주세요. (${msg})`;
+  }
+  return `저장/조회 실패 — ${msg}`;
+}
+
 // ── 설정 조회·저장 ───────────────────────────────────────────
 interface ConfigRow {
   channel_id: string; enabled: boolean; days: number; hour: number; stop_on_progress: boolean;
@@ -29,17 +49,27 @@ const toConfig = (r: ConfigRow): SeqConfig => ({
 
 const CONFIG_COLS = "channel_id, enabled, days, hour, stop_on_progress";
 
-/** 키 하나의 설정 — 없으면(0096 미적용 포함) 꺼짐 기본값. */
+/** 키 하나의 설정. 행이 없으면 꺼짐 기본값, 조회 자체가 실패하면 예외를 그대로 올린다. */
 export async function getSeqConfig(channelId: string): Promise<SeqConfig> {
   const r = await queryOne<ConfigRow>(
-    `SELECT ${CONFIG_COLS} FROM lead_sequence_config WHERE channel_id=$1`, [channelId]).catch(() => null);
+    `SELECT ${CONFIG_COLS} FROM lead_sequence_config WHERE channel_id=$1`, [channelId]);
   return r ? toConfig(r) : defaultSeqConfig(channelId);
 }
 
-/** 전체 키 설정 — 화면에서 키 목록과 합쳐 쓴다. */
-export async function listSeqConfigs(): Promise<Record<string, SeqConfig>> {
-  const rows = await query<ConfigRow>(`SELECT ${CONFIG_COLS} FROM lead_sequence_config`).catch(() => []);
-  return Object.fromEntries(rows.map((r) => [r.channel_id, toConfig(r)]));
+/** 발송 워커용 — 스키마가 없으면 "꺼짐"으로 보고 조용히 넘어간다(크론이 매번 터지지 않게). */
+async function getSeqConfigSafe(channelId: string): Promise<SeqConfig> {
+  return getSeqConfig(channelId).catch(() => defaultSeqConfig(channelId));
+}
+
+/** 전체 키 설정 — 화면에서 키 목록과 합쳐 쓴다.
+ *  조회에 실패하면 빈 값으로 넘기지 않고 사유를 함께 돌려준다(화면에 그대로 표시). */
+export async function listSeqConfigs(): Promise<{ configs: Record<string, SeqConfig>; error?: string }> {
+  try {
+    const rows = await query<ConfigRow>(`SELECT ${CONFIG_COLS} FROM lead_sequence_config`);
+    return { configs: Object.fromEntries(rows.map((r) => [r.channel_id, toConfig(r)])) };
+  } catch (e) {
+    return { configs: {}, error: seqDbError(e) };
+  }
 }
 
 export async function saveSeqConfig(c: SeqConfig, by: string): Promise<void> {
@@ -52,21 +82,23 @@ export async function saveSeqConfig(c: SeqConfig, by: string): Promise<void> {
     [c.channel_id, c.enabled, clampDays(c.days), clampHour(c.hour), c.stopOnProgress, by]);
 }
 
-/** 키의 일차별 문구 — 저장된 행이 없는 일차는 빈 기본값으로 채워 항상 days 개를 돌려준다. */
+/** 회차별 기본 뼈대(저장 행이 없는 회차용). */
+function blankSteps(channelId: string, days: number): SeqStep[] {
+  return Array.from({ length: clampDays(days) }, (_, i) => ({
+    channel_id: channelId, day_no: i + 1, enabled: i === 0,
+    send_sms: true, send_email: true, send_hour: null,
+    sms_body: "", email_subject: "", email_body: "",
+  }));
+}
+
+/** 키의 회차별 문구 — 조회 실패 시 예외를 올린다(빈 값으로 위장하지 않는다). */
 export async function listSeqSteps(channelId: string, days: number): Promise<SeqStep[]> {
   const rows = await query<SeqStep>(
     `SELECT channel_id, day_no, enabled, send_sms, send_email, send_hour, sms_body, email_subject, email_body
-       FROM lead_sequence_steps WHERE channel_id=$1 ORDER BY day_no`, [channelId]).catch(() => []);
+       FROM lead_sequence_steps WHERE channel_id=$1 ORDER BY day_no`, [channelId]);
   const byDay = new Map(rows.map((r) => [r.day_no, r]));
-  // 1…days 회차를 항상 채워서 돌려준다.
-  return Array.from({ length: clampDays(days) }, (_, i) => {
-    const d = i + 1;
-    return byDay.get(d) ?? {
-      channel_id: channelId, day_no: d, enabled: d === 1,
-      send_sms: true, send_email: true, send_hour: null,
-      sms_body: "", email_subject: "", email_body: "",
-    };
-  });
+  // 1…days 회차를 항상 채워서 돌려준다(저장된 행이 있으면 그 값).
+  return blankSteps(channelId, days).map((b) => byDay.get(b.day_no) ?? b);
 }
 
 export async function saveSeqStep(s: SeqStep, by: string): Promise<void> {
@@ -83,11 +115,18 @@ export async function saveSeqStep(s: SeqStep, by: string): Promise<void> {
      s.sms_body ?? "", s.email_subject ?? "", s.email_body ?? "", by]);
 }
 
+/** 회차 1건 조회 — 저장 직후 "정말 들어갔는지" 확인용. */
+export async function getSeqStep(channelId: string, dayNo: number): Promise<SeqStep | null> {
+  return queryOne<SeqStep>(
+    `SELECT channel_id, day_no, enabled, send_sms, send_email, send_hour, sms_body, email_subject, email_body
+       FROM lead_sequence_steps WHERE channel_id=$1 AND day_no=$2`, [channelId, dayNo]);
+}
+
 /** 다른 키의 문구를 통째로 복사 — 키마다 비슷한 흐름일 때 처음부터 쓰지 않아도 되게. */
 export async function copySeqSteps(fromId: string, toId: string, by: string): Promise<number> {
   const src = await query<SeqStep>(
     `SELECT channel_id, day_no, enabled, send_sms, send_email, send_hour, sms_body, email_subject, email_body
-       FROM lead_sequence_steps WHERE channel_id=$1`, [fromId]).catch(() => []);
+       FROM lead_sequence_steps WHERE channel_id=$1`, [fromId]);
   for (const s of src) await saveSeqStep({ ...s, channel_id: toId }, by);
   return src.length;
 }
@@ -96,7 +135,8 @@ export async function copySeqSteps(fromId: string, toId: string, by: string): Pr
 /** 리드 유입 시 그 키의 일정대로 예약을 만든다. 이미 예약된 브랜드면 아무것도 하지 않는다. */
 export async function enrollLead(brandId: string, channelId: string, from = new Date()): Promise<{ ok: boolean; scheduled: number; skipped?: string }> {
   if (!channelId) return { ok: true, scheduled: 0, skipped: "유입 키 없음" };
-  const s = await getSeqConfig(channelId);
+  // 유입 처리 자체를 막지 않도록, 스키마 미적용이면 예약만 건너뛴다.
+  const s = await getSeqConfigSafe(channelId);
   if (!s.enabled) return { ok: true, scheduled: 0, skipped: "이 키는 연속 안내 꺼짐" };
   const exists = await queryOne<{ n: string }>(
     "SELECT count(*)::text n FROM lead_sequence_sends WHERE brand_id=$1", [brandId]).catch(() => null);
@@ -167,11 +207,14 @@ export async function runDueSequence(limit = 200, now = new Date()): Promise<Seq
   const cfgCache = new Map<string, SeqConfig>();
   const stepCache = new Map<string, Map<number, SeqStep>>();
   const cfgOf = async (k: string) => {
-    if (!cfgCache.has(k)) cfgCache.set(k, await getSeqConfig(k));
+    if (!cfgCache.has(k)) cfgCache.set(k, await getSeqConfigSafe(k));
     return cfgCache.get(k)!;
   };
   const stepOf = async (k: string, day: number) => {
-    if (!stepCache.has(k)) stepCache.set(k, new Map((await listSeqSteps(k, MAX_DAYS)).map((x) => [x.day_no, x])));
+    if (!stepCache.has(k)) {
+      const list = await listSeqSteps(k, MAX_DAYS).catch(() => [] as SeqStep[]);
+      stepCache.set(k, new Map(list.map((x) => [x.day_no, x])));
+    }
     return stepCache.get(k)!.get(day);
   };
 

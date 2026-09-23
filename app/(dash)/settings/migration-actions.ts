@@ -24,3 +24,20 @@ export async function applyMigrationsAction(): Promise<R<MigrationApplyResult>> 
     return { ok: true, data };
   } catch (e) { return { ok: false, error: (e as Error).message }; }
 }
+
+/**
+ * 고른 파일만 적용 — 필요한 변경만 올리고 관계없는 변경은 건드리지 않기 위함.
+ *   예) 연속 안내만 쓰려면 0096_lead_sequence.sql 하나만 적용.
+ */
+export async function applySelectedMigrationsAction(names: string[]): Promise<R<MigrationApplyResult>> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (u.role !== "exec") return { ok: false, error: "대표만 적용할 수 있습니다." };
+  const picked = (names ?? []).map((n) => String(n).trim()).filter(Boolean);
+  if (picked.length === 0) return { ok: false, error: "적용할 파일을 선택하세요." };
+  try {
+    const data = await applyMigrations(false, picked);
+    revalidatePath("/settings");
+    return { ok: true, data };
+  } catch (e) { return { ok: false, error: (e as Error).message }; }
+}
