@@ -3,6 +3,8 @@
 //   각 채널: 전용 POST URL(복사) · 실시간 on/off · 문자·메일 템플릿.
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import ChannelSequenceEditor from "@/components/ChannelSequenceEditor";
+import type { SeqConfig } from "@/lib/lead-sequence";
 import { createChannelAction, updateChannelAction, deleteChannelAction } from "@/app/actions";
 import { CAPTURE_COLUMNS } from "@/lib/intake-columns";
 import type { IntakeChannel, ChannelSend } from "@/lib/intake-channels";
@@ -13,10 +15,11 @@ function originOf(): string {
   return "https://tiktokadmin.vercel.app";
 }
 
-export default function ChannelManager({ channels, canEdit, sends = {}, sendCounts = {}, sources = [] }: {
+export default function ChannelManager({ channels, canEdit, sends = {}, sendCounts = {}, sources = [], seqConfigs = {} }: {
   channels: IntakeChannel[]; canEdit: boolean;
   sends?: Record<string, ChannelSend[]>; sendCounts?: Record<string, { sms: number; email: number }>;
   sources?: { key: string; label: string }[];
+  seqConfigs?: Record<string, SeqConfig>;   // 키별 연속 안내 설정(0096)
 }) {
   const router = useRouter();
   // 소스 목록은 DB(intake_sources)에서 주입 — 하드코딩 서브셋 대신 전체 노출.
@@ -24,6 +27,9 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
   const labelOf = (key: string): string => SOURCE_OPTS.find(([v]) => v === key)?.[1] ?? key;
   const [pending, start] = useTransition();
   const [openAdd, setOpenAdd] = useState(false);
+  const [seqId, setSeqId] = useState<string | null>(null);   // 연속 안내를 펼친 키
+  const seqOf = (id: string): SeqConfig =>
+    seqConfigs[id] ?? { channel_id: id, enabled: false, days: 5, hour: 10, stopOnProgress: true };
   const [name, setName] = useState("");
   const [source, setSource] = useState(SOURCE_OPTS[0]?.[0] ?? "meta_ads");
   const [editId, setEditId] = useState<string | null>(null);
@@ -92,6 +98,10 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
               <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => copyUrl(c)} title="이 채널 전용 POST URL 복사(선택 칼럼 포함)">📋 POST URL</button>
               <button className="btn btn-sm" onClick={() => setHistId(histId === c.id ? null : c.id)}>{histId === c.id ? "접기" : "📊 발송내역"}</button>
               {canEdit && <button className="btn btn-sm" onClick={() => setEditId(editId === c.id ? null : c.id)}>{editId === c.id ? "접기" : "✏️ 내용"}</button>}
+              <button className="btn btn-sm" onClick={() => setSeqId(seqId === c.id ? null : c.id)}
+                title="이 키로 들어온 리드에게 며칠간 매일 보낼 문자·메일">
+                {seqId === c.id ? "접기" : `📅 연속 안내${seqOf(c.id).enabled ? ` · 직후+${seqOf(c.id).days}일차` : ""}`}
+              </button>
               {canEdit && <button className="btn btn-sm" disabled={pending} onClick={() => start(async () => { if (confirm(`'${c.name}' 채널 삭제?`)) { await deleteChannelAction(c.id); router.refresh(); } })}>삭제</button>}
             </div>
 
@@ -111,6 +121,11 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
                 <span className={`tgl ${c.test_mode ? "on" : ""}`} onClick={() => canEdit && toggle(c, "test_mode")} />
                 <b style={{ color: c.test_mode ? "#b45309" : undefined }}>🧪 테스트 모드{c.test_mode ? "(실발송 안 함)" : ""}</b>
               </label>
+              {seqOf(c.id).enabled && (
+                <span className="pill chip-grn" style={{ fontSize: 10 }}>
+                  연속 안내 · 직후+{seqOf(c.id).days}일차 · {seqOf(c.id).hour}시
+                </span>
+              )}
             </div>
 
             {/* 수신 DB 칼럼 선택 — 각 칼럼이 POST URL 에 어떤 파라미터로 담기는지 함께 표기 */}
@@ -175,6 +190,16 @@ export default function ChannelManager({ channels, canEdit, sends = {}, sendCoun
               </div>
             )}
             {editId === c.id && canEdit && <ChannelEditor channel={c} onSaved={() => { setEditId(null); router.refresh(); }} />}
+
+            {/* 이 키의 연속 안내(드립) — 유입 직후 + N일차 회차별 문구·시각 */}
+            {seqId === c.id && (
+              <ChannelSequenceEditor
+                channelId={c.id}
+                config={seqOf(c.id)}
+                canEdit={canEdit}
+                others={channels.filter((o) => o.id !== c.id).map((o) => ({ id: o.id, name: o.name }))}
+              />
+            )}
           </div>
         ))}
       </div>

@@ -283,12 +283,13 @@ async function handleEvent(
       if (created) {
         const { maybeAutoWelcome } = await import("./welcome");
         const wr = await maybeAutoWelcome(brand.id, source).catch(() => null);
-        // 연속 안내(드립, 0096) — 이 유입 소스에 설정이 켜져 있으면 N일치 예약을 만든다.
-        //   1일차는 위 자동안내가 이미 나갔으므로 설정에 따라 즉시분으로 처리된다.
+        // 연속 안내(드립, 0096) — 유입 키를 모르는 경로(메타 웹훅·신청폼·수기 등록)에서는
+        //   그 소스에 연결된 키 중 켜진 것이 하나일 때만 그 일정으로 예약한다.
+        //   (키를 아는 /api/leadhook 은 그쪽에서 키 기준으로 직접 예약한다.)
         {
-          const { enrollLead, markDay1Sent } = await import("./lead-sequence");
-          await enrollLead(brand.id, source).catch(() => null);
-          if (wr?.sent.length) await markDay1Sent(brand.id, source, wr.sent).catch(() => {});
+          const { enrollLeadBySource, markImmediateSent } = await import("./lead-sequence");
+          await enrollLeadBySource(brand.id, source).catch(() => null);
+          if (wr?.sent.length) await markImmediateSent(brand.id, wr.sent).catch(() => {});
         }
         if (!opts?.skipLeadNotify) {
           const reason = !wr
