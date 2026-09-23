@@ -1,8 +1,9 @@
 // 신규 리드 연속 안내 — 예정 시각 계산(한국시간 기준).
 import { describe, it, expect } from "vitest";
-import { kstSlot, shiftWeekend, planSchedule, type SeqSchedule } from "../lib/lead-sequence";
+import { kstSlot, shiftWeekend, planSchedule, defaultSeqConfig, type SeqConfig } from "../lib/lead-sequence";
 
-const base: SeqSchedule = { enabled: true, days: 7, hour: 10, day1Immediate: true, skipWeekend: false, stopOnProgress: true };
+// 유입 루트(소스)마다 설정이 따로 — 테스트는 메타 광고 루트를 기준으로 한다.
+const base: SeqConfig = { ...defaultSeqConfig("meta_ads"), enabled: true, days: 7, hour: 10 };
 // KST 는 UTC+9 → KST 10:00 = UTC 01:00 (같은 날)
 const kstText = (d: Date) => d.toLocaleString("sv-SE", { timeZone: "Asia/Seoul" });
 
@@ -68,5 +69,22 @@ describe("planSchedule (7일 예정표)", () => {
   it("기간은 1~30일로 제한한다", () => {
     expect(planSchedule(new Date(), { ...base, days: 99 })).toHaveLength(30);
     expect(planSchedule(new Date(), { ...base, days: 0 })).toHaveLength(7);
+  });
+});
+
+describe("defaultSeqConfig (루트별 기본값)", () => {
+  it("설정하지 않은 유입 루트는 꺼진 상태 — 켠 루트만 발송된다", () => {
+    const c = defaultSeqConfig("expo_popup");
+    expect(c.source_key).toBe("expo_popup");
+    expect(c.enabled).toBe(false);
+    expect(c.days).toBe(7);
+    expect(c.hour).toBe(10);
+  });
+  it("루트마다 기간·시각을 다르게 둘 수 있다", () => {
+    const meta = planSchedule(new Date("2026-09-22T05:00:00Z"), { ...base, days: 7, hour: 10 });
+    const expo = planSchedule(new Date("2026-09-22T05:00:00Z"), { ...base, days: 3, hour: 14 });
+    expect(meta).toHaveLength(7);
+    expect(expo).toHaveLength(3);
+    expect(expo[1].due_at.toISOString()).toBe("2026-09-23T05:00:00.000Z"); // KST 14시
   });
 });

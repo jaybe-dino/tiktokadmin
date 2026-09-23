@@ -1,20 +1,27 @@
 -- ═════════════════════════════════════════════════════════════
 -- 96 · 신규 리드 연속 안내(드립) — 유입 후 N일간 매일 정해진 시각에 문자·메일 발송.
---   기존 1회성 자동안내(welcome_config)를 확장한다. 일차마다 다른 문구를 쓴다.
---   · lead_sequence_steps : 일차별 문구·채널 설정(전역 1벌)
---   · lead_sequence_sends : 브랜드별 예약·발송 이력(브랜드×일차 1회 — 멱등)
+--   기존 1회성 자동안내(welcome_config / intake_channels)의 확장.
+--   설정 단위는 "유입 소스"(intake_sources.key) — 유입 루트마다 기간·시각·문구를 따로 둔다.
+--     · lead_sequence_config : 소스별 일정(며칠·몇 시·옵션)
+--     · lead_sequence_steps  : 소스별 × 일차별 문구·채널
+--     · lead_sequence_sends  : 브랜드별 예약·발송 이력(브랜드×일차 1회 — 멱등)
 -- ═════════════════════════════════════════════════════════════
 
--- 전역 스위치·일정은 기존 자동안내 설정에 함께 둔다(화면이 하나이므로).
-ALTER TABLE welcome_config ADD COLUMN IF NOT EXISTS seq_enabled boolean NOT NULL DEFAULT false;
-ALTER TABLE welcome_config ADD COLUMN IF NOT EXISTS seq_days int NOT NULL DEFAULT 7;      -- 며칠간
-ALTER TABLE welcome_config ADD COLUMN IF NOT EXISTS seq_hour int NOT NULL DEFAULT 10;     -- 발송 시각(KST 시)
-ALTER TABLE welcome_config ADD COLUMN IF NOT EXISTS seq_day1_immediate boolean NOT NULL DEFAULT true; -- 1일차는 유입 즉시(기존 동작)
-ALTER TABLE welcome_config ADD COLUMN IF NOT EXISTS seq_skip_weekend boolean NOT NULL DEFAULT false;  -- 주말 건너뛰기
-ALTER TABLE welcome_config ADD COLUMN IF NOT EXISTS seq_stop_on_progress boolean NOT NULL DEFAULT true; -- 단계 진전 시 중단
+CREATE TABLE IF NOT EXISTS lead_sequence_config (
+  source_key text PRIMARY KEY,                       -- intake_sources.key
+  enabled boolean NOT NULL DEFAULT false,
+  days int NOT NULL DEFAULT 7 CHECK (days BETWEEN 1 AND 30),
+  hour int NOT NULL DEFAULT 10 CHECK (hour BETWEEN 0 AND 23),   -- 발송 시각(KST 시)
+  day1_immediate boolean NOT NULL DEFAULT true,      -- 1일차는 유입 즉시(기존 자동안내와 동일)
+  skip_weekend boolean NOT NULL DEFAULT false,
+  stop_on_progress boolean NOT NULL DEFAULT true,    -- 상담·미팅 등 단계 진전 시 중단
+  updated_by text,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS lead_sequence_steps (
-  day_no int PRIMARY KEY CHECK (day_no BETWEEN 1 AND 30),
+  source_key text NOT NULL,
+  day_no int NOT NULL CHECK (day_no BETWEEN 1 AND 30),
   enabled boolean NOT NULL DEFAULT true,
   send_sms boolean NOT NULL DEFAULT true,
   send_email boolean NOT NULL DEFAULT true,
@@ -22,12 +29,14 @@ CREATE TABLE IF NOT EXISTS lead_sequence_steps (
   email_subject text NOT NULL DEFAULT '',
   email_body text NOT NULL DEFAULT '',
   updated_by text,
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (source_key, day_no)
 );
 
 CREATE TABLE IF NOT EXISTS lead_sequence_sends (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   brand_id uuid NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+  source_key text NOT NULL DEFAULT '',         -- 어느 유입 루트의 일정으로 예약됐는지
   day_no int NOT NULL,
   due_at timestamptz NOT NULL,                 -- 예정 시각
   sent_at timestamptz,

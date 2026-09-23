@@ -9,8 +9,6 @@ import MailboxManager from "@/components/MailboxManager";
 import { getWelcomeConfig } from "@/lib/welcome";
 import { listIntakeSources } from "@/lib/intake-sources";
 import WelcomeConfigCard from "@/components/WelcomeConfig";
-import LeadSequenceConfig from "@/components/LeadSequenceConfig";
-import { getSeqSchedule, listSeqSteps, listSeqQueue } from "@/lib/lead-sequence";
 import { getIntroConfig } from "@/lib/intro";
 import IntroConfigCard from "@/components/IntroConfig";
 import { getMktServices } from "@/lib/mkt-proposal";
@@ -64,9 +62,6 @@ export default async function SettingsPage() {
   // DB 마이그레이션 상태 — 대표만(DDL). 실패 시 카드가 새로고침으로 재시도.
   const migrationState = user.role === "exec" ? await getMigrationState().catch(() => null) : null;
   const welcomeSourceOpts = intakeSources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label }));
-  // 연속 안내(드립, 0096) — 미적용 DB 에서는 비활성 상태로 안전하게 표시된다.
-  const seqSchedule = await getSeqSchedule();
-  const [seqSteps, seqQueue] = await Promise.all([listSeqSteps(seqSchedule.days), listSeqQueue()]);
   const templates = await listTemplates();
 
   const activeUsers = users.filter((u) => u.active).length;
@@ -200,9 +195,6 @@ export default async function SettingsPage() {
 
           {/* 신규 리드 자동 안내 */}
           <WelcomeConfigCard config={welcomeCfg} canEdit={canEdit} sources={welcomeSourceOpts} />
-
-          {/* 신규 리드 연속 안내(일차별 문자·메일) */}
-          <LeadSequenceConfig schedule={seqSchedule} steps={seqSteps} queue={seqQueue} canEdit={canEdit} />
 
           {/* 소개자료 발송 문구 */}
           <IntroConfigCard config={introCfg} canEdit={canEdit} />

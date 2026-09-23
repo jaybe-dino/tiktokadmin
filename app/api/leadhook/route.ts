@@ -132,6 +132,11 @@ export async function POST(req: NextRequest) {
         const { recordChannelLead, sendChannelWelcome } = await import("@/lib/intake-channels");
         await recordChannelLead(channel.id).catch(() => {});
         if (created) welcome = await sendChannelWelcome(brandId, channel).catch(() => null);
+        // 채널 자체 문구로 1일차가 나갔으면 연속 안내의 1일차 예약을 닫는다(중복 방지).
+        if (welcome?.sent?.length) {
+          const { markDay1Sent } = await import("@/lib/lead-sequence");
+          await markDay1Sent(brandId, channel.source, welcome.sent).catch(() => {});
+        }
       }
       await notifyNewLead(brandId, {
         channelName: channel?.name ?? null,

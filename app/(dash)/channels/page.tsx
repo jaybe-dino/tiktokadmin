@@ -5,6 +5,8 @@ import { getWelcomeConfig } from "@/lib/welcome";
 import { listIntakeSources } from "@/lib/intake-sources";
 import ChannelManager from "@/components/ChannelManager";
 import IntakeSourceManager from "@/components/IntakeSourceManager";
+import LeadSequenceManager from "@/components/LeadSequenceManager";
+import { listSeqConfigs } from "@/lib/lead-sequence";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +27,11 @@ export default async function ChannelsPage() {
     channelSendCounts(ids).catch(() => ({})),
   ]);
 
+  // 유입 루트별 연속 안내(0096) — 미적용 DB 에서는 전부 꺼짐으로 표시된다.
+  const seqConfigs = await listSeqConfigs();
+  const channelCounts: Record<string, number> = {};
+  for (const c of channels) channelCounts[c.source] = (channelCounts[c.source] ?? 0) + 1;
+
   const active = channels.filter((c) => c.enabled).length;
   const totalLeads = channels.reduce((s, c) => s + (c.lead_count ?? 0), 0);
 
@@ -44,6 +51,11 @@ export default async function ChannelsPage() {
       </div>
 
       <ChannelManager channels={channels} canEdit={canEdit} sends={sends} sendCounts={sendCounts} sources={sourceOpts} />
+
+      {/* 유입 루트별 연속 안내(드립) — 1회성 자동안내 바로 아래 */}
+      <div style={{ marginTop: 14 }}>
+        <LeadSequenceManager sources={sources} configs={seqConfigs} canEdit={canEdit} channelCounts={channelCounts} />
+      </div>
 
       <div style={{ marginTop: 14 }}>
         <IntakeSourceManager sources={sources} canEdit={canEdit} />

@@ -283,12 +283,12 @@ async function handleEvent(
       if (created) {
         const { maybeAutoWelcome } = await import("./welcome");
         const wr = await maybeAutoWelcome(brand.id, source).catch(() => null);
-        // 연속 안내(드립, 0096) — 자동안내 대상 소스면 N일치 예약을 만든다.
+        // 연속 안내(드립, 0096) — 이 유입 소스에 설정이 켜져 있으면 N일치 예약을 만든다.
         //   1일차는 위 자동안내가 이미 나갔으므로 설정에 따라 즉시분으로 처리된다.
-        if (wr?.eligible) {
+        {
           const { enrollLead, markDay1Sent } = await import("./lead-sequence");
-          await enrollLead(brand.id).catch(() => null);
-          if (wr.sent.length) await markDay1Sent(brand.id, wr.sent).catch(() => {});
+          await enrollLead(brand.id, source).catch(() => null);
+          if (wr?.sent.length) await markDay1Sent(brand.id, source, wr.sent).catch(() => {});
         }
         if (!opts?.skipLeadNotify) {
           const reason = !wr
