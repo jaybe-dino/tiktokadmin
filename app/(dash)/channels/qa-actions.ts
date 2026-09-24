@@ -1,80 +1,69 @@
 "use server";
 // Codex(운영 QA)용 안전 검증 경로 — 실제 고객을 건드리지 않고 수신거부 흐름을 끝까지 확인한다.
-//   · 대상은 항상 합성 주소(qa+<난수>@glovek.invalid / 0100000xxxx)라 실제 수신자와 겹치지 않는다.
-//     .invalid 는 예약 도메인(RFC 2606)이라 어떤 메일함에도 존재하지 않는다.
-//   · 실제 발송은 하지 않는다(문구 미리보기만 만든다).
-//   · 확정하면 ad_optouts 에 source='qa' 로 남아 운영 데이터와 구분된다.
+//   · 대상은 서버가 만든 합성 수신자뿐이다. 주소는 항상 qa+<난수>@glovek.invalid 이고
+//     전화번호는 아예 두지 않는다(.invalid 는 RFC 2606 예약 도메인이라 실존할 수 없다).
+//   · 클라이언트는 주소를 보내지 않는다 — 서버가 발급한 토큰만 주고받으므로
+//     실제 고객의 이메일·전화로 바꿔치기할 수 없다.
+//   · 실제 발송은 하지 않고, 기록을 지우는 기능도 두지 않는다(삭제로 실기록을 건드릴 위험 제거).
 import { randomBytes } from "node:crypto";
 import { currentUser } from "@/lib/auth";
-import { optoutUrl, withSmsOptout, withMailOptout, confirmOptOut, mintToken, addrHash, AD_PURPOSE } from "@/lib/ad-optout";
-import { query } from "@/lib/db";
+import {
+  ensureRecipient, recipientByToken, optoutUrlFor, withSmsOptout, withMailOptout,
+  confirmOptOut, adGate,
+} from "@/lib/ad-optout";
 
 function canEdit(role: string | undefined): boolean { return role === "lead" || role === "exec"; }
+const QA_DOMAIN = "@glovek.invalid";
 
-export interface QaPreview {
-  email: string; phone: string;
-  smsUrl: string; mailUrl: string;
-  smsBody: string; mailBody: string;
+export interface QaFixture {
+  token: string;
+  emailMasked: string;
+  url: string;
+  smsBody: string;
+  mailBody: string;
 }
 
-/** 합성 수신자 1명을 만들어 실제로 붙는 문구와 링크를 그대로 보여준다(발송 없음). */
-export async function qaOptoutPreviewAction(sampleSms: string, sampleMail: string): Promise<{ ok: boolean; error?: string; data?: QaPreview }> {
+/** 합성 수신자 1명을 서버에서 만들고, 실제로 붙는 문구와 링크를 보여준다(발송 없음). */
+export async function qaOptoutFixtureAction(): Promise<{ ok: boolean; error?: string; data?: QaFixture }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!canEdit(u.role)) return { ok: false, error: "권한 없음(파트장·대표만)" };
 
-  const n = randomBytes(4).toString("hex");
-  const email = `qa+${n}@glovek.invalid`;      // 실존하지 않는 예약 도메인
-  const phone = `0100000${n.slice(0, 4).replace(/[a-f]/g, "0")}`;
-  const smsUrl = optoutUrl("phone", phone);
-  const mailUrl = optoutUrl("email", email);
+  const email = `qa+${randomBytes(4).toString("hex")}${QA_DOMAIN}`;
+  const r = await ensureRecipient({ email, kind: "qa" }).catch(() => null);
+  if (!r) return { ok: false, error: "QA 수신자를 만들지 못했습니다(마이그레이션 0098 적용 여부 확인)." };
+
+  const url = optoutUrlFor(r.token);
   return {
     ok: true,
     data: {
-      email, phone, smsUrl, mailUrl,
-      smsBody: withSmsOptout(sampleSms || "(문자 본문 예시)", smsUrl),
-      mailBody: withMailOptout(sampleMail || "(메일 본문 예시)", mailUrl),
+      token: r.token,
+      emailMasked: `qa+****${QA_DOMAIN}`,
+      url,
+      smsBody: withSmsOptout("[디노스튜디오·GloveK]\n예시 문자 본문입니다.", url),
+      mailBody: withMailOptout("안녕하세요. 디노스튜디오 GloveK입니다.\n\n예시 메일 본문입니다.", url),
     },
   };
 }
 
-/** QA 합성 주소의 수신거부 상태를 확인한다(실제 고객 조회 아님). */
-export async function qaOptoutStatusAction(email: string, phone: string): Promise<{ ok: boolean; blocked?: { kind: string; at: string }[]; error?: string }> {
+/** 서버 발급 QA 토큰의 현재 차단 상태. 합성 수신자가 아니면 거부한다. */
+export async function qaOptoutStatusAction(token: string): Promise<{ ok: boolean; blocked?: boolean; error?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
-  if (!/@glovek\.invalid$/.test(email)) return { ok: false, error: "QA 합성 주소만 조회할 수 있습니다." };
-  const hashes = [addrHash("email", email), addrHash("phone", phone)].filter(Boolean);
-  try {
-    const rows = await query<{ kind: string; opted_out_at: string }>(
-      `SELECT kind, opted_out_at::text AS opted_out_at FROM ad_optouts
-        WHERE purpose=$1 AND addr_hash = ANY($2::text[])`, [AD_PURPOSE, hashes]);
-    return { ok: true, blocked: rows.map((r) => ({ kind: r.kind, at: r.opted_out_at })) };
-  } catch (e) { return { ok: false, error: (e as Error).message }; }
+  const r = await recipientByToken(token).catch(() => null);
+  if (!r || r.kind !== "qa" || !r.email.endsWith(QA_DOMAIN)) return { ok: false, error: "QA 수신자만 조회할 수 있습니다." };
+  const g = await adGate({ email: r.email });
+  if (g.error) return { ok: false, error: g.error };
+  return { ok: true, blocked: !g.emailAllowed };
 }
 
-/** QA 합성 주소로 만든 수신거부를 되돌린다 — 검증 후 정리용(실제 고객은 대상 아님). */
-export async function qaOptoutResetAction(email: string, phone: string): Promise<{ ok: boolean; removed?: number; error?: string }> {
+/** 서버 발급 QA 토큰으로 확정(모의). 합성 수신자가 아니면 거부한다. */
+export async function qaOptoutConfirmAction(token: string): Promise<{ ok: boolean; already?: boolean; error?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!canEdit(u.role)) return { ok: false, error: "권한 없음(파트장·대표만)" };
-  if (!/@glovek\.invalid$/.test(email)) return { ok: false, error: "QA 합성 주소만 정리할 수 있습니다." };
-  const hashes = [addrHash("email", email), addrHash("phone", phone)].filter(Boolean);
-  try {
-    // source='qa' 또는 'link' 로 들어온 합성 주소 행만 지운다(실제 고객 해시는 애초에 대상이 아님).
-    const rows = await query<{ id: string }>(
-      `DELETE FROM ad_optouts WHERE purpose=$1 AND addr_hash = ANY($2::text[]) RETURNING id`,
-      [AD_PURPOSE, hashes]);
-    return { ok: true, removed: rows.length };
-  } catch (e) { return { ok: false, error: (e as Error).message }; }
-}
-
-/** QA 토큰으로 직접 확정(브라우저 없이 흐름 확인용). 합성 주소에만 허용. */
-export async function qaOptoutConfirmAction(email: string, phone: string, which: "email" | "phone"): Promise<{ ok: boolean; error?: string; already?: boolean }> {
-  const u = await currentUser();
-  if (!u) return { ok: false, error: "세션 만료" };
-  if (!canEdit(u.role)) return { ok: false, error: "권한 없음(파트장·대표만)" };
-  if (!/@glovek\.invalid$/.test(email)) return { ok: false, error: "QA 합성 주소만 확정할 수 있습니다." };
-  const token = which === "email" ? mintToken("email", email) : mintToken("phone", phone);
-  const r = await confirmOptOut(token, { source: "qa" });
-  return { ok: r.ok, error: r.error, already: r.already };
+  const r = await recipientByToken(token).catch(() => null);
+  if (!r || r.kind !== "qa" || !r.email.endsWith(QA_DOMAIN)) return { ok: false, error: "QA 수신자만 확정할 수 있습니다." };
+  const out = await confirmOptOut(token, { source: "qa" });
+  return { ok: out.ok, already: out.already, error: out.error };
 }

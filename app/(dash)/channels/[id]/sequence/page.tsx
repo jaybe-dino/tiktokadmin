@@ -8,8 +8,7 @@ import {
   type SeqSendRow,
 } from "@/lib/lead-sequence-view";
 import { kstSlot } from "@/lib/lead-sequence-plan";
-import { addrHash, AD_PURPOSE } from "@/lib/ad-optout";
-import { query } from "@/lib/db";
+import { adOptOutMap } from "@/lib/ad-optout";
 
 export const dynamic = "force-dynamic";
 
@@ -137,29 +136,12 @@ export default async function ChannelSequenceListPage({ params, searchParams }: 
 
   const sends = await loadSeqSends(id, { status: sp.status, page: sp.page ? Number(sp.page) : 1 });
 
-  // 이 페이지에 나온 대상들의 광고 수신거부 상태(수단별) — 조회 실패는 표시하지 않고 넘어간다.
-  const optOut = new Map<string, { kind: string; at: string }[]>();
-  if (sends.ok && sends.data.rows.length > 0) {
-    const byHash = new Map<string, string[]>();   // 해시 → brand_id 들
-    for (const r of sends.data.rows) {
-      for (const [kind, addr] of [["email", r.email], ["phone", r.phone]] as const) {
-        const h = addrHash(kind, addr ?? "");
-        if (!h) continue;
-        byHash.set(h, [...(byHash.get(h) ?? []), r.brand_id]);
-      }
-    }
-    if (byHash.size > 0) {
-      const rows = await query<{ kind: string; addr_hash: string; opted_out_at: string }>(
-        `SELECT kind, addr_hash, opted_out_at::text AS opted_out_at FROM ad_optouts
-          WHERE purpose=$1 AND addr_hash = ANY($2::text[])`,
-        [AD_PURPOSE, [...byHash.keys()]]).catch(() => []);
-      for (const o of rows) {
-        for (const bid of byHash.get(o.addr_hash) ?? []) {
-          optOut.set(bid, [...(optOut.get(bid) ?? []), { kind: o.kind, at: o.opted_out_at }]);
-        }
-      }
-    }
-  }
+  // 이 페이지에 나온 대상들의 광고 수신거부 상태 — 조회 실패 시 표시만 생략한다.
+  const optOut = sends.ok && sends.data.rows.length > 0
+    ? await adOptOutMap(sends.data.rows.map((r) => ({ key: r.brand_id, email: r.email, phone: r.phone }))).catch(() => new Map())
+    : new Map<string, { kind: string; at: string }[]>();
+  const optOutOf = (brandId: string): { kind: string; at: string }[] => optOut.get(brandId) ?? [];
+
   const qs = (over: Record<string, string | number | undefined>) => {
     const p = new URLSearchParams();
     const merged = { status: sp.status, page: sp.page, open: sp.open, ...over };
@@ -287,10 +269,10 @@ export default async function ChannelSequenceListPage({ params, searchParams }: 
                     <tr key={r.id}>
                       <td>
                         <Who r={r} />
-                        {(optOut.get(r.brand_id) ?? []).length > 0 && (
+                        {optOutOf(r.brand_id).length > 0 && (
                           <div data-testid="ad-optout-flag" style={{ fontSize: 10, color: "#c25400", marginTop: 2 }}>
-                            🚫 광고 수신거부 · {[...new Set((optOut.get(r.brand_id) ?? []).map((o) => (o.kind === "email" ? "메일" : "문자")))].join("·")}
-                            {" "}{KST((optOut.get(r.brand_id) ?? [])[0].at).slice(0, 16)}
+                            🚫 광고 수신거부 · {[...new Set(optOutOf(r.brand_id).map((o) => (o.kind === "email" ? "메일" : "문자")))].join("·")}
+                            {" "}{KST(optOutOf(r.brand_id)[0].at).slice(0, 16)}
                           </div>
                         )}
                       </td>

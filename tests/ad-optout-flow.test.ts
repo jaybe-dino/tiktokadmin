@@ -5,7 +5,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── 가짜 DB ──────────────────────────────────────────────────
-interface OptOut { purpose: string; kind: string; addr_hash: string; addr_masked: string; brand_id: string | null; source: string; confirm_count: number }
+interface OptOut { purpose: string; kind: string; addr: string; addr_masked: string; brand_id: string | null; source: string; confirm_count: number }
+interface Rcpt { id: string; token: string; email: string; phone: string; brand_id: string | null; kind: string }
 interface SendRow {
   id: string; brand_id: string; channel_id: string; day_no: number; status: string; note: string;
   channels: string[]; brand_name: string; contact_name: string | null; email: string | null; phone: string | null;
@@ -13,6 +14,8 @@ interface SendRow {
 }
 const db = {
   optouts: [] as OptOut[],
+  rcpts: [] as Rcpt[],
+  txFail: false,
   sends: [] as SendRow[],
   brands: [] as { id: string; email: string | null; phone: string | null }[],
   failOptoutRead: false,
@@ -20,31 +23,50 @@ const db = {
 };
 
 vi.mock("../lib/db", () => {
+  let seq = 0;
   const run = async (sql: string, args: unknown[] = []): Promise<Record<string, unknown>[]> => {
     // 광고 수신거부 조회
-    if (sql.includes("FROM ad_optouts") && sql.includes("SELECT kind, addr_hash")) {
+    if (sql.includes("FROM ad_optouts") && sql.includes("SELECT kind, addr")) {
       if (db.failOptoutRead) throw new Error("connection terminated");
-      const hashes = args[1] as string[];
-      return db.optouts.filter((o) => hashes.includes(o.addr_hash)).map((o) => ({ kind: o.kind, addr_hash: o.addr_hash }));
-    }
-    if (sql.includes("SELECT count(*)::text AS n FROM ad_optouts")) {
-      const [, kind, hash] = args as string[];
-      const hit = db.optouts.find((o) => o.kind === kind && o.addr_hash === hash);
-      return [{ n: String((hit?.confirm_count ?? 0) > 1 ? 1 : 0) }];
+      const [, a, b] = args as string[];
+      return db.optouts.filter((o) => (o.kind === "phone" && o.addr === a) || (o.kind === "email" && o.addr === b))
+        .map((o) => ({ kind: o.kind, addr: o.addr, opted_out_at: "2026-09-24T00:00:00Z" }));
     }
     if (sql.includes("INSERT INTO ad_optouts")) {
-      const [purpose, kind, hash, masked, brandId, source] = args as (string | null)[];
-      const cur = db.optouts.find((o) => o.kind === kind && o.addr_hash === hash);
-      if (cur) { cur.confirm_count++; return [{ id: false }]; }
-      db.optouts.push({ purpose: purpose!, kind: kind!, addr_hash: hash!, addr_masked: masked ?? "", brand_id: brandId ?? null, source: source ?? "link", confirm_count: 1 });
-      return [{ id: true }];
+      if (db.txFail) throw new Error("deadlock detected");
+      const [purpose, kind, addr, masked, brandId, rcptId, source] = args as (string | null)[];
+      const cur = db.optouts.find((o) => o.kind === kind && o.addr === addr);
+      if (cur) { cur.confirm_count++; return [{ confirm_count: cur.confirm_count }]; }
+      db.optouts.push({ purpose: purpose!, kind: kind!, addr: addr!, addr_masked: masked ?? "", brand_id: brandId ?? null, source: source ?? "link", confirm_count: 1 });
+      return [{ confirm_count: 1 }];
     }
-    // 수신자 대조용 브랜드
-    if (sql.includes("SELECT DISTINCT b.id")) return db.brands as unknown as Record<string, unknown>[];
+    // 수신자 발급/조회
+    if (sql.includes("INSERT INTO ad_recipients")) {
+      const [token, email, phone, brandId, kind] = args as (string | null)[];
+      const hit = db.rcpts.find((r) => r.email === email && r.phone === phone);
+      if (hit) return [hit as unknown as Record<string, unknown>];
+      const row: Rcpt = { id: `r${++seq}`, token: token!, email: email ?? "", phone: phone ?? "", brand_id: brandId ?? null, kind: kind ?? "lead" };
+      db.rcpts.push(row);
+      return [row as unknown as Record<string, unknown>];
+    }
+    if (sql.includes("FROM ad_recipients WHERE token=")) {
+      const hit = db.rcpts.find((r) => r.token === args[0]);
+      return hit ? [hit as unknown as Record<string, unknown>] : [];
+    }
+    // 같은 연락처를 쓰는 브랜드 후보
+    if (sql.includes("SELECT id, email, phone FROM brands")) {
+      const [email, tail] = args as string[];
+      return db.brands.filter((b) => (email && (b.email ?? "").toLowerCase() === email)
+        || (tail && (b.phone ?? "").replace(/[^0-9]/g, "").includes(tail))) as unknown as Record<string, unknown>[];
+    }
+    if (sql.includes("SELECT email, phone, COALESCE(msg_opt_out")) {
+      const b = db.brands.find((x) => x.id === args[0]);
+      return b ? [{ email: b.email, phone: b.phone, msg_opt_out: false }] : [];
+    }
     // 남은 예약 중단
     if (sql.includes("UPDATE lead_sequence_sends SET status='canceled'")) {
-      const brandId = args[0] as string;
-      const hit = db.sends.filter((s) => s.brand_id === brandId && s.status === "queued");
+      const ids = (args[0] as string[]) ?? [];
+      const hit = db.sends.filter((s) => ids.includes(s.brand_id) && s.status === "queued");
       for (const s of hit) { s.status = "canceled"; s.note = "광고 수신거부"; }
       return hit.map((s) => ({ id: s.id }));
     }
@@ -70,10 +92,22 @@ vi.mock("../lib/db", () => {
     }
     return [];
   };
+  const client = {
+    query: async (sql: string, args: unknown[] = []) => {
+      const rows = await run(sql, args);
+      return { rows, rowCount: rows.length };
+    },
+  };
   return {
     query: run,
     queryOne: async (sql: string, args: unknown[] = []) => (await run(sql, args))[0] ?? null,
     getPool: () => ({ connect: async () => ({ release: () => {} }) }),
+    // 실제 tx 처럼 실패하면 전부 되돌린다(스냅샷 복원으로 흉내).
+    tx: async <T,>(fn: (c: typeof client) => Promise<T>): Promise<T> => {
+      const snap = { optouts: JSON.parse(JSON.stringify(db.optouts)), sends: JSON.parse(JSON.stringify(db.sends)) };
+      try { return await fn(client); }
+      catch (e) { db.optouts = snap.optouts; db.sends = snap.sends; throw e; }
+    },
   };
 });
 
@@ -83,7 +117,7 @@ const mailSpy = vi.fn(async (_arg: { to: string; subject: string; text: string }
 vi.mock("../lib/sms", () => ({ sendSms: (a: { receiver: string; msg: string }) => smsSpy(a) }));
 vi.mock("../lib/mailer", () => ({ sendEmail: (a: { to: string; subject: string; text: string }) => mailSpy(a) }));
 
-import { addrHash, mintToken, confirmOptOut, adGate, optoutUrl } from "../lib/ad-optout";
+import { ensureRecipient, recipientByToken, confirmOptOut, adGate, optoutUrlFor, normalizeAddr } from "../lib/ad-optout";
 import { runDueSequence } from "../lib/lead-sequence";
 
 const EMAIL = "lead@brand-example.com";
@@ -92,6 +126,8 @@ const BRAND = "brand-1";
 
 function seed() {
   db.optouts = [];
+  db.rcpts = [];
+  db.txFail = false;
   db.marks = [];
   db.failOptoutRead = false;
   db.brands = [{ id: BRAND, email: EMAIL, phone: PHONE }];
@@ -105,6 +141,12 @@ function seed() {
 }
 beforeEach(seed);
 
+/** 이 수신자의 링크 토큰(실제 발송 경로와 같은 방식으로 발급). */
+async function tokenFor(email = EMAIL, phone = PHONE): Promise<string> {
+  const r = await ensureRecipient({ email, phone, brandId: BRAND });
+  return r!.token;
+}
+
 describe("정상 흐름 — 링크 → 확정 → 저장 → 큐 중단 → 이후 광고 0건", () => {
   it("수신거부 전에는 광고가 나간다", async () => {
     await runDueSequence();
@@ -113,7 +155,7 @@ describe("정상 흐름 — 링크 → 확정 → 저장 → 큐 중단 → 이�
   });
 
   it("문자 링크로 확정하면 문자·메일 광고가 모두 중단되고 남은 예약이 취소된다", async () => {
-    const r = await confirmOptOut(mintToken("phone", PHONE));
+    const r = await confirmOptOut(await tokenFor());
     expect(r.ok).toBe(true);
     // 저장 — 한 채널 거부로 양쪽 모두
     expect(db.optouts.map((o) => o.kind).sort()).toEqual(["email", "phone"]);
@@ -129,7 +171,7 @@ describe("정상 흐름 — 링크 → 확정 → 저장 → 큐 중단 → 이�
   });
 
   it("재유입으로 예약이 다시 잡혀도 광고는 나가지 않는다", async () => {
-    await confirmOptOut(mintToken("email", EMAIL));
+    await confirmOptOut(await tokenFor());
     // 같은 고객이 다른 루트로 재유입 → 예약이 새로 생긴 상황
     db.sends = [1, 2].map((d) => ({
       id: `n${d}`, brand_id: BRAND, channel_id: "ch2", day_no: d, status: "queued", note: "", channels: [],
@@ -144,7 +186,7 @@ describe("정상 흐름 — 링크 → 확정 → 저장 → 큐 중단 → 이�
   });
 
   it("다른 고객은 영향받지 않는다 — 브랜드 전체·타 브랜드 과잉 차단 없음", async () => {
-    await confirmOptOut(mintToken("phone", PHONE));
+    await confirmOptOut(await tokenFor());
     const other = await adGate({ phone: "010-9999-8888", email: "other@example.com" });
     expect(other.smsAllowed).toBe(true);
     expect(other.emailAllowed).toBe(true);
@@ -153,7 +195,7 @@ describe("정상 흐름 — 링크 → 확정 → 저장 → 큐 중단 → 이�
 
 describe("광고와 서비스 분리", () => {
   it("광고 수신거부는 전체 수신거부(brands.msg_opt_out)를 켜지 않는다", async () => {
-    await confirmOptOut(mintToken("phone", PHONE));
+    await confirmOptOut(await tokenFor());
     // 가짜 DB 에 brands.msg_opt_out 을 바꾸는 쿼리가 실행된 적이 없어야 한다.
     expect(db.marks.some((m) => m.note.includes("msg_opt_out"))).toBe(false);
     expect(db.optouts.every((o) => o.purpose === "marketing")).toBe(true);
@@ -173,25 +215,26 @@ describe("광고와 서비스 분리", () => {
 
 describe("변조·재클릭·미리보기", () => {
   it("변조된 링크는 아무 것도 바꾸지 않는다", async () => {
-    const t = mintToken("phone", PHONE);
-    const bad = t.slice(0, -1) + (t.at(-1) === "a" ? "b" : "a");
+    const t = await tokenFor();
+    const bad = t.slice(0, -1) + (t.at(-1) === "A" ? "B" : "A");
     const r = await confirmOptOut(bad);
     expect(r.ok).toBe(false);
     expect(db.optouts).toHaveLength(0);
     expect(db.sends.every((s) => s.status === "queued")).toBe(true);
   });
   it("재클릭은 멱등 — 상태는 그대로, 확인 횟수만 올라간다", async () => {
-    await confirmOptOut(mintToken("phone", PHONE));
+    const t = await tokenFor();
+    await confirmOptOut(t);
     const before = db.optouts.length;
-    const again = await confirmOptOut(mintToken("phone", PHONE));
+    const again = await confirmOptOut(t);
     expect(again.ok).toBe(true);
     expect(again.already).toBe(true);
     expect(db.optouts).toHaveLength(before);
     expect(db.optouts.find((o) => o.kind === "phone")!.confirm_count).toBe(2);
+    expect(db.optouts.find((o) => o.kind === "email")!.confirm_count).toBe(2);
   });
   it("링크를 여는 것(GET)만으로는 바뀌지 않는다 — 확정은 별도 호출", async () => {
-    const { verifyToken } = await import("../lib/ad-optout");
-    expect(verifyToken(mintToken("phone", PHONE))).not.toBeNull();   // 페이지 렌더가 하는 일
+    expect(await recipientByToken(await tokenFor())).not.toBeNull();   // 페이지 렌더가 하는 일
     expect(db.optouts).toHaveLength(0);                              // 저장은 아직 없음
   });
 });
@@ -218,7 +261,7 @@ describe("발송 직전 경합 — 문자 후 수신거부하면 메일은 안 �
   it("문자 발송 직후 수신거부가 들어와도 같은 건의 메일은 막힌다", async () => {
     // 문자 발송이 일어나는 순간 수신거부가 저장되는 상황을 재현.
     smsSpy.mockImplementationOnce(async (_arg) => {
-      db.optouts.push({ purpose: "marketing", kind: "email", addr_hash: addrHash("email", EMAIL), addr_masked: "", brand_id: BRAND, source: "link", confirm_count: 1 });
+      db.optouts.push({ purpose: "marketing", kind: "email", addr: normalizeAddr("email", EMAIL), addr_masked: "", brand_id: BRAND, source: "link", confirm_count: 1 });
       return { ok: true };
     });
     db.sends = [db.sends[0]];
@@ -233,12 +276,63 @@ describe("발송 본문", () => {
     await runDueSequence();
     const smsArg = smsSpy.mock.calls[0]![0];
     const mailArg = mailSpy.mock.calls[0]![0];
-    expect(smsArg.msg).toContain(optoutUrl("phone", PHONE));
-    expect(mailArg.text).toContain(optoutUrl("email", EMAIL));
+    const t = await tokenFor();
+    expect(smsArg.msg).toContain(optoutUrlFor(t));
+    expect(mailArg.text).toContain(optoutUrlFor(t));   // 같은 수신자 → 같은 링크
     // 본문은 그대로 남는다
     expect(smsArg.msg).toContain("1일차 문자");
     expect(mailArg.text).toContain("1일차 메일");
     // 평문 주소가 링크에 들어가지 않는다
     expect(smsArg.msg).not.toContain(EMAIL);
+  });
+});
+
+// ── Codex 지적 회귀 ──────────────────────────────────────────
+describe("회귀 — 확정은 전부 성공하거나 전부 되돌아간다", () => {
+  it("저장 중 오류가 나면 수신거부·큐중단 모두 남지 않고 실패로 보고한다", async () => {
+    db.txFail = true;
+    const r = await confirmOptOut(await tokenFor());
+    expect(r.ok).toBe(false);
+    expect(r.error).toBeTruthy();
+    expect(db.optouts).toHaveLength(0);                       // 부분 저장 없음
+    expect(db.sends.every((s) => s.status === "queued")).toBe(true);
+  });
+  it("공개 화면에 DB 원문 오류를 돌려주지 않는다", async () => {
+    db.txFail = true;
+    const r = await confirmOptOut(await tokenFor());
+    expect(r.error).not.toContain("deadlock");
+    expect(r.error).not.toContain(EMAIL);
+    expect(r.error).not.toContain(PHONE.replace(/-/g, ""));
+  });
+});
+
+describe("회귀 — 중복 브랜드·재등록", () => {
+  it("같은 연락처를 쓰는 다른 브랜드의 예약도 함께 중단된다", async () => {
+    db.brands.push({ id: "brand-2", email: EMAIL, phone: PHONE });
+    db.sends.push({
+      id: "s9", brand_id: "brand-2", channel_id: "ch2", day_no: 1, status: "queued", note: "", channels: [],
+      brand_name: "중복유입", contact_name: null, email: EMAIL, phone: PHONE,
+      state: "lead_new", msg_opt_out: false, test_mode: false,
+    });
+    const r = await confirmOptOut(await tokenFor());
+    expect(r.canceled).toBe(5);                               // 4 + 1
+    expect(db.sends.every((s) => s.status === "canceled")).toBe(true);
+  });
+  it("수신거부한 연락처로 새로 유입돼도 예약이 잡히지 않는다", async () => {
+    await confirmOptOut(await tokenFor());
+    const { enrollLead } = await import("../lib/lead-sequence");
+    const r = await enrollLead(BRAND, "ch1");
+    expect(r.scheduled).toBe(0);
+    expect(r.skipped).toContain("수신거부");
+  });
+});
+
+describe("회귀 — 한쪽 거부로 다른 쪽 우회 없음", () => {
+  it("메일만 거부돼 있어도 메일 직전 재확인에서 막힌다(문자는 정상 발송)", async () => {
+    db.optouts.push({ purpose: "marketing", kind: "email", addr: normalizeAddr("email", EMAIL), addr_masked: "", brand_id: BRAND, source: "link", confirm_count: 1 });
+    db.sends = [db.sends[0]];
+    await runDueSequence();
+    expect(smsSpy).toHaveBeenCalledTimes(1);
+    expect(mailSpy).toHaveBeenCalledTimes(0);
   });
 });

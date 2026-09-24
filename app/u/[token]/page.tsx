@@ -1,4 +1,4 @@
-import { verifyToken } from "@/lib/ad-optout";
+import { recipientByToken } from "@/lib/ad-optout";
 import OptOutForm from "./OptOutForm";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,8 @@ const wrap: React.CSSProperties = {
 
 export default async function AdOptOutPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const ok = Boolean(verifyToken(token));
+  // 링크를 여는 것만으로는 저장하지 않는다 — 존재 여부만 확인한다.
+  const ok = Boolean(await recipientByToken(token).catch(() => null));
 
   return (
     <div style={wrap}>

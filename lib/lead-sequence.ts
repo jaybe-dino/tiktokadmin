@@ -7,7 +7,7 @@
 import { query, queryOne } from "./db";
 import { renderTemplate } from "./templates";
 // 광고 차단 검사·수신거부 링크 — 이 모듈(연속 안내)은 광고 경로이므로 항상 거친다.
-import { adGate, optoutUrl, withSmsOptout, withMailOptout } from "./ad-optout";
+import { adGate, ensureRecipient, optoutUrlFor, withSmsOptout, withMailOptout } from "./ad-optout";
 import {
   clampDays, clampHour, defaultSeqConfig, planSchedule, MAX_SEQ_DAYS as MAX_DAYS,
   type SeqConfig, type SeqStep,
@@ -144,6 +144,15 @@ export async function enrollLead(brandId: string, channelId: string, from = new 
     "SELECT count(*)::text n FROM lead_sequence_sends WHERE brand_id=$1", [brandId]).catch(() => null);
   if (exists && Number(exists.n) > 0) return { ok: true, scheduled: 0, skipped: "이미 예약됨" };
 
+  // 이미 광고 수신거부한 연락처면 새 예약을 만들지 않는다(같은 연락처로 재등록해도 유지).
+  //   확인이 안 되면 예약하지 않는다(fail closed).
+  const b = await queryOne<{ email: string | null; phone: string | null; msg_opt_out: boolean }>(
+    "SELECT email, phone, COALESCE(msg_opt_out,false) AS msg_opt_out FROM brands WHERE id=$1", [brandId]).catch(() => null);
+  const { adGate } = await import("./ad-optout");
+  const gate = await adGate({ email: b?.email, phone: b?.phone, brandOptOut: b?.msg_opt_out });
+  if (gate.error) return { ok: false, scheduled: 0, skipped: gate.error };
+  if (!gate.smsAllowed && !gate.emailAllowed) return { ok: true, scheduled: 0, skipped: gate.reason ?? "광고 수신거부" };
+
   const steps = await listSeqSteps(channelId, s.days);
   const hourByDay = Object.fromEntries(steps.map((x) => [x.day_no, x.send_hour]));
   let n = 0;
@@ -258,17 +267,28 @@ export async function runDueSequence(limit = 200, now = new Date()): Promise<Seq
       continue;
     }
 
+    // 이 수신자(이메일·전화 쌍)의 고유 링크 — 같은 사람이면 회차가 달라도 같은 링크.
+    //   발급 실패 시 광고를 내보내지 않는다(수신거부 수단 없는 광고를 만들지 않기 위해).
+    const rcpt = await ensureRecipient({ email: r.email, phone: r.phone, brandId: r.brand_id }).catch(() => null);
+    if (!rcpt) {
+      await mark(r.id, "failed", [], "수신거부 링크 발급 실패 — 광고 보류");
+      res.failed++;
+      continue;
+    }
+    const optUrl = optoutUrlFor(rcpt.token);
+
     if (step.send_sms && r.phone && step.sms_body.trim() && gate.smsAllowed) {
       if (testMode) sent.push("sms");
       else {
-        const body = withSmsOptout(renderTemplate(step.sms_body, vars), optoutUrl("phone", r.phone));
+        const body = withSmsOptout(renderTemplate(step.sms_body, vars), optUrl);
         const ok = await sendSms({ receiver: r.phone, msg: body }).then((x) => x.ok).catch(() => false);
         if (ok) sent.push("sms"); else errs.push("문자 실패");
       }
     }
     if (step.send_email && r.email && step.email_body.trim()) {
-      // 문자를 받고 바로 수신거부했을 수 있다 — 메일 보내기 직전에 한 번 더 확인한다.
-      const again = await adGate({ email: r.email, brandOptOut: r.msg_opt_out });
+      // 문자를 받고 바로 수신거부했을 수 있다 — 메일 보내기 직전에 두 주소를 함께 다시 확인한다.
+      //   (한쪽만 보면 문자 거부 → 메일 우회가 생긴다)
+      const again = await adGate({ phone: r.phone, email: r.email, brandOptOut: r.msg_opt_out });
       if (again.error) {
         // 확인이 안 되면 메일 광고는 보내지 않는다(fail closed).
         errs.push("메일 실패");
@@ -277,7 +297,7 @@ export async function runDueSequence(limit = 200, now = new Date()): Promise<Seq
       } else if (testMode) {
         sent.push("email");
       } else {
-        const body = withMailOptout(renderTemplate(step.email_body, vars), optoutUrl("email", r.email));
+        const body = withMailOptout(renderTemplate(step.email_body, vars), optUrl);
         const ok = await sendEmail({
           to: r.email,
           subject: renderTemplate(step.email_subject || `[GloveK] ${r.brand_name} 안내`, vars),
