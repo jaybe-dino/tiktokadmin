@@ -10,6 +10,9 @@ import { sendSms } from "./sms";
 import { renderTemplate } from "./templates";
 import { env } from "./env";
 import { SEGMENTS } from "./segments";
+// 대량발송은 광고성 경로로 본다 — 광고 수신거부한 수신자에게는 나가지 않는다.
+//   (서비스성 대량 공지가 필요해지면 목적 구분을 별도로 두어야 한다)
+import { adGate, optoutUrl, withSmsOptout, withMailOptout } from "./ad-optout";
 
 interface BulkSend { id: string; channel: "email" | "sms" | "both"; body_md: string; title: string; target_kind: string; target_def: { lead_group?: string; segment?: string } }
 interface Target { brand_id: string; brand_name: string; contact_name: string | null; email: string | null; phone: string | null }
@@ -107,14 +110,24 @@ export async function processBulkSends(opt?: { maxSends?: number; maxPerSend?: n
 
       let ok = false, err = "";
       try {
-        if ((s.channel === "sms" || s.channel === "both") && t.phone) {
-          const r = await sendSms({ receiver: t.phone, msg: renderTemplate(body, vars), title: subject || undefined });
+        // 광고 차단 검사 — 확인 실패면 보내지 않는다(fail closed).
+        const gate = await adGate({ phone: t.phone, email: t.email });
+        if (gate.error) {
+          err = gate.error;
+        } else if (!gate.smsAllowed && !gate.emailAllowed) {
+          err = gate.reason ?? "광고 수신거부";
+        } else {
+        if ((s.channel === "sms" || s.channel === "both") && t.phone && gate.smsAllowed) {
+          const msg = withSmsOptout(renderTemplate(body, vars), optoutUrl("phone", t.phone));
+          const r = await sendSms({ receiver: t.phone, msg, title: subject || undefined });
           if (r.ok) ok = true; else err = r.message || "SMS 실패";
         }
-        if ((s.channel === "email" || s.channel === "both") && t.email) {
+        if ((s.channel === "email" || s.channel === "both") && t.email && gate.emailAllowed) {
           const subj = renderTemplate(subject || `[GloveK] ${t.brand_name}님 안내`, vars);
-          const r = await sendEmail({ to: t.email, subject: subj, text: renderTemplate(body, vars) });
+          const text = withMailOptout(renderTemplate(body, vars), optoutUrl("email", t.email));
+          const r = await sendEmail({ to: t.email, subject: subj, text });
           if (r.ok) ok = true; else err = r.skipped ? "메일 발송 미설정(Gmail/RESEND)" : (r.error || "메일 실패");
+        }
         }
         if (s.channel === "sms" && !t.phone) err = "전화번호 없음";
         if (s.channel === "email" && !t.email) err = "이메일 없음";

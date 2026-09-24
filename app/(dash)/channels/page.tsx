@@ -5,6 +5,7 @@ import { getWelcomeConfig } from "@/lib/welcome";
 import { listIntakeSources } from "@/lib/intake-sources";
 import ChannelManager from "@/components/ChannelManager";
 import IntakeSourceManager from "@/components/IntakeSourceManager";
+import AdOptoutQaPanel from "@/components/AdOptoutQaPanel";
 import { listSeqConfigs } from "@/lib/lead-sequence";
 import Link from "next/link";
 
@@ -52,6 +53,9 @@ export default async function ChannelsPage() {
       <div style={{ marginTop: 14 }}>
         <IntakeSourceManager sources={sources} canEdit={canEdit} />
       </div>
+
+      {/* 광고 수신거부 QA — 합성 주소로만 동작(실제 고객·실발송 없음) */}
+      <AdOptoutQaPanel canEdit={canEdit} />
 
       <div className="card" style={{ marginTop: 14, padding: 16 }}>
         <b>동작 방식</b>

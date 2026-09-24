@@ -31,6 +31,7 @@ import { aggregateProgressCountries } from "@/lib/progress-countries";
 import { currentUser } from "@/lib/auth";
 import { listMeetingNotes } from "@/lib/meeting-notes";
 import Brand360MeetingNotes from "@/components/Brand360MeetingNotes";
+import { brandAdOptOuts } from "@/lib/ad-optout";
 import Brand360Danger from "@/components/Brand360Danger";
 import Brand360IntroSend from "@/components/Brand360IntroSend";
 import TimelineAddEntry from "./TimelineAddEntry";
@@ -115,6 +116,8 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     buildGateContext(brand).catch(() => null),
   ]);
   const [aliases, comments, presence, drafts, meetings] = extra;
+  // 광고 수신거부(0098) — 미적용 DB 에서는 조용히 빈 배열(화면에 배너가 뜨지 않을 뿐).
+  const adOptOuts = await brandAdOptOuts(brand).catch(() => []);
   // moveHistory(성공 이동 이력)는 brand360 이 이미 가져온 stageHistory 에서 파생 — 중복 조회 제거.
   //   (브랜드 전이 이력은 십수 건 수준이라 최근 30 조회에 항상 포함 → 기존 LIMIT 10 결과와 동일)
   const moveHistory: HistoryRow[] = stageHistory
@@ -435,6 +438,21 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
   return (
     <div className="max-w-6xl">
       <Link href="/" className="text-sm text-muted hover:text-pink">← 보드</Link>
+
+      {/* 광고 수신거부 — 있을 때만. 서비스 안내(계약·일정)는 이것과 무관하게 계속 보낼 수 있다. */}
+      {adOptOuts.length > 0 && (
+        <div data-testid="brand-ad-optout" className="card"
+          style={{ marginTop: 8, borderColor: "#f0c36d", background: "#fffaf0", padding: "10px 14px", fontSize: 12.5 }}>
+          <b style={{ color: "#a06000" }}>🚫 광고 수신거부</b>
+          <span style={{ marginLeft: 8, color: "#8a6d3b" }}>
+            {adOptOuts.map((o) => `${o.kind === "email" ? "메일" : "문자"} ${o.addr_masked || ""} (${String(o.opted_out_at).slice(0, 16).replace("T", " ")})`).join(" · ")}
+          </span>
+          <div style={{ marginTop: 3, color: "#8a6d3b" }}>
+            이 고객에게는 <b>광고 문자·메일을 보내지 않습니다</b>(연속 안내·대량발송 포함).
+            계약·일정·거래 확인 등 <b>서비스 안내는 계속 가능</b>합니다 — 수신거부만으로 서비스가 차단되지는 않습니다.
+          </div>
+        </div>
+      )}
 
       {/* ===== 헤더 카드 (v3.1 s-b360) ===== */}
       <div className="card" style={{ marginTop: 8, marginBottom: 14 }}>

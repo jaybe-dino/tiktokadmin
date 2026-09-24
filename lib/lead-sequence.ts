@@ -6,6 +6,8 @@
 //   멱등: 브랜드×일차 1회(lead_sequence_sends UNIQUE) — 크론이 겹쳐 돌아도 중복 발송 없음.
 import { query, queryOne } from "./db";
 import { renderTemplate } from "./templates";
+// 광고 차단 검사·수신거부 링크 — 이 모듈(연속 안내)은 광고 경로이므로 항상 거친다.
+import { adGate, optoutUrl, withSmsOptout, withMailOptout } from "./ad-optout";
 import {
   clampDays, clampHour, defaultSeqConfig, planSchedule, MAX_SEQ_DAYS as MAX_DAYS,
   type SeqConfig, type SeqStep,
@@ -241,21 +243,45 @@ export async function runDueSequence(limit = 200, now = new Date()): Promise<Seq
     // 키가 테스트 모드면 실제로 보내지 않고 "보낼 내용"만 기록한다(기존 1회성 안내와 같은 규칙).
     const testMode = Boolean(r.test_mode);
 
-    if (step.send_sms && r.phone && step.sms_body.trim()) {
+    // ── 광고 차단 검사(발송 직전) ──
+    //   이 경로는 광고다. 수신거부를 확인하지 못하면 보내지 않는다(fail closed).
+    const gate = await adGate({ phone: r.phone, email: r.email, brandOptOut: r.msg_opt_out });
+    if (gate.error) {
+      // 확인 실패 — 광고를 내보내지 않고 다음 차례에 다시 시도한다.
+      await mark(r.id, "failed", [], gate.error);
+      res.failed++;
+      continue;
+    }
+    if (!gate.smsAllowed && !gate.emailAllowed) {
+      await cancelLead(r.brand_id, gate.reason ?? "광고 수신거부");
+      res.canceled++;
+      continue;
+    }
+
+    if (step.send_sms && r.phone && step.sms_body.trim() && gate.smsAllowed) {
       if (testMode) sent.push("sms");
       else {
-        const ok = await sendSms({ receiver: r.phone, msg: renderTemplate(step.sms_body, vars) })
-          .then((x) => x.ok).catch(() => false);
+        const body = withSmsOptout(renderTemplate(step.sms_body, vars), optoutUrl("phone", r.phone));
+        const ok = await sendSms({ receiver: r.phone, msg: body }).then((x) => x.ok).catch(() => false);
         if (ok) sent.push("sms"); else errs.push("문자 실패");
       }
     }
     if (step.send_email && r.email && step.email_body.trim()) {
-      if (testMode) sent.push("email");
-      else {
+      // 문자를 받고 바로 수신거부했을 수 있다 — 메일 보내기 직전에 한 번 더 확인한다.
+      const again = await adGate({ email: r.email, brandOptOut: r.msg_opt_out });
+      if (again.error) {
+        // 확인이 안 되면 메일 광고는 보내지 않는다(fail closed).
+        errs.push("메일 실패");
+      } else if (!again.emailAllowed) {
+        // 광고 수신거부로 메일만 중단 — 실패가 아니므로 아무 것도 적지 않는다("대상 아님"으로 남는다).
+      } else if (testMode) {
+        sent.push("email");
+      } else {
+        const body = withMailOptout(renderTemplate(step.email_body, vars), optoutUrl("email", r.email));
         const ok = await sendEmail({
           to: r.email,
           subject: renderTemplate(step.email_subject || `[GloveK] ${r.brand_name} 안내`, vars),
-          text: renderTemplate(step.email_body, vars),
+          text: body,
         }).then((x) => x.ok).catch(() => false);
         if (ok) sent.push("email"); else errs.push("메일 실패");
       }
