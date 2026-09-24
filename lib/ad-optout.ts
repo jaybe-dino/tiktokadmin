@@ -6,7 +6,6 @@
 //   · 토큰 → 수신자(이메일·전화 쌍)를 정확히 찾는다. 전수 조회·첫 매치 추정을 하지 않는다.
 import { randomBytes } from "node:crypto";
 import { query, queryOne, tx } from "./db";
-import { env } from "./env";   // adminUrl(고정 origin)만 사용 — 서명 비밀키에 의존하지 않는다
 
 export type AddrKind = "email" | "phone";
 export const AD_PURPOSE = "marketing";
@@ -38,10 +37,23 @@ export function maskAddr(kind: AddrKind, raw: string): string {
   return v.length > 6 ? `${v.slice(0, 3)}****${v.slice(-2)}` : "*".repeat(v.length);
 }
 
-/** 고정 origin(admin.glovek.space) 의 수신거부 링크 접두 — 우리 링크만 정확히 알아보기 위해. */
+/**
+ * 수신거부 링크의 origin — 고객 문자·메일에 나가는 주소라 환경변수에 맡기지 않는다.
+ *   ADMIN_URL 은 로컬에서 localhost, 배포에 따라 *.vercel.app 일 수 있어
+ *   그대로 쓰면 고객에게 열리지 않는 링크가 나간다.
+ *   바꿔야 할 때만 AD_OPTOUT_ORIGIN 으로 지정하되, 아래 허용 목록에 있는 https 주소만 받는다.
+ */
+export const AD_OPTOUT_ORIGIN = "https://admin.glovek.space";
+const ALLOWED_ORIGINS = new Set([AD_OPTOUT_ORIGIN]);
+
+export function optoutOrigin(): string {
+  const v = (process.env.AD_OPTOUT_ORIGIN ?? "").trim().replace(/\/$/, "");
+  return v && v.startsWith("https://") && ALLOWED_ORIGINS.has(v) ? v : AD_OPTOUT_ORIGIN;
+}
+
+/** 고정 origin 의 수신거부 링크 접두 — 우리 링크만 정확히 알아보기 위해. */
 export function optoutBase(): string {
-  const base = (env.adminUrl || "https://admin.glovek.space").replace(/\/$/, "");
-  return `${base}${OPTOUT_PATH}`;
+  return `${optoutOrigin()}${OPTOUT_PATH}`;
 }
 export function optoutUrlFor(token: string): string {
   return token ? `${optoutBase()}${token}` : "";
@@ -135,7 +147,10 @@ export interface AdGate {
 }
 
 /**
- * 광고 발송 가능 여부. 문자·메일 주소를 함께 조회해 한쪽 거부로 다른 쪽이 우회되지 않게 한다.
+ * 광고 발송 가능 여부 — 판정 단위는 "수신자(이메일·전화 쌍)"다.
+ *   넘어온 쌍 중 한쪽이라도 광고 수신거부면 문자·메일을 모두 막는다.
+ *   같은 사람이 전화는 그대로 두고 새 이메일로 다시 등록해도 우회되지 않게 하기 위함이다.
+ *   (다른 사람의 연락처 쌍은 이 판정에 들어오지 않으므로 영향받지 않는다)
  * 조회가 실패하면 "차단"으로 처리한다(fail closed).
  */
 export async function adGate(input: { phone?: string | null; email?: string | null; brandOptOut?: boolean }): Promise<AdGate> {
@@ -153,10 +168,14 @@ export async function adGate(input: { phone?: string | null; email?: string | nu
       [AD_PURPOSE, phone, email]);
     const smsBlocked = Boolean(phone) && rows.some((r) => r.kind === "phone" && r.addr === phone);
     const mailBlocked = Boolean(email) && rows.some((r) => r.kind === "email" && r.addr === email);
+    // 쌍 중 하나라도 거부면 이 수신자에게는 문자·메일 모두 보내지 않는다.
+    const blocked = smsBlocked || mailBlocked;
     return {
-      smsAllowed: Boolean(phone) && !smsBlocked,
-      emailAllowed: Boolean(email) && !mailBlocked,
-      reason: smsBlocked || mailBlocked ? "광고 수신거부" : undefined,
+      smsAllowed: Boolean(phone) && !blocked,
+      emailAllowed: Boolean(email) && !blocked,
+      reason: blocked
+        ? `광고 수신거부(${smsBlocked ? "문자" : ""}${smsBlocked && mailBlocked ? "·" : ""}${mailBlocked ? "메일" : ""})`
+        : undefined,
     };
   } catch (e) {
     // 주소·비밀은 남기지 않는다 — 원인 문구만.
@@ -174,14 +193,26 @@ export interface OptOutResult {
   canceled?: number;
 }
 
-/** 전화번호 뒷자리로 후보를 좁힌 뒤 정규화해 정확히 대조한다(표기 차이 흡수). */
-async function brandIdsFor(email: string, phone: string): Promise<string[]> {
-  const tail = phone ? phone.slice(-8) : "";
-  const rows = await query<{ id: string; email: string | null; phone: string | null }>(
-    `SELECT id, email, phone FROM brands
-      WHERE (NULLIF($1,'') IS NOT NULL AND lower(email)=$1)
-         OR (NULLIF($2,'') IS NOT NULL AND phone LIKE '%' || $2 || '%')`,
-    [email, tail]);
+/**
+ * 같은 연락처를 쓰는 브랜드 후보 — 저장 표기가 제각각이므로 SQL 에서 먼저 정규화해 좁힌다.
+ *   · 이메일: 앞뒤 공백 제거 + 소문자
+ *   · 전화: 숫자만 남긴 뒤 끝 8자리로 비교(하이픈·국제표기 +82 를 모두 흡수)
+ *   그 다음 JS 에서 완전 정규화 값으로 정확히 대조한다.
+ */
+const BRAND_CANDIDATE_SQL = `
+  SELECT id, email, phone FROM brands
+   WHERE (NULLIF($1,'') IS NOT NULL AND lower(trim(coalesce(email,''))) = $1)
+      OR (NULLIF($2,'') IS NOT NULL
+          AND regexp_replace(coalesce(phone,''), '[^0-9]', '', 'g') LIKE '%' || $2 || '%')`;
+
+/** 전화 비교용 꼬리 — 정규화된 번호의 끝 8자리(국가번호 표기에 무관). */
+export function phoneTail(phone: string): string {
+  const v = normalizeAddr("phone", phone);
+  return v.length >= 8 ? v.slice(-8) : v;
+}
+
+/** 후보 중 정규화 값이 정확히 일치하는 브랜드만 고른다. */
+function exactMatches(rows: { id: string; email: string | null; phone: string | null }[], email: string, phone: string): string[] {
   return rows
     .filter((b) => (email && normalizeAddr("email", b.email ?? "") === email)
                 || (phone && normalizeAddr("phone", b.phone ?? "") === phone))
@@ -223,14 +254,8 @@ export async function confirmOptOut(token: string, opts: { source?: "link" | "ad
 
       // 같은 연락처를 쓰는 모든 브랜드의 남은 광고 예약 중단(중복 유입 대응).
       const cand = await c.query<{ id: string; email: string | null; phone: string | null }>(
-        `SELECT id, email, phone FROM brands
-          WHERE (NULLIF($1,'') IS NOT NULL AND lower(email)=$1)
-             OR (NULLIF($2,'') IS NOT NULL AND phone LIKE '%' || $2 || '%')`,
-        [who!.email, who!.phone ? who!.phone.slice(-8) : ""]);
-      const ids = cand.rows
-        .filter((b) => (who!.email && normalizeAddr("email", b.email ?? "") === who!.email)
-                    || (who!.phone && normalizeAddr("phone", b.phone ?? "") === who!.phone))
-        .map((b) => b.id);
+        BRAND_CANDIDATE_SQL, [who!.email, phoneTail(who!.phone)]);
+      const ids = exactMatches(cand.rows, who!.email, who!.phone);
       let canceled = 0;
       if (ids.length > 0) {
         const up = await c.query<{ id: string }>(

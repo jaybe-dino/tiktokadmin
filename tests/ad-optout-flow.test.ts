@@ -55,8 +55,9 @@ vi.mock("../lib/db", () => {
     }
     // 같은 연락처를 쓰는 브랜드 후보
     if (sql.includes("SELECT id, email, phone FROM brands")) {
+      // 실제 SQL 과 같은 규칙: lower(trim(email)) 정확일치 · 숫자만 남긴 phone 의 꼬리 포함
       const [email, tail] = args as string[];
-      return db.brands.filter((b) => (email && (b.email ?? "").toLowerCase() === email)
+      return db.brands.filter((b) => (email && (b.email ?? "").trim().toLowerCase() === email)
         || (tail && (b.phone ?? "").replace(/[^0-9]/g, "").includes(tail))) as unknown as Record<string, unknown>[];
     }
     if (sql.includes("SELECT email, phone, COALESCE(msg_opt_out")) {
@@ -327,12 +328,69 @@ describe("회귀 — 중복 브랜드·재등록", () => {
   });
 });
 
-describe("회귀 — 한쪽 거부로 다른 쪽 우회 없음", () => {
-  it("메일만 거부돼 있어도 메일 직전 재확인에서 막힌다(문자는 정상 발송)", async () => {
+describe("회귀 — 판정 단위는 수신자(이메일·전화 쌍)", () => {
+  it("메일만 거부돼 있어도 같은 수신자의 문자까지 함께 막힌다", async () => {
     db.optouts.push({ purpose: "marketing", kind: "email", addr: normalizeAddr("email", EMAIL), addr_masked: "", brand_id: BRAND, source: "link", confirm_count: 1 });
     db.sends = [db.sends[0]];
     await runDueSequence();
-    expect(smsSpy).toHaveBeenCalledTimes(1);
+    expect(smsSpy).toHaveBeenCalledTimes(0);
     expect(mailSpy).toHaveBeenCalledTimes(0);
+    expect(db.sends[0].status).toBe("canceled");
+  });
+
+  it("거부한 전화를 그대로 둔 채 새 이메일을 붙여도 우회되지 않는다", async () => {
+    await confirmOptOut(await tokenFor());
+    const g = await adGate({ phone: PHONE, email: "new-address@example.com" });
+    expect(g.smsAllowed).toBe(false);
+    expect(g.emailAllowed).toBe(false);
+
+    // 같은 전화 + 새 이메일로 다시 유입돼도 예약이 잡히지 않는다.
+    db.brands = [{ id: BRAND, email: "new-address@example.com", phone: PHONE }];
+    db.sends = [];
+    const { enrollLead } = await import("../lib/lead-sequence");
+    const r = await enrollLead(BRAND, "ch1");
+    expect(r.scheduled).toBe(0);
+    expect(r.skipped).toContain("수신거부");
+  });
+
+  it("거부한 이메일을 그대로 둔 채 새 전화를 붙여도 우회되지 않는다", async () => {
+    await confirmOptOut(await tokenFor());
+    const g = await adGate({ phone: "010-7777-6666", email: EMAIL });
+    expect(g.smsAllowed).toBe(false);
+    expect(g.emailAllowed).toBe(false);
+  });
+
+  it("무관한 다른 연락처 쌍은 그대로 발송된다", async () => {
+    await confirmOptOut(await tokenFor());
+    const g = await adGate({ phone: "010-3333-4444", email: "someone-else@example.com" });
+    expect(g.smsAllowed).toBe(true);
+    expect(g.emailAllowed).toBe(true);
+  });
+});
+
+describe("회귀 — 저장 표기가 달라도 같은 사람의 예약을 찾는다", () => {
+  it("전화가 '+82 10-...' 하이픈 국제표기로 저장된 중복 브랜드의 큐도 함께 중단된다", async () => {
+    db.brands.push({ id: "brand-intl", email: null, phone: "+82 10-1111-2222" });
+    db.sends.push({
+      id: "s-intl", brand_id: "brand-intl", channel_id: "ch2", day_no: 1, status: "queued", note: "", channels: [],
+      brand_name: "국제표기", contact_name: null, email: null, phone: "+82 10-1111-2222",
+      state: "lead_new", msg_opt_out: false, test_mode: false,
+    });
+    const r = await confirmOptOut(await tokenFor());
+    expect(r.ok).toBe(true);
+    expect(db.sends.find((s) => s.id === "s-intl")!.status).toBe("canceled");
+    expect(r.canceled).toBe(5);                               // 원래 4 + 국제표기 1
+  });
+
+  it("이메일이 앞뒤 공백·대문자로 저장된 중복 브랜드의 큐도 함께 중단된다", async () => {
+    db.brands.push({ id: "brand-pad", email: `  ${EMAIL.toUpperCase()} `, phone: null });
+    db.sends.push({
+      id: "s-pad", brand_id: "brand-pad", channel_id: "ch2", day_no: 1, status: "queued", note: "", channels: [],
+      brand_name: "공백표기", contact_name: null, email: `  ${EMAIL.toUpperCase()} `, phone: null,
+      state: "lead_new", msg_opt_out: false, test_mode: false,
+    });
+    const r = await confirmOptOut(await tokenFor());
+    expect(db.sends.find((s) => s.id === "s-pad")!.status).toBe("canceled");
+    expect(r.canceled).toBe(5);
   });
 });
