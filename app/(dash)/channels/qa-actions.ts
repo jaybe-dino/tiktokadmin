@@ -11,6 +11,7 @@ import {
   ensureRecipient, recipientByToken, optoutUrlFor, withSmsOptout, withMailOptout,
   confirmOptOut, adGate,
 } from "@/lib/ad-optout";
+import { AD_SEQ_ROUNDS } from "@/lib/ad-optout-copy";
 
 function canEdit(role: string | undefined): boolean { return role === "lead" || role === "exec"; }
 const QA_DOMAIN = "@glovek.invalid";
@@ -40,8 +41,9 @@ export async function qaOptoutFixtureAction(): Promise<{ ok: boolean; error?: st
       token: r.token,
       emailMasked: `qa+****${QA_DOMAIN}`,
       url,
-      smsBody: withSmsOptout("[디노스튜디오·GloveK]\n예시 문자 본문입니다.", url),
-      mailBody: withMailOptout("안녕하세요. 디노스튜디오 GloveK입니다.\n\n예시 메일 본문입니다.", url),
+      // 연속 안내와 같은 범위 표기로 보여준다 — 미리보기와 실제 발송 문구가 다르지 않게.
+      smsBody: withSmsOptout("[디노스튜디오·GloveK]\n예시 문자 본문입니다.", url, { rounds: AD_SEQ_ROUNDS }),
+      mailBody: withMailOptout("안녕하세요. 디노스튜디오 GloveK입니다.\n\n예시 메일 본문입니다.", url, { rounds: AD_SEQ_ROUNDS }),
     },
   };
 }
