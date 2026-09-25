@@ -4,6 +4,7 @@ import {
   normalizeAddr, maskAddr, optoutUrlFor, optoutBase, optoutOrigin, findOptoutLinks,
   withSmsOptout, withMailOptout, phoneTail, SMS_OPTOUT_PREFIX, AD_OPTOUT_ORIGIN, OPTOUT_PATH,
 } from "../lib/ad-optout";
+import { adScopeNotice, adAllRoundsNotice, adSeqSmsLabel, AD_SEQ_ROUNDS } from "../lib/ad-optout-copy";
 
 const TOKEN_A = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const TOKEN_B = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
@@ -126,5 +127,45 @@ https://scheduler.zoom.us/nwa36f2letmqfr4bht4pgtzve0/tpartners2`;
   });
   it("수신자마다 링크가 다르다 — 남의 링크로 남을 거부시킬 수 없다", () => {
     expect(optoutUrlFor(TOKEN_A)).not.toBe(optoutUrlFor(TOKEN_B));
+  });
+});
+
+// ── 수신거부 적용 범위 표기(총 4회 연속 안내) ──────────────────
+describe("적용 범위 표기", () => {
+  const url = optoutUrlFor(TOKEN_A);
+
+  it("문자 — '4회차 광고 문자·메일 수신거부: 링크' 형태로 붙는다", () => {
+    const out = withSmsOptout("1일차 문자", url, { rounds: 4 });
+    expect(out).toContain(`4회차 광고 문자·메일 수신거부: ${url}`);
+    expect(out).toContain("1일차 문자");
+  });
+
+  it("메일 — 총 4회 전체가 대상임을 적고 서비스 알림과 구분한다", () => {
+    const out = withMailOptout("1일차 메일", url, { rounds: 4 });
+    expect(out).toContain("총 4회에 걸쳐 발송되는 광고 문자·메일에만 적용됩니다");
+    expect(out).toContain("서비스 알림은 계속 받을 수 있습니다");
+    expect(out).toContain(url);
+    expect(out).toContain("1일차 메일");
+  });
+
+  it("'N번째 회차만'으로 읽히지 않게 '총 N회에 걸쳐'로 적는다", () => {
+    expect(adScopeNotice(4)).toContain("총 4회에 걸쳐");
+    expect(adAllRoundsNotice(4)).toContain("남은 회차도 발송되지 않습니다");
+    expect(adSeqSmsLabel(4)).toBe("4회차 광고 문자·메일 수신거부: ");
+    expect(AD_SEQ_ROUNDS).toBe(4);
+  });
+
+  it("회차 수가 바뀌면 문구도 함께 바뀐다 — 설정과 표기가 어긋나지 않는다", () => {
+    expect(adScopeNotice(5)).toContain("총 5회에 걸쳐");
+    expect(withSmsOptout("본문", url, { rounds: 5 })).toContain("5회차 광고 문자·메일 수신거부");
+  });
+
+  it("범위를 지정하지 않는 경로(대량발송)는 회차를 단정하지 않는다", () => {
+    const sms = withSmsOptout("본문", url);
+    const mail = withMailOptout("본문", url);
+    expect(sms).toContain(`${SMS_OPTOUT_PREFIX}${url}`);
+    expect(sms).not.toContain("회차");
+    expect(mail).not.toContain("총 4회");
+    expect(mail).toContain("광고에만 적용");           // 광고/서비스 구분은 유지
   });
 });

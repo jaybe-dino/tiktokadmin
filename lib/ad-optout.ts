@@ -6,6 +6,7 @@
 //   · 토큰 → 수신자(이메일·전화 쌍)를 정확히 찾는다. 전수 조회·첫 매치 추정을 하지 않는다.
 import { randomBytes } from "node:crypto";
 import { query, queryOne, tx } from "./db";
+import { adScopeNotice, adSeqSmsLabel } from "./ad-optout-copy";
 
 export type AddrKind = "email" | "phone";
 export const AD_PURPOSE = "marketing";
@@ -121,19 +122,28 @@ function ensureLink(body: string, url: string, append: (b: string) => string): s
   return append(body);
 }
 
-/** 문자 본문 + 무료수신거부 한 줄. 본문은 그대로 두고 끝에만 붙인다. */
-export function withSmsOptout(body: string, url: string): string {
-  return ensureLink(body, url, (b) => `${b.replace(/\s+$/, "")}\n${SMS_OPTOUT_PREFIX}${url}`);
+/**
+ * 부착 옵션 — rounds 를 주면 "총 N회 연속 안내" 범위로 적는다(연속 안내 경로).
+ *   주지 않으면 범위를 특정하지 않는 일반 광고 문구를 쓴다(대량발송 등).
+ */
+export interface OptoutNoticeOpts { rounds?: number }
+
+/** 문자 본문 + 수신거부 한 줄. 본문은 그대로 두고 끝에만 붙인다. */
+export function withSmsOptout(body: string, url: string, opts: OptoutNoticeOpts = {}): string {
+  const label = opts.rounds ? adSeqSmsLabel(opts.rounds) : SMS_OPTOUT_PREFIX;
+  return ensureLink(body, url, (b) => `${b.replace(/\s+$/, "")}\n${label}${url}`);
 }
 
 /** 메일 본문 + 수신거부 안내. 광고 중단과 서비스 안내가 다름을 함께 적는다. */
-export function withMailOptout(body: string, url: string): string {
+export function withMailOptout(body: string, url: string, opts: OptoutNoticeOpts = {}): string {
   return ensureLink(body, url, (b) => [
     b.replace(/\s+$/, ""),
     "",
     "──────────",
     `${MAIL_OPTOUT_LEAD}: ${url}`,
-    "수신거부는 광고에만 적용되며, 계약·일정 등 서비스 안내는 계속 보내드립니다.",
+    opts.rounds
+      ? adScopeNotice(opts.rounds)
+      : "수신거부는 광고에만 적용되며, 계약·일정 등 서비스 안내는 계속 보내드립니다.",
   ].join("\n"));
 }
 

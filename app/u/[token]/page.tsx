@@ -1,4 +1,5 @@
 import { recipientByToken } from "@/lib/ad-optout";
+import { adScopeNotice, adAllRoundsNotice, AD_SCOPE_ALSO_OTHER } from "@/lib/ad-optout-copy";
 import OptOutForm from "./OptOutForm";
 
 export const dynamic = "force-dynamic";
@@ -31,13 +32,22 @@ export default async function AdOptOutPage({ params }: { params: Promise<{ token
         </div>
       ) : (
         <>
-          <div style={{ fontSize: 14.5, lineHeight: 1.8, color: "#374151", marginBottom: 16 }}>
+          <div style={{ fontSize: 14.5, lineHeight: 1.8, color: "#374151", marginBottom: 14 }}>
             아래 버튼을 누르면 <b>광고 목적의 문자·메일 발송이 중단</b>됩니다.
             로그인이나 사유 입력은 필요하지 않습니다.
+          </div>
+          {/* 적용 범위 — "마지막 회차만 중단"으로 읽히지 않게 총 회차 전체임을 먼저 적는다. */}
+          <div data-testid="optout-scope"
+            style={{ border: "1px solid #dbe3ef", background: "#f6f8fc", borderRadius: 12, padding: "14px 16px",
+                     fontSize: 13.5, lineHeight: 1.8, color: "#334155", marginBottom: 16 }}>
+            <div style={{ fontWeight: 800, color: "#1f2937", marginBottom: 4 }}>적용 범위</div>
+            {adScopeNotice()}<br />
+            <span style={{ color: "#475569" }}>{adAllRoundsNotice()}</span>
           </div>
           <OptOutForm token={token} />
           <div style={{ marginTop: 16, fontSize: 12.5, lineHeight: 1.8, color: "#6b7280" }}>
             · 수신거부는 <b>광고에만</b> 적용됩니다. 계약·일정·거래 확인 등 <b>서비스 안내</b>는 계속 보내드릴 수 있습니다.<br />
+            · {AD_SCOPE_ALSO_OTHER}<br />
             · 버튼을 누르기 전에는 <b>아무 것도 변경되지 않습니다.</b><br />
             · 이미 발송 처리된 건은 회수되지 않아 한두 건이 더 도착할 수 있습니다.
           </div>

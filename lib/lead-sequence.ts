@@ -280,7 +280,8 @@ export async function runDueSequence(limit = 200, now = new Date()): Promise<Seq
     if (step.send_sms && r.phone && step.sms_body.trim() && gate.smsAllowed) {
       if (testMode) sent.push("sms");
       else {
-        const body = withSmsOptout(renderTemplate(step.sms_body, vars), optUrl);
+        // 범위 표기는 이 키의 실제 회차 수로 렌더한다 — 설정이 바뀌어도 문구가 어긋나지 않게.
+        const body = withSmsOptout(renderTemplate(step.sms_body, vars), optUrl, { rounds: cfg.days });
         const ok = await sendSms({ receiver: r.phone, msg: body }).then((x) => x.ok).catch(() => false);
         if (ok) sent.push("sms"); else errs.push("문자 실패");
       }
@@ -297,7 +298,7 @@ export async function runDueSequence(limit = 200, now = new Date()): Promise<Seq
       } else if (testMode) {
         sent.push("email");
       } else {
-        const body = withMailOptout(renderTemplate(step.email_body, vars), optUrl);
+        const body = withMailOptout(renderTemplate(step.email_body, vars), optUrl, { rounds: cfg.days });
         const ok = await sendEmail({
           to: r.email,
           subject: renderTemplate(step.email_subject || `[GloveK] ${r.brand_name} 안내`, vars),

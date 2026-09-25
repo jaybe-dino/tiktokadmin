@@ -2,6 +2,7 @@
 // 수신거부 확정 버튼 — 한 번 누르면 POST 로 확정된다(로그인·사유 입력 없음).
 import { useState, useTransition } from "react";
 import { confirmOptOutAction } from "./actions";
+import { adScopeNotice, adAllRoundsNotice, AD_SCOPE_ALSO_OTHER } from "@/lib/ad-optout-copy";
 
 export default function OptOutForm({ token }: { token: string }) {
   const [done, setDone] = useState<null | { already?: boolean }>(null);
@@ -16,7 +17,8 @@ export default function OptOutForm({ token }: { token: string }) {
         </div>
         <ul style={{ margin: "10px 0 0", paddingLeft: 18, fontSize: 14, lineHeight: 1.8, color: "#245" }}>
           <li><b>광고 문자·메일은 더 이상 보내지 않습니다.</b> 문자와 메일 모두 중단됩니다.</li>
-          <li>계약·일정·거래 확인 등 <b>서비스 안내는 계속 보내드릴 수 있습니다.</b> 이는 광고가 아닙니다.</li>
+          <li data-testid="optout-done-scope">{adScopeNotice()} <b>{adAllRoundsNotice()}</b></li>
+          <li>{AD_SCOPE_ALSO_OTHER}</li>
           <li>이미 발송 처리된 건은 회수되지 않아 <b>한두 건이 더 도착할 수 있습니다.</b></li>
         </ul>
         <div style={{ marginTop: 12, fontSize: 12.5, color: "#5a6b7b" }}>이 창은 닫으셔도 됩니다.</div>

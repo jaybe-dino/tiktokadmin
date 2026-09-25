@@ -286,6 +286,14 @@ describe("발송 본문", () => {
     // 평문 주소가 링크에 들어가지 않는다
     expect(smsArg.msg).not.toContain(EMAIL);
   });
+
+  it("실제 발송 본문에 적용 범위(총 4회)가 키 설정대로 표기된다", async () => {
+    await runDueSequence();                                   // 가짜 설정: days=4
+    expect(smsSpy.mock.calls[0]![0].msg).toContain("4회차 광고 문자·메일 수신거부: ");
+    const mail = mailSpy.mock.calls[0]![0].text;
+    expect(mail).toContain("총 4회에 걸쳐 발송되는 광고 문자·메일에만 적용됩니다");
+    expect(mail).toContain("서비스 알림은 계속 받을 수 있습니다");
+  });
 });
 
 // ── Codex 지적 회귀 ──────────────────────────────────────────
