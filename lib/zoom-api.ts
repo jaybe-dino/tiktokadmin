@@ -101,3 +101,36 @@ export async function downloadZoomFile(downloadUrl: string, downloadToken?: stri
   }
   return { ok: false, error: lastErr };
 }
+
+/**
+ * 실제 호출까지 되는지 확인 — "환경변수 입력됨"과 "API 동작함"을 구분하기 위한 검증.
+ *   1) 토큰 발급(자격정보 확인)  2) 녹화 목록 1건 조회(스코프 승인 확인)
+ *   버튼을 눌렀을 때만 호출한다(상태 카드 로딩마다 외부 호출하지 않기 위해).
+ *   비밀값은 반환하지 않는다 — 단계와 사유만 돌려준다.
+ */
+export interface ZoomVerifyResult {
+  ok: boolean;
+  /** 어디까지 됐는지: none(미설정) → token(자격정보 OK) → scope(녹화 조회 OK) */
+  stage: "none" | "token" | "scope";
+  error?: string;
+  /** 스코프 승인이 필요한 상태(계정 관리자 승인 대기)인지 — 설정 완료와 구분해 표시한다. */
+  needsApproval?: boolean;
+}
+
+export async function verifyZoomApi(host?: string): Promise<ZoomVerifyResult> {
+  if (!zoomApiConfigured()) {
+    return { ok: false, stage: "none", error: "환경변수 미설정(ZOOM_ACCOUNT_ID·ZOOM_CLIENT_ID·ZOOM_CLIENT_SECRET)" };
+  }
+  resetZoomToken();   // 캐시된 옛 토큰이 아니라 지금 자격정보로 확인한다.
+  const token = await zoomAccessToken();
+  if (!token) return { ok: false, stage: "none", error: "토큰 발급 실패 — 자격정보(Account/Client) 확인 필요" };
+
+  // 스코프 확인 — 오늘 하루 범위, 1건만. 저장·수집은 하지 않는다.
+  const day = new Date().toISOString().slice(0, 10);
+  const r = await listUserRecordings((host ?? "me").trim() || "me", day, day, 1);
+  if (!r.ok) {
+    const needsApproval = /\b401\b|스코프/.test(r.error ?? "");
+    return { ok: false, stage: "token", error: r.error ?? "녹화 목록 조회 실패", needsApproval };
+  }
+  return { ok: true, stage: "scope" };
+}

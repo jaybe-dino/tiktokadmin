@@ -5,10 +5,13 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
+import { ensureMeetingFollowup } from "@/lib/meetings";
 
 export interface MeetingActionResult {
   ok: boolean;
   error?: string;
+  /** 사람이 읽는 부가 결과(예: 후속 초안까지 만들어졌는지). */
+  note?: string;
 }
 
 /** 미팅 일정 수동 추가 — 줌 자동수집과 별개로 캘린더에 예약 일정 등록(status='scheduled').
@@ -182,7 +185,12 @@ export async function connectMeetingBrandAction(
   ).catch(() => {});
   await query("UPDATE brands SET last_contact_at=now() WHERE id=$1", [brandId]).catch(() => {});
 
+  // 뒤늦게 연결한 회의에 요약이 이미 있으면 후속 초안이 누락된다 — 여기서 한 번 더 보장한다.
+  //   (후처리 워커는 summary_md 가 있는 회의를 다시 집지 않는다. 초안만 만들고 발송은 하지 않는다.)
+  const fu = await ensureMeetingFollowup(meetingId)
+    .catch((e) => ({ drafted: false, reason: `후속 초안 확인 실패 — ${(e as Error).message}` }));
+
   revalidatePath("/meetings");
   revalidatePath(`/brand/${brandId}`);
-  return { ok: true };
+  return { ok: true, note: fu.drafted ? "브랜드 연결 · 후속 메일 초안 생성" : undefined };
 }

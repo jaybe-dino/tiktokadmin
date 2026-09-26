@@ -4,10 +4,14 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  zoomStatusAction, zoomRetryAction, zoomBackfillPreviewAction, zoomBackfillOneAction,
-  type BackfillRow,
+  zoomStatusAction, zoomRetryAction, zoomBackfillPreviewAction, zoomBackfillOneAction, zoomVerifyApiAction,
 } from "@/app/(dash)/meetings/zoom-actions";
+import { STORED_STAGE_LABEL, type BackfillRow } from "@/lib/zoom-backfill";
 import type { ZoomIngestStatus, ZoomFailureRow } from "@/lib/zoom-ingest";
+
+/** 건수 — 조회에 실패하면 0 이 아니라 "확인 실패"로 적는다(0건과 구분). */
+const num = (v: number | null) => (v == null ? "확인 실패" : String(v));
+const sum2 = (a: number | null, b: number | null) => (a == null || b == null ? "확인 실패" : String(a + b));
 
 const kst = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
@@ -22,12 +26,23 @@ export default function ZoomIngestPanel({ canEdit }: { canEdit: boolean }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [rows, setRows] = useState<BackfillRow[] | null>(null);
+  const [verify, setVerify] = useState<{ ok: boolean; text: string } | null>(null);
+  const [loadErr, setLoadErr] = useState("");
   const [pending, start] = useTransition();
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 5000); };
   const load = () => start(async () => {
-    const r = await zoomStatusAction();
+    setLoadErr("");
+    const r = await zoomStatusAction().catch((e) => ({ ok: false, error: (e as Error).message }) as Awaited<ReturnType<typeof zoomStatusAction>>);
     if (r.ok) { setSt(r.status ?? null); setFails(r.failures ?? []); }
+    else setLoadErr(r.error ?? "상태를 확인할 수 없습니다.");
+  });
+  const runVerify = () => start(async () => {
+    setVerify(null);
+    const r = await zoomVerifyApiAction(host.trim() || undefined);
+    setVerify(r.ok
+      ? { ok: true, text: "API 호출 확인 — 자격정보·녹화 조회 스코프 정상" }
+      : { ok: false, text: `${r.error ?? "검증 실패"}${r.needsApproval ? " · 계정 관리자의 스코프 승인 필요(설정 완료 아님)" : ""}` });
   });
   useEffect(load, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -48,35 +63,85 @@ export default function ZoomIngestPanel({ canEdit }: { canEdit: boolean }) {
     if (r.ok) { load(); router.refresh(); }
   });
 
-  const ready = st?.configured && st?.webhookSecretSet;
+  // "연동됨"은 함부로 적지 않는다 — 스키마·시크릿·실제 수신을 각각 따로 본다.
+  const headline = st == null ? "확인 중…"
+    : st.errors.length > 0 ? "확인 실패"
+    : !st.schema.ready ? "스키마 미적용"
+    : !st.webhookSecretSet ? "웹훅 시크릿 미설정"
+    : !st.receiving ? "웹훅 수신 대기"
+    : "수신 중";
+  const headlineOk = st != null && st.errors.length === 0 && st.schema.ready && st.webhookSecretSet && st.receiving;
 
   return (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="hd">
         <b>🎥 Zoom 녹화·전사 수집</b>
-        <span className={`chip ${ready ? "chip-grn" : "chip-amb"}`} style={{ marginLeft: 8 }}>
-          {st == null ? "확인 중…" : ready ? "연동됨" : !st.webhookSecretSet ? "웹훅 시크릿 미설정" : "API 미설정"}
-        </span>
+        <span className={`chip ${headlineOk ? "chip-grn" : "chip-amb"}`} style={{ marginLeft: 8 }}>{headline}</span>
         <button className="btn btn-sm" style={{ marginLeft: "auto" }} disabled={pending} onClick={load}>새로고침</button>
       </div>
       <div className="bd" style={{ display: "grid", gap: 10, fontSize: 12 }}>
+        {loadErr && (
+          <div data-testid="zoom-load-error" style={{ color: "#c92a2a" }}>
+            상태를 확인하지 못했습니다 — {loadErr}
+          </div>
+        )}
         {st && (
           <>
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", color: "var(--ink2)" }}>
-              <span>마지막 웹훅 <b>{kst(st.lastEventAt)}</b></span>
-              <span>마지막 전사 수집 <b>{kst(st.lastTranscriptAt)}</b></span>
-              <span>대기 이벤트 <b>{st.queued}</b></span>
-              <span>전사 대기 <b>{st.pendingTranscripts}</b></span>
-              <span>녹음만 있음 <b>{st.recordingOnly}</b></span>
-              <span style={{ color: st.failedTranscripts + st.failedEvents > 0 ? "#c92a2a" : undefined }}>
-                실패 <b>{st.failedEvents + st.failedTranscripts}</b>
-              </span>
-              <span style={{ color: st.unmatched > 0 ? "#c25400" : undefined }}>미매핑 <b>{st.unmatched}</b></span>
+            {/* ① 환경변수 입력 ② 스키마(0097) ③ 실제 수신 — 셋을 섞어 "연동됨"으로 표시하지 않는다. */}
+            <div data-testid="zoom-readiness" style={{ display: "grid", gap: 4 }}>
+              <div>
+                <b>① 환경변수</b>{" "}
+                <span style={{ color: st.envSet ? "#0b7a52" : "#c25400" }}>
+                  {st.envSet ? "API 자격정보 입력됨" : "API 자격정보 미입력"}
+                </span>
+                {" · "}
+                <span style={{ color: st.webhookSecretSet ? "#0b7a52" : "#c92a2a" }}>
+                  {st.webhookSecretSet ? "웹훅 시크릿 입력됨" : "웹훅 시크릿 미설정 — 웹훅 요청이 거부됩니다"}
+                </span>
+                <span style={{ color: "var(--ink3)" }}> (입력 여부일 뿐, 동작 확인은 아래 「API 검증」)</span>
+              </div>
+              <div>
+                <b>② 스키마</b>{" "}
+                <span style={{ color: st.schema.ready ? "#0b7a52" : "#c92a2a" }}>
+                  {st.schema.error ? `확인 실패 — ${st.schema.error}`
+                    : st.schema.ready ? "0097 적용됨"
+                    : `0097 미적용 — 없는 항목: ${st.schema.missing.join(", ")}`}
+                </span>
+              </div>
+              <div>
+                <b>③ 실제 수신</b>{" "}
+                <span style={{ color: st.receiving ? "#0b7a52" : "#c25400" }}>
+                  {st.receiving ? `웹훅 도착 이력 있음 · 마지막 ${kst(st.lastEventAt)}` : "웹훅 도착 이력 없음 — 아직 녹화 이벤트를 받지 못했습니다"}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                {canEdit && <button className="btn btn-sm" disabled={pending} onClick={runVerify}>API 검증</button>}
+                {verify && (
+                  <span data-testid="zoom-verify" style={{ color: verify.ok ? "#0b7a52" : "#c92a2a" }}>{verify.text}</span>
+                )}
+                {!verify && <span style={{ color: "var(--ink3)" }}>토큰 발급·녹화 조회 스코프를 실제로 호출해 확인합니다(저장·수집 없음).</span>}
+              </div>
             </div>
-            {!ready && (
+
+            {st.errors.length > 0 && (
+              <div data-testid="zoom-errors" style={{ color: "#c92a2a", lineHeight: 1.7 }}>
+                {st.errors.map((e, i) => <div key={i}>· {e}</div>)}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", color: "var(--ink2)" }}>
+              <span>마지막 전사 수집 <b>{kst(st.lastTranscriptAt)}</b></span>
+              <span>대기 이벤트 <b>{num(st.queued)}</b></span>
+              <span>전사 대기 <b>{num(st.pendingTranscripts)}</b></span>
+              <span>녹음만 있음 <b>{num(st.recordingOnly)}</b></span>
+              <span style={{ color: (st.failedEvents ?? 0) + (st.failedTranscripts ?? 0) > 0 ? "#c92a2a" : undefined }}>
+                실패 <b>{sum2(st.failedEvents, st.failedTranscripts)}</b>
+              </span>
+              <span style={{ color: (st.unmatched ?? 0) > 0 ? "#c25400" : undefined }}>미매핑 <b>{num(st.unmatched)}</b></span>
+            </div>
+            {!st.envSet && (
               <div className="note" style={{ fontSize: 11.5 }}>
-                {!st.webhookSecretSet && <div>· <b>ZOOM_WEBHOOK_SECRET</b> 미설정 — 웹훅 서명 검증이 꺼져 있습니다.</div>}
-                {!st.configured && <div>· <b>ZOOM_ACCOUNT_ID · ZOOM_CLIENT_ID · ZOOM_CLIENT_SECRET</b> 미설정 — 전사 파일 내려받기·과거 가져오기를 쓸 수 없습니다(웹훅으로 받은 건은 24시간 내에는 수집 가능).</div>}
+                · <b>ZOOM_ACCOUNT_ID · ZOOM_CLIENT_ID · ZOOM_CLIENT_SECRET</b> 미입력 — 전사 파일 내려받기·과거 가져오기를 쓸 수 없습니다(웹훅으로 받은 건은 24시간 내에는 수집 가능).
               </div>
             )}
           </>
@@ -130,7 +195,12 @@ export default function ZoomIngestPanel({ canEdit }: { canEdit: boolean }) {
                           <td>{r.topic || "(제목 없음)"}</td>
                           <td>{r.durationMin}분</td>
                           <td>{r.hasTranscript ? "있음" : <span style={{ color: "#c25400" }}>녹음만</span>}</td>
-                          <td>{r.alreadyStored ? `이미 수집됨${r.brandName ? ` · ${r.brandName}` : ""}` : "미수집"}</td>
+                          <td>
+                            <span style={{ color: r.stored === "transcript" ? "#0b7a52" : r.stored === "none" ? "var(--ink3)" : "#c25400" }}>
+                              {STORED_STAGE_LABEL[r.stored]}
+                            </span>
+                            {r.brandName ? ` · ${r.brandName}` : ""}
+                          </td>
                           <td>{canEdit && <button className="btn btn-sm" disabled={pending} onClick={() => pull(r.uuid)}>가져오기</button>}</td>
                         </tr>
                       ))}

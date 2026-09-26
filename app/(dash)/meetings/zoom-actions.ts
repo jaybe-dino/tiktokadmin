@@ -9,15 +9,40 @@ import {
   type ZoomIngestStatus, type ZoomFailureRow,
 } from "@/lib/zoom-ingest";
 import { listUserRecordings, zoomApiConfigured } from "@/lib/zoom-api";
+import { storedStage, type BackfillRow, type StoredProbe } from "@/lib/zoom-backfill";
 import { TRANSCRIPT_FILE_TYPES } from "@/lib/zoom-ingest";
 
 function canEdit(role: string | undefined): boolean { return role === "lead" || role === "exec"; }
 
-export async function zoomStatusAction(): Promise<{ ok: boolean; status?: ZoomIngestStatus; failures?: ZoomFailureRow[] }> {
+export async function zoomStatusAction():
+  Promise<{ ok: boolean; status?: ZoomIngestStatus; failures?: ZoomFailureRow[]; error?: string }> {
   const u = await currentUser();
-  if (!u) return { ok: false };
-  const [status, failures] = await Promise.all([getZoomIngestStatus(), listZoomFailures()]);
+  if (!u) return { ok: false, error: "세션 만료" };
+  // 상태 자체는 오류를 errors 로 담아 돌려준다. 실패 목록 조회가 깨지면 빈 목록으로 감추지 않는다.
+  const status = await getZoomIngestStatus().catch((e) => {
+    throw new Error(`상태 조회 실패 — ${(e as Error).message}`);
+  });
+  const failures = await listZoomFailures().catch((e) => {
+    status.errors.push(`실패 목록 조회 실패 — ${(e as Error).message.slice(0, 160)}`);
+    return [] as ZoomFailureRow[];
+  });
   return { ok: true, status, failures };
+}
+
+/**
+ * Zoom API 실제 동작 검증 — "환경변수 입력됨"과 "API 호출됨"을 구분한다.
+ *   버튼을 누를 때만 외부 호출한다. 자격정보·토큰은 반환하지 않는다.
+ */
+export async function zoomVerifyApiAction(host?: string):
+  Promise<{ ok: boolean; stage?: string; error?: string; needsApproval?: boolean }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!canEdit(u.role)) return { ok: false, error: "권한 없음(파트장·대표만)" };
+  const { verifyZoomApi } = await import("@/lib/zoom-api");
+  const r = await verifyZoomApi(host).catch((e) => ({
+    ok: false as const, stage: "none" as const, error: `검증 실패 — ${(e as Error).message}`,
+  }));
+  return { ok: r.ok, stage: r.stage, error: r.error, needsApproval: "needsApproval" in r ? r.needsApproval : undefined };
 }
 
 /** 실패 이벤트·회의 전사 재처리. 같은 회의·파일은 중복 저장되지 않는다. */
@@ -25,25 +50,26 @@ export async function zoomRetryAction(kind: "event" | "meeting", id: string): Pr
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!canEdit(u.role)) return { ok: false, error: "권한 없음(파트장·대표만)" };
-  if (kind === "event") {
-    const ok = await requeueZoomEvent(id);
-    if (!ok) return { ok: false, error: "이벤트를 찾을 수 없습니다." };
-    const r = await runZoomIngest(5);
-    return { ok: true, note: `재처리 — 완료 ${r.done} · 실패 ${r.failed} · 건너뜀 ${r.skipped}` };
+  try {
+    if (kind === "event") {
+      const ok = await requeueZoomEvent(id);
+      if (!ok) return { ok: false, error: "이벤트를 찾을 수 없습니다." };
+      const r = await runZoomIngest(5);
+      const extra = r.bookkeepingErrors.length ? ` · 기록 실패 ${r.bookkeepingErrors.length}건` : "";
+      return { ok: true, note: `재처리 — 완료 ${r.done} · 실패 ${r.failed} · 건너뜀 ${r.skipped}${extra}` };
+    }
+    const m = await queryOne<{ zoom_uuid: string }>("SELECT zoom_uuid FROM meetings WHERE id=$1", [id]);
+    if (!m) return { ok: false, error: "회의를 찾을 수 없습니다." };
+    if (m.zoom_uuid.startsWith("manual:") || m.zoom_uuid.startsWith("ics:")) {
+      return { ok: false, error: "줌 녹화가 아닌 회의입니다(수동·캘린더 일정)." };
+    }
+    await requeueMeetingTranscript(id);
+    const r = await fetchTranscriptViaApi(id, m.zoom_uuid);
+    return { ok: r.ok, note: r.note, error: r.ok ? undefined : r.note };
+  } catch (e) {
+    // 실패를 "재처리 완료"로 보고하지 않는다.
+    return { ok: false, error: `재처리 실패 — ${(e as Error).message}` };
   }
-  const m = await queryOne<{ zoom_uuid: string }>("SELECT zoom_uuid FROM meetings WHERE id=$1", [id]).catch(() => null);
-  if (!m) return { ok: false, error: "회의를 찾을 수 없습니다." };
-  if (m.zoom_uuid.startsWith("manual:") || m.zoom_uuid.startsWith("ics:")) {
-    return { ok: false, error: "줌 녹화가 아닌 회의입니다(수동·캘린더 일정)." };
-  }
-  await requeueMeetingTranscript(id);
-  const r = await fetchTranscriptViaApi(id, m.zoom_uuid);
-  return { ok: true, note: r.note };
-}
-
-export interface BackfillRow {
-  uuid: string; zoomMeetingId: string; topic: string; startTime: string;
-  durationMin: number; hasTranscript: boolean; alreadyStored: boolean; brandName: string | null;
 }
 
 /**
@@ -66,8 +92,11 @@ export async function zoomBackfillPreviewAction(input: { host: string; from: str
   const rows: BackfillRow[] = [];
   for (const m of r.meetings ?? []) {
     if (!m.uuid) continue;
-    const stored = await queryOne<{ id: string; brand_id: string | null }>(
-      "SELECT id, brand_id FROM meetings WHERE zoom_uuid=$1", [m.uuid]).catch(() => null);
+    const stored = await queryOne<StoredProbe & { brand_id: string | null }>(
+      `SELECT id, brand_id, transcript_status,
+              (transcript IS NOT NULL AND transcript <> '') AS has_transcript,
+              (SELECT count(*) FROM meeting_recordings mr WHERE mr.meeting_id = meetings.id)::int AS files
+         FROM meetings WHERE zoom_uuid=$1`, [m.uuid]).catch(() => null);
     const brand = stored?.brand_id
       ? await queryOne<{ brand_name: string }>("SELECT brand_name FROM brands WHERE id=$1", [stored.brand_id]).catch(() => null)
       : null;
@@ -78,7 +107,7 @@ export async function zoomBackfillPreviewAction(input: { host: string; from: str
       startTime: m.start_time ?? "",
       durationMin: Number(m.duration ?? 0),
       hasTranscript: (m.recording_files ?? []).some((f) => TRANSCRIPT_FILE_TYPES.has((f.file_type ?? "").toUpperCase())),
-      alreadyStored: Boolean(stored),
+      stored: storedStage(stored),
       brandName: brand?.brand_name ?? null,
     });
   }

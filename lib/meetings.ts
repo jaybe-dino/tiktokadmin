@@ -162,6 +162,47 @@ export async function draftFollowup(input: {
   return row!.id;
 }
 
+/**
+ * 요약이 이미 있는 회의의 후속 초안을 보장한다(멱등).
+ *   쓰는 곳: 미매핑이던 회의를 담당자가 뒤늦게 브랜드에 연결한 경우.
+ *   요약은 브랜드 없이도 만들어질 수 있고, 후처리 워커는 summary_md 가 이미 있으면
+ *   그 회의를 다시 집지 않는다 — 그래서 연결 시점에 한 번 더 확인해 준다.
+ *   · 만드는 것은 "초안"뿐이다(email_drafts.status='draft'). 실제 발송은 하지 않는다.
+ *   · 이미 초안이 있으면 아무 것도 하지 않는다.
+ */
+export async function ensureMeetingFollowup(meetingId: string): Promise<{ drafted: boolean; reason: string }> {
+  const m = await queryOne<{
+    id: string; brand_id: string | null; summary_md: string | null;
+    followup_status: string | null; started_at: string | null;
+  }>(
+    `SELECT id, brand_id, summary_md, followup_status, started_at::text AS started_at
+       FROM meetings WHERE id=$1`, [meetingId]);
+  if (!m) return { drafted: false, reason: "회의 없음" };
+  if (!m.brand_id) return { drafted: false, reason: "브랜드 미연결" };
+  if (!m.summary_md?.trim()) return { drafted: false, reason: "요약 전 — 후처리 워커가 진행" };
+  if (m.followup_status === "drafted") return { drafted: false, reason: "이미 후속 초안 있음" };
+
+  const dup = await queryOne<{ id: string }>(
+    "SELECT id FROM email_drafts WHERE meeting_id=$1 AND kind='followup' LIMIT 1", [meetingId]);
+  if (dup) {
+    await query("UPDATE meetings SET followup_status='drafted' WHERE id=$1", [meetingId]);
+    return { drafted: false, reason: "이미 후속 초안 있음" };
+  }
+
+  const brand = await queryOne<Brand>("SELECT * FROM brands WHERE id=$1", [m.brand_id]);
+  if (!brand) return { drafted: false, reason: "브랜드를 찾을 수 없음" };
+
+  let surveyUrl: string | undefined;
+  try {
+    const { createSurvey } = await import("./repo/card");
+    const { env } = await import("./env");
+    surveyUrl = `${env.adminUrl}/s/${await createSurvey(brand.id)}`;
+  } catch { /* 설문 테이블 미적용 — 설문 링크 없이 초안만 만든다 */ }
+
+  await draftFollowup({ brand, meetingId, summaryMd: m.summary_md, surveyUrl });
+  return { drafted: true, reason: "후속 초안 생성" };
+}
+
 /** 미팅 요약 완료 시 자동 기록: contact_logged(meeting) + last_contact_at (08 §3-5). */
 export async function recordMeetingContact(brandId: string, meetingId: string, at: string): Promise<void> {
   await query(

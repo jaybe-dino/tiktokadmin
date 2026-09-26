@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
-import crypto from "node:crypto";
 import { env } from "@/lib/env";
 import { query } from "@/lib/db";
 import { matchMeetingBrand, matchHostAdmin, type ZoomParticipant } from "@/lib/meetings";
 import { enqueueZoomEvent, runZoomIngest, type ZoomEventPayload } from "@/lib/zoom-ingest";
+import { verifyZoomWebhook, urlValidationAnswer } from "@/lib/zoom-webhook-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,9 +14,6 @@ export const dynamic = "force-dynamic";
 //   실제 처리(브랜드 매핑·전사 내려받기)는 응답 뒤(after) 또는 크론 워커에서 한다.
 //   → Zoom 의 3초 응답 제한을 넘기지 않고, 실패해도 같은 이벤트를 안전하게 다시 처리할 수 있다.
 
-/** 서명 타임스탬프 허용 오차(초) — 오래된 요청 재전송 차단. */
-const REPLAY_WINDOW_SEC = 300;
-
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   const secret = env.zoom.webhookSecret;
@@ -24,33 +21,43 @@ export async function POST(req: NextRequest) {
   let body: ZoomEventPayload;
   try { body = JSON.parse(raw); } catch { return NextResponse.json({ error: "bad json" }, { status: 400 }); }
 
-  // URL 검증 챌린지 (endpoint.url_validation)
+  // 시크릿이 없으면 어떤 요청도 받지 않는다(fail closed).
+  //   ※ 운영에 ZOOM_WEBHOOK_SECRET 이 설정돼 있어야 웹훅이 동작한다.
+  //     /meetings 의 Zoom 카드 ① 에서 입력 여부를 바로 확인할 수 있다.
+  if (!secret) {
+    console.error("[zoom] ZOOM_WEBHOOK_SECRET 미설정 — 웹훅 요청을 거부했습니다(서명 검증 불가).");
+    return NextResponse.json({ error: "webhook secret not configured" }, { status: 503 });
+  }
+
+  // URL 검증 챌린지 (endpoint.url_validation) — 시크릿으로 서명해 응답한다.
   if (body.event === "endpoint.url_validation" && body.payload?.plainToken) {
     const plainToken = body.payload.plainToken;
-    const encryptedToken = secret
-      ? crypto.createHmac("sha256", secret).update(plainToken).digest("hex")
-      : plainToken;
+    const encryptedToken = urlValidationAnswer(secret, plainToken);
+    if (!encryptedToken) return NextResponse.json({ error: "webhook secret not configured" }, { status: 503 });
     return NextResponse.json({ plainToken, encryptedToken });
   }
 
-  // 서명 검증 (x-zm-signature: v0=HMAC(secret, "v0:"+ts+":"+body))
-  if (secret) {
-    const ts = req.headers.get("x-zm-request-timestamp") ?? "";
-    const sig = req.headers.get("x-zm-signature") ?? "";
-    // 오래된 타임스탬프는 거절 — 가로챈 요청을 나중에 그대로 다시 보내는 것을 막는다.
-    const tsNum = Number(ts);
-    if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > REPLAY_WINDOW_SEC) {
-      return NextResponse.json({ error: "stale timestamp" }, { status: 401 });
-    }
-    const expected = "v0=" + crypto.createHmac("sha256", secret).update(`v0:${ts}:${raw}`).digest("hex");
-    if (!timingSafeEq(sig, expected)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  // 서명 검증 (x-zm-signature: v0=HMAC(secret, "v0:"+ts+":"+body)) + 재전송 방어.
+  const auth = verifyZoomWebhook({
+    secret,
+    ts: req.headers.get("x-zm-request-timestamp"),
+    sig: req.headers.get("x-zm-signature"),
+    raw,
+  });
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   // 녹화·전사 — 원장에 접수만 하고 바로 응답. 중복 전송은 여기서 걸러진다.
   if (body.event === "recording.completed" || body.event === "recording.transcript_completed") {
-    const q = await enqueueZoomEvent(body).catch(() => ({ queued: false, duplicate: false }));
+    // 접수 실패를 200 으로 삼키면 Zoom 이 재전송하지 않아 그 회의가 영구히 사라진다.
+    //   5xx 로 답해 재전송을 받는다(중복은 dedupe_key 로 걸러진다).
+    let q: { queued: boolean; duplicate?: boolean };
+    try { q = await enqueueZoomEvent(body); }
+    catch (e) {
+      console.error("[zoom] 웹훅 접수 실패:", (e as Error).message);
+      return NextResponse.json({ error: "enqueue failed" }, { status: 503 });
+    }
     // 응답을 보낸 뒤 처리 — 실패하면 크론이 다시 집어간다.
-    if (q.queued) after(async () => { await runZoomIngest(3).catch(() => null); });
+    if (q.queued) after(async () => { await runZoomIngest(3).catch((e) => { console.error("[zoom] 후처리 실패:", (e as Error).message); }); });
     return NextResponse.json({ ok: true, queued: q.queued, duplicate: Boolean(q.duplicate) });
   }
 
@@ -95,10 +102,4 @@ async function handleScheduleEvent(body: ZoomEventPayload) {
     default:
       break;
   }
-}
-
-function timingSafeEq(a: string, b: string): boolean {
-  const ba = Buffer.from(a), bb = Buffer.from(b);
-  if (ba.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ba, bb);
 }
