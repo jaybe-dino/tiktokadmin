@@ -528,9 +528,14 @@ export async function listZoomFailures(limit = 20): Promise<ZoomFailureRow[]> {
   const events = await query<{ id: string; event: string; error: string | null; received_at: string; zoom_uuid: string | null }>(
     `SELECT id, event, error, received_at::text AS received_at, zoom_uuid FROM zoom_webhook_events
       WHERE status='failed' ORDER BY received_at DESC LIMIT $1`, [limit]);
-  const meets = await query<{ id: string; topic: string | null; transcript_status: string; transcript_error: string | null; started_at: string | null }>(
-    `SELECT id, topic, transcript_status, transcript_error, started_at::text AS started_at FROM meetings
-      WHERE transcript_status IN ('failed','pending','recording_only')
+  // status='error' 도 함께 보여준다 — 요약 단계에서 멈춘 회의가 조용히 방치되지 않게.
+  const meets = await query<{
+    id: string; topic: string | null; transcript_status: string; transcript_error: string | null;
+    status: string; error: string | null; started_at: string | null;
+  }>(
+    `SELECT id, topic, transcript_status, transcript_error, status, error, started_at::text AS started_at
+       FROM meetings
+      WHERE transcript_status IN ('failed','pending','recording_only') OR status='error'
       ORDER BY COALESCE(started_at, created_at) DESC LIMIT $1`, [limit]);
   return [
     ...events.map((e): ZoomFailureRow => ({
@@ -539,7 +544,8 @@ export async function listZoomFailures(limit = 20): Promise<ZoomFailureRow[]> {
     ...meets.map((m): ZoomFailureRow => ({
       kind: "meeting", id: m.id,
       label: m.topic || "(제목 없음)",
-      detail: m.transcript_status === "pending" ? "전사 대기 중"
+      detail: m.status === "error" ? `요약 단계 실패 — ${m.error || "사유 미기록"}`
+        : m.transcript_status === "pending" ? "전사 대기 중"
         : m.transcript_status === "recording_only" ? (m.transcript_error || "녹음만 있음 — 전사 없음")
         : (m.transcript_error || "전사 수집 실패"),
       at: m.started_at,
@@ -556,6 +562,19 @@ export async function requeueZoomEvent(eventId: string): Promise<boolean> {
   const r = await query<{ id: string }>(
     `UPDATE zoom_webhook_events SET status='queued', attempts=0, error=NULL
       WHERE id=$1 RETURNING id`, [eventId]);
+  return r.length > 0;
+}
+
+/**
+ * 요약 단계에서 멈춘 회의(status='error')를 다시 후처리 대상으로 돌린다.
+ *   전사는 이미 있으므로 다시 내려받지 않는다 — status 만 되돌려 다음 후처리 회차가 요약을 재시도한다.
+ *   자동 무한 재시도는 하지 않는다(담당자가 누를 때만).
+ */
+export async function requeueMeetingSummary(meetingId: string): Promise<boolean> {
+  const r = await query<{ id: string }>(
+    `UPDATE meetings SET status='received', error=NULL
+      WHERE id=$1 AND status='error' AND transcript IS NOT NULL AND transcript <> ''
+      RETURNING id`, [meetingId]);
   return r.length > 0;
 }
 

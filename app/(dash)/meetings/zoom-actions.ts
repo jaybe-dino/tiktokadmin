@@ -5,7 +5,7 @@ import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import {
   getZoomIngestStatus, listZoomFailures, requeueZoomEvent, requeueMeetingTranscript,
-  runZoomIngest, fetchTranscriptViaApi,
+  requeueMeetingSummary, runZoomIngest, fetchTranscriptViaApi,
   type ZoomIngestStatus, type ZoomFailureRow,
 } from "@/lib/zoom-ingest";
 import { listUserRecordings, zoomApiConfigured } from "@/lib/zoom-api";
@@ -58,8 +58,14 @@ export async function zoomRetryAction(kind: "event" | "meeting", id: string): Pr
       const extra = r.bookkeepingErrors.length ? ` · 기록 실패 ${r.bookkeepingErrors.length}건` : "";
       return { ok: true, note: `재처리 — 완료 ${r.done} · 실패 ${r.failed} · 건너뜀 ${r.skipped}${extra}` };
     }
-    const m = await queryOne<{ zoom_uuid: string }>("SELECT zoom_uuid FROM meetings WHERE id=$1", [id]);
+    const m = await queryOne<{ zoom_uuid: string; status: string }>(
+      "SELECT zoom_uuid, status FROM meetings WHERE id=$1", [id]);
     if (!m) return { ok: false, error: "회의를 찾을 수 없습니다." };
+
+    // 요약 단계에서 멈춘 회의는 전사를 다시 내려받을 일이 아니다 — 후처리만 다시 올린다.
+    if (m.status === "error" && await requeueMeetingSummary(id)) {
+      return { ok: true, note: "요약 재시도 대상으로 되돌렸습니다 — 다음 후처리 회차에 진행됩니다." };
+    }
     if (m.zoom_uuid.startsWith("manual:") || m.zoom_uuid.startsWith("ics:")) {
       return { ok: false, error: "줌 녹화가 아닌 회의입니다(수동·캘린더 일정)." };
     }

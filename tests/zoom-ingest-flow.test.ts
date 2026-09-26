@@ -14,7 +14,7 @@ interface MeetingRow {
   transcript: string | null; transcript_source: string | null; transcript_status: string;
   transcript_attempts: number; transcript_next_try: number | null; transcript_error: string | null;
   transcript_fetched_at: number | null; started_at: number | null; created_at: number;
-  recording_files_count: number; match_dismissed: boolean;
+  recording_files_count: number; match_dismissed: boolean; error: string | null;
 }
 interface RecRow { zoom_uuid: string; zoom_file_id: string; meeting_id: string | null; collected: boolean }
 
@@ -39,7 +39,7 @@ function newMeeting(p: Partial<MeetingRow>): MeetingRow {
     status: "unmatched", match_method: null, transcript: null, transcript_source: null,
     transcript_status: "none", transcript_attempts: 0, transcript_next_try: null, transcript_error: null,
     transcript_fetched_at: null, started_at: null, created_at: db.now, recording_files_count: 0,
-    match_dismissed: false, ...p,
+    match_dismissed: false, error: null, ...p,
   };
 }
 
@@ -249,8 +249,18 @@ vi.mock("../lib/db", () => {
       }];
     }
     if (sql.includes("SELECT id, topic, transcript_status")) {
-      return db.meetings.filter((m) => ["failed", "pending", "recording_only"].includes(m.transcript_status))
-        .map((m) => ({ id: m.id, topic: m.topic, transcript_status: m.transcript_status, transcript_error: m.transcript_error, started_at: null }));
+      return db.meetings
+        .filter((m) => ["failed", "pending", "recording_only"].includes(m.transcript_status) || m.status === "error")
+        .map((m) => ({
+          id: m.id, topic: m.topic, transcript_status: m.transcript_status, transcript_error: m.transcript_error,
+          status: m.status, error: m.error, started_at: null,
+        }));
+    }
+    if (sql.includes("UPDATE meetings SET status='received', error=NULL")) {
+      const m = db.meetings.find((x) => x.id === a[0] && x.status === "error" && x.transcript);
+      if (!m) return [];
+      m.status = "received"; m.error = null;
+      return [{ id: m.id }];
     }
     return [];
   };
@@ -279,7 +289,7 @@ vi.mock("../lib/zoom-api", async (orig) => {
 
 import {
   enqueueZoomEvent, runZoomIngest, handleZoomEvent, getZoomIngestStatus, getZoomSchemaState,
-  requeueZoomEvent, retryPendingTranscripts, dedupeKey,
+  requeueZoomEvent, requeueMeetingSummary, listZoomFailures, retryPendingTranscripts, dedupeKey,
   ZOOM_SCHEMA_MIGRATION, MAX_TRANSCRIPT_ATTEMPTS, TRANSCRIPT_WAIT_HOURS, STUCK_PROCESSING_MIN,
 } from "../lib/zoom-ingest";
 import { storedStage, STORED_STAGE_LABEL } from "../lib/zoom-backfill";
@@ -531,5 +541,36 @@ describe("미매핑 회의 — 나중에 매칭해도 파이프라인이 끊기�
     expect(m.status).toBe("unmatched");
     const st = await getZoomIngestStatus();
     expect(st.unmatched).toBe(1);
+  });
+});
+
+describe("요약 단계에서 멈춘 회의 — 조용히 방치되지 않는다", () => {
+  it("실패 목록에 사유와 함께 올라온다", async () => {
+    db.meetings.push(newMeeting({
+      zoom_uuid: UUID, topic: "요약 실패 회의", status: "error", error: "Anthropic 429",
+      transcript: "전사 본문", transcript_status: "ready",
+    }));
+    const rows = await listZoomFailures();
+    const hit = rows.find((r) => r.label === "요약 실패 회의");
+    expect(hit).toBeTruthy();
+    expect(hit!.detail).toContain("요약 단계 실패");
+    expect(hit!.detail).toContain("429");
+  });
+
+  it("담당자가 누르면 후처리 대상으로 되돌아간다(전사는 다시 내려받지 않는다)", async () => {
+    db.meetings.push(newMeeting({
+      zoom_uuid: UUID, status: "error", error: "Anthropic 429",
+      transcript: "전사 본문", transcript_status: "ready",
+    }));
+    const id = db.meetings[0].id;
+    expect(await requeueMeetingSummary(id)).toBe(true);
+    expect(db.meetings[0].status).toBe("received");
+    expect(db.meetings[0].error).toBeNull();
+    expect(db.meetings[0].transcript).toBe("전사 본문");     // 원문 보존
+  });
+
+  it("전사가 없는 회의는 요약 재시도 대상이 아니다", async () => {
+    db.meetings.push(newMeeting({ zoom_uuid: UUID, status: "error", error: "x", transcript: null }));
+    expect(await requeueMeetingSummary(db.meetings[0].id)).toBe(false);
   });
 });
