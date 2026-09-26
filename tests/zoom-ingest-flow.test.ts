@@ -170,6 +170,13 @@ vi.mock("../lib/db", () => {
       if (m) m.recording_files_count = db.recordings.filter((r) => r.meeting_id === m.id).length;
       return [];
     }
+    if (sql.includes("coalesce(length(transcript),0)")) {
+      const m = db.meetings.find((x) => x.id === a[0]);
+      return m ? [{
+        transcript_status: m.transcript_status, transcript_error: m.transcript_error,
+        chars: String((m.transcript ?? "").length),
+      }] : [];
+    }
     if (sql.includes("SELECT transcript, transcript_source FROM meetings WHERE id=")) {
       const m = db.meetings.find((x) => x.id === a[0]);
       return m ? [{ transcript: m.transcript, transcript_source: m.transcript_source }] : [];
@@ -292,12 +299,15 @@ const zoom = {
   dl: [] as { url: string; kind: string; token: string }[],
   /** webhook 토큰만 통하게(실제 운영 증상: 웹훅 주소 + S2S 토큰 = 401) */
   onlyWebhookToken: false,
+  /** 이 문자열이 든 주소만 실패시킨다(한 큐에 성공·실패를 섞기 위해). */
+  failUrlPart: null as string | null,
 };
 vi.mock("../lib/zoom-api", async (orig) => {
   const real = await orig<typeof import("../lib/zoom-api")>();
   const take = (url: string, kind: string, token: string) => {
     zoom.dl.push({ url, kind, token });
     if (!zoom.dlOk) return { ok: false, error: zoom.dlError };
+    if (zoom.failUrlPart && url.includes(zoom.failUrlPart)) return { ok: false, error: zoom.dlError };
     if (zoom.onlyWebhookToken && kind !== "webhook") {
       return { ok: false, error: "다운로드 실패 401 — S2S 토큰·녹화 스코프 승인 확인" };
     }
@@ -317,7 +327,7 @@ vi.mock("../lib/zoom-api", async (orig) => {
 import {
   enqueueZoomEvent, runZoomIngest, handleZoomEvent, getZoomIngestStatus, getZoomSchemaState,
   requeueZoomEvent, requeueMeetingSummary, requeueTranscriptEventForMeeting, listZoomFailures,
-  retryPendingTranscripts, dedupeKey, eventDownloadToken,
+  retryPendingTranscripts, dedupeKey, eventDownloadToken, eventHasTranscriptFile, meetingTranscriptState,
   ZOOM_SCHEMA_MIGRATION, MAX_TRANSCRIPT_ATTEMPTS, TRANSCRIPT_WAIT_HOURS, STUCK_PROCESSING_MIN,
 } from "../lib/zoom-ingest";
 import { storedStage, STORED_STAGE_LABEL } from "../lib/zoom-backfill";
@@ -335,19 +345,19 @@ const VTT = `WEBVTT
 `;
 
 const DL_TOKEN = "webhook-download-token";
-const recEvent = (transcript: boolean) => ({
+const recEvent = (transcript: boolean, uuid = UUID) => ({
   event: transcript ? "recording.transcript_completed" : "recording.completed",
   event_ts: db.now,
   // 실제 Zoom 이벤트는 download_token 을 최상위(event·payload 와 같은 레벨)에 준다.
   download_token: transcript ? DL_TOKEN : undefined,
   payload: {
     object: {
-      uuid: UUID, id: 8812345678, topic: "무음 QA 회의", host_email: "host@dinostudio.kr",
+      uuid, id: 8812345678, topic: "무음 QA 회의", host_email: "host@dinostudio.kr",
       start_time: new Date(db.now).toISOString(), duration: 0, share_url: "https://zoom.us/rec/share/xyz",
       participants: [],
       recording_files: transcript
-        ? [{ id: "f-t", file_type: "TRANSCRIPT", file_extension: "VTT", download_url: "https://x.zoom.us/rec/download/t" }]
-        : [{ id: "f-mp4", file_type: "MP4", file_extension: "MP4" }, { id: "f-m4a", file_type: "M4A", file_extension: "M4A" }],
+        ? [{ id: `f-t-${uuid}`, file_type: "TRANSCRIPT", file_extension: "VTT", download_url: `https://x.zoom.us/rec/download/t-${uuid}` }]
+        : [{ id: `f-mp4-${uuid}`, file_type: "MP4", file_extension: "MP4" }, { id: `f-m4a-${uuid}`, file_type: "M4A", file_extension: "M4A" }],
     },
   },
 });
@@ -361,7 +371,7 @@ beforeEach(() => {
     "recording_share_url", "recording_files_count", "match_method", "match_candidates"]);
   db.fail = { enqueue: false, claim: false, transcriptSave: false, eventCount: false, meetingCount: false, failList: false };
   zoom.vtt = VTT; zoom.dlOk = true; zoom.recFiles = []; zoom.recOk = true;
-  zoom.dl = []; zoom.onlyWebhookToken = false;
+  zoom.dl = []; zoom.onlyWebhookToken = false; zoom.failUrlPart = null;
 });
 
 describe("웹훅 접수 — 실패를 200 으로 삼키지 않는다", () => {
@@ -407,7 +417,7 @@ describe("녹화 → 전사 수집", () => {
     expect(m.transcript_status).toBe("ready");
     expect(m.transcript).toContain("안녕하세요");
     expect(m.status).toBe("received");                 // 후처리 워커가 집어가는 상태
-    expect(db.recordings.find((r) => r.zoom_file_id === "f-t")!.collected).toBe(true);
+    expect(db.recordings.find((r) => r.zoom_file_id === `f-t-${UUID}`)!.collected).toBe(true);
   });
   it("전사 저장이 실패하면 '수집 완료'로 보고하지 않고 실패로 남긴다", async () => {
     await handleZoomEvent(recEvent(false));
@@ -682,5 +692,74 @@ describe("원장 재처리로 QA 회의 복구 — 새 API 스코프 없이", ()
     expect(db.meetings[0].transcript_error).toContain("cloud_recording:read:list_recording_files:admin");
     const fails = await listZoomFailures();
     expect(fails.some((f) => (f.detail ?? "").includes("권한(스코프) 승인 필요"))).toBe(true);
+  });
+});
+
+// ── 검수 지적 회귀: "재처리 완료"가 실제 전사 저장을 뜻해야 한다 ──
+describe("성공 판정 — 워커 처리 건수가 아니라 그 회의의 전사로 판단", () => {
+  it("전사 본문이 저장돼 있을 때만 ready 로 답한다", async () => {
+    await handleZoomEvent(recEvent(false));
+    const id = db.meetings[0].id;
+    expect((await meetingTranscriptState(id)).ready).toBe(false);   // pending
+
+    await handleZoomEvent(recEvent(true));
+    const st = await meetingTranscriptState(id);
+    expect(st.ready).toBe(true);
+    expect(st.chars).toBeGreaterThan(0);
+  });
+
+  it("상태만 ready 이고 본문이 비어 있으면 성공으로 보지 않는다", async () => {
+    db.meetings.push(newMeeting({ zoom_uuid: UUID, transcript_status: "ready", transcript: "" }));
+    const st = await meetingTranscriptState(db.meetings[0].id);
+    expect(st.status).toBe("ready");
+    expect(st.ready).toBe(false);
+    expect(st.chars).toBe(0);
+  });
+
+  it("다른 회의 이벤트가 성공해 done>0 이어도 선택한 회의는 실패로 남는다", async () => {
+    const OTHER = "otherUuid123==";
+    // 대상 회의: 전사 이벤트가 있지만 다운로드가 실패한다.
+    await handleZoomEvent(recEvent(false));
+    const target = db.meetings[0].id;
+    await enqueueZoomEvent(recEvent(true));
+    // 다른 회의: 녹화 이벤트가 정상 처리된다(done 을 올리는 쪽).
+    await enqueueZoomEvent(recEvent(false, OTHER));
+
+    zoom.failUrlPart = `t-${UUID}`;                    // 대상 회의의 전사만 실패
+    const run = await runZoomIngest();
+    expect(run.done).toBeGreaterThan(0);               // 워커 건수는 올라간다
+    const st = await meetingTranscriptState(target);
+    expect(st.ready).toBe(false);                      // 그러나 이 회의는 실패
+    expect(st.error).toContain("401");
+  });
+
+  it("없는 회의는 found=false 로 답한다", async () => {
+    expect((await meetingTranscriptState("없는-id")).found).toBe(false);
+  });
+});
+
+describe("원장 재처리 대상 선별 — 전사 파일이 담긴 이벤트만", () => {
+  it("전사 파일 유무를 구분한다", () => {
+    expect(eventHasTranscriptFile(recEvent(true))).toBe(true);
+    expect(eventHasTranscriptFile(recEvent(false))).toBe(false);
+  });
+
+  it("녹음만 접수된 회의는 되돌리지 않고 그 사실을 알린다", async () => {
+    // recording.completed 에도 download_token 이 있을 수 있다 — 그래도 전사 파일이 없으면 무의미하다.
+    const onlyRec = { ...recEvent(false), download_token: DL_TOKEN };
+    await handleZoomEvent(onlyRec);
+    await enqueueZoomEvent(onlyRec);
+    const led = await requeueTranscriptEventForMeeting(db.meetings[0].id);
+    expect(led.requeued).toBe(false);
+    expect(led.note).toContain("녹음만 접수");
+  });
+
+  it("전사 파일이 담긴 이벤트가 있으면 그것을 고른다", async () => {
+    await handleZoomEvent(recEvent(false));
+    await enqueueZoomEvent({ ...recEvent(false), download_token: DL_TOKEN });
+    await enqueueZoomEvent(recEvent(true));
+    const led = await requeueTranscriptEventForMeeting(db.meetings[0].id);
+    expect(led.requeued).toBe(true);
+    expect(led.note).toContain("recording.transcript_completed");
   });
 });

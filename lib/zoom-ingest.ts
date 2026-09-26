@@ -59,6 +59,12 @@ export function eventDownloadToken(evt: ZoomEventPayload): string | null {
   return t || null;
 }
 
+/** 이 이벤트가 전사 파일(TRANSCRIPT/CC)을 담고 있는지 — 담고 있지 않으면 재처리해도 전사가 생기지 않는다. */
+export function eventHasTranscriptFile(evt: ZoomEventPayload): boolean {
+  return (evt.payload?.object?.recording_files ?? [])
+    .some((f) => TRANSCRIPT_FILE_TYPES.has((f.file_type ?? "").toUpperCase()));
+}
+
 /** 이벤트 고유키 — 같은 웹훅 재전송을 한 행으로 묶는다(회의 인스턴스 + 파일 식별자까지). */
 export function dedupeKey(evt: ZoomEventPayload): string {
   const o = evt.payload?.object ?? {};
@@ -589,6 +595,36 @@ export async function requeueZoomEvent(eventId: string): Promise<boolean> {
   return r.length > 0;
 }
 
+export interface TranscriptState {
+  found: boolean;
+  status: string;
+  /** 실제로 본문이 저장돼 있는지 — 상태값만 보고 성공으로 판단하지 않기 위해 함께 본다. */
+  ready: boolean;
+  chars: number;
+  error: string | null;
+}
+
+/**
+ * 그 회의의 전사 상태를 실제로 읽는다.
+ *   워커의 처리 건수(done)는 다른 이벤트·녹화만 성공으로도 올라가므로
+ *   "이 회의의 전사가 저장됐는지"는 반드시 여기서 확인해야 한다.
+ */
+export async function meetingTranscriptState(meetingId: string): Promise<TranscriptState> {
+  const m = await queryOne<{ transcript_status: string; transcript_error: string | null; chars: string }>(
+    `SELECT transcript_status, transcript_error,
+            coalesce(length(transcript),0)::text AS chars
+       FROM meetings WHERE id=$1`, [meetingId]);
+  if (!m) return { found: false, status: "", ready: false, chars: 0, error: "회의를 찾을 수 없습니다." };
+  const chars = Number(m.chars ?? 0);
+  return {
+    found: true,
+    status: m.transcript_status,
+    ready: m.transcript_status === "ready" && chars > 0,
+    chars,
+    error: m.transcript_error,
+  };
+}
+
 /**
  * 이 회의의 웹훅 원장에서 "다운로드 토큰이 있는" 최신 이벤트를 큐로 되돌린다.
  *   웹훅 토큰은 웹훅이 준 주소와 짝이 맞으므로, 새 API 스코프 승인 없이도 전사를 복구할 수 있다.
@@ -603,8 +639,18 @@ export async function requeueTranscriptEventForMeeting(meetingId: string):
     `SELECT id, event, payload, received_at::text AS received_at FROM zoom_webhook_events
       WHERE zoom_uuid=$1 AND event IN ('recording.completed','recording.transcript_completed')
       ORDER BY received_at DESC LIMIT 10`, [m.zoom_uuid]);
-  const hit = rows.find((r) => eventDownloadToken(r.payload));
-  if (!hit) return { requeued: false, note: "원장에 다운로드 토큰이 있는 웹훅 이벤트가 없습니다" };
+  // 토큰만 있고 전사 파일이 없는 이벤트(녹음만 접수)를 되돌리면
+  //   "재처리 완료"로 보이지만 전사는 생기지 않는다 — 둘을 함께 갖춘 이벤트만 고른다.
+  const withToken = rows.filter((r) => eventDownloadToken(r.payload));
+  const hit = withToken.find((r) => eventHasTranscriptFile(r.payload));
+  if (!hit) {
+    return {
+      requeued: false,
+      note: withToken.length > 0
+        ? "원장에 전사 파일이 담긴 웹훅 이벤트가 없습니다(녹음만 접수됨)"
+        : "원장에 다운로드 토큰이 있는 웹훅 이벤트가 없습니다",
+    };
+  }
   await query(
     "UPDATE zoom_webhook_events SET status='queued', attempts=0, error=NULL WHERE id=$1", [hit.id]);
   return { requeued: true, note: `웹훅 원장 재처리(${hit.event})` };

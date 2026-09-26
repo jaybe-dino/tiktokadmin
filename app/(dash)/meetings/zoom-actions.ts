@@ -5,7 +5,8 @@ import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import {
   getZoomIngestStatus, listZoomFailures, requeueZoomEvent, requeueMeetingTranscript,
-  requeueMeetingSummary, requeueTranscriptEventForMeeting, runZoomIngest, fetchTranscriptViaApi,
+  requeueMeetingSummary, requeueTranscriptEventForMeeting, meetingTranscriptState,
+  runZoomIngest, fetchTranscriptViaApi,
   type ZoomIngestStatus, type ZoomFailureRow,
 } from "@/lib/zoom-ingest";
 import { listUserRecordings, zoomApiConfigured } from "@/lib/zoom-api";
@@ -75,27 +76,35 @@ export async function zoomRetryAction(kind: "event" | "meeting", id: string): Pr
     // 1순위: 웹훅 원장 재처리 — 웹훅이 준 주소·토큰 짝을 그대로 다시 쓴다(새 API 스코프 불필요).
     const led = await requeueTranscriptEventForMeeting(id);
     if (led.requeued) {
-      const run = await runZoomIngest(5);
-      if (run.done > 0) return { ok: true, note: `${led.note} — 전사 수집 완료` };
-      const why = await queryOne<{ transcript_status: string; transcript_error: string | null }>(
-        "SELECT transcript_status, transcript_error FROM meetings WHERE id=$1", [id]).catch(() => null);
-      return {
-        ok: false,
-        error: `${led.note} — ${why?.transcript_error || "전사 수집 실패"}`,
-      };
+      await runZoomIngest(5);
+      // 워커의 처리 건수(done)는 다른 이벤트·녹화만 성공으로도 올라간다.
+      //   "이 회의의 전사가 실제로 저장됐는지"만 성공 판정에 쓴다.
+      return transcriptVerdict(await meetingTranscriptState(id), led.note);
     }
 
     // 2순위: API 재조회 — 주소를 새로 받아 S2S 토큰과 짝지어 쓴다(녹화 목록 스코프 승인 필요).
     const r = await fetchTranscriptViaApi(id, m.zoom_uuid);
-    return {
-      ok: r.ok,
-      note: r.ok ? r.note : undefined,
-      error: r.ok ? undefined : `${led.note} · API 경로: ${r.note}`,
-    };
+    const v = transcriptVerdict(await meetingTranscriptState(id), `${led.note} · API 경로`);
+    return v.ok ? v : { ok: false, error: `${v.error ?? ""} (${r.note})`.trim() };
   } catch (e) {
     // 실패를 "재처리 완료"로 보고하지 않는다.
     return { ok: false, error: `재처리 실패 — ${(e as Error).message}` };
   }
+}
+
+/**
+ * 전사 상태 → 화면 문구. 저장된 본문이 있을 때만 성공으로 적는다.
+ *   "재처리 완료"가 실제 전사 저장을 뜻하도록 문구를 고정한다.
+ */
+function transcriptVerdict(st: Awaited<ReturnType<typeof meetingTranscriptState>>, prefix: string):
+  { ok: boolean; note?: string; error?: string } {
+  if (!st.found) return { ok: false, error: `${prefix} — 회의를 찾을 수 없습니다.` };
+  if (st.ready) return { ok: true, note: `${prefix} — 전사 저장 완료(${st.chars}자)` };
+  const why = st.error
+    || (st.status === "pending" ? "전사 대기 — 아직 전사 파일이 없습니다"
+      : st.status === "recording_only" ? "녹음만 있음 — 전사가 생성되지 않았습니다"
+      : "전사가 저장되지 않았습니다");
+  return { ok: false, error: `${prefix} — ${why}` };
 }
 
 /**
