@@ -9,7 +9,7 @@
 import { query, queryOne } from "./db";
 import { matchBrand, zoomIdFromUrl, type BookingRow } from "./zoom-match";
 import { vttToTranscript, vttSpeakers } from "./zoom-vtt";
-import { downloadZoomFile, getMeetingRecordings, zoomApiConfigured, type ZoomRecordingFile } from "./zoom-api";
+import { downloadZoomFile, downloadZoomFileWithS2S, getMeetingRecordings, zoomApiConfigured, type ZoomRecordingFile } from "./zoom-api";
 
 export const TRANSCRIPT_FILE_TYPES = new Set(["TRANSCRIPT", "CC"]);
 
@@ -30,8 +30,14 @@ export const MAX_TRANSCRIPT_ATTEMPTS = 6;
 export interface ZoomEventPayload {
   event?: string;
   event_ts?: number;
+  /**
+   * 녹화 다운로드 토큰 — Zoom 이벤트 본문의 **최상위**(event·payload 와 같은 레벨)에 온다.
+   * payload 안에서만 찾으면 토큰이 누락돼 전사 다운로드가 401 로 실패한다.
+   */
+  download_token?: string;
   payload?: {
     plainToken?: string;
+    /** 예전 표기 대비용 — 최상위 값이 없을 때만 본다. */
     download_token?: string;
     object?: {
       uuid?: string; id?: number | string; topic?: string; host_email?: string; host_id?: string;
@@ -41,6 +47,16 @@ export interface ZoomEventPayload {
       recording_files?: ZoomRecordingFile[];
     };
   };
+}
+
+/**
+ * 이벤트에서 다운로드 토큰 꺼내기 — 최상위가 정식 위치다.
+ *   원장(zoom_webhook_events.payload)에는 이벤트 전체가 저장되므로,
+ *   재처리 때도 같은 토큰을 다시 꺼내 쓸 수 있다(발급 후 약 24시간 유효).
+ */
+export function eventDownloadToken(evt: ZoomEventPayload): string | null {
+  const t = (evt.download_token ?? evt.payload?.download_token ?? "").trim();
+  return t || null;
 }
 
 /** 이벤트 고유키 — 같은 웹훅 재전송을 한 행으로 묶는다(회의 인스턴스 + 파일 식별자까지). */
@@ -162,7 +178,10 @@ async function upsertFromRecording(evt: ZoomEventPayload, isTranscriptEvent: boo
 
   const transcriptFile = files.find((f) => TRANSCRIPT_FILE_TYPES.has((f.file_type ?? "").toUpperCase()));
   if (transcriptFile) {
-    const got = await collectTranscript(meeting.id, uuid, transcriptFile, evt.payload?.download_token ?? null);
+    const got = await collectTranscript(meeting.id, uuid, transcriptFile, eventDownloadToken(evt));
+    // 실패를 done 으로 닫으면 원장의 다운로드 토큰을 다시 쓸 수 없다 —
+    //   failed 로 남겨 워커가 다시 집고, 실패 목록에도 보이게 한다.
+    if (!got.ok) throw new Error(got.note);
     return { handled: true, note: got.note };
   }
 
@@ -307,7 +326,12 @@ async function collectTranscript(meetingId: string, uuid: string, f: ZoomRecordi
   }
   if (!f.download_url) return { ok: false, note: "전사 다운로드 주소 없음" };
 
-  const dl = await downloadZoomFile(f.download_url, downloadToken);
+  // 주소와 토큰은 반드시 짝이 맞아야 한다.
+  //   · 웹훅이 준 주소 → 웹훅이 준 download_token (S2S 토큰을 쓰면 401)
+  //   · API 로 새로 받은 주소 → S2S 액세스 토큰
+  const dl = downloadToken
+    ? await downloadZoomFile(f.download_url, { kind: "webhook", token: downloadToken })
+    : await downloadZoomFileWithS2S(f.download_url);
   if (!dl.ok || !dl.text) {
     await failTranscript(meetingId, dl.error ?? "전사 다운로드 실패");
     return { ok: false, note: dl.error ?? "전사 다운로드 실패" };
@@ -563,6 +587,27 @@ export async function requeueZoomEvent(eventId: string): Promise<boolean> {
     `UPDATE zoom_webhook_events SET status='queued', attempts=0, error=NULL
       WHERE id=$1 RETURNING id`, [eventId]);
   return r.length > 0;
+}
+
+/**
+ * 이 회의의 웹훅 원장에서 "다운로드 토큰이 있는" 최신 이벤트를 큐로 되돌린다.
+ *   웹훅 토큰은 웹훅이 준 주소와 짝이 맞으므로, 새 API 스코프 승인 없이도 전사를 복구할 수 있다.
+ *   토큰 유효기간(약 24시간)이 지나면 실패하며, 그때는 API 경로(스코프 승인 필요)로만 가능하다.
+ *   비밀값은 반환하지 않는다 — 어떤 이벤트를 되돌렸는지만 알린다.
+ */
+export async function requeueTranscriptEventForMeeting(meetingId: string):
+  Promise<{ requeued: boolean; note: string }> {
+  const m = await queryOne<{ zoom_uuid: string }>("SELECT zoom_uuid FROM meetings WHERE id=$1", [meetingId]);
+  if (!m?.zoom_uuid) return { requeued: false, note: "회의 UUID 없음" };
+  const rows = await query<{ id: string; event: string; payload: ZoomEventPayload; received_at: string }>(
+    `SELECT id, event, payload, received_at::text AS received_at FROM zoom_webhook_events
+      WHERE zoom_uuid=$1 AND event IN ('recording.completed','recording.transcript_completed')
+      ORDER BY received_at DESC LIMIT 10`, [m.zoom_uuid]);
+  const hit = rows.find((r) => eventDownloadToken(r.payload));
+  if (!hit) return { requeued: false, note: "원장에 다운로드 토큰이 있는 웹훅 이벤트가 없습니다" };
+  await query(
+    "UPDATE zoom_webhook_events SET status='queued', attempts=0, error=NULL WHERE id=$1", [hit.id]);
+  return { requeued: true, note: `웹훅 원장 재처리(${hit.event})` };
 }
 
 /**

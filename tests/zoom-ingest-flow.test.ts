@@ -105,6 +105,16 @@ vi.mock("../lib/db", () => {
         failed: String(db.events.filter((e) => e.status === "failed").length),
       }];
     }
+    if (sql.includes("SELECT id, event, payload, received_at::text")) {
+      return db.events
+        .filter((e) => e.zoom_uuid === a[0] && ["recording.completed", "recording.transcript_completed"].includes(e.event))
+        .sort((x, y) => y.received_at - x.received_at)
+        .map((e) => ({ id: e.id, event: e.event, payload: e.payload, received_at: new Date(e.received_at).toISOString() }));
+    }
+    if (sql.includes("SELECT zoom_uuid FROM meetings WHERE id=")) {
+      const m = db.meetings.find((x) => x.id === a[0]);
+      return m ? [{ zoom_uuid: m.zoom_uuid }] : [];
+    }
     if (sql.includes("SELECT id, event, error, received_at::text")) {
       if (db.fail.failList) throw new Error("connection terminated unexpectedly");
       return db.events.filter((e) => e.status === "failed")
@@ -274,22 +284,40 @@ vi.mock("../lib/db", () => {
 });
 
 // ── 가짜 Zoom API ──────────────────────────────────────────────
-const zoom = { vtt: "" as string, dlOk: true, dlError: "다운로드 실패 401", recFiles: [] as unknown[], recOk: true };
+const zoom = {
+  vtt: "" as string, dlOk: true, dlError: "다운로드 실패 401 — 웹훅 토큰 만료(24시간)",
+  recFiles: [] as unknown[], recOk: true,
+  recError: "Zoom API 400 · code 4700 · Invalid access token, does not contain scopes:[cloud_recording:read:list_recording_files:admin] · 권한(스코프) 승인 필요",
+  /** 어떤 주소에 어떤 종류의 토큰을 짝지어 썼는지 — 짝이 맞는지 검증용. */
+  dl: [] as { url: string; kind: string; token: string }[],
+  /** webhook 토큰만 통하게(실제 운영 증상: 웹훅 주소 + S2S 토큰 = 401) */
+  onlyWebhookToken: false,
+};
 vi.mock("../lib/zoom-api", async (orig) => {
   const real = await orig<typeof import("../lib/zoom-api")>();
+  const take = (url: string, kind: string, token: string) => {
+    zoom.dl.push({ url, kind, token });
+    if (!zoom.dlOk) return { ok: false, error: zoom.dlError };
+    if (zoom.onlyWebhookToken && kind !== "webhook") {
+      return { ok: false, error: "다운로드 실패 401 — S2S 토큰·녹화 스코프 승인 확인" };
+    }
+    return { ok: true, text: zoom.vtt };
+  };
   return {
     ...real,
     zoomApiConfigured: () => true,
-    downloadZoomFile: async () => (zoom.dlOk ? { ok: true, text: zoom.vtt } : { ok: false, error: zoom.dlError }),
+    downloadZoomFile: async (url: string, auth: { kind: string; token: string }) => take(url, auth.kind, auth.token),
+    downloadZoomFileWithS2S: async (url: string) => take(url, "s2s", "s2s-token"),
     getMeetingRecordings: async () => (zoom.recOk
       ? { ok: true, data: { recording_files: zoom.recFiles } }
-      : { ok: false, error: "녹화 없음(404) — 삭제됐거나 아직 생성 전" }),
+      : { ok: false, error: zoom.recError }),
   };
 });
 
 import {
   enqueueZoomEvent, runZoomIngest, handleZoomEvent, getZoomIngestStatus, getZoomSchemaState,
-  requeueZoomEvent, requeueMeetingSummary, listZoomFailures, retryPendingTranscripts, dedupeKey,
+  requeueZoomEvent, requeueMeetingSummary, requeueTranscriptEventForMeeting, listZoomFailures,
+  retryPendingTranscripts, dedupeKey, eventDownloadToken,
   ZOOM_SCHEMA_MIGRATION, MAX_TRANSCRIPT_ATTEMPTS, TRANSCRIPT_WAIT_HOURS, STUCK_PROCESSING_MIN,
 } from "../lib/zoom-ingest";
 import { storedStage, STORED_STAGE_LABEL } from "../lib/zoom-backfill";
@@ -306,11 +334,13 @@ const VTT = `WEBVTT
 고객: 네, 반갑습니다.
 `;
 
+const DL_TOKEN = "webhook-download-token";
 const recEvent = (transcript: boolean) => ({
   event: transcript ? "recording.transcript_completed" : "recording.completed",
   event_ts: db.now,
+  // 실제 Zoom 이벤트는 download_token 을 최상위(event·payload 와 같은 레벨)에 준다.
+  download_token: transcript ? DL_TOKEN : undefined,
   payload: {
-    download_token: transcript ? "dl-token" : undefined,
     object: {
       uuid: UUID, id: 8812345678, topic: "무음 QA 회의", host_email: "host@dinostudio.kr",
       start_time: new Date(db.now).toISOString(), duration: 0, share_url: "https://zoom.us/rec/share/xyz",
@@ -331,6 +361,7 @@ beforeEach(() => {
     "recording_share_url", "recording_files_count", "match_method", "match_candidates"]);
   db.fail = { enqueue: false, claim: false, transcriptSave: false, eventCount: false, meetingCount: false, failList: false };
   zoom.vtt = VTT; zoom.dlOk = true; zoom.recFiles = []; zoom.recOk = true;
+  zoom.dl = []; zoom.onlyWebhookToken = false;
 });
 
 describe("웹훅 접수 — 실패를 200 으로 삼키지 않는다", () => {
@@ -572,5 +603,84 @@ describe("요약 단계에서 멈춘 회의 — 조용히 방치되지 않는다
   it("전사가 없는 회의는 요약 재시도 대상이 아니다", async () => {
     db.meetings.push(newMeeting({ zoom_uuid: UUID, status: "error", error: "x", transcript: null }));
     expect(await requeueMeetingSummary(db.meetings[0].id)).toBe(false);
+  });
+});
+
+// ── 실제 한국어 음성 QA 회의에서 재현된 차단 원인 ──────────────
+describe("전사 다운로드 — 최상위 토큰과 주소 짝", () => {
+  it("웹훅이 준 주소에는 웹훅 토큰을 짝지어 쓴다(S2S 토큰으로 대체하지 않는다)", async () => {
+    await handleZoomEvent(recEvent(false));
+    zoom.onlyWebhookToken = true;                       // 운영 증상: 웹훅 주소 + S2S 토큰 = 401
+    const out = await handleZoomEvent(recEvent(true));
+    expect(out.note).toContain("전사 수집 완료");
+    expect(zoom.dl).toHaveLength(1);
+    expect(zoom.dl[0].kind).toBe("webhook");
+    expect(zoom.dl[0].token).toBe(DL_TOKEN);
+    expect(db.meetings[0].transcript).toContain("안녕하세요");
+  });
+
+  it("토큰을 payload 안에서만 찾던 예전 동작이면 401 로 막힌다 — 최상위에서 읽는지 확인", async () => {
+    const evt = recEvent(true);
+    expect(eventDownloadToken(evt)).toBe(DL_TOKEN);     // 최상위에서 읽힌다
+    // payload 안에는 없다 — 예전처럼 payload 만 보면 토큰이 누락된다.
+    expect((evt.payload as { download_token?: string }).download_token).toBeUndefined();
+  });
+
+  it("다운로드 401 이면 이벤트를 done 으로 닫지 않는다 — 원장에 남아 재처리 가능", async () => {
+    await enqueueZoomEvent(recEvent(false));
+    await runZoomIngest();
+    await enqueueZoomEvent(recEvent(true));
+    zoom.dlOk = false;
+    const r = await runZoomIngest();
+    expect(r.failed).toBe(1);
+    expect(r.done).toBe(0);
+    const evt = db.events.find((e) => e.event === "recording.transcript_completed")!;
+    expect(evt.status).toBe("failed");
+    expect(evt.error).toContain("401");
+    expect(db.meetings[0].transcript_status).toBe("failed");
+    expect(db.meetings[0].transcript_error).toContain("401");
+    expect(db.meetings[0].transcript).toBeNull();
+  });
+});
+
+describe("원장 재처리로 QA 회의 복구 — 새 API 스코프 없이", () => {
+  it("다운로드 토큰이 있는 최신 이벤트를 큐로 되돌린다", async () => {
+    await enqueueZoomEvent(recEvent(false));
+    await runZoomIngest();
+    await enqueueZoomEvent(recEvent(true));
+    zoom.dlOk = false;
+    await runZoomIngest();                              // 401 로 실패한 상태
+
+    // 되돌리고 다시 돌리면(토큰 유효기간 내) 전사가 저장된다.
+    const led = await requeueTranscriptEventForMeeting(db.meetings[0].id);
+    expect(led.requeued).toBe(true);
+    expect(led.note).toContain("recording.transcript_completed");
+    expect(led.note).not.toContain(DL_TOKEN);           // 비밀값 노출 없음
+
+    zoom.dlOk = true;
+    zoom.onlyWebhookToken = true;                       // 스코프 미승인 상태를 가정
+    const r = await runZoomIngest();
+    expect(r.done).toBe(1);
+    expect(db.meetings[0].transcript).toContain("안녕하세요");
+    expect(db.meetings[0].transcript_status).toBe("ready");
+  });
+
+  it("토큰이 있는 이벤트가 없으면 되돌리지 않고 그대로 알린다", async () => {
+    await handleZoomEvent(recEvent(false));             // 녹화 이벤트엔 토큰이 없다
+    await enqueueZoomEvent(recEvent(false));
+    const led = await requeueTranscriptEventForMeeting(db.meetings[0].id);
+    expect(led.requeued).toBe(false);
+    expect(led.note).toContain("다운로드 토큰");
+  });
+
+  it("API 경로 실패 사유에는 필요한 스코프 이름이 남는다(권한 문제 구분)", async () => {
+    await handleZoomEvent(recEvent(false));
+    zoom.recOk = false;
+    db.now += HOUR;                                     // 백오프(20분)를 지나 재시도 대상이 된다
+    await retryPendingTranscripts();
+    expect(db.meetings[0].transcript_error).toContain("4700");
+    expect(db.meetings[0].transcript_error).toContain("cloud_recording:read:list_recording_files:admin");
+    const fails = await listZoomFailures();
+    expect(fails.some((f) => (f.detail ?? "").includes("권한(스코프) 승인 필요"))).toBe(true);
   });
 });

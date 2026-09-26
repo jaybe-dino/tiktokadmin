@@ -5,7 +5,7 @@ import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import {
   getZoomIngestStatus, listZoomFailures, requeueZoomEvent, requeueMeetingTranscript,
-  requeueMeetingSummary, runZoomIngest, fetchTranscriptViaApi,
+  requeueMeetingSummary, requeueTranscriptEventForMeeting, runZoomIngest, fetchTranscriptViaApi,
   type ZoomIngestStatus, type ZoomFailureRow,
 } from "@/lib/zoom-ingest";
 import { listUserRecordings, zoomApiConfigured } from "@/lib/zoom-api";
@@ -69,9 +69,29 @@ export async function zoomRetryAction(kind: "event" | "meeting", id: string): Pr
     if (m.zoom_uuid.startsWith("manual:") || m.zoom_uuid.startsWith("ics:")) {
       return { ok: false, error: "줌 녹화가 아닌 회의입니다(수동·캘린더 일정)." };
     }
+
     await requeueMeetingTranscript(id);
+
+    // 1순위: 웹훅 원장 재처리 — 웹훅이 준 주소·토큰 짝을 그대로 다시 쓴다(새 API 스코프 불필요).
+    const led = await requeueTranscriptEventForMeeting(id);
+    if (led.requeued) {
+      const run = await runZoomIngest(5);
+      if (run.done > 0) return { ok: true, note: `${led.note} — 전사 수집 완료` };
+      const why = await queryOne<{ transcript_status: string; transcript_error: string | null }>(
+        "SELECT transcript_status, transcript_error FROM meetings WHERE id=$1", [id]).catch(() => null);
+      return {
+        ok: false,
+        error: `${led.note} — ${why?.transcript_error || "전사 수집 실패"}`,
+      };
+    }
+
+    // 2순위: API 재조회 — 주소를 새로 받아 S2S 토큰과 짝지어 쓴다(녹화 목록 스코프 승인 필요).
     const r = await fetchTranscriptViaApi(id, m.zoom_uuid);
-    return { ok: r.ok, note: r.note, error: r.ok ? undefined : r.note };
+    return {
+      ok: r.ok,
+      note: r.ok ? r.note : undefined,
+      error: r.ok ? undefined : `${led.note} · API 경로: ${r.note}`,
+    };
   } catch (e) {
     // 실패를 "재처리 완료"로 보고하지 않는다.
     return { ok: false, error: `재처리 실패 — ${(e as Error).message}` };
