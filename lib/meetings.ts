@@ -98,12 +98,14 @@ export async function matchMeetingBrand(
   }
 }
 
-/** host_email → admin_users(zoom_email) 매핑. */
+/**
+ * host_email → admin_users(zoom_email) 매핑.
+ *   판정 규칙은 host-admin 모듈 한 곳에만 둔다 — 활성 계정의 정확 일치가 유일할 때만 지정한다.
+ *   (예전에는 비활성 계정·중복 계정에도 첫 행을 골라 남의 회의가 붙을 수 있었다)
+ */
 export async function matchHostAdmin(hostEmail: string | null): Promise<string | null> {
-  if (!hostEmail) return null;
-  const row = await queryOne<{ id: string }>(
-    "SELECT id FROM admin_users WHERE lower(zoom_email)=lower($1) LIMIT 1", [hostEmail]);
-  return row?.id ?? null;
+  const { resolveHostAdmin } = await import("./host-admin");
+  return resolveHostAdmin(hostEmail);
 }
 
 export interface NextStepItem { label: string; done: boolean }

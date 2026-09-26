@@ -8,6 +8,7 @@
 //   전사가 끝내 오지 않으면(전사 기능·언어·요금제) 일정 시간 뒤 recording_only 로 표시한다.
 import { query, queryOne } from "./db";
 import { matchBrand, zoomIdFromUrl, type BookingRow } from "./zoom-match";
+import { resolveHostAdmin } from "./host-admin";
 import { vttToTranscript, vttSpeakers } from "./zoom-vtt";
 import { downloadZoomFile, downloadZoomFileWithS2S, getMeetingRecordings, zoomApiConfigured, type ZoomRecordingFile } from "./zoom-api";
 
@@ -222,14 +223,19 @@ async function ensureMeetingRow(input: EnsureInput): Promise<{ id: string; brand
   const existing = await queryOne<{ id: string; brand_id: string | null; match_method: string | null }>(
     "SELECT id, brand_id, match_method FROM meetings WHERE zoom_uuid=$1", [input.uuid]).catch(() => null);
 
+  // 상담 호스트 → 담당자. 활성 계정의 정확 일치가 유일할 때만 값이 나온다(아니면 null = 비워 둠).
+  //   세 경로 모두 "비어 있을 때만" 채운다 — 이미 지정된 담당자는 보존한다.
+  const hostAdminId = await resolveHostAdmin(input.hostEmail).catch(() => null);
+
   if (existing) {
     await query(
       `UPDATE meetings SET topic=COALESCE(NULLIF($2,''),topic), host_email=COALESCE(host_email,$3),
          started_at=COALESCE(started_at,$4), duration_min=COALESCE(duration_min,$5),
          recording_share_url=COALESCE($6,recording_share_url),
+         host_admin_id=COALESCE(host_admin_id,$7),
          status=CASE WHEN status IN ('scheduled','unmatched') AND brand_id IS NOT NULL THEN 'received' ELSE status END
        WHERE id=$1`,
-      [existing.id, input.topic, input.hostEmail, input.startedAt, input.duration, input.shareUrl]);
+      [existing.id, input.topic, input.hostEmail, input.startedAt, input.duration, input.shareUrl, hostAdminId]);
     return { id: existing.id, brandId: existing.brand_id };
   }
 
@@ -253,10 +259,11 @@ async function ensureMeetingRow(input: EnsureInput): Promise<{ id: string; brand
          topic=COALESCE(NULLIF($4,''),topic), host_email=COALESCE(host_email,$5),
          started_at=COALESCE($6,started_at), duration_min=COALESCE(duration_min,$7),
          recording_share_url=$8, status='received',
+         host_admin_id=COALESCE(host_admin_id,$10),
          match_method='booking', match_note=$9, match_candidates='[]'::jsonb
        WHERE id=$1`,
       [m.bookingMeetingId, input.uuid, input.zoomMeetingId ?? "", input.topic, input.hostEmail,
-       input.startedAt, input.duration, input.shareUrl, m.reason]);
+       input.startedAt, input.duration, input.shareUrl, m.reason, hostAdminId]);
     await logBrandLink(m.bookingMeetingId, m.brandId, null, "booking", m.reason, "system:zoom");
     return { id: m.bookingMeetingId, brandId: m.brandId };
   }
@@ -264,12 +271,12 @@ async function ensureMeetingRow(input: EnsureInput): Promise<{ id: string; brand
   const row = await queryOne<{ id: string }>(
     `INSERT INTO meetings (brand_id, zoom_meeting_id, zoom_uuid, topic, host_email, participants,
        started_at, scheduled_at, duration_min, recording_share_url, status,
-       match_method, match_note, match_candidates, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,$12,$13,'zoom-webhook')
+       match_method, match_note, match_candidates, host_admin_id, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,$12,$13,$14,'zoom-webhook')
      RETURNING id`,
     [m.brandId, input.zoomMeetingId ?? "", input.uuid, input.topic, input.hostEmail,
      JSON.stringify(input.participants), input.startedAt, input.duration, input.shareUrl,
-     m.brandId ? "received" : "unmatched", m.method, m.reason, JSON.stringify(m.candidates)]);
+     m.brandId ? "received" : "unmatched", m.method, m.reason, JSON.stringify(m.candidates), hostAdminId]);
   if (!row) throw new Error("회의 저장 실패");
   await logBrandLink(row.id, m.brandId, null, m.method, m.reason, "system:zoom");
   return { id: row.id, brandId: m.brandId };

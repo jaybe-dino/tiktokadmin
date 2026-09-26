@@ -20,6 +20,8 @@ export interface ActionResult {
   ok: boolean;
   error?: string;
   failed?: { rule: string; label: string }[];
+  /** 사람이 읽는 부가 결과(예: 과거 회의 담당자 보충 건수). */
+  note?: string;
 }
 
 export async function transitionAction(brandId: string, to: State, reason?: string, force?: boolean, holdKind?: "recontact" | "handoff"): Promise<ActionResult & { needReason?: boolean }> {
@@ -658,8 +660,26 @@ export async function saveAccountAction(input: {
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "저장 실패" };
   }
+
+  // Zoom 이메일을 저장했으면, 그 이메일로 진행된 과거 회의 중 담당자가 "비어 있는" 건만 보충한다.
+  //   이미 지정된 담당자는 건드리지 않고, 같은 이메일을 쓰는 활성 계정이 여럿이면 아무 것도 하지 않는다.
+  //   보충 실패가 계정 저장 자체를 되돌리지는 않는다 — 사유만 알린다.
+  let note: string | undefined;
+  try {
+    const { backfillHostAdminForAccount } = await import("@/lib/host-admin");
+    const b = await backfillHostAdminForAccount(id);
+    note = b.updated > 0
+      ? `과거 회의 담당자 ${b.updated}건 보충됨`
+      : b.skipped
+        ? `과거 회의 보충 없음 — ${b.skipped}`
+        : "과거 회의 보충 대상 없음";
+  } catch (e) {
+    note = `과거 회의 보충 확인 실패 — ${e instanceof Error ? e.message : "알 수 없는 오류"}`;
+  }
+
   revalidatePath("/accounts");
-  return { ok: true };
+  revalidatePath("/meetings");
+  return { ok: true, note };
 }
 
 /** 계정 활성/비활성 토글. 본인·마지막 exec 잠금 방지. */

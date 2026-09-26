@@ -15,6 +15,7 @@ interface MeetingRow {
   transcript_attempts: number; transcript_next_try: number | null; transcript_error: string | null;
   transcript_fetched_at: number | null; started_at: number | null; created_at: number;
   recording_files_count: number; match_dismissed: boolean; error: string | null;
+  host_admin_id: string | null;
 }
 interface RecRow { zoom_uuid: string; zoom_file_id: string; meeting_id: string | null; collected: boolean }
 
@@ -24,6 +25,8 @@ const db = {
   meetings: [] as MeetingRow[],
   recordings: [] as RecRow[],
   brands: [] as { id: string; email: string | null }[],
+  admins: [] as { id: string; active: boolean; zoom_email: string | null }[],
+  bookings: [] as { id: string; brand_id: string; topic: string; scheduled_at: string; zoom_join_url: string | null; zoom_meeting_id: string }[],
   links: [] as { meeting_id: string; brand_id: string | null; method: string }[],
   // 0097 적용 상태(스키마 probe 용)
   tables: new Set(["zoom_webhook_events", "meeting_recordings", "meeting_brand_links"]),
@@ -39,7 +42,7 @@ function newMeeting(p: Partial<MeetingRow>): MeetingRow {
     status: "unmatched", match_method: null, transcript: null, transcript_source: null,
     transcript_status: "none", transcript_attempts: 0, transcript_next_try: null, transcript_error: null,
     transcript_fetched_at: null, started_at: null, created_at: db.now, recording_files_count: 0,
-    match_dismissed: false, error: null, ...p,
+    match_dismissed: false, error: null, host_admin_id: null, ...p,
   };
 }
 
@@ -132,15 +135,33 @@ vi.mock("../lib/db", () => {
         if (a[1]) m.topic = String(a[1]);
         m.host_email = m.host_email ?? (a[2] as string | null);
         m.started_at = m.started_at ?? (a[3] ? Date.parse(String(a[3])) : null);
+        m.host_admin_id = m.host_admin_id ?? ((a[6] as string | null) ?? null);
         if (["scheduled", "unmatched"].includes(m.status) && m.brand_id) m.status = "received";
       }
       return [];
     }
-    if (sql.includes("FROM meetings") && sql.includes("status IN ('scheduled','no_show')")) return [];   // findBookings
+    if (sql.includes("SELECT id FROM admin_users") && sql.includes("active = true")) {
+      return db.admins
+        .filter((x) => x.active && (x.zoom_email ?? "").trim().toLowerCase() === a[0])
+        .slice(0, 2).map((x) => ({ id: x.id }));
+    }
+    if (sql.includes("FROM meetings") && sql.includes("status IN ('scheduled','no_show')")) {
+      return db.bookings as unknown as Record<string, unknown>[];   // findBookings
+    }
     if (sql.includes("FROM brand_email_aliases")) return [];
     if (sql.includes("SELECT id FROM brands WHERE lower(email)=lower($1)")) {
       const b = db.brands.find((x) => (x.email ?? "").toLowerCase() === String(a[0]).toLowerCase());
       return b ? [{ id: b.id }] : [];
+    }
+    if (sql.includes("UPDATE meetings SET zoom_uuid=$2")) {
+      const m = db.meetings.find((x) => x.id === a[0]);
+      if (m) {
+        m.zoom_uuid = String(a[1]);
+        m.status = "received";
+        m.match_method = "booking";
+        m.host_admin_id = m.host_admin_id ?? ((a[9] as string | null) ?? null);
+      }
+      return [];
     }
     if (sql.includes("INSERT INTO meetings (brand_id, zoom_meeting_id, zoom_uuid")) {
       const row = newMeeting({
@@ -148,6 +169,7 @@ vi.mock("../lib/db", () => {
         topic: String(a[3] ?? ""), host_email: (a[4] as string | null) ?? null,
         started_at: a[6] ? Date.parse(String(a[6])) : null,
         status: String(a[9]), match_method: (a[10] as string | null) ?? null,
+        host_admin_id: (a[13] as string | null) ?? null,
       });
       db.meetings.push(row);
       return [{ id: row.id }];
@@ -366,6 +388,8 @@ beforeEach(() => {
   db.now = Date.UTC(2026, 8, 26, 8, 0, 0);
   db.events = []; db.meetings = []; db.recordings = []; db.links = []; db.seq = 0;
   db.brands = [{ id: "brand-1", email: "lead@example.com" }];
+  db.admins = [{ id: "host@dinostudio.kr", active: true, zoom_email: "host@dinostudio.kr" }];
+  db.bookings = [];
   db.tables = new Set(["zoom_webhook_events", "meeting_recordings", "meeting_brand_links"]);
   db.meetingCols = new Set(["transcript_status", "transcript_attempts", "transcript_next_try",
     "recording_share_url", "recording_files_count", "match_method", "match_candidates"]);
@@ -761,5 +785,56 @@ describe("원장 재처리 대상 선별 — 전사 파일이 담긴 이벤트�
     const led = await requeueTranscriptEventForMeeting(db.meetings[0].id);
     expect(led.requeued).toBe(true);
     expect(led.note).toContain("recording.transcript_completed");
+  });
+});
+
+// ── 상담 호스트 → 담당자 보충(세 경로) ────────────────────────
+describe("수집 세 경로 모두 담당자를 보충한다", () => {
+  const HOST_ADMIN = "host@dinostudio.kr";
+
+  it("신규 INSERT 경로 — 호스트가 활성 계정이면 담당자가 채워진다", async () => {
+    await handleZoomEvent(recEvent(false));
+    expect(db.meetings[0].host_admin_id).toBe(HOST_ADMIN);
+  });
+
+  it("기존 UUID 경로 — 비어 있던 담당자만 채우고 이미 지정된 담당자는 보존한다", async () => {
+    db.meetings.push(newMeeting({ zoom_uuid: UUID, host_email: null, host_admin_id: null }));
+    await handleZoomEvent(recEvent(false));
+    expect(db.meetings[0].host_admin_id).toBe(HOST_ADMIN);
+
+    db.meetings[0].host_admin_id = "someone-else@dinostudio.kr";
+    await handleZoomEvent(recEvent(false));
+    expect(db.meetings[0].host_admin_id).toBe("someone-else@dinostudio.kr");   // 덮어쓰지 않는다
+  });
+
+  it("예약 연결 경로 — 예약으로 만들어 둔 행에도 담당자가 채워진다", async () => {
+    const booking = newMeeting({ id: "booked-1", brand_id: "brand-1", status: "scheduled", zoom_uuid: "" });
+    db.meetings.push(booking);
+    db.bookings = [{
+      id: booking.id, brand_id: "brand-1", topic: "상담",
+      scheduled_at: new Date(db.now).toISOString(), zoom_join_url: null, zoom_meeting_id: "8812345678",
+    }];
+    await handleZoomEvent(recEvent(false));
+    const m = db.meetings.find((x) => x.id === "booked-1")!;
+    expect(m.match_method).toBe("booking");
+    expect(m.host_admin_id).toBe(HOST_ADMIN);
+  });
+
+  it("등록되지 않은 호스트면 비워 둔다(임의 지정 금지)", async () => {
+    db.admins = [];
+    await handleZoomEvent(recEvent(false));
+    expect(db.meetings[0].host_admin_id).toBeNull();
+  });
+
+  it("같은 Zoom 이메일을 쓰는 활성 계정이 둘이면 비워 둔다", async () => {
+    db.admins.push({ id: "dup@dinostudio.kr", active: true, zoom_email: "host@dinostudio.kr" });
+    await handleZoomEvent(recEvent(false));
+    expect(db.meetings[0].host_admin_id).toBeNull();
+  });
+
+  it("비활성 계정에는 붙이지 않는다", async () => {
+    db.admins[0].active = false;
+    await handleZoomEvent(recEvent(false));
+    expect(db.meetings[0].host_admin_id).toBeNull();
   });
 });

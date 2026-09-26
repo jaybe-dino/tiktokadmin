@@ -33,10 +33,11 @@ export default function AccountManager({ accounts, meId, canEdit }: { accounts: 
   const [pwFor, setPwFor] = useState<string | null>(null);
   const [pw, setPw] = useState("");
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, okMsg: string) =>
+  const run = (fn: () => Promise<{ ok: boolean; error?: string; note?: string }>, okMsg: string) =>
     start(async () => {
       const r = await fn();
-      setMsg(r.ok ? okMsg : r.error ?? "실패");
+      // 보충 건수 같은 부가 결과는 그대로 이어 붙여 보여준다(저장만 하고 조용히 끝내지 않기 위해).
+      setMsg(r.ok ? [okMsg, r.note].filter(Boolean).join(" · ") : r.error ?? "실패");
       // 성공·실패 모두 새로고침 — 실패 시 uncontrolled 셀렉트(역할)를 실제 값으로 되돌린다.
       router.refresh();
     });
