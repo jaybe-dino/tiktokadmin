@@ -51,13 +51,29 @@ describe("모델 응답 검증 — 근거 없는 제안은 버린다", () => {
     expect(r.rejected).toBe(3);
   });
 
-  it("같은 근거·유형 중복은 하나만 — 반복 실행에 불어나지 않는다", () => {
+  it("같은 근거는 하나만 — 유형이 달라도 합쳐진다(반복 실행에 불어나지 않는다)", () => {
     const r = validateAi({ suggestions: [
       { kind: "todo", title: "첫째", priority: 2, evidence_ref: "e1" },
       { kind: "todo", title: "둘째", priority: 2, evidence_ref: "e1" },
     ] }, ev);
     expect(r.suggestions).toHaveLength(1);
-    expect(r.suggestions[0].dedupeKey).toBe("ai:email-1:todo");
+    expect(r.suggestions[0].dedupeKey).toBe("ai:email-1");
+  });
+
+  it("키에 유형을 넣지 않는다 — 같은 원문을 다른 유형으로 재분류해도 중복이 안 생긴다", () => {
+    const a = validateAi({ suggestions: [{ kind: "todo", title: "x", priority: 2, evidence_ref: "e1" }] }, ev);
+    const b = validateAi({ suggestions: [{ kind: "issue", title: "y", priority: 1, evidence_ref: "e1" }] }, ev);
+    expect(a.suggestions[0].dedupeKey).toBe(b.suggestions[0].dedupeKey);
+    expect(a.suggestions[0].dedupeKey).not.toMatch(/:(todo|issue|question)$/);
+  });
+
+  it("한 응답에서 같은 원문을 두 유형으로 주면 하나만 받는다", () => {
+    const r = validateAi({ suggestions: [
+      { kind: "todo", title: "a", priority: 2, evidence_ref: "e1" },
+      { kind: "issue", title: "b", priority: 1, evidence_ref: "e1" },
+    ] }, ev);
+    expect(r.suggestions).toHaveLength(1);
+    expect(r.rejected).toBe(1);
   });
 
   it("제안 개수 상한을 넘기지 않는다", () => {

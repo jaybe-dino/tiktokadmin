@@ -91,8 +91,10 @@ export function validateAi(raw: unknown, evidence: EvidenceItem[]): { suggestion
     const prio = Number(r.priority);
     if (!KINDS.has(kind) || !title || !ev || !(prio === 1 || prio === 2 || prio === 3)) { rejected++; continue; }
 
-    // 근거 1건당 유형 1개까지 — 반복 실행에도 같은 제안이 불어나지 않는다.
-    const dedupeKey = `ai:${ev.sourceId}:${kind}`;
+    // 근거(원문) 1건당 제안 1개까지 — 유형(kind)은 키에 넣지 않는다.
+    //   예전에는 `ai:<원문>:<유형>` 이어서, 같은 원문을 다음 실행에 다른 유형으로 분류하면
+    //   중복 제안이 새로 생겼다(todo → issue 재분류). 키에서 유형을 뺀다.
+    const dedupeKey = `ai:${ev.sourceId}`;
     if (seen.has(dedupeKey)) { rejected++; continue; }
     seen.add(dedupeKey);
 

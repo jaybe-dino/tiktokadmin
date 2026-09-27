@@ -126,10 +126,30 @@ vi.mock("../lib/db", () => {
     }
 
     // pm_tasks
+    // AI 제안 중복 선검사 — 같은 원문(evidence_id)·예전 키 형식까지 본다.
+    if (sql.includes("FROM pm_tasks") && sql.includes("origin='ai'") && sql.includes("dedupe_key LIKE")) {
+      const [brand, srcId, exactKey, likeKey] = a as string[];
+      const prefix = likeKey.replace(/%$/, "");
+      const hit = db.tasks.find((t) => t.brand_id === brand && t.origin === "ai"
+        && (t.evidence_id === srcId || t.dedupe_key === exactKey || (t.dedupe_key ?? "").startsWith(prefix)));
+      return hit ? [{ id: hit.id }] : [];
+    }
     if (sql.includes("INSERT INTO pm_tasks")) {
       const isSuggestion = sql.includes("dedupe_key");
       const dedupe = isSuggestion ? String(a[9]) : null;
-      if (dedupe && db.tasks.some((t) => t.brand_id === a[0] && t.dedupe_key === dedupe)) return [];
+      if (dedupe) {
+        const cur = db.tasks.find((t) => t.brand_id === a[0] && t.dedupe_key === dedupe);
+        if (cur) {
+          // 사람이 손대지 않고 아직 열려 있을 때만 최신 근거로 갱신(그 외에는 아무것도 하지 않는다).
+          const canRefresh = !cur.edited_by_human && cur.confirmed_by == null
+            && ["open", "doing", "reopened"].includes(cur.status);
+          if (!canRefresh) return [];
+          cur.kind = String(a[1]); cur.title = String(a[2]); cur.detail = String(a[3] ?? "");
+          cur.priority = Number(a[4]); cur.evidence_label = String(a[8] ?? "");
+          cur.updated_at = new Date(db.now).toISOString();
+          return [{ id: cur.id, inserted: false }];
+        }
+      }
       const row: TaskRow = {
         id: `t${++db.seq}`, brand_id: String(a[0]), kind: String(a[1]), title: String(a[2]),
         detail: String(a[3] ?? ""), priority: Number(a[4]),
@@ -144,7 +164,7 @@ vi.mock("../lib/db", () => {
         updated_at: new Date(db.now).toISOString(),
       };
       db.tasks.push(row);
-      return [{ id: row.id }];
+      return [{ id: row.id, inserted: true }];
     }
     if (sql.includes("FROM pm_tasks t WHERE t.brand_id=")) {
       const openOnly = sql.includes("t.status = ANY($2::text[])");
@@ -234,6 +254,16 @@ import {
   PM_RUN_STALE_MIN,
 } from "../lib/pm-agent";
 
+function newTask(p: Partial<TaskRow>): TaskRow {
+  return {
+    id: `t${++db.seq}`, brand_id: "", kind: "todo", title: "", detail: "", priority: 2,
+    owner_admin_id: null, due_date: null, status: "open", origin: "human", confirmed_by: null,
+    dedupe_key: null, edited_by_human: false, evidence_kind: "", evidence_id: "",
+    evidence_url: "", evidence_label: "", created_by: null,
+    created_at: new Date(db.now).toISOString(), updated_at: new Date(db.now).toISOString(), ...p,
+  };
+}
+
 const ACTOR = "pm@dinostudio.kr";
 
 beforeEach(() => {
@@ -308,7 +338,8 @@ describe("반복 실행 — 중복 없고 사람 작업을 덮지 않는다", ()
     const second = await runPmAnalysis(B);
     expect(db.tasks.length).toBe(n);
     expect(second.created).toBe(0);
-    expect(second.skipped).toBe(n);
+    // 기존 제안은 (사람이 안 건드렸으면) 최신 근거로 갱신되거나 그대로 유지된다 — 새로 생기지만 않으면 된다.
+    expect(second.refreshed + second.skipped).toBe(n);
   });
 
   it("사람이 완료한 제안을 다시 열지 않는다", async () => {
@@ -504,5 +535,98 @@ describe("자동 운영 스케줄 등록", () => {
     for (const p of ["/api/cron/lead-sequence", "/api/cron/zoom-ingest", "/api/cron/bulk-send"]) {
       expect(cfg.crons.some((c) => c.path.startsWith(p)), p).toBe(true);
     }
+  });
+});
+
+describe("AI 제안 — 같은 원문은 유형이 바뀌어도 중복을 만들지 않는다", () => {
+  const aiFor = (kind: "todo" | "issue" | "question", title: string, sourceId = "email-1") => {
+    ai.ok = true;
+    ai.note = "AI 가 대화 1건을 읽었습니다";
+    ai.suggestions = [{
+      kind, title, detail: "", priority: 2,
+      dedupeKey: `ai:${sourceId}`, evidenceKind: "comm", evidenceId: sourceId, evidenceLabel: "이메일",
+    }];
+  };
+
+  it("todo 로 만든 뒤 issue 로 재분류돼도 신규 0", async () => {
+    aiFor("todo", "번역 진행 확인");
+    await runPmAnalysis(B);
+    const n = db.tasks.filter((t) => t.origin === "ai").length;
+    expect(n).toBe(1);
+
+    aiFor("issue", "상품 상세페이지 번역 미완료");
+    await runPmAnalysis(B);
+    expect(db.tasks.filter((t) => t.origin === "ai")).toHaveLength(1);
+  });
+
+  it("예전 키 형식(ai:원문:유형)이 남아 있어도 새로 만들지 않는다", async () => {
+    db.tasks.push(newTask({
+      brand_id: B, origin: "ai", title: "예전 제안", kind: "todo",
+      dedupe_key: "ai:email-1:todo", evidence_id: "email-1",
+    }));
+    aiFor("issue", "재분류된 제목");
+    await runPmAnalysis(B);
+    expect(db.tasks.filter((t) => t.origin === "ai")).toHaveLength(1);
+    expect(db.tasks.find((t) => t.origin === "ai")!.title).toBe("예전 제안");
+  });
+
+  it("사람이 확정·수정·완료한 AI 제안은 보존되고 신규도 없다", async () => {
+    for (const setup of ["confirm", "edit", "done"] as const) {
+      db.tasks = [];
+      aiFor("todo", "원래 제안");
+      await runPmAnalysis(B);
+      const t = db.tasks.find((x) => x.origin === "ai")!;
+      if (setup === "confirm") await confirmPmTask(t.id, B, ACTOR);
+      if (setup === "edit") await updatePmTask(t.id, B, { kind: "todo", title: "사람이 고친 제목", priority: 1, owner: ACTOR, dueDate: "2026-09-30" }, ACTOR);
+      if (setup === "done") await setPmTaskStatus(t.id, B, "done", ACTOR);
+
+      aiFor("issue", "재분류된 제목");
+      await runPmAnalysis(B);
+      // AI 제안이 늘지 않았는지만 본다(규칙 제안은 확정된 업무를 근거로 새로 생길 수 있다).
+      expect(db.tasks.filter((x) => x.origin === "ai"), setup).toHaveLength(1);
+      const after = db.tasks.find((x) => x.id === t.id)!;
+      if (setup === "confirm") { expect(after.title).toBe("원래 제안"); expect(after.confirmed_by).toBe(ACTOR); }
+      if (setup === "edit") { expect(after.title).toBe("사람이 고친 제목"); expect(after.due_date).toBe("2026-09-30"); }
+      if (setup === "done") expect(after.status).toBe("done");
+    }
+  });
+
+  it("다른 원문이면 별개 제안으로 만든다", async () => {
+    aiFor("todo", "첫 원문", "email-1");
+    await runPmAnalysis(B);
+    aiFor("issue", "다른 원문", "email-2");
+    await runPmAnalysis(B);
+    expect(db.tasks.filter((t) => t.origin === "ai")).toHaveLength(2);
+  });
+});
+
+describe("규칙 제안 — 사람이 손대지 않은 것만 최신 근거로 갱신", () => {
+  it("KPI 수치가 바뀌면 상세가 갱신되고 신규는 생기지 않는다", async () => {
+    await createPmKpi(B, { name: "월 매출", unit: "만원", target: 1000, current: 100, measuredAt: "2026-09-20" }, ACTOR);
+    await runPmAnalysis(B, { useAi: false });
+    const t = db.tasks.find((x) => x.dedupe_key?.startsWith("rules:kpi_risk:"))!;
+    expect(t.detail).toContain("2026-09-20");
+
+    db.kpis[0].current_value = 300;
+    db.kpis[0].measured_at = "2026-09-26";
+    const r = await runPmAnalysis(B, { useAi: false });
+    const after = db.tasks.find((x) => x.id === t.id)!;
+    expect(r.created).toBe(0);
+    expect(r.refreshed).toBeGreaterThanOrEqual(1);
+    expect(after.detail).toContain("2026-09-26");
+    expect(after.detail).not.toContain("2026-09-20");
+  });
+
+  it("사람이 수정한 제안은 상세도 덮지 않는다", async () => {
+    await createPmKpi(B, { name: "월 매출", unit: "만원", target: 1000, current: 100, measuredAt: "2026-09-20" }, ACTOR);
+    await runPmAnalysis(B, { useAi: false });
+    const t = db.tasks.find((x) => x.dedupe_key?.startsWith("rules:kpi_risk:"))!;
+    await updatePmTask(t.id, B, { kind: "issue", title: "사람이 정리", priority: 1, owner: ACTOR, dueDate: "2026-10-05" }, ACTOR);
+    db.kpis[0].measured_at = "2026-09-28";
+    await runPmAnalysis(B, { useAi: false });
+    const after = db.tasks.find((x) => x.id === t.id)!;
+    expect(after.title).toBe("사람이 정리");
+    expect(after.due_date).toBe("2026-10-05");
+    expect(after.detail).not.toContain("2026-09-28");
   });
 });

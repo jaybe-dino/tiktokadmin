@@ -397,6 +397,8 @@ export interface PmRunResult {
   ok: boolean;
   mode: "rules" | "ai";
   created: number;
+  /** 이미 있던 제안을 최신 근거로 갱신한 수(사람이 손대지 않은 것만). */
+  refreshed: number;
   skipped: number;
   summary: string;
   error?: string;
@@ -477,9 +479,9 @@ export async function runPmAnalysis(brandId: string, opts: { triggeredBy?: strin
   } catch (e) {
     const msg = (e as Error).message;
     if (/pm_runs_one_running/.test(msg)) {
-      return { ok: false, mode: "rules", created: 0, skipped: 0, summary: "", error: "이미 분석이 실행 중입니다 — 끝난 뒤 다시 시도해 주세요." };
+      return { ok: false, mode: "rules", created: 0, refreshed: 0, skipped: 0, summary: "", error: "이미 분석이 실행 중입니다 — 끝난 뒤 다시 시도해 주세요." };
     }
-    return { ok: false, mode: "rules", created: 0, skipped: 0, summary: "", error: `분석을 시작하지 못했습니다 — ${msg.slice(0, 160)}` };
+    return { ok: false, mode: "rules", created: 0, refreshed: 0, skipped: 0, summary: "", error: `분석을 시작하지 못했습니다 — ${msg.slice(0, 160)}` };
   }
 
   let mode: "rules" | "ai" = "rules";
@@ -504,30 +506,59 @@ export async function runPmAnalysis(brandId: string, opts: { triggeredBy?: strin
 
     // 제안 저장 + 실행 기록 + 설정 갱신을 한 트랜잭션으로.
     const res = await tx(async (c) => {
+      /**
+       * AI 제안은 "같은 원문"에 대해 한 번만 만든다.
+       *   유형(todo/issue/question)이 바뀌어도, 예전 키 형식(ai:<원문>:<유형>)으로 저장된
+       *   기존 제안이 있어도 새로 만들지 않는다. 기존 행은 건드리지 않는다(완료·사람 수정 보존).
+       */
+      const aiAlreadyCovered = async (sourceId: string): Promise<boolean> => {
+        if (!sourceId) return false;
+        const r = await c.query<{ id: string }>(
+          `SELECT id FROM pm_tasks
+            WHERE brand_id=$1 AND origin='ai'
+              AND (evidence_id = $2 OR dedupe_key = $3 OR dedupe_key LIKE $4)
+            LIMIT 1`,
+          [brandId, sourceId, `ai:${sourceId}`, `ai:${sourceId}:%`]);
+        return r.rows.length > 0;
+      };
+
       const ins = async (list: PmSuggestion[], origin: "rules" | "ai") => {
-        let created = 0, skipped = 0;
+        let created = 0, refreshed = 0, skipped = 0;
         for (const sg of list) {
-          const r = await c.query<{ id: string }>(
+          if (origin === "ai" && await aiAlreadyCovered(sg.evidenceId)) { skipped++; continue; }
+          // 이미 있는 제안은 "사람이 손대지 않았고 아직 열려 있을 때만" 최신 근거로 갱신한다.
+          //   (KPI 수치·측정일이 바뀌면 옛 숫자가 그대로 남던 문제)
+          //   사람이 수정했거나 확정·완료·보류한 제안은 그대로 둔다.
+          const r = await c.query<{ id: string; inserted: boolean }>(
             `INSERT INTO pm_tasks (brand_id, kind, title, detail, priority, origin,
                 evidence_kind, evidence_id, evidence_label, dedupe_key, created_by)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-             ON CONFLICT (brand_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
-             RETURNING id`,
+             ON CONFLICT (brand_id, dedupe_key) WHERE dedupe_key IS NOT NULL
+             DO UPDATE SET kind=EXCLUDED.kind, title=EXCLUDED.title, detail=EXCLUDED.detail,
+                 priority=EXCLUDED.priority, evidence_label=EXCLUDED.evidence_label, updated_at=now()
+               WHERE pm_tasks.edited_by_human = false
+                 AND pm_tasks.confirmed_by IS NULL
+                 AND pm_tasks.status IN ('open','doing','reopened')
+             RETURNING id, (xmax = 0) AS inserted`,
             [brandId, sg.kind, sg.title.slice(0, 300), sg.detail.slice(0, 4000), sg.priority, origin,
              sg.evidenceKind.slice(0, 40), sg.evidenceId.slice(0, 100), sg.evidenceLabel.slice(0, 300),
              sg.dedupeKey.slice(0, 300), `pm:${origin}`]);
-          if (r.rows.length > 0) created++; else skipped++;
+          if (r.rows.length === 0) skipped++;
+          else if (r.rows[0].inserted) created++;
+          else refreshed++;
         }
-        return { created, skipped };
+        return { created, refreshed, skipped };
       };
       const a = await ins(ruleList, "rules");
       const b = await ins(aiList, "ai");
-      const created = a.created + b.created, skipped = a.skipped + b.skipped;
+      const created = a.created + b.created;
+      const refreshed = a.refreshed + b.refreshed;
+      const skipped = a.skipped + b.skipped;
 
       const summary = [
         mode === "ai" ? "AI(대화 본문) + 규칙 점검" : "규칙 점검만",
         `제안 ${ruleList.length + aiList.length}건(규칙 ${ruleList.length} · AI ${aiList.length})`,
-        `신규 ${created} · 중복 ${skipped}`,
+        `신규 ${created} · 근거갱신 ${refreshed} · 유지 ${skipped}`,
         facts.channelErrors.length ? `대화 확인 실패 ${facts.channelErrors.length}채널` : "",
         `대화 ${facts.commCount}건 · KPI ${facts.kpis.length} · 열린 업무 ${facts.openTasks.length}`,
       ].filter(Boolean).join(" · ");
@@ -544,10 +575,13 @@ export async function runPmAnalysis(brandId: string, opts: { triggeredBy?: strin
            next_action=EXCLUDED.next_action, updated_at=now()`,
         [brandId, mode, summary.slice(0, 500), nextAction.slice(0, 300)]);
 
-      return { created, skipped, summary };
+      return { created, refreshed, skipped, summary };
     });
 
-    return { ok: true, mode, created: res.created, skipped: res.skipped, summary: res.summary, aiNote };
+    return {
+      ok: true, mode, created: res.created, refreshed: res.refreshed,
+      skipped: res.skipped, summary: res.summary, aiNote,
+    };
   } catch (e) {
     const msg = (e as Error).message.slice(0, 300);
     await query("UPDATE pm_runs SET status='error', error=$2, finished_at=now() WHERE id=$1", [runId, msg]).catch(() => {});
@@ -557,7 +591,7 @@ export async function runPmAnalysis(brandId: string, opts: { triggeredBy?: strin
        ON CONFLICT (brand_id) DO UPDATE SET last_run_at=now(), last_run_mode=EXCLUDED.last_run_mode,
          last_status='error', last_error=EXCLUDED.last_error, updated_at=now()`,
       [brandId, mode, msg]).catch(() => {});
-    return { ok: false, mode, created: 0, skipped: 0, summary: "", error: `분석 실패 — ${msg}` };
+    return { ok: false, mode, created: 0, refreshed: 0, skipped: 0, summary: "", error: `분석 실패 — ${msg}` };
   }
 }
 
@@ -630,7 +664,7 @@ export async function runPmBatch(limit = 5, budgetMs = PM_BATCH_BUDGET_MS): Prom
     if (Date.now() - t0 > budgetMs) { stoppedForTime = true; break; }
     done++;
     const res = await runPmAnalysis(r.brand_id, { triggeredBy: "cron" }).catch((e) => ({
-      ok: false, mode: "rules" as const, created: 0, skipped: 0, summary: "", error: (e as Error).message,
+      ok: false, mode: "rules" as const, created: 0, refreshed: 0, skipped: 0, summary: "", error: (e as Error).message,
     }));
     if (res.ok) ok++; else { failed++; notes.push(res.error ?? "실패"); }
   }
