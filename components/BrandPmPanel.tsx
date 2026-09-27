@@ -411,6 +411,15 @@ function KpiRow({ brandId, k, admins, onDone }: {
 }) {
   const [edit, setEdit] = useState(false);
   const a = useAction();
+  // 수정 폼도 제출 시점에 실제 입력값을 읽는다(state 만 믿으면 프로그램으로 채운 값이 사라진다).
+  const nameRef = useRef<HTMLInputElement>(null);
+  const unitRef = useRef<HTMLInputElement>(null);
+  const targetRef = useRef<HTMLInputElement>(null);
+  const currentRef = useRef<HTMLInputElement>(null);
+  const measuredRef = useRef<HTMLInputElement>(null);
+  const pStartRef = useRef<HTMLInputElement>(null);
+  const pEndRef = useRef<HTMLInputElement>(null);
+  const evidenceRef = useRef<HTMLInputElement>(null);
   const [f, setF] = useState({
     name: k.name, unit: k.unit,
     target: k.target == null ? "" : String(k.target),
@@ -425,11 +434,31 @@ function KpiRow({ brandId, k, admins, onDone }: {
         <td colSpan={9}>
           <div style={{ display: "grid", gap: 6 }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "end" }}>
-              <Field label="지표명"><input className="f" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} style={{ width: 160 }} /></Field>
-              <Field label="단위"><input className="f" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} style={{ width: 70 }} /></Field>
-              <Field label="목표" hint="비우면 값 없음"><input className="f" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} style={{ width: 120 }} /></Field>
-              <Field label="현재값" hint="비우면 값 없음"><input className="f" value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} style={{ width: 120 }} /></Field>
-              <Field label="측정일"><input className="f" type="date" value={f.measuredAt} onChange={(e) => setF({ ...f, measuredAt: e.target.value })} style={{ width: 150 }} /></Field>
+              <Field label="지표명" hint="필수">
+                <input ref={nameRef} className="f" defaultValue={f.name}
+                  onChange={(e) => setF({ ...f, name: e.target.value })}
+                  onInput={(e) => setF({ ...f, name: (e.target as HTMLInputElement).value })} style={{ width: 160 }} />
+              </Field>
+              <Field label="단위">
+                <input ref={unitRef} className="f" defaultValue={f.unit}
+                  onChange={(e) => setF({ ...f, unit: e.target.value })}
+                  onInput={(e) => setF({ ...f, unit: (e.target as HTMLInputElement).value })} style={{ width: 70 }} />
+              </Field>
+              <Field label="목표" hint="비우면 값 없음">
+                <input ref={targetRef} className="f" defaultValue={f.target}
+                  onChange={(e) => setF({ ...f, target: e.target.value })}
+                  onInput={(e) => setF({ ...f, target: (e.target as HTMLInputElement).value })} style={{ width: 120 }} />
+              </Field>
+              <Field label="현재값" hint="비우면 값 없음">
+                <input ref={currentRef} className="f" defaultValue={f.current}
+                  onChange={(e) => setF({ ...f, current: e.target.value })}
+                  onInput={(e) => setF({ ...f, current: (e.target as HTMLInputElement).value })} style={{ width: 120 }} />
+              </Field>
+              <Field label="측정일">
+                <input ref={measuredRef} className="f" type="date" defaultValue={f.measuredAt}
+                  onChange={(e) => setF({ ...f, measuredAt: e.target.value })}
+                  onInput={(e) => setF({ ...f, measuredAt: (e.target as HTMLInputElement).value })} style={{ width: 150 }} />
+              </Field>
               <Field label="방향">
                 <select className="f" value={f.direction} onChange={(e) => setF({ ...f, direction: e.target.value as "up" | "down" })}>
                   <option value="up">높을수록 좋음</option><option value="down">낮을수록 좋음(역방향)</option>
@@ -437,8 +466,16 @@ function KpiRow({ brandId, k, admins, onDone }: {
               </Field>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "end" }}>
-              <Field label="기간 시작"><input className="f" type="date" value={f.periodStart} onChange={(e) => setF({ ...f, periodStart: e.target.value })} style={{ width: 150 }} /></Field>
-              <Field label="기간 종료(기한)"><input className="f" type="date" value={f.periodEnd} onChange={(e) => setF({ ...f, periodEnd: e.target.value })} style={{ width: 150 }} /></Field>
+              <Field label="기간 시작">
+                <input ref={pStartRef} className="f" type="date" defaultValue={f.periodStart}
+                  onChange={(e) => setF({ ...f, periodStart: e.target.value })}
+                  onInput={(e) => setF({ ...f, periodStart: (e.target as HTMLInputElement).value })} style={{ width: 150 }} />
+              </Field>
+              <Field label="기간 종료(기한)">
+                <input ref={pEndRef} className="f" type="date" defaultValue={f.periodEnd}
+                  onChange={(e) => setF({ ...f, periodEnd: e.target.value })}
+                  onInput={(e) => setF({ ...f, periodEnd: (e.target as HTMLInputElement).value })} style={{ width: 150 }} />
+              </Field>
               <Field label="담당자">
                 <select className="f" value={f.owner} onChange={(e) => setF({ ...f, owner: e.target.value })}>
                   <option value="">담당 미지정</option>
@@ -446,18 +483,26 @@ function KpiRow({ brandId, k, admins, onDone }: {
                 </select>
               </Field>
               <Field label="근거">
-                <input className="f" value={f.evidence} onChange={(e) => setF({ ...f, evidence: e.target.value })} placeholder="합의 출처" style={{ width: 220 }} />
+                <input ref={evidenceRef} className="f" defaultValue={f.evidence}
+                  onChange={(e) => setF({ ...f, evidence: e.target.value })}
+                  onInput={(e) => setF({ ...f, evidence: (e.target as HTMLInputElement).value })}
+                  placeholder="합의 출처" style={{ width: 220 }} />
               </Field>
               <button className="btn btn-sm btn-primary" disabled={a.busy}
                 onClick={() => {
-                  if (!f.name.trim()) { a.setMsg({ ok: false, text: "지표명을 입력해 주세요." }); return; }
+                  const name = readVal(nameRef, f.name);
+                  if (!name) { a.setMsg({ ok: false, text: "지표명을 입력해 주세요." }); return; }
+                  const target = readVal(targetRef, f.target);
+                  const current = readVal(currentRef, f.current);
                   void a.run(() => pmUpdateKpiAction(brandId, k.id, {
-                  name: f.name, unit: f.unit,
-                  target: f.target === "" ? null : Number(f.target),
-                  current: f.current === "" ? null : Number(f.current),
-                  measuredAt: f.measuredAt || null, direction: f.direction as "up" | "down",
-                  periodStart: f.periodStart || null, periodEnd: f.periodEnd || null,
-                  owner: f.owner || null, evidence: f.evidence,
+                    name, unit: readVal(unitRef, f.unit),
+                    target: target === "" ? null : Number(target),
+                    current: current === "" ? null : Number(current),
+                    measuredAt: readVal(measuredRef, f.measuredAt) || null,
+                    direction: f.direction as "up" | "down",
+                    periodStart: readVal(pStartRef, f.periodStart) || null,
+                    periodEnd: readVal(pEndRef, f.periodEnd) || null,
+                    owner: f.owner || null, evidence: readVal(evidenceRef, f.evidence),
                   }), () => { setEdit(false); onDone(); });
                 }}>{a.busy ? "저장 중…" : "저장"}</button>
               <button className="btn btn-sm" disabled={a.busy} onClick={() => setEdit(false)}>취소</button>
@@ -588,6 +633,10 @@ function TaskRow({ brandId, t, admins, onDone }: {
     kind: t.kind, title: t.title, detail: t.detail, priority: String(t.priority),
     owner: t.owner ?? "", dueDate: t.dueDate ?? "",
   });
+  // 수정 폼도 제출 시점에 실제 입력값을 읽는다 — 마감일이 state 에만 있으면 저장에서 빠진다.
+  const titleRef = useRef<HTMLInputElement>(null);
+  const dueRef = useRef<HTMLInputElement>(null);
+  const detailRef = useRef<HTMLTextAreaElement>(null);
   const isSuggestion = t.origin !== "human" && !t.confirmedBy;
   return (
     <div style={{
@@ -638,7 +687,11 @@ function TaskRow({ brandId, t, admins, onDone }: {
               <option value="issue">문제</option><option value="todo">할일</option><option value="question">확인</option>
             </select>
           </Field>
-          <Field label="제목" hint="필수"><input className="f" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} style={{ width: 240 }} /></Field>
+          <Field label="제목" hint="필수">
+            <input ref={titleRef} className="f" defaultValue={f.title}
+              onChange={(e) => setF({ ...f, title: e.target.value })}
+              onInput={(e) => setF({ ...f, title: (e.target as HTMLInputElement).value })} style={{ width: 240 }} />
+          </Field>
           <Field label="우선순위">
             <select className="f" value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
               <option value="1">P1 높음</option><option value="2">P2</option><option value="3">P3</option>
@@ -650,16 +703,24 @@ function TaskRow({ brandId, t, admins, onDone }: {
               {admins.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
           </Field>
-          <Field label="마감일"><input className="f" type="date" value={f.dueDate} onChange={(e) => setF({ ...f, dueDate: e.target.value })} style={{ width: 150 }} /></Field>
+          <Field label="마감일">
+            <input data-testid="pm-task-due" ref={dueRef} className="f" type="date" defaultValue={f.dueDate}
+              onChange={(e) => setF({ ...f, dueDate: e.target.value })}
+              onInput={(e) => setF({ ...f, dueDate: (e.target as HTMLInputElement).value })} style={{ width: 150 }} />
+          </Field>
           <Field label="상세">
-            <textarea className="f" rows={2} value={f.detail} onChange={(e) => setF({ ...f, detail: e.target.value })} style={{ width: 320 }} />
+            <textarea ref={detailRef} className="f" rows={2} defaultValue={f.detail}
+              onChange={(e) => setF({ ...f, detail: e.target.value })}
+              onInput={(e) => setF({ ...f, detail: (e.target as HTMLTextAreaElement).value })} style={{ width: 320 }} />
           </Field>
           <button className="btn btn-sm btn-primary" disabled={a.busy}
             onClick={() => {
-              if (!f.title.trim()) { a.setMsg({ ok: false, text: "제목을 입력해 주세요." }); return; }
+              const title = readVal(titleRef, f.title);
+              if (!title) { a.setMsg({ ok: false, text: "제목을 입력해 주세요." }); return; }
               void a.run(() => pmUpdateTaskAction(brandId, t.id, {
-                kind: f.kind, title: f.title, detail: f.detail,
-                priority: Number(f.priority), owner: f.owner || null, dueDate: f.dueDate || null,
+                kind: f.kind, title, detail: readVal(detailRef, f.detail),
+                priority: Number(f.priority), owner: f.owner || null,
+                dueDate: readVal(dueRef, f.dueDate) || null,
               }), () => { setEdit(false); onDone(); });
             }}>{a.busy ? "저장 중…" : "저장"}</button>
         </div>
