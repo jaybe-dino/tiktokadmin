@@ -37,6 +37,7 @@ import Brand360IntroSend from "@/components/Brand360IntroSend";
 import TimelineAddEntry from "./TimelineAddEntry";
 import TimelineNoteRow from "./TimelineNoteRow";
 import TimelineJump from "./TimelineJump";
+import BrandPmPanel from "@/components/BrandPmPanel";
 import { stageChecklist } from "@/lib/requirements";
 import { humanElapsed } from "@/lib/time";
 import { nextStepGuide } from "@/lib/meetings";
@@ -421,8 +422,17 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     </>
   );
 
+  // PM 에이전트 탭 — 데이터는 패널이 서버액션으로 직접 가져온다(브랜드 권한 가드를 그 안에서 통과).
+  const panelPm = (
+    <BrandPmPanel
+      brandId={brand.id}
+      admins={adminUsers.map((a) => ({ id: a.id, name: a.name }))}
+    />
+  );
+
   const tabs: Brand360Tab[] = [
     { key: "ov", label: "개요", node: panelOverview },
+    { key: "pm", label: "PM 에이전트", node: panelPm },
     { key: "sv", label: "설문", node: panelSurvey },
     { key: "co", label: "회사정보", node: panelCompany },
     { key: "tl", label: "타임라인", node: panelTimeline },
