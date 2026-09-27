@@ -20,6 +20,8 @@ const db = {
   config: [] as { brand_id: string; enabled: boolean; owner_admin_id: string | null; last_run_at: number | null; last_run_mode: string | null; last_status: string | null; last_error: string | null; last_summary: string; next_action: string; note: string }[],
   kpis: [] as { id: string; brand_id: string; name: string; unit: string; target_value: number | null; current_value: number | null; measured_at: string | null; direction: string; period_start: string | null; period_end: string | null; owner_admin_id: string | null; evidence: string; source: string; source_ref: string; status: string }[],
   failEventInsert: false,
+  /** 이 브랜드의 사실 수집만 실패시킨다(실패 경로 검증용). */
+  failFactsFor: null as string | null,
   seq: 0,
 };
 
@@ -35,6 +37,7 @@ vi.mock("../lib/db", () => {
         .map((t) => ({ table_name: t }));
     }
     if (sql.includes("SELECT brand_name, state, last_contact_at")) {
+      if (db.failFactsFor && a[0] === db.failFactsFor) throw new Error("사실 수집 실패(모의)");
       const b = db.brands.find((x) => x.id === a[0]);
       return b ? [{ brand_name: b.brand_name, state: b.state, last_contact_at: b.last_contact_at }] : [];
     }
@@ -99,10 +102,11 @@ vi.mock("../lib/db", () => {
       return c ? [{ ...c, last_run_at: c.last_run_at ? new Date(c.last_run_at).toISOString() : null }] : [];
     }
     if (sql.includes("FROM pm_brand_config p")) {
-      return db.config.filter((c) => c.enabled)
+      const eligible = db.config.filter((c) => c.enabled)
         .filter((c) => { const b = db.brands.find((x) => x.id === c.brand_id); return b && !b.is_test && !["dropped", "churned"].includes(b.state); })
-        .sort((x, y) => (x.last_run_at ?? 0) - (y.last_run_at ?? 0))
-        .slice(0, Number(a[0])).map((c) => ({ brand_id: c.brand_id }));
+        .sort((x, y) => (x.last_run_at ?? 0) - (y.last_run_at ?? 0) || x.brand_id.localeCompare(y.brand_id));
+      if (sql.includes("count(*)")) return [{ n: String(eligible.length) }];
+      return eligible.slice(0, Number(a[0])).map((c) => ({ brand_id: c.brand_id }));
     }
 
     // pm_kpis
@@ -239,7 +243,7 @@ beforeEach(() => {
     { id: TEST_B, brand_name: "[PM검수] 샘플브랜드", state: "dropped", last_contact_at: null, is_test: true },
   ];
   db.tasks = []; db.events = []; db.runs = []; db.config = []; db.kpis = [];
-  db.failEventInsert = false; db.seq = 0;
+  db.failEventInsert = false; db.failFactsFor = null; db.seq = 0;
   comms.errors = []; comms.total = 4;
   ai.ok = false; ai.suggestions = []; ai.note = "AI 키(ANTHROPIC_API_KEY)가 없습니다 — 규칙 기반으로만 점검했습니다.";
 });
@@ -416,11 +420,56 @@ describe("자동 운영 batch", () => {
     expect(r.picked).toBe(0);
   });
 
-  it("시간 예산을 넘기면 멈춘다", async () => {
+  it("시간 예산을 넘기면 멈추고 남은 수를 알린다", async () => {
     await setPmEnabled(B, true);
     const r = await runPmBatch(5, -1);
     expect(r.stoppedForTime).toBe(true);
     expect(r.picked).toBe(0);
+    expect(r.eligible).toBe(1);
+    expect(r.remaining).toBe(1);
+  });
+
+  it("오래 안 돈 브랜드부터 공정하게 순환한다 — 굶는 브랜드가 없다", async () => {
+    const C = "33333333-3333-4333-8333-333333333333";
+    db.brands.push({ id: C, brand_name: "두번째", state: "setup", last_contact_at: "2026-08-01T00:00:00Z", is_test: false });
+    await setPmEnabled(B, true);
+    await setPmEnabled(C, true);
+
+    // 한 번에 1건만 처리 — 첫 회차는 둘 중 하나, 두 번째 회차는 나머지가 처리돼야 한다.
+    const r1 = await runPmBatch(1);
+    expect(r1.eligible).toBe(2);
+    expect(r1.picked).toBe(1);
+    expect(r1.remaining).toBe(1);
+    const firstRan = db.config.filter((c) => c.last_run_at != null).map((c) => c.brand_id);
+    expect(firstRan).toHaveLength(1);
+
+    db.now += 60_000;
+    const r2 = await runPmBatch(1);
+    expect(r2.picked).toBe(1);
+    const ranNow = db.config.filter((c) => c.last_run_at != null).map((c) => c.brand_id).sort();
+    expect(ranNow).toEqual([B, C].sort());          // 두 브랜드 모두 한 번씩 돌았다
+
+    // 세 번째 회차는 다시 가장 오래된 쪽(첫 회차 브랜드)으로 돌아온다.
+    db.now += 60_000;
+    await runPmBatch(1);
+    const last = db.config.find((c) => c.brand_id === firstRan[0])!;
+    expect(last.last_run_at).toBe(db.now);
+  });
+
+  it("실패해도 last_run_at 이 갱신돼 뒤 브랜드를 막지 않는다", async () => {
+    const C = "33333333-3333-4333-8333-333333333333";
+    db.brands.push({ id: C, brand_name: "두번째", state: "setup", last_contact_at: null, is_test: false });
+    await setPmEnabled(B, true);
+    await setPmEnabled(C, true);
+    db.failFactsFor = B;                               // B 만 분석 실패
+    await runPmBatch(1);
+    db.failFactsFor = null;
+    expect(db.config.find((c) => c.brand_id === B)!.last_status).toBe("error");
+    expect(db.config.find((c) => c.brand_id === B)!.last_run_at).not.toBeNull();
+    db.now += 60_000;
+    const r2 = await runPmBatch(1);
+    expect(r2.picked).toBe(1);
+    expect(db.config.find((c) => c.brand_id === C)!.last_run_at).not.toBeNull();   // C 도 돌았다
   });
 });
 
@@ -437,5 +486,23 @@ describe("KPI — 값 없음과 0 을 구분해 저장한다", () => {
     expect(zero.current).toBe(0);
     expect(zero.progress).toBe(0);
     expect(zero.risk).toBe("at_risk");
+  });
+});
+
+describe("자동 운영 스케줄 등록", () => {
+  it("vercel.json 에 PM 전용 cron 이 매시간으로 등록돼 있다", async () => {
+    const { readFileSync } = await import("node:fs");
+    const cfg = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8")) as
+      { crons: { path: string; schedule: string }[] };
+    const pm = cfg.crons.find((c) => c.path.startsWith("/api/cron/pm-agent"));
+    expect(pm).toBeTruthy();
+    // 매시 1회 — 분은 고정, 시간은 매시(정시에 몰린 기존 작업과 겹치지 않게 비켜 둔다).
+    expect(pm!.schedule).toMatch(/^\d+ \* \* \* \*$/);
+    expect(pm!.schedule.startsWith("0 ")).toBe(false);
+    expect(pm!.path).toContain("limit=");
+    // 기존 cron 을 지우지 않았다.
+    for (const p of ["/api/cron/lead-sequence", "/api/cron/zoom-ingest", "/api/cron/bulk-send"]) {
+      expect(cfg.crons.some((c) => c.path.startsWith(p)), p).toBe(true);
+    }
   });
 });

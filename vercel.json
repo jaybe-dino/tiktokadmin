@@ -1,20 +1,62 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/cron/sla-check", "schedule": "0 * * * *" },
-    { "path": "/api/cron/escalate?digest=1", "schedule": "0 0 * * *" },
-    { "path": "/api/cron/escalate", "schedule": "0 5 * * *" },
-    { "path": "/api/cron/agents", "schedule": "0 0 * * *" },
-    { "path": "/api/cron/agents?key=daily_todo", "schedule": "0 3 * * *" },
-    { "path": "/api/cron/meeting-process", "schedule": "0 * * * *" },
-    { "path": "/api/cron/gmail-sync", "schedule": "0 * * * *" },
-    { "path": "/api/cron/bulk-send", "schedule": "*/10 * * * *" },
-    { "path": "/api/cron/lead-sequence", "schedule": "0 * * * *" },
-    { "path": "/api/cron/zoom-ingest", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/cycle-open", "schedule": "0 2 1 * *" },
-    { "path": "/api/cron/cycle-close", "schedule": "0 1 1 * *" }
+    {
+      "path": "/api/cron/sla-check",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/escalate?digest=1",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/escalate",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/agents",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/agents?key=daily_todo",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/meeting-process",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/gmail-sync",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/bulk-send",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/lead-sequence",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/pm-agent?limit=10",
+      "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/cron/zoom-ingest",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/cycle-open",
+      "schedule": "0 2 1 * *"
+    },
+    {
+      "path": "/api/cron/cycle-close",
+      "schedule": "0 1 1 * *"
+    }
   ],
   "functions": {
-    "app/api/cron/**/*": { "maxDuration": 60 }
+    "app/api/cron/**/*": {
+      "maxDuration": 60
+    }
   }
 }

@@ -377,6 +377,8 @@ export async function addManualComm(brandId: string, input: ManualCommInput, act
   if (Number.isNaN(at.getTime())) throw new Error("대화 시각을 입력하세요.");
   const url = (input.sourceUrl ?? "").trim();
   if (url && !/^https?:\/\//i.test(url)) throw new Error("원문 링크는 http(s):// 로 시작해야 합니다.");
+  // 원문이 없으면 추적 근거가 되지 못한다 — 화면과 같은 규칙을 서버에서도 지킨다.
+  if (!(input.body ?? "").trim()) throw new Error("대화 원문을 입력하세요.");
   const r = await queryOne<{ id: string }>(
     `INSERT INTO pm_manual_comms (brand_id, channel, occurred_at, author, source_label, source_url, body, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
@@ -580,17 +582,47 @@ export async function listPmRuns(brandId: string, limit = 10): Promise<PmRunRow[
  */
 export const PM_BATCH_BUDGET_MS = 45_000;
 
-export async function runPmBatch(limit = 5, budgetMs = PM_BATCH_BUDGET_MS):
-  Promise<{ picked: number; ok: number; failed: number; stoppedForTime: boolean; notes: string[] }> {
+/** 자동 운영 대상 조건 — 브랜드가 켠(opt-in) 것만, 테스트 브랜드·종료 브랜드 제외. */
+const PM_BATCH_WHERE = `p.enabled = true
+        AND COALESCE(b.is_test,false) = false
+        AND b.state NOT IN ('dropped','churned')`;
+
+export interface PmBatchResult {
+  /** 조건을 만족하는 전체 브랜드 수 — 밀린 양을 볼 수 있게 함께 돌려준다. */
+  eligible: number;
+  picked: number;
+  ok: number;
+  failed: number;
+  /** 시간 예산 때문에 이번 회차에 남긴 수(다음 회차에서 먼저 처리된다). */
+  remaining: number;
+  stoppedForTime: boolean;
+  notes: string[];
+}
+
+/**
+ * 자동 운영 — 활성·opt-in 브랜드만, 정해진 개수·시간 예산 안에서만 돈다.
+ *   공정 순환: last_run_at 이 가장 오래된 브랜드부터 집는다.
+ *   성공이든 실패든 last_run_at 이 갱신되므로(runPmAnalysis 양쪽 경로 모두) 한 브랜드가
+ *   계속 앞자리를 차지해 다른 브랜드가 굶는 일이 없다. 예산으로 남긴 브랜드는
+ *   그만큼 last_run_at 이 더 오래돼 다음 회차에서 가장 먼저 처리된다.
+ *   외부 발송은 하지 않는다(제안·업무 생성까지만).
+ */
+export async function runPmBatch(limit = 5, budgetMs = PM_BATCH_BUDGET_MS): Promise<PmBatchResult> {
   await releaseStalePmRuns().catch(() => 0);
+
+  const total = await queryOne<{ n: string }>(
+    `SELECT count(*)::text AS n FROM pm_brand_config p
+       JOIN brands b ON b.id = p.brand_id
+      WHERE ${PM_BATCH_WHERE}`);
+  const eligible = Number(total?.n ?? 0);
+
   const rows = await query<{ brand_id: string }>(
     `SELECT p.brand_id FROM pm_brand_config p
        JOIN brands b ON b.id = p.brand_id
-      WHERE p.enabled = true
-        AND COALESCE(b.is_test,false) = false      -- 테스트 브랜드는 자동 운영에서 제외
-        AND b.state NOT IN ('dropped','churned')
-      ORDER BY COALESCE(p.last_run_at, '1970-01-01') ASC
+      WHERE ${PM_BATCH_WHERE}
+      ORDER BY COALESCE(p.last_run_at, '1970-01-01') ASC, p.brand_id ASC
       LIMIT $1`, [limit]);
+
   const notes: string[] = [];
   const t0 = Date.now();
   let ok = 0, failed = 0, done = 0, stoppedForTime = false;
@@ -602,5 +634,9 @@ export async function runPmBatch(limit = 5, budgetMs = PM_BATCH_BUDGET_MS):
     }));
     if (res.ok) ok++; else { failed++; notes.push(res.error ?? "실패"); }
   }
-  return { picked: done, ok, failed, stoppedForTime, notes: notes.slice(0, 5) };
+  return {
+    eligible, picked: done, ok, failed,
+    remaining: Math.max(0, eligible - done),
+    stoppedForTime, notes: notes.slice(0, 5),
+  };
 }
