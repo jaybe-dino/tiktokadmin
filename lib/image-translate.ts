@@ -463,15 +463,118 @@ async function translateWholeImage(key: string, bytes: Buffer, mime: string, tar
   } catch (e) { return httpError(e); }
 }
 
-function httpError(e: unknown): TranslateImageResult {
+/** Google 오류 본문에서 사람이 읽을 부분만 뽑는다(키는 본문에 들어가지 않지만 혹시 몰라 잘라낸다). */
+export function geminiReason(body: string): string {
+  try {
+    const j = JSON.parse(body) as { error?: { status?: string; message?: string } };
+    const parts = [j.error?.status, j.error?.message].filter(Boolean) as string[];
+    if (parts.length) return parts.join(": ").replace(/AIza[\w-]{10,}/g, "[키생략]").slice(0, 200);
+  } catch { /* JSON 이 아니면 아래로 */ }
+  return body.replace(/AIza[\w-]{10,}/g, "[키생략]").trim().slice(0, 160);
+}
+
+/**
+ * 실패 사유를 사람이 조치할 수 있게 적는다.
+ *   예전에는 대부분 "번역 요청 실패(HTTP nnn)" 로만 나와 원인을 알 수 없었다(BUG-46).
+ *   상태코드별로 무엇을 확인해야 하는지와 Google 이 준 사유를 함께 남긴다.
+ */
+export function httpError(e: unknown): TranslateImageResult {
   const status = (e as { status?: number }).status;
   const body = (e as { body?: string }).body ?? "";
-  if (status === 400 && /API key/i.test(body)) return { ok: false, error: "Gemini API 키가 올바르지 않습니다(관리자 확인)." };
-  if (status === 429) return { ok: false, error: "Gemini 사용량 한도 초과 — 잠시 후 다시 시도하세요." };
-  if (status) return { ok: false, error: `번역 요청 실패(HTTP ${status})` };
+  const why = geminiReason(body);
+  const tail = why ? ` — ${why}` : "";
+
+  if (status === 400 && /API key|API_KEY/i.test(body)) {
+    return { ok: false, error: `Gemini API 키가 올바르지 않습니다(관리자: GEMINI_API_KEY 확인)${tail}` };
+  }
+  if (status === 401) return { ok: false, error: `Gemini 인증 실패 — API 키를 확인해 주세요(관리자)${tail}` };
+  if (status === 403) {
+    return { ok: false, error: `Gemini 권한 거부 — 키의 API 사용 설정·결제 계정·사용 제한을 확인해 주세요(관리자)${tail}` };
+  }
+  if (status === 404) {
+    return { ok: false, error: `Gemini 모델을 찾을 수 없습니다 — 이 키에서 쓸 수 없는 모델일 수 있습니다(관리자: 모델 설정 확인)${tail}` };
+  }
+  if (status === 429) return { ok: false, error: `Gemini 사용량 한도 초과 — 잠시 후 다시 시도하세요${tail}` };
+  if (status === 500 || status === 503) {
+    return { ok: false, error: `Gemini 서버 오류(${status}) — 잠시 후 다시 시도해 주세요${tail}` };
+  }
+  if (status) return { ok: false, error: `번역 요청 실패(HTTP ${status})${tail}` };
+
   const msg = e instanceof Error ? e.message : String(e);
   if (/abort/i.test(msg)) return { ok: false, error: "번역 시간 초과 — 이미지를 줄여 다시 시도하세요." };
-  return { ok: false, error: "번역 처리 중 오류가 발생했습니다." };
+  return { ok: false, error: `번역 처리 중 오류가 발생했습니다 — ${msg.slice(0, 120)}` };
+}
+
+export interface GeminiCheck {
+  ok: boolean;
+  keySet: boolean;
+  /** 어떤 환경변수에서 왔는지(값은 노출하지 않는다). */
+  keyFrom: string;
+  textModel: string;
+  imageModel: string;
+  imageFallback: string;
+  /** 모델별 실제 호출 결과. */
+  results: { model: string; role: string; ok: boolean; note: string }[];
+  error?: string;
+}
+
+/**
+ * 연동 점검 — 이미지를 올리지 않고 키·모델이 실제로 쓸 수 있는지 확인한다.
+ *   텍스트 모델은 짧은 프롬프트로, 이미지 모델은 아주 작은 이미지로 호출한다.
+ *   비밀값은 반환하지 않는다.
+ */
+export async function checkGemini(): Promise<GeminiCheck> {
+  const keyFrom = process.env.GEMINI_API_KEY ? "GEMINI_API_KEY"
+    : process.env.GOOGLE_API_KEY ? "GOOGLE_API_KEY" : "";
+  const base: GeminiCheck = {
+    ok: false, keySet: Boolean(env.geminiKey), keyFrom,
+    textModel: TEXT_MODEL, imageModel: MODEL, imageFallback: MODEL_FALLBACK, results: [],
+  };
+  if (!env.geminiKey) {
+    return { ...base, error: "GEMINI_API_KEY(또는 GOOGLE_API_KEY) 미설정 — 설정 후 다시 확인하세요." };
+  }
+  const key = env.geminiKey;
+
+  // 1x1 PNG — 이미지 모델 호출 확인용(내용은 의미 없다).
+  const tinyPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64");
+
+  const probe = async (model: string, role: string, parts: unknown[]) => {
+    try {
+      const out = await geminiCall(key, model, parts, 20_000);
+      base.results.push({
+        model, role, ok: Boolean(out),
+        note: out ? "호출 성공" : "응답은 왔지만 내용이 비었습니다",
+      });
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      const why = geminiReason((e as { body?: string }).body ?? "");
+      base.results.push({ model, role, ok: false, note: `HTTP ${status ?? "?"}${why ? ` — ${why}` : ""}` });
+    }
+  };
+
+  await probe(TEXT_MODEL, "텍스트(감지·번역)", [{ text: "Reply with OK only." }]);
+  await probe(MODEL, "이미지 편집(기본)", [
+    { inline_data: { mime_type: "image/png", data: tinyPng.toString("base64") } },
+    { text: "Return the image unchanged." },
+  ]);
+  if (MODEL_FALLBACK !== MODEL) {
+    await probe(MODEL_FALLBACK, "이미지 편집(폴백)", [
+      { inline_data: { mime_type: "image/png", data: tinyPng.toString("base64") } },
+      { text: "Return the image unchanged." },
+    ]);
+  }
+
+  const textOk = base.results.find((r) => r.model === TEXT_MODEL)?.ok ?? false;
+  const anyImage = base.results.some((r) => r.model !== TEXT_MODEL && r.ok);
+  return {
+    ...base,
+    ok: textOk && anyImage,
+    error: textOk && anyImage ? undefined
+      : !textOk ? "텍스트 모델 호출이 실패했습니다 — 키·권한을 먼저 확인하세요."
+      : "이미지 편집 모델을 쓸 수 없습니다 — 이 키에서 지원하는 모델인지 확인하세요.",
+  };
 }
 
 // 제한 동시성 실행(밴드 편집 3개씩).

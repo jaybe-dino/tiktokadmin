@@ -70,6 +70,18 @@ export const SOURCES = [
 ] as const;
 export type Source = (typeof SOURCES)[number];
 
+/**
+ * 유입 필터의 묶음 값 — 세미나 지원자는 소스가 두 갈래(apply_seminar · tp_seminar)라
+ * 하나씩 골라서는 "세미나 리드"를 한 번에 볼 수 없었다(BUG-43).
+ * 묶음 값은 화면 필터에서만 쓰고, brands.source 에는 저장되지 않는다.
+ */
+export const SOURCE_GROUPS: Record<string, { label: string; sources: string[] }> = {
+  group_seminar: { label: "★ 세미나 전체", sources: ["apply_seminar", "tp_seminar"] },
+};
+export function sourceGroup(v: string | undefined | null): string[] | null {
+  return SOURCE_GROUPS[(v ?? "").trim()]?.sources ?? null;
+}
+
 export const SOURCE_LABELS: Record<string, string> = {
   glovek_consult: "Glovek 상담",
   glovek_inquiry: "Glovek 문의",

@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   saveStepAction, submitStepAction, saveCountriesAction, setCountryLogisticsAction, setCountryLogisticsOptionAction, setCountryLogisticsDetailAction,
+  setCountryFbtInterestAction,
   addProductAction, updateProductAction, deleteProductAction, upsertProductCountryAction,
 } from "./actions";
 import FdaListingExample from "@/components/FdaListingExample";
@@ -13,13 +14,13 @@ const COUNTRIES: [string, string][] = [["US", "미국"], ["TH", "태국"], ["VN"
 const COUNTRY_NAME = Object.fromEntries(COUNTRIES);
 const READINESS: [string, string][] = [["none", "없음"], ["preparing", "준비중"], ["ready", "완료"]];
 const CURRENCIES = ["USD", "KRW", "SGD", "THB", "VND", "MYR", "PHP"];
-const LOGISTICS_OPTIONS: [string, string][] = [["", "선택 안 함"], ["fba", "FBA (아마존 물류)"], ["local_warehouse", "현지 물류창고 계약"], ["cross_border", "한국에서 크로스보더 배송"]];
+const LOGISTICS_OPTIONS: [string, string][] = [["", "선택 안 함"], ["fba", "FBA (아마존 물류)"], ["local_warehouse", "현지 물류창고 계약"], ["cross_border", "한국에서 크로스보더 배송 (동남아시아만 해당)"]];
 const COMPANY_COUNTRIES: [string, string][] = [["KR", "대한민국"], ["US", "미국"], ["SG", "싱가포르"], ["JP", "일본"], ["CN", "중국"], ["HK", "홍콩"]];
 const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", "제품 등록", "물류 계약서"];
 
 interface Step { step_no: number; status: string; admin_feedback: string }
-export interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string }
-export interface ProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; translation_status: string }
+export interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string; fbt_interest?: boolean }
+export interface ProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; detail_page_en?: string; translation_status: string }
 export interface Product { id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string; label_photo_url?: string }
 interface Props { email: string; app: Record<string, unknown>; steps: Step[]; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]> }
 
@@ -431,7 +432,7 @@ export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash
       <div style={{ overflowX: "auto", marginTop: 6 }}>
         <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", minWidth: 720 }}>
           <thead><tr style={{ color: "#8b93a1", textAlign: "left" }}>
-            <th style={thc}>국가</th><th style={thc}>단가</th><th style={thc}>통화</th><th style={thc}>인증</th><th style={thc}>인증 메모</th><th style={thc}>인증 첨부</th><th style={thc}>상세페이지(한글)<div style={{ fontWeight: 400, color: "#9ca3af" }}>이미지·PDF 업로드</div></th>
+            <th style={thc}>국가</th><th style={thc}>단가</th><th style={thc}>통화</th><th style={thc}>인증</th><th style={thc}>인증 메모</th><th style={thc}>인증 첨부</th><th style={thc}>상세페이지(한글)<div style={{ fontWeight: 400, color: "#9ca3af" }}>이미지·PDF 업로드</div></th><th style={thc}>상세페이지(영문)<div style={{ fontWeight: 400, color: "#9ca3af" }}>영문이 있으면 영문으로 부탁드립니다</div></th>
           </tr></thead>
           <tbody>
             {countries.map((c) => {
@@ -445,6 +446,7 @@ export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash
                   <td style={tdc}><input value={r.cert_note ?? ""} disabled={disabled} onChange={(e) => updPc(c.country_code, { cert_note: e.target.value })} style={{ ...cellInp, minWidth: 110 }} /></td>
                   <td style={tdc}><InlineFile field={`cert_${c.country_code}`} url={r.cert_file_url} disabled={disabled} onDone={(u) => updPc(c.country_code, { cert_file_url: u })} /></td>
                   <td style={tdc}><DetailPageField country={c.country_code} value={r.detail_page_kr ?? ""} disabled={disabled} onChange={(v) => updPc(c.country_code, { detail_page_kr: v })} /></td>
+                  <td style={tdc}><DetailPageField country={c.country_code} lang="en" value={r.detail_page_en ?? ""} disabled={disabled} onChange={(v) => updPc(c.country_code, { detail_page_en: v })} /></td>
                 </tr>
               );
             })}
@@ -460,7 +462,7 @@ export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash
 function Step5({ disabled, countries, onChange, flash }: { disabled: boolean; countries: Country[]; onChange: () => void; flash: (m: string) => void }) {
   if (countries.length === 0) return <Banner tone="warn">Step 1에서 입점 희망 국가를 먼저 선택해주세요. 국가별로 물류 방식을 선택합니다.</Banner>;
   return (
-    <Card title="국가별 물류 진행" desc="입점 희망 국가별로 물류 방식(FBA / 현지 물류창고 계약 / 한국 크로스보더 배송)을 선택하고, 현지 주소·계약 정보·계약서를 입력해주세요.">
+    <Card title="국가별 물류 진행" desc="입점 희망 국가별로 물류 방식(FBA / 현지 물류창고 계약 / 한국 크로스보더 배송 — 동남아시아만 해당)을 선택하고, 현지 주소·계약 정보·계약서를 입력해주세요.">
       <div style={{ display: "grid", gap: 10 }}>
         {countries.map((c) => {
           const opt = c.logistics_option ?? "";
@@ -476,7 +478,9 @@ function Step5({ disabled, countries, onChange, flash }: { disabled: boolean; co
                 {LOGISTICS_OPTIONS.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
               </select>
             </label>
-            {opt === "cross_border" && <div style={{ fontSize: 12, color: "#1d4ed8", background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>📦 한국에서 크로스보더 배송: 주문 시 한국에서 직접 발송합니다. 현지 창고 계약이 없어도 됩니다.</div>}
+            <FbtInterest code={c.country_code} init={Boolean(c.fbt_interest)} disabled={disabled}
+              onSaved={(m: string) => { onChange(); flash(m); }} />
+            {opt === "cross_border" && <div style={{ fontSize: 12, color: "#1d4ed8", background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>📦 한국에서 크로스보더 배송 <b>(동남아시아만 해당)</b>: 주문 시 한국에서 직접 발송합니다. 현지 창고 계약이 없어도 됩니다.</div>}
             {needWarehouse && (
               <div style={{ display: "grid", gap: 8, marginBottom: 8 }}>
                 <LDetailInput label={opt === "fba" ? "FBA 입고 주소 (현지 주소)" : "현지 물류창고 주소"} code={c.country_code} field="local_address"
@@ -493,6 +497,28 @@ function Step5({ disabled, countries, onChange, flash }: { disabled: boolean; co
         })}
       </div>
     </Card>
+  );
+}
+
+// 추후 FBT(Fulfilled by TikTok) 신청 희망 체크(BUG-45).
+//   저장 결과를 그대로 알려준다 — 마이그레이션 미적용이면 "저장됨"이라고 말하지 않는다.
+function FbtInterest({ code, init, disabled, onSaved }: { code: string; init: boolean; disabled: boolean; onSaved: (m: string) => void }) {
+  const [on, setOn] = useState(init);
+  const [busy, setBusy] = useState(false);
+  return (
+    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#4b5563", fontWeight: 600, marginBottom: 8 }}>
+      <input type="checkbox" checked={on} disabled={disabled || busy}
+        onChange={async (e) => {
+          const want = e.target.checked;
+          setOn(want); setBusy(true);
+          const r = await setCountryFbtInterestAction(code, want);
+          setBusy(false);
+          if (r.ok) { onSaved(want ? "FBT 신청 희망으로 저장되었습니다." : "FBT 신청 희망을 해제했습니다."); }
+          else { setOn(!want); onSaved(r.error ?? "저장하지 못했습니다."); }
+        }} />
+      추후 <b>FBT(Fulfilled by TikTok)</b> 신청을 희망합니다
+      <span style={{ fontWeight: 400, color: "#9ca3af" }}>— 지금 신청하는 것은 아니며, 가능해지면 안내드립니다</span>
+    </label>
   );
 }
 
@@ -554,11 +580,13 @@ function InlineFile({ field, url, disabled, onDone }: { field: string; url?: str
 // 예전엔 상세페이지 내용을 직접 타이핑하는 칸이었는데, 실제로는 이미지·PDF 로 갖고 있어
 // 옮겨 적기 어려웠다(BUG-33) → 파일 업로드로 받는다.
 // 이미 글로 적어 보낸 값이 있으면 지우지 않고 그대로 보여주고, 원하면 파일로 교체할 수 있다.
-function DetailPageField({ country, value, disabled, onChange }: { country: string; value: string; disabled: boolean; onChange: (v: string) => void }) {
+function DetailPageField({ country, value, disabled, onChange, lang = "kr" }: { country: string; value: string; disabled: boolean; onChange: (v: string) => void; lang?: "kr" | "en" }) {
   const isFile = /^(https?:\/\/|\/api\/)/.test(value);
+  // 업로드 필드 키는 언어별로 다르다 — 한글본과 영문본이 서로 덮어쓰지 않게.
+  const field = lang === "en" ? `detail_en_${country}` : `detail_${country}`;
   return (
     <div style={{ minWidth: 190 }}>
-      {!disabled && <InlineFile field={`detail_${country}`} url={isFile ? value : undefined} disabled={disabled} onDone={onChange} />}
+      {!disabled && <InlineFile field={field} url={isFile ? value : undefined} disabled={disabled} onDone={onChange} />}
       {disabled && isFile && <a href={value} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: ACC }}>파일 보기 ↗</a>}
       {!isFile && value && (
         <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
@@ -566,7 +594,7 @@ function DetailPageField({ country, value, disabled, onChange }: { country: stri
           {!disabled && <button type="button" onClick={() => onChange("")} style={{ marginLeft: 6, fontSize: 11, border: "1px solid #e2e6eb", background: "#fff", borderRadius: 6, padding: "1px 6px", cursor: "pointer" }}>지우기</button>}
         </div>
       )}
-      {!value && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>이미지/PDF 업로드</div>}
+      {!value && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{lang === "en" ? "영문본이 있으면 올려주세요" : "이미지/PDF 업로드"}</div>}
     </div>
   );
 }

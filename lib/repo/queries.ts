@@ -2,7 +2,7 @@ import { query, queryOne, queryRo } from "../db";
 import { docProgress, type DocProgress } from "../docs";
 import { listFiles, listProposals, type BrandFile, type Proposal } from "./customer";
 import { listBrandComms } from "../email-link";
-import { STATE_LABELS, type Brand, type State } from "../types";
+import { STATE_LABELS, type Brand, type State , sourceGroup } from "../types";
 
 // 대시보드 읽기 쿼리 (04-DASHBOARD).
 
@@ -398,7 +398,12 @@ export async function customersList(f: {
   if (f.state) { p.push(f.state); where.push(`b.state=$${p.length}`); }
   // 상태 지정이 없으면 종료(dropped/churned) 제외 — 관리 목록에서 숨김. 명시 필터 시엔 표시.
   else where.push(`b.state NOT IN ('dropped','churned')`);
-  if (f.source) { p.push(f.source); where.push(`b.source=$${p.length}`); }
+  // 유입 필터 — 묶음 값(예: 세미나 전체)이면 해당 소스들을 한 번에 본다(BUG-43).
+  if (f.source) {
+    const grouped = sourceGroup(f.source);
+    if (grouped) { p.push(grouped); where.push(`b.source = ANY($${p.length}::text[])`); }
+    else { p.push(f.source); where.push(`b.source=$${p.length}`); }
+  }
   if (f.grade) { p.push(f.grade); where.push(`b.grade=$${p.length}`); }
   if (f.plan) { p.push(f.plan); where.push(`b.plan=$${p.length}`); }
   // 담당 필터 — owner_* 는 admin_users.id 저장 → 넘어온 값도 id 여야 매칭됨(전 페이지 대상).

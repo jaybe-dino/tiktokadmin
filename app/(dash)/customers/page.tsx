@@ -4,7 +4,7 @@ import CsvExportButton from "./CsvExportButton";
 import CustomerTable from "@/components/CustomerTable";
 import { adminUserList, customersList } from "@/lib/repo/queries";
 import { currentUser } from "@/lib/auth";
-import { PLAN_LABELS, PLANS, SOURCE_LABELS, SOURCES, STATE_LABELS, STATES, GRADES, COUNTRY_OPTIONS } from "@/lib/types";
+import { PLAN_LABELS, PLANS, SOURCE_LABELS, SOURCE_GROUPS, SOURCES, STATE_LABELS, STATES, GRADES, COUNTRY_OPTIONS } from "@/lib/types";
 import { OPS_COUNTRIES } from "@/lib/quote";
 import { normCountry } from "@/lib/progress-countries";
 
@@ -86,8 +86,10 @@ export default async function CustomersPage({
           <option value="">담당 전체</option>
           {ownerOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
-        <select name="source" defaultValue={sp.source ?? ""} style={{ width: 140 }}>
+        <select name="source" defaultValue={sp.source ?? ""} style={{ width: 160 }}>
           <option value="">유입 전체</option>
+          {/* 묶음 먼저 — 세미나 지원자는 소스가 두 갈래라 한 번에 보게 한다(BUG-43) */}
+          {Object.entries(SOURCE_GROUPS).map(([k, g]) => <option key={k} value={k}>{g.label}</option>)}
           {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABELS[s] ?? s}</option>)}
         </select>
         {/* 유입일(등록일) 범위 — 이 구간만 CSV 로 뽑을 수 있다(BUG-41) */}

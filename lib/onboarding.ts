@@ -310,7 +310,7 @@ export interface OnbProduct {
   // 영문 라벨 부착 사진(0090, BUG-25) — 미적용 DB 에선 undefined.
   label_photo_url?: string;
 }
-export interface OnbProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; detail_page_translated: string; translation_status: string }
+export interface OnbProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; detail_page_en: string; detail_page_translated: string; translation_status: string }
 export async function getProducts(applicationId: string): Promise<OnbProduct[]> {
   // 0088(승인)·0090(라벨 사진) 컬럼 포함 조회 → 미적용 DB 폴백.
   return query<OnbProduct>(
@@ -398,13 +398,13 @@ export async function upsertProductCountry(productId: string, pc: Partial<OnbPro
   try {
     if (pc.id) {
       await query(
-        `UPDATE onb_product_countries SET country_code=$2, unit_price=$3, currency=$4, cert_status=$5, cert_note=$6, cert_file_url=$7, detail_page_kr=$8, detail_page_translated=$9, translation_status=$10 WHERE id=$1`,
-        [pc.id, pc.country_code ?? "", pc.unit_price ?? "", pc.currency ?? "USD", pc.cert_status ?? "none", pc.cert_note ?? "", pc.cert_file_url ?? "", pc.detail_page_kr ?? "", pc.detail_page_translated ?? "", pc.translation_status ?? "draft"]);
+        `UPDATE onb_product_countries SET country_code=$2, unit_price=$3, currency=$4, cert_status=$5, cert_note=$6, cert_file_url=$7, detail_page_kr=$8, detail_page_translated=$9, translation_status=$10, detail_page_en=$11 WHERE id=$1`,
+        [pc.id, pc.country_code ?? "", pc.unit_price ?? "", pc.currency ?? "USD", pc.cert_status ?? "none", pc.cert_note ?? "", pc.cert_file_url ?? "", pc.detail_page_kr ?? "", pc.detail_page_translated ?? "", pc.translation_status ?? "draft", pc.detail_page_en ?? ""]);
     } else {
       await query(
-        `INSERT INTO onb_product_countries (product_id, country_code, unit_price, currency, cert_status, cert_note, cert_file_url, detail_page_kr, detail_page_translated, translation_status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [productId, pc.country_code ?? "", pc.unit_price ?? "", pc.currency ?? "USD", pc.cert_status ?? "none", pc.cert_note ?? "", pc.cert_file_url ?? "", pc.detail_page_kr ?? "", pc.detail_page_translated ?? "", pc.translation_status ?? "draft"]);
+        `INSERT INTO onb_product_countries (product_id, country_code, unit_price, currency, cert_status, cert_note, cert_file_url, detail_page_kr, detail_page_translated, translation_status, detail_page_en)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [productId, pc.country_code ?? "", pc.unit_price ?? "", pc.currency ?? "USD", pc.cert_status ?? "none", pc.cert_note ?? "", pc.cert_file_url ?? "", pc.detail_page_kr ?? "", pc.detail_page_translated ?? "", pc.translation_status ?? "draft", pc.detail_page_en ?? ""]);
     }
     return { ok: true };
   } catch { return { ok: false }; }
@@ -431,14 +431,17 @@ export interface OnbCountry {
   logistics_status: string; logistics_note: string; logistics_contract_url: string;
   logistics_option: string;  // fba|local_warehouse|cross_border (legacy: self_delivery|flash_intro)
   logistics_local_address: string; logistics_contract_info: string;
+  fbt_interest: boolean;     // 추후 FBT(Fulfilled by TikTok) 신청 희망(BUG-45)
 }
 // 물류 방식 — 회의 확정: FBA / 현지 물류창고 계약 / 한국 크로스보더 배송.
+//   크로스보더는 동남아시아 국가에서만 가능하다(BUG-45) — 라벨에 함께 적는다.
+export const CROSS_BORDER_LABEL = "한국에서 크로스보더 배송 (동남아시아만 해당)";
 export const LOGISTICS_OPTIONS: [string, string][] = [
-  ["fba", "FBA (아마존 물류)"], ["local_warehouse", "현지 물류창고 계약"], ["cross_border", "한국에서 크로스보더 배송"],
+  ["fba", "FBA (아마존 물류)"], ["local_warehouse", "현지 물류창고 계약"], ["cross_border", CROSS_BORDER_LABEL],
 ];
 // 라벨 조회(레거시 값 포함).
 export const LOGISTICS_LABELS: Record<string, string> = {
-  fba: "FBA (아마존 물류)", local_warehouse: "현지 물류창고 계약", cross_border: "한국에서 크로스보더 배송",
+  fba: "FBA (아마존 물류)", local_warehouse: "현지 물류창고 계약", cross_border: CROSS_BORDER_LABEL,
   self_delivery: "직배송", flash_intro: "플래시 소개(제휴)",
 };
 export async function getCountries(applicationId: string): Promise<OnbCountry[]> {
@@ -477,6 +480,18 @@ export async function setCountryLogisticsOption(applicationId: string, code: str
   await query("UPDATE onb_countries SET logistics_option=$3 WHERE application_id=$1 AND country_code=$2", [applicationId, code.toUpperCase(), option]).catch(() => {});
   return { ok: true };
 }
+/** Step5 추후 FBT(Fulfilled by TikTok) 신청 희망 여부. 0100 미적용이면 조용히 무시된다. */
+export async function setCountryFbtInterest(applicationId: string, code: string, want: boolean): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await query("UPDATE onb_countries SET fbt_interest=$3 WHERE application_id=$1 AND country_code=$2",
+      [applicationId, code.toUpperCase(), want]);
+    return { ok: true };
+  } catch (e) {
+    // 컬럼이 없으면(마이그레이션 0100 미적용) 사유를 알려준다 — 저장된 척하지 않는다.
+    return { ok: false, error: /fbt_interest/.test((e as Error).message) ? "마이그레이션 0100 적용 필요" : "저장 실패" };
+  }
+}
+
 /** Step5 국가별 물류 상세 — 현지 주소·계약 정보(현지창고/FBA). */
 export async function setCountryLogisticsDetail(applicationId: string, code: string, d: { local_address?: string; contract_info?: string }): Promise<{ ok: boolean }> {
   await query(

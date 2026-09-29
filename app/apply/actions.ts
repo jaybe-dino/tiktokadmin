@@ -47,6 +47,13 @@ export async function setCountryLogisticsOptionAction(code: string, option: stri
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
   const r = await setCountryLogisticsOption(app.id, code, option); revalidatePath("/apply"); return r;
 }
+
+/** 추후 FBT(Fulfilled by TikTok) 신청 희망 체크(BUG-45). */
+export async function setCountryFbtInterestAction(code: string, want: boolean) {
+  const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
+  const { setCountryFbtInterest } = await import("@/lib/onboarding");
+  const r = await setCountryFbtInterest(app.id, code, want); revalidatePath("/apply"); return r;
+}
 // Step5 — 국가별 물류 상세(현지 주소·계약 정보)
 export async function setCountryLogisticsDetailAction(code: string, d: { local_address?: string; contract_info?: string }) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };

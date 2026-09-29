@@ -1,3 +1,5 @@
+import GeminiCheckPanel from "./GeminiCheckPanel";
+
 // 연동 상태 카드(서버 컴포넌트) — 배포 환경에 어떤 외부 연동 키가 인식되는지 한눈에.
 //   값은 절대 노출하지 않고 "설정됨/미설정 + 어떤 변수명으로 인식됐는지"만 표시한다.
 //   (예: Apify 키를 어떤 이름으로 넣었는지 기억 안 날 때 여기서 바로 확인)
@@ -57,7 +59,9 @@ export default function IntegrationStatus() {
         </table>
         <div className="note" style={{ marginTop: 8, fontSize: 11 }}>
           환경변수 추가·변경 후에는 Vercel <b>재배포</b>가 있어야 반영됩니다.
+          「설정됨」은 <b>값이 들어와 있다는 뜻일 뿐</b>이며, 실제 호출이 되는지는 아래에서 확인하세요.
         </div>
+        <GeminiCheckPanel />
       </div>
     </div>
   );
