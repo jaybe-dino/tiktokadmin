@@ -1,4 +1,4 @@
-import GeminiCheckPanel from "./GeminiCheckPanel";
+import GeminiCheckPanel, { SmsCheckPanel } from "./GeminiCheckPanel";
 
 // 연동 상태 카드(서버 컴포넌트) — 배포 환경에 어떤 외부 연동 키가 인식되는지 한눈에.
 //   값은 절대 노출하지 않고 "설정됨/미설정 + 어떤 변수명으로 인식됐는지"만 표시한다.
@@ -62,6 +62,7 @@ export default function IntegrationStatus() {
           「설정됨」은 <b>값이 들어와 있다는 뜻일 뿐</b>이며, 실제 호출이 되는지는 아래에서 확인하세요.
         </div>
         <GeminiCheckPanel />
+        <SmsCheckPanel />
       </div>
     </div>
   );

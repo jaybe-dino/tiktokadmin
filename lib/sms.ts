@@ -53,25 +53,65 @@ export function aligoConfigured(): boolean {
   return Boolean(env.aligo.apiKey && env.aligo.userId && env.aligo.sender);
 }
 
+/**
+ * 네트워크 실패의 진짜 원인 — Node 의 fetch 는 무슨 일이 있어도 "fetch failed" 만 던지고,
+ * 실제 사유는 error.cause 에 들어 있다. 그걸 꺼내지 않으면 원인을 알 수 없다.
+ * 비밀값은 담기지 않는다(주소·코드·사유만).
+ */
+export function netReason(e: unknown): string {
+  const err = e as { message?: string; cause?: { code?: string; message?: string } };
+  const code = err?.cause?.code ?? "";
+  // 빈 문자열도 "없음"으로 본다 — ?? 만 쓰면 빈 cause 메시지에서 사유가 통째로 사라진다.
+  const raw = (err?.cause?.message || err?.message || String(e) || "원인 미상").trim();
+  const hint =
+    code === "ENOTFOUND" ? "주소를 찾지 못함(DNS)"
+    : code === "EAI_AGAIN" ? "DNS 일시 실패"
+    : code === "ECONNREFUSED" ? "연결 거부"
+    : code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT" ? "연결 시간 초과"
+    : code === "ECONNRESET" || code === "UND_ERR_SOCKET" ? "연결이 끊김"
+    : code === "CERT_HAS_EXPIRED" ? "TLS 인증서 만료"
+    : /certificate|self-signed/i.test(raw) ? "TLS 인증서 문제"
+    : /407/.test(raw) ? "프록시 인증 실패(407)"
+    : "";
+  return ([code, hint, raw].filter(Boolean).join(" · ") || "원인 미상").slice(0, 220);
+}
+
 // 고정 IP 프록시(ALIGO_PROXY_URL) 설정 시 그 프록시로 발송 → Aligo 발송IP 고정.
-//   미설정이면 일반 fetch(Vercel 동적 IP). undici 없으면 조용히 일반 fetch 폴백.
+//   미설정이면 일반 fetch(Vercel 동적 IP).
 async function aligoFetch(url: string, init: RequestInit): Promise<Response> {
   const proxy = env.aligo.proxyUrl;
-  if (!proxy) return fetch(url, init);
+  if (!proxy) {
+    try { return await fetch(url, init); }
+    catch (e) { throw new Error(`ALIGO 접속 실패(apis.aligo.in) — ${netReason(e)}`); }
+  }
+
+  let dispatcher: unknown;
+  let proxyHost = "";
   try {
     const { ProxyAgent } = await import("undici");
     // Fixie/QuotaGuard 등은 URL 에 아이디:비번이 포함됨 → basic auth 를 명시 전달
     //   (undici 버전에 따라 userinfo 자동인식이 안 되면 407 발생하므로 token 직접 세팅)
     const u = new URL(proxy);
+    proxyHost = u.host;
     const uri = `${u.protocol}//${u.host}`;
     const auth = u.username || u.password
       ? "Basic " + Buffer.from(`${decodeURIComponent(u.username)}:${decodeURIComponent(u.password)}`).toString("base64")
       : undefined;
-    const dispatcher = new ProxyAgent(auth ? { uri, token: auth } : { uri });
-    return fetch(url, { ...init, dispatcher } as RequestInit);
+    dispatcher = new ProxyAgent(auth ? { uri, token: auth } : { uri });
   } catch (e) {
-    console.error("[aligo] proxy fetch 실패, 직접 발송 폴백:", (e as Error).message);
-    return fetch(url, init);
+    // 프록시 "설정"을 못 읽은 경우만 직접 발송으로 넘어간다(주소 형식 오류·undici 없음 등).
+    console.error("[aligo] 프록시 설정을 읽지 못했습니다 — 직접 발송으로 폴백:", (e as Error).message);
+    try { return await fetch(url, init); }
+    catch (e2) { throw new Error(`ALIGO 접속 실패(프록시 설정 오류 후 직접 발송) — ${netReason(e2)}`); }
+  }
+
+  try {
+    return await fetch(url, { ...init, dispatcher } as RequestInit);
+  } catch (e) {
+    // 프록시 경유 실패를 조용히 직접 발송으로 넘기지 않는다 —
+    //   직접 발송은 Vercel 유동 IP 라 ALIGO 가 "인증오류-IP" 로 거절해 원인이 더 흐려진다.
+    //   여기서는 프록시가 문제라는 사실을 그대로 알린다.
+    throw new Error(`ALIGO 고정IP 프록시 연결 실패(${proxyHost}) — ${netReason(e)}`);
   }
 }
 
@@ -154,7 +194,8 @@ export async function smsRemain(): Promise<{ ok: boolean; sms?: number; lms?: nu
     }
     return { ok: false, message: data.message ?? "조회 실패" };
   } catch (e) {
-    return { ok: false, message: (e as Error).message };
+    const msg = (e as Error).message;
+    return { ok: false, message: /^ALIGO /.test(msg) ? msg : `잔여 건수 조회 실패 — ${netReason(e)}` };
   }
 }
 
@@ -176,6 +217,59 @@ async function postAligo(url: string, body: URLSearchParams, type: string): Prom
     }
     return { ok: false, code, message: data.message ?? `발송 실패(code ${code})` };
   } catch (e) {
-    return { ok: false, message: (e as Error).message };
+    // "fetch failed" 한 줄로 끝내지 않는다 — 무엇 때문에 못 붙었는지 남긴다.
+    const msg = (e as Error).message;
+    return { ok: false, message: /^ALIGO /.test(msg) ? msg : `문자 발송 실패 — ${netReason(e)}` };
   }
+}
+
+// ── 연동 점검 ────────────────────────────────────────────────
+export interface SmsCheck {
+  envOk: boolean;
+  missing: string[];
+  /** 고정 IP 프록시 사용 여부·호스트(아이디·비번은 담지 않는다). */
+  proxySet: boolean;
+  proxyHost: string;
+  proxyFrom: string;
+  testMode: boolean;
+  /** 실제 호출(잔여 건수) 결과 — 문자를 보내지 않는다. */
+  reachable: boolean;
+  note: string;
+  remain?: { sms: number; lms: number; mms: number };
+}
+
+/**
+ * 문자 연동 점검 — 문자를 보내지 않고 잔여 건수 조회로 접속·인증만 확인한다.
+ *   "fetch failed" 가 났을 때 키 문제인지 프록시 문제인지 네트워크 문제인지 가른다.
+ *   비밀값(키·프록시 비번)은 반환하지 않는다.
+ */
+export async function checkSms(): Promise<SmsCheck> {
+  const missing = [
+    !env.aligo.apiKey && "ALIGO_API_KEY",
+    !env.aligo.userId && "ALIGO_USER_ID",
+    !env.aligo.sender && "ALIGO_SENDER",
+  ].filter(Boolean) as string[];
+
+  const proxy = env.aligo.proxyUrl;
+  let proxyHost = "";
+  if (proxy) { try { proxyHost = new URL(proxy).host; } catch { proxyHost = "(주소 형식 오류)"; } }
+
+  const base: SmsCheck = {
+    envOk: missing.length === 0, missing,
+    proxySet: Boolean(proxy), proxyHost,
+    proxyFrom: process.env.ALIGO_PROXY_URL ? "ALIGO_PROXY_URL" : process.env.FIXIE_URL ? "FIXIE_URL" : "",
+    testMode: env.aligo.testMode,
+    reachable: false, note: "",
+  };
+  if (missing.length) return { ...base, note: `환경변수 미설정: ${missing.join(", ")}` };
+
+  const r = await smsRemain();
+  if (r.ok) {
+    return {
+      ...base, reachable: true,
+      note: proxy ? `정상 — 고정 IP 프록시(${proxyHost}) 경유로 접속됩니다` : "정상 — 직접 접속됩니다",
+      remain: { sms: r.sms ?? 0, lms: r.lms ?? 0, mms: r.mms ?? 0 },
+    };
+  }
+  return { ...base, note: r.message };
 }
