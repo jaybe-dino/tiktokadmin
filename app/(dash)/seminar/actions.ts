@@ -157,3 +157,91 @@ export async function seminarSessionDetailAction(sessionId: string): Promise<{
     return { ok: false, error: `회차 내역을 불러오지 못했습니다 — ${(e as Error).message.slice(0, 200)}` };
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// 지정 수신자 테스트 발송 — 관리자 전용.
+//   저장된 담당자 연락처로만 1건씩 나간다. 고객 회차·대상·수신거부 기록은 건드리지 않는다.
+// ═══════════════════════════════════════════════════════════
+
+export interface SeminarTestState {
+  schemaReady: boolean;
+  schemaError?: string;
+  migration: string;
+  recipients: { phone: string; email: string };
+  log: Awaited<ReturnType<typeof import("@/lib/seminar-test").listTestSends>>;
+  canWrite: boolean;
+}
+
+export async function seminarTestStateAction(): Promise<{ ok: boolean; error?: string; data?: SeminarTestState }> {
+  const a = await reader();
+  if (!a.ok) return a;
+  const T = await import("@/lib/seminar-test");
+  const schema = await T.seminarTestSchema();
+  if (!schema.ready) {
+    return {
+      ok: true,
+      data: {
+        schemaReady: false, schemaError: schema.error, migration: T.SEMINAR_TEST_MIGRATION,
+        recipients: { phone: "", email: "" }, log: [], canWrite: WRITE_ROLES.has(a.user.role),
+      },
+    };
+  }
+  try {
+    const [recipients, log] = await Promise.all([T.getTestRecipients(), T.listTestSends()]);
+    return {
+      ok: true,
+      data: {
+        schemaReady: true, migration: T.SEMINAR_TEST_MIGRATION,
+        recipients, log, canWrite: WRITE_ROLES.has(a.user.role),
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: `테스트 정보를 불러오지 못했습니다 — ${(e as Error).message.slice(0, 200)}` };
+  }
+}
+
+export async function seminarSaveTestRecipientsAction(input: { phone?: string; email?: string }):
+  Promise<{ ok: boolean; error?: string; note?: string }> {
+  const a = await writer();
+  if (!a.ok) return a;
+  try {
+    const { setTestRecipients } = await import("@/lib/seminar-test");
+    const r = await setTestRecipients(input, a.user.id);
+    return r.ok ? { ok: true, note: "테스트 수신자를 저장했습니다." } : r;
+  } catch (e) {
+    return { ok: false, error: `저장 실패 — ${(e as Error).message.slice(0, 200)}` };
+  }
+}
+
+export async function seminarPreviewTestAction(channel: string, stage: string, sessionDate?: string):
+  Promise<{ ok: boolean; error?: string; data?: Awaited<ReturnType<typeof import("@/lib/seminar-test").previewSeminarTest>> }> {
+  const a = await reader();
+  if (!a.ok) return a;
+  if (channel !== "sms" && channel !== "email") return { ok: false, error: "채널이 올바르지 않습니다." };
+  if (stage !== "notice" && stage !== "followup") return { ok: false, error: "단계가 올바르지 않습니다." };
+  try {
+    const { previewSeminarTest } = await import("@/lib/seminar-test");
+    return { ok: true, data: await previewSeminarTest({ channel, stage, sessionDate }) };
+  } catch (e) {
+    return { ok: false, error: `미리보기 실패 — ${(e as Error).message.slice(0, 200)}` };
+  }
+}
+
+/** 실제 테스트 전송(1차 참가안내만). 저장된 연락처 외에는 어떤 주소로도 보내지 않는다. */
+export async function seminarSendTestAction(channel: string, sessionDate?: string):
+  Promise<{ ok: boolean; error?: string; note?: string }> {
+  const a = await writer();
+  if (!a.ok) return a;
+  if (channel !== "sms" && channel !== "email") return { ok: false, error: "채널이 올바르지 않습니다." };
+  try {
+    const { sendSeminarTest } = await import("@/lib/seminar-test");
+    const r = await sendSeminarTest({ channel, sessionDate, by: a.user.id });
+    if (!r.ok) return { ok: false, error: r.error };
+    return {
+      ok: true,
+      note: `${channel === "sms" ? "문자" : "메일"} 테스트 1건 발송 — ${r.toMasked} · ${r.provider ?? ""}${r.providerId ? ` (${r.providerId})` : ""}`,
+    };
+  } catch (e) {
+    return { ok: false, error: `발송 실패 — ${(e as Error).message.slice(0, 200)}` };
+  }
+}

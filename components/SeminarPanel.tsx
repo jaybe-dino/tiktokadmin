@@ -7,8 +7,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   seminarOverviewAction, seminarSaveConfigAction, seminarSaveTemplateAction,
   seminarPreviewAction, seminarBuildAction, seminarDispatchAction, seminarSessionDetailAction,
-  type SeminarOverview,
+  seminarTestStateAction, seminarSaveTestRecipientsAction, seminarPreviewTestAction, seminarSendTestAction,
+  type SeminarOverview, type SeminarTestState,
 } from "@/app/(dash)/seminar/actions";
+import type { TestPreview } from "@/lib/seminar-test";
 import type { PreviewResult, SendRow, TargetRow } from "@/lib/seminar";
 
 type Res = { ok: boolean; error?: string; note?: string };
@@ -78,6 +80,7 @@ export default function SeminarPanel() {
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <StatusCard ov={ov} onDone={reload} />
+      <TestSendCard ov={ov} />
       <ConfigCard ov={ov} onDone={reload} />
       <TemplatesCard ov={ov} onDone={reload} />
       <PreviewCard ov={ov} onDone={reload} />
@@ -137,6 +140,145 @@ function StatusCard({ ov, onDone }: { ov: SeminarOverview; onDone: () => void })
           <div className="note" style={{ color: "#0b7a52" }}>보낼 수 있는 상태입니다.</div>
         )}
         {a.msg && <Msg m={a.msg} />}
+      </div>
+    </div>
+  );
+}
+
+// ── 지정 수신자 테스트 발송 ─────────────────────────────────
+function TestSendCard({ ov }: { ov: SeminarOverview }) {
+  const [st, setSt] = useState<SeminarTestState | null>(null);
+  const [pv, setPv] = useState<TestPreview | null>(null);
+  const save = useAction();
+  const prev = useAction();
+  const send = useAction();
+  const phone = useRef<HTMLInputElement>(null);
+  const email = useRef<HTMLInputElement>(null);
+  const day = useRef<HTMLInputElement>(null);
+
+  const reload = useCallback(async () => {
+    const r = await seminarTestStateAction();
+    if (r.ok && r.data) setSt(r.data);
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
+
+  if (!st) return null;
+  if (!st.schemaReady) {
+    return (
+      <div className="card" data-testid="seminar-test">
+        <div className="hd"><b>🧪 지정 수신자 테스트 발송</b></div>
+        <div className="bd note" style={{ color: "#c25400" }}>
+          {st.schemaError} — 설정 &gt; 마이그레이션에서 <b>{st.migration}</b> 만 단독 적용하면 사용할 수 있습니다.
+        </div>
+      </div>
+    );
+  }
+
+  const busy = save.busy || prev.busy || send.busy;
+  return (
+    <div className="card" data-testid="seminar-test">
+      <div className="hd">
+        <b>🧪 지정 수신자 테스트 발송</b>
+        <span style={{ color: "var(--ink3)", fontSize: 11 }}>
+          저장된 담당자 연락처로만 1건씩 나갑니다 — 마스터 스위치·문구 활성화와 무관하고,
+          고객 회차·예약·수신거부에는 아무 영향이 없습니다.
+        </span>
+      </div>
+      <div className="bd" style={{ display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11.5, color: "var(--ink3)" }}>테스트 수신자</span>
+          <input className="f" ref={phone} defaultValue={st.recipients.phone} disabled={!st.canWrite}
+            placeholder="문자 번호 (010…)" style={{ width: 170, fontSize: 12 }} />
+          <input className="f" ref={email} defaultValue={st.recipients.email} disabled={!st.canWrite}
+            placeholder="메일 주소" style={{ width: 230, fontSize: 12 }} />
+          {st.canWrite && (
+            <button className="btn sm" disabled={busy}
+              onClick={() => void save.run(() => seminarSaveTestRecipientsAction({
+                phone: str(phone, st.recipients.phone), email: str(email, st.recipients.email),
+              }), () => { setPv(null); void reload(); })}>수신자 저장</button>
+          )}
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--ink3)" }}>
+          서버는 저장된 주소로만 보냅니다 — 여기 적지 않은 주소로는 어떤 경우에도 나가지 않습니다.
+        </div>
+
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11.5, color: "var(--ink3)" }}>회차 날짜(문구의 일시)</span>
+          <input className="f" ref={day} type="date" defaultValue="2026-10-05" style={{ width: 160, fontSize: 12 }} />
+          <button className="btn sm" disabled={busy}
+            onClick={() => void prev.run(async () => {
+              const r = await seminarPreviewTestAction("sms", "notice", str(day, "2026-10-05"));
+              if (r.ok && r.data) setPv(r.data);
+              return { ...r, note: r.ok ? "문자 미리보기" : undefined };
+            })}>문자 미리보기</button>
+          <button className="btn sm" disabled={busy}
+            onClick={() => void prev.run(async () => {
+              const r = await seminarPreviewTestAction("email", "notice", str(day, "2026-10-05"));
+              if (r.ok && r.data) setPv(r.data);
+              return { ...r, note: r.ok ? "메일 미리보기" : undefined };
+            })}>메일 미리보기</button>
+          <button className="btn sm" disabled={busy}
+            onClick={() => void prev.run(async () => {
+              const r = await seminarPreviewTestAction("email", "followup", str(day, "2026-10-05"));
+              if (r.ok && r.data) setPv(r.data);
+              return { ...r, note: r.ok ? "2차 미리보기(발송 불가)" : undefined };
+            })}>2차 미리보기</button>
+        </div>
+
+        {pv && (
+          <div style={{ background: "var(--bg)", borderRadius: 8, padding: 10 }}>
+            <div style={{ fontSize: 11.5, color: "var(--ink3)" }}>
+              {pv.channel === "sms" ? "문자" : "메일"} · {pv.stage === "notice" ? "1차 참가안내" : "2차 후속"} ·
+              받는 곳 {pv.toMasked || "미저장"} · 회차 {pv.sessionDate}
+            </div>
+            {pv.subject && <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 4 }}>{pv.subject}</div>}
+            <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", marginTop: 4 }}>{pv.body}</div>
+            {pv.blockers.length > 0 && (
+              <div style={{ fontSize: 12, color: "#c25400", marginTop: 6 }}>보낼 수 없음 — {pv.blockers.join(" · ")}</div>
+            )}
+          </div>
+        )}
+
+        {st.canWrite && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <button className="btn sm pri" disabled={busy || !st.recipients.phone}
+              onClick={() => {
+                if (!confirm("저장된 테스트 번호로 1차 참가안내 문자를 1건 보냅니다. 진행할까요?")) return;
+                void send.run(() => seminarSendTestAction("sms", str(day, "2026-10-05")), () => void reload());
+              }}>{send.busy ? "보내는 중…" : "문자 테스트 발송"}</button>
+            <button className="btn sm pri" disabled={busy || !st.recipients.email}
+              onClick={() => {
+                if (!confirm("저장된 테스트 메일 주소로 1차 참가안내를 1건 보냅니다. 진행할까요?")) return;
+                void send.run(() => seminarSendTestAction("email", str(day, "2026-10-05")), () => void reload());
+              }}>{send.busy ? "보내는 중…" : "메일 테스트 발송"}</button>
+            <span style={{ fontSize: 11.5, color: "var(--ink3)" }}>
+              2차 문구는 내용 미확정이라 실제 발송에서 제외됩니다(미리보기만).
+            </span>
+          </div>
+        )}
+        {save.msg && <Msg m={save.msg} />}
+        {prev.msg && <Msg m={prev.msg} />}
+        {send.msg && <Msg m={send.msg} />}
+
+        {st.log.length > 0 && (
+          <div style={{ maxHeight: 200, overflow: "auto" }}>
+            <table className="t" style={{ fontSize: 11.5 }}>
+              <thead><tr><th>시각</th><th>채널</th><th>받는 곳</th><th>상태</th><th>메시지 id</th><th>사유</th></tr></thead>
+              <tbody>
+                {st.log.map((l) => (
+                  <tr key={l.id}>
+                    <td>{kst(l.sent_at ?? l.created_at)}</td>
+                    <td>{l.channel === "sms" ? "문자" : "메일"}</td>
+                    <td>{l.to_masked}</td>
+                    <td>{l.status === "sent" ? "발송" : l.status === "failed" ? "실패" : l.status}</td>
+                    <td style={{ color: "var(--ink3)" }}>{l.provider_id ? `${l.provider}:${l.provider_id}` : "—"}</td>
+                    <td style={{ color: "#c92a2a" }}>{l.error}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
