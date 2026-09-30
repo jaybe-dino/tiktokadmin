@@ -180,7 +180,7 @@ function LangRow({ brandId, lang, doc, origin, onDone }: {
           </div>
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
             <span style={{ color: "var(--ink3)", minWidth: 96 }}>유통 문의 메일</span>
-            <input className="f" ref={mailRef} defaultValue={doc.contact_email} placeholder="partners@glovek.space"
+            <input className="f" ref={mailRef} defaultValue={doc.contact_email} placeholder="dino_glovek@glovek.space"
               style={{ width: 240, fontSize: 12 }} />
             <button className="btn sm" disabled={busy} onClick={saveContact}>저장</button>
           </label>

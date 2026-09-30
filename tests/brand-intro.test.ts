@@ -130,6 +130,9 @@ vi.mock("../lib/ai", () => ({
 const { generateIntroDoc, setIntroStatus, setIntroContact, listIntroDocs, getIntroByToken, defaultIntroContact } =
   await import("../lib/brand-intro");
 
+// env 로 덮어쓰지 않은 상태의 기본값을 검사한다.
+delete process.env.GLOVEK_PARTNER_EMAIL;
+
 function seed() {
   db.schema = true; db.hasKey = true; db.aiThrows = false; db.lastAiContent = null; db.seq = 0;
   db.docs = []; db.files = []; db.products = []; db.countries = [];
@@ -327,8 +330,8 @@ describe("생성", () => {
     expect(db.docs[0].contact_email).toBe("partner@example.com");
   });
 
-  it("유통 문의 기본값이 비어 있지 않다", () => {
-    expect(defaultIntroContact()).toMatch(/@/);
+  it("유통 문의 기본값이 글로브K 해외유통 주소다", () => {
+    expect(defaultIntroContact()).toBe("dino_glovek@glovek.space");
   });
 });
 

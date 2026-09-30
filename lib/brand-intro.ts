@@ -16,9 +16,10 @@ import {
 
 export const INTRO_SCHEMA_MIGRATION = "0102_brand_intro_docs.sql";
 
-/** 유통 문의 메일 — env 로 바꿀 수 있고, 문서별로도 덮어쓸 수 있다. */
+/** 유통 문의 메일(글로브K 해외유통 창구). env 로 바꿀 수 있고, 문서별로도 덮어쓸 수 있다. */
+export const GLOVEK_PARTNER_EMAIL_DEFAULT = "dino_glovek@glovek.space";
 export function defaultIntroContact(): string {
-  return (process.env.GLOVEK_PARTNER_EMAIL || "cs@glovek.space").trim();
+  return (process.env.GLOVEK_PARTNER_EMAIL || GLOVEK_PARTNER_EMAIL_DEFAULT).trim();
 }
 
 export interface IntroDocRow {
