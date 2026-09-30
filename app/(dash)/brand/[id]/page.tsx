@@ -23,6 +23,8 @@ import CustomerEmails from "@/components/CustomerEmails";
 import { listBrandComms } from "@/lib/email-link";
 import Brand360Tabs, { type Brand360Tab } from "@/components/Brand360Tabs";
 import BrandIntroPanel from "@/components/BrandIntroPanel";
+import BrandPmHeader from "@/components/BrandPmHeader";
+import BrandPmV2Panel from "@/components/BrandPmV2Panel";
 import TabJumpButton from "@/components/TabJumpButton";
 import { GradeBadge, StateBadge } from "@/components/badges";
 import { cardDeep } from "@/lib/repo/card";
@@ -425,11 +427,37 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
 
   // PM 에이전트 탭 — 데이터는 패널이 서버액션으로 직접 가져온다(브랜드 권한 가드를 그 안에서 통과).
   const panelPm = (
-    <BrandPmPanel
-      brandId={brand.id}
-      admins={adminUsers.map((a) => ({ id: a.id, name: a.name }))}
-    />
+    <>
+      <BrandPmPanel
+        brandId={brand.id}
+        admins={adminUsers.map((a) => ({ id: a.id, name: a.name }))}
+      />
+      {/* 1차 확장 — 계약 조건 · KPI 구분 · 대화 대조 · 업무 실행 · 내부 알림 · 히스토리 질의 */}
+      <div style={{ marginTop: 14 }}>
+        <BrandPmV2Panel
+          brandId={brand.id}
+          admins={adminUsers.map((a) => ({ id: a.id, name: a.name }))}
+        />
+      </div>
+    </>
   );
+
+  // ── 상단 PM 요약 ──
+  //   PM 권한 가드를 지난 담당자에게만 보여준다(미배정 직원에게는 사유만 표시).
+  //   0104 미적용·조회 실패도 사유를 적어 돌려주므로 빈 값으로 숨기지 않는다.
+  const pmHeader = await (async () => {
+    const { brandAccess } = await import("@/lib/pm-access");
+    const acc = await brandAccess(brand.id);
+    if (!acc.ok) {
+      const { kstDay } = await import("@/lib/pm-brief");
+      return { unavailable: `PM 요약을 볼 수 없습니다 — ${acc.error}`, keyKpis: [], top3: [], blockers: [], awaiting: [],
+        counts: { openTasks: 0, overdue: 0, waitingCustomer: 0, waitingInternal: 0, unconfirmedKpis: 0 },
+        asOf: new Date().toISOString(), caveats: [], _today: kstDay() } as unknown as Awaited<ReturnType<typeof import("@/lib/pm-v2").pmHeaderSummary>>;
+    }
+    const { pmHeaderSummary } = await import("@/lib/pm-v2");
+    const { noIngestCaveats } = await import("@/lib/pm-comms");
+    return pmHeaderSummary(acc.access.brandId, noIngestCaveats());
+  })();
 
   // 해외 소개자료 탭 — 패널이 서버액션으로 직접 가져온다(브랜드 권한 가드를 그 안에서 통과).
   const panelIntro = <BrandIntroPanel brandId={brand.id} />;
@@ -517,6 +545,9 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
       </div>
+
+      {/* ===== 상단 PM 요약 ===== */}
+      <BrandPmHeader summary={pmHeader} />
 
       {/* ===== 상단 탭 (v3.1 s-b360 구성) ===== */}
       <Brand360Tabs tabs={tabs} />

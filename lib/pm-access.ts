@@ -62,6 +62,14 @@ interface BrandRow {
 export async function brandAccess(brandId: string): Promise<AccessOk | AccessFail> {
   const user = await currentUser();
   if (!user) return { ok: false, error: "세션 만료" };
+  return brandAccessFor(user, brandId);
+}
+
+/**
+ * 세션이 아닌 다른 경로(예: Slack 액터)에서 같은 규칙으로 접근을 확인한다.
+ *   규칙을 복제하지 않기 위해 brandAccess 가 이 함수를 쓴다.
+ */
+export async function brandAccessFor(user: AdminUser, brandId: string): Promise<AccessOk | AccessFail> {
   if (!user.active) return { ok: false, error: "비활성 계정" };
   if (!isUuid(brandId)) return { ok: false, error: "브랜드를 선택하세요." };
 

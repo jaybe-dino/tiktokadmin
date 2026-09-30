@@ -68,6 +68,18 @@ export interface CommTimeline {
 }
 
 export const PM_COMMS_PAGE_SIZE = 25;
+
+/**
+ * 구조적으로 자동 수집 경로가 없는 채널 — 요약·추출이 놓치는 범위를 화면에 그대로 적기 위해 쓴다.
+ *   (여기 있는 채널은 원문 수동 등록만 가능하다. "연결됨" 이라고 말하지 않는다.)
+ */
+export const NO_INGEST_CHANNELS: { channel: CommChannel; label: string }[] = [
+  { channel: "slack", label: "Slack" },
+  { channel: "kakao", label: "카카오톡" },
+];
+export function noIngestCaveats(): string[] {
+  return NO_INGEST_CHANNELS.map((c) => `${c.label}: 자동 수집 미연결(수동 등록만)`);
+}
 const PREVIEW_LEN = 400;
 
 const CH_LABEL: Record<CommChannel, string> = {
