@@ -36,6 +36,7 @@ const GROUPS: Group[] = [
     { href: "/mail", label: "메일함", ic: "📬" },
     { href: "/drafts", label: "초안함", ic: "✉️" },
     { href: "/campaigns", label: "캠페인·윈백", ic: "📮" },
+    { href: "/seminar", label: "세미나 안내 발송", ic: "🎓" },
     { href: "/qna", label: "QnA 지식베이스", ic: "💬" },
   ]},
   { title: "온보딩·제품", items: [
