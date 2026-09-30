@@ -22,6 +22,7 @@ import { getQuestions } from "@/lib/survey-db";
 import CustomerEmails from "@/components/CustomerEmails";
 import { listBrandComms } from "@/lib/email-link";
 import Brand360Tabs, { type Brand360Tab } from "@/components/Brand360Tabs";
+import BrandIntroPanel from "@/components/BrandIntroPanel";
 import TabJumpButton from "@/components/TabJumpButton";
 import { GradeBadge, StateBadge } from "@/components/badges";
 import { cardDeep } from "@/lib/repo/card";
@@ -430,9 +431,13 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
     />
   );
 
+  // 해외 소개자료 탭 — 패널이 서버액션으로 직접 가져온다(브랜드 권한 가드를 그 안에서 통과).
+  const panelIntro = <BrandIntroPanel brandId={brand.id} />;
+
   const tabs: Brand360Tab[] = [
     { key: "ov", label: "개요", node: panelOverview },
     { key: "pm", label: "PM 에이전트", node: panelPm },
+    { key: "in", label: "해외 소개자료", node: panelIntro },
     { key: "sv", label: "설문", node: panelSurvey },
     { key: "co", label: "회사정보", node: panelCompany },
     { key: "tl", label: "타임라인", node: panelTimeline },

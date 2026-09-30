@@ -20,6 +20,7 @@ export function middleware(req: NextRequest) {
       // 공개 제안서의 이미지 서빙 경로 — 제안서 페이지가 이 호스트로 발급되므로 함께 허용해야
       // 썸네일이 뜬다(각 라우트가 토큰→문서→브랜드 일치 + image/* MIME 만 자체 검증).
       pathname.startsWith("/api/proposal-asset/") || pathname.startsWith("/api/proposal-img/") ||
+      pathname.startsWith("/intro/") || // 브랜드 해외 소개자료(유통사 열람 링크)
       pathname.startsWith("/jp") ||    // 일본 진출 사전 신청(공개 폼)
       pathname.startsWith("/u/") ||    // 광고 수신거부(고객이 여는 공개 링크)
       pathname.startsWith("/faq") ||   // 외부 공개 FAQ(QnA) — 포털 호스트에서 열람 허용
@@ -42,6 +43,7 @@ export function middleware(req: NextRequest) {
     pathname.startsWith("/f/") ||       // 쇼트링크 리다이렉트(수신자 클릭, 로그인 불필요)
     pathname.startsWith("/proposal/") || // 공개 제안서 열람(고객 링크, 로그인 불필요)
     pathname.startsWith("/mkt-proposal/") || // 공개 마케팅 제안서 열람(고객 링크, 로그인 불필요)
+    pathname.startsWith("/intro/") ||   // 브랜드 해외 소개자료(유통사 열람 링크, 로그인 불필요)
     pathname.startsWith("/jp") ||       // 일본 진출 사전 신청(공개 폼, 로그인 불필요)
     pathname.startsWith("/u/") ||       // 광고 수신거부(문자·메일 링크, 로그인 불필요)
     pathname.startsWith("/faq") ||      // 외부 공개 FAQ(QnA, 로그인 불필요)
