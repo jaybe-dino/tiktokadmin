@@ -3,6 +3,7 @@
 //   개별 열람하고 승인/반려한다. 반려 사유는 브랜드 제품포털(/apply/products)에 그대로 표시된다.
 import { useState, useTransition } from "react";
 import { getBrandOnbProductsAction, setOnbProductApprovalAction, type BrandOnbProducts } from "@/app/(dash)/products/actions";
+import { fileLinkProps } from "@/lib/onb-file-link";
 
 type Products = NonNullable<BrandOnbProducts["products"]>;
 
@@ -78,7 +79,7 @@ export default function OnbProductAdmin({ brands }: { brands: { id: string; name
               <div style={{ fontSize: 12, marginTop: 4 }}>
                 영문 라벨 사진:{" "}
                 {p.label_photo_url
-                  ? <a href={p.label_photo_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>📷 보기 ↗</a>
+                  ? <FileLink url={p.label_photo_url} name={`라벨_${p.sku || p.name || p.id}`} label="📷 라벨 사진" />
                   : <span style={{ color: "#c92a2a" }}>미등록</span>}
               </div>
               {p.approval_status === "rejected" && p.approval_note && (
@@ -93,9 +94,9 @@ export default function OnbProductAdmin({ brands }: { brands: { id: string; name
                         <td><b>{c.country_code}</b></td>
                         <td>{c.unit_price ? `${c.unit_price} ${c.currency}` : "—"}</td>
                         <td>{CERT[c.cert_status] ?? c.cert_status}</td>
-                        <td>{c.cert_file_url ? <a href={c.cert_file_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>파일 ↗</a> : "—"}</td>
-                        <td style={{ maxWidth: 260, whiteSpace: "pre-wrap" }}>{c.detail_page_kr ? (isUrl(c.detail_page_kr) ? <a href={c.detail_page_kr} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>링크 ↗</a> : c.detail_page_kr.slice(0, 120)) : "—"}</td>
-                        <td>{c.detail_page_translated ? (isUrl(c.detail_page_translated) ? <a href={c.detail_page_translated} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>번역본 ↗</a> : c.detail_page_translated.slice(0, 60)) : "—"}</td>
+                        <td>{c.cert_file_url ? <FileLink url={c.cert_file_url} name={`인증_${c.country_code}_${p.sku || p.name || p.id}`} label="파일" /> : "—"}</td>
+                        <td style={{ maxWidth: 260, whiteSpace: "pre-wrap" }}>{c.detail_page_kr ? (isUrl(c.detail_page_kr) ? <FileLink url={c.detail_page_kr} name={`상세페이지_${c.country_code}`} label="링크" /> : c.detail_page_kr.slice(0, 120)) : "—"}</td>
+                        <td>{c.detail_page_translated ? (isUrl(c.detail_page_translated) ? <FileLink url={c.detail_page_translated} name={`상세페이지번역_${c.country_code}`} label="번역본" /> : c.detail_page_translated.slice(0, 60)) : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -118,5 +119,17 @@ export default function OnbProductAdmin({ brands }: { brands: { id: string; name
         })}
       </div>
     </div>
+  );
+}
+
+// 우리 서버 첨부(/api/apply/file/… · /api/brand/import-file/…)는 새 창 미리보기 대신
+//   ?dl=1 + download 로 곧바로 저장되게 하고, 브랜드가 적어 넣은 외부 링크만 새 창으로 연다.
+function FileLink({ url, name, label }: { url: string; name: string; label: string }) {
+  const a = fileLinkProps(url, name);
+  const direct = "download" in a;
+  return (
+    <a {...a} style={{ color: "var(--acc)" }} title={direct ? "클릭하면 바로 다운로드됩니다." : url}>
+      {label} {direct ? "⬇" : "↗"}
+    </a>
   );
 }

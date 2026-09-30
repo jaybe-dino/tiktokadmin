@@ -5,7 +5,7 @@ import Link from "next/link";
 import { setOnbCustomerActiveAction, setOnbCustomerBrandAction, forceApproveCustomerAction, deleteOnbCustomerAction, reissueCodeAction } from "./actions";
 import { kstDate } from "@/lib/time";
 
-interface Row { id: string; email: string; brand_id: string | null; note: string; active: boolean; last_login_at: string | null; app_id: string | null; app_status: string | null; submitted_steps: number; countries: string | null; access_code_plain?: string | null }
+interface Row { id: string; email: string; brand_id: string | null; note: string; agency_name?: string; active: boolean; last_login_at: string | null; app_id: string | null; app_status: string | null; submitted_steps: number; countries: string | null; access_code_plain?: string | null }
 
 const APPLY_URL = `${process.env.NEXT_PUBLIC_PORTAL_URL || "https://tiktok.glovek.space"}/apply`;
 
@@ -65,6 +65,7 @@ export default function CustomerRow({ c, brands }: { c: Row; brands: { id: strin
     <tr style={{ opacity: active ? 1 : 0.5 }}>
       <td style={td}>
         <div style={{ fontWeight: 600 }}>{c.email}</div>
+        {c.agency_name && <div style={{ fontSize: 11, color: "#c25400" }}>에이전시 {c.agency_name}</div>}
         {c.note && <div style={{ fontSize: 11, color: "var(--ink2)" }}>{c.note}</div>}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
           <a href={APPLY_URL} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--acc)" }} title="고객 로그인 URL">🔗 로그인 URL</a>

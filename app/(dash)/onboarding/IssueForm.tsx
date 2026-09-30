@@ -7,16 +7,20 @@ export default function IssueForm({ brands }: { brands: { id: string; brand_name
   const [email, setEmail] = useState("");
   const [brandId, setBrandId] = useState("");
   const [note, setNote] = useState("");
+  const [agency, setAgency] = useState("");
   const [sendMail, setSendMail] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ email: string; code: string; mailed?: boolean } | null>(null);
+  const [result, setResult] = useState<{ email: string; code: string; mailed?: boolean; agency?: string; warn?: string } | null>(null);
   const [error, setError] = useState("");
 
   async function issue() {
     setBusy(true); setError("");
-    const r = await issueCustomerAction(email.trim(), brandId || null, note.trim(), sendMail);
+    const r = await issueCustomerAction(email.trim(), brandId || null, note.trim(), sendMail, agency.trim());
     setBusy(false);
-    if (r.ok && r.code) { setResult({ email: email.trim(), code: r.code, mailed: r.mailed }); setEmail(""); setNote(""); setBrandId(""); }
+    if (r.ok && r.code) {
+      setResult({ email: email.trim(), code: r.code, mailed: r.mailed, agency: agency.trim(), warn: r.note });
+      setEmail(""); setNote(""); setBrandId(""); setAgency("");
+    }
     else setError(r.error ?? "발급 실패");
   }
 
@@ -32,6 +36,10 @@ export default function IssueForm({ brands }: { brands: { id: string; brand_name
             <option value="">— 미연결 —</option>
             {brands.map((b) => <option key={b.id} value={b.id}>{b.brand_name}</option>)}
           </select>
+        </label>
+        <label style={lbl}>에이전시 (선택)
+          <input value={agency} onChange={(e) => setAgency(e.target.value)} placeholder="앞단 에이전시명 · 없으면 비움"
+            style={{ ...inp, width: 190 }} title="에이전시를 통해 들어온 고객이면 에이전시명을 적어주세요. 신청서에 표시됩니다." />
         </label>
         <label style={lbl}>메모 (선택)
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="담당·비고" style={{ ...inp, width: 180 }} />
@@ -50,9 +58,11 @@ export default function IssueForm({ brands }: { brands: { id: string; brand_name
             {result.mailed === true && " (이메일 전송됨)"}
             {result.mailed === false && " ⚠️ 이메일 전송 실패 — 수동 전달 필요"}
           </div>
+          {result.warn && <div style={{ marginTop: 6, fontSize: 12.5, color: "#c25400" }}>⚠️ {result.warn}</div>}
           <div style={{ marginTop: 8, display: "flex", gap: 18, alignItems: "center" }}>
             <div><span style={{ fontSize: 12, color: "#666" }}>이메일</span><div style={{ fontWeight: 600 }}>{result.email}</div></div>
             <div><span style={{ fontSize: 12, color: "#666" }}>발급코드</span><div style={{ fontFamily: "monospace", fontSize: 20, fontWeight: 800, letterSpacing: ".12em" }}>{result.code}</div></div>
+            {result.agency && <div><span style={{ fontSize: 12, color: "#666" }}>에이전시</span><div style={{ fontWeight: 600 }}>{result.agency}</div></div>}
             <button className="btn sm" onClick={() => navigator.clipboard?.writeText(`이메일: ${result.email}\n코드: ${result.code}\n로그인: ${(process.env.NEXT_PUBLIC_PORTAL_URL || "https://tiktok.glovek.space")}/apply`)} style={{ marginLeft: "auto" }}>안내문 복사</button>
             <button className="btn sm" onClick={() => setResult(null)}>닫기</button>
           </div>

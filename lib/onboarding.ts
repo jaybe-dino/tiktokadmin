@@ -28,10 +28,15 @@ export function verifyOnbSession(value: string): string | null {
   return id;
 }
 
-export interface OnbCustomer { id: string; email: string; brand_id: string | null; note: string; active: boolean }
+export interface OnbCustomer { id: string; email: string; brand_id: string | null; note: string; active: boolean; agency_name?: string }
 
-/** 관리자: 고객 계정 발급(이메일+8자리 코드). 기존 이메일이면 코드 재발급. 코드는 1회 반환. */
-export async function issueCustomer(email: string, brandId: string | null, note: string, by: string): Promise<{ ok: boolean; code?: string; error?: string }> {
+/**
+ * 관리자: 고객 계정 발급(이메일+8자리 코드). 기존 이메일이면 코드 재발급. 코드는 1회 반환.
+ *   agency: 앞단 에이전시가 있는 경우 그 이름(없으면 빈 값 = 직접 유입).
+ *     0101 미적용 DB 에서는 에이전시명 없이 발급되고, 그 사실을 note 로 돌려준다.
+ */
+export async function issueCustomer(email: string, brandId: string | null, note: string, by: string, agency = ""):
+  Promise<{ ok: boolean; code?: string; error?: string; note?: string }> {
   const e = (email || "").trim().toLowerCase();
   if (!e.includes("@")) return { ok: false, error: "이메일 형식이 아닙니다." };
   // 8자리 영숫자 코드(혼동 문자 0/O/1/I/L 제외).
@@ -40,16 +45,22 @@ export async function issueCustomer(email: string, brandId: string | null, note:
   const code = Array.from(buf, (b) => ALPHABET[b % ALPHABET.length]).join("");
   try {
     // 평문 코드도 보관(관리자 목록 재확인용) — 0083 미적용 시 평문 없이 재시도.
+    const ag = (agency || "").trim().slice(0, 200);
+    let agencySaved = true;
     try {
       await query(
-        `INSERT INTO onb_customers (email, access_code_hash, access_code_plain, brand_id, note, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6)
+        `INSERT INTO onb_customers (email, access_code_hash, access_code_plain, brand_id, note, created_by, agency_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (email) DO UPDATE SET access_code_hash=EXCLUDED.access_code_hash,
            access_code_plain=EXCLUDED.access_code_plain,
-           brand_id=COALESCE(EXCLUDED.brand_id, onb_customers.brand_id), note=EXCLUDED.note, active=true`,
-        [e, hashPassword(code), code, brandId, note || "", by]);
+           brand_id=COALESCE(EXCLUDED.brand_id, onb_customers.brand_id), note=EXCLUDED.note,
+           agency_name=EXCLUDED.agency_name, active=true`,
+        [e, hashPassword(code), code, brandId, note || "", by, ag]);
     } catch (inner) {
-      if (!/access_code_plain/.test(inner instanceof Error ? inner.message : "")) throw inner;
+      const msg = inner instanceof Error ? inner.message : "";
+      if (!/access_code_plain|agency_name/.test(msg)) throw inner;
+      // 0083(평문코드)·0101(에이전시명) 미적용 DB — 있는 컬럼만으로 발급한다.
+      agencySaved = false;
       await query(
         `INSERT INTO onb_customers (email, access_code_hash, brand_id, note, created_by)
          VALUES ($1,$2,$3,$4,$5)
@@ -57,7 +68,10 @@ export async function issueCustomer(email: string, brandId: string | null, note:
            brand_id=COALESCE(EXCLUDED.brand_id, onb_customers.brand_id), note=EXCLUDED.note, active=true`,
         [e, hashPassword(code), brandId, note || "", by]);
     }
-    return { ok: true, code };
+    return {
+      ok: true, code,
+      note: ag && !agencySaved ? "에이전시명은 저장되지 않았습니다 — 마이그레이션 0101 적용 필요" : undefined,
+    };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "발급 실패" };
   }
@@ -81,7 +95,12 @@ export async function currentOnbCustomer(): Promise<OnbCustomer | null> {
   if (!v) return null;
   const id = verifyOnbSession(v);
   if (!id) return null;
-  const c = await queryOne<OnbCustomer>("SELECT id, email, brand_id, note, active FROM onb_customers WHERE id=$1 AND active", [id]).catch(() => null);
+  // agency_name 은 0101 에서 추가된다 — 미적용 DB 에서는 컬럼 없이 다시 조회한다.
+  const pick = (agency: boolean) =>
+    `SELECT id, email, brand_id, note, active, ${agency ? "COALESCE(agency_name,'')" : "''::text"} AS agency_name
+       FROM onb_customers WHERE id=$1 AND active`;
+  const c = await queryOne<OnbCustomer>(pick(true), [id])
+    .catch(() => queryOne<OnbCustomer>(pick(false), [id]).catch(() => null));
   return c ?? null;
 }
 
@@ -511,6 +530,49 @@ export async function saveOnbFile(applicationId: string, field: string, filename
     return { ok: true, id: r!.id, url: `/api/apply/file/${r!.id}` };
   } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "업로드 실패" }; }
 }
+/** 회사자료(브랜드 소개서 등) 다중 첨부용 필드 키 — 이 키만 여러 개를 담는다. */
+export const COMPANY_DOCS_FIELD = "company_docs";
+/** 회사자료 1개 최대 용량(50MB). 다른 슬롯(신분증·등기부 등)은 기존 10MB 를 유지한다. */
+export const COMPANY_DOCS_MAX_BYTES = 50 * 1024 * 1024;
+export const COMPANY_DOCS_MAX_COUNT = 20;
+
+export interface OnbFileRow { id: string; field: string; filename: string; mime: string; size: number; created_by: string; created_at: string; url: string }
+
+/** 어떤 슬롯의 첨부 목록(지운 것은 감춘다). 0101 미적용이면 removed_at 없이 조회한다. */
+export async function listOnbFiles(applicationId: string, field: string): Promise<OnbFileRow[]> {
+  const map = (r: Omit<OnbFileRow, "url">): OnbFileRow => ({ ...r, url: `/api/apply/file/${r.id}` });
+  const cols = "id, field, filename, mime, size, created_by, created_at::text AS created_at";
+  try {
+    const rows = await query<Omit<OnbFileRow, "url">>(
+      `SELECT ${cols} FROM onb_files
+        WHERE application_id=$1 AND field=$2 AND removed_at IS NULL
+        ORDER BY created_at DESC`, [applicationId, field]);
+    return rows.map(map);
+  } catch (e) {
+    if (!/removed_at/.test((e as Error).message)) throw e;
+    const rows = await query<Omit<OnbFileRow, "url">>(
+      `SELECT ${cols} FROM onb_files WHERE application_id=$1 AND field=$2 ORDER BY created_at DESC`,
+      [applicationId, field]);
+    return rows.map(map);
+  }
+}
+
+/** 첨부 감추기 — 실수 복구를 위해 행은 남긴다. 신청서 소유 확인은 호출자가 한다. */
+export async function removeOnbFile(applicationId: string, fileId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await query<{ id: string }>(
+      "UPDATE onb_files SET removed_at=now() WHERE id=$1 AND application_id=$2 AND removed_at IS NULL RETURNING id",
+      [fileId, applicationId]);
+    if (r.length === 0) return { ok: false, error: "이 신청서의 파일이 아닙니다." };
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: /removed_at/.test((e as Error).message) ? "마이그레이션 0101 적용 필요" : "삭제 실패",
+    };
+  }
+}
+
 export async function getOnbFile(id: string): Promise<{ filename: string; mime: string; bytes: Buffer; application_id: string } | null> {
   return queryOne<{ filename: string; mime: string; bytes: Buffer; application_id: string }>("SELECT filename, mime, bytes, application_id FROM onb_files WHERE id=$1", [id]).catch(() => null);
 }
@@ -519,9 +581,11 @@ export async function getOnbFile(id: string): Promise<{ filename: string; mime: 
 export interface OnbCustomerRow extends OnbCustomer { last_login_at: string | null; created_at: string; app_id: string | null; app_status: string | null; submitted_steps: number; countries: string | null; access_code_plain?: string | null }
 export async function listCustomers(): Promise<OnbCustomerRow[]> {
   // 0083(access_code_plain) 미적용 DB 방어 — 평문 컬럼 유무에 따라 쿼리 분기.
-  const build = (plain: boolean) =>
+  //   0101(agency_name) 도 같은 방식으로 방어한다.
+  const build = (plain: boolean, agency = true) =>
     `SELECT c.id, c.email, c.brand_id, c.note, c.active, c.last_login_at, c.created_at,
             ${plain ? "c.access_code_plain," : "NULL::text AS access_code_plain,"}
+            ${agency ? "COALESCE(c.agency_name,'')" : "''::text"} AS agency_name,
             a.id AS app_id, a.status AS app_status,
             COALESCE((SELECT count(*) FROM onb_steps s WHERE s.application_id=a.id AND s.status IN ('submitted','approved')),0)::int AS submitted_steps,
             (SELECT string_agg(DISTINCT oc.country_code, ', ' ORDER BY oc.country_code)
@@ -529,7 +593,11 @@ export async function listCustomers(): Promise<OnbCustomerRow[]> {
        FROM onb_customers c
        LEFT JOIN onb_applications a ON a.customer_id=c.id
        ORDER BY c.created_at DESC`;
-  return query<OnbCustomerRow>(build(true)).catch(() => query<OnbCustomerRow>(build(false)).catch(() => []));
+  return query<OnbCustomerRow>(build(true))
+    .catch(() => query<OnbCustomerRow>(build(true, false)))
+    .catch(() => query<OnbCustomerRow>(build(false)))
+    .catch(() => query<OnbCustomerRow>(build(false, false)))
+    .catch(() => []);
 }
 export async function setCustomerActive(id: string, active: boolean): Promise<{ ok: boolean }> {
   await query("UPDATE onb_customers SET active=$2 WHERE id=$1", [id, active]).catch(() => {});

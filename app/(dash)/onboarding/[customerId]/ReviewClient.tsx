@@ -2,15 +2,19 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { reviewStepAction, approveApplicationAction, setStepLockAction } from "../actions";
+import { fileLinkProps } from "@/lib/onb-file-link";
 
 interface Step { step_no: number; status: string; admin_feedback: string }
 interface Country { id: string; country_code: string; country_name: string; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string }
 interface ProductCountry { id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string }
 interface Product { id: string; name: string; category: string; sku: string; description_kr: string }
+interface CompanyDoc { id: string; filename: string; size: number; created_at: string; url: string }
 interface Props {
   applicationId: string; customerId: string; appStatus: string; hasBrand: boolean;
   app: Record<string, unknown>;
   steps: Step[]; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]>;
+  agencyName?: string;
+  companyDocs?: CompanyDoc[];
 }
 
 const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", "제품 등록", "물류 계약서"];
@@ -24,6 +28,7 @@ const STEP_VIEW: Record<number, [string, string][]> = {
 const READY: Record<string, string> = { none: "없음", preparing: "준비중", ready: "완료" };
 const LOGI_OPT: Record<string, string> = { fba: "FBA (아마존 물류)", local_warehouse: "현지 물류창고 계약", cross_border: "한국 크로스보더 배송", self_delivery: "직배송", flash_intro: "플래시 소개" };
 const isUrl = (v: string) => /^(https?:\/\/|\/api\/)/.test(v);
+const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`);
 
 export default function ReviewClient(props: Props) {
   const router = useRouter();
@@ -103,7 +108,7 @@ export default function ReviewClient(props: Props) {
                       return (
                         <div key={k} style={{ fontSize: 13 }}>
                           <span style={{ color: "var(--ink2)", fontSize: 11 }}>{label}</span>
-                          <div style={{ wordBreak: "break-all" }}>{isUrl(val) ? <a href={val} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>파일/링크 ↗</a> : val}</div>
+                          <div style={{ wordBreak: "break-all" }}>{isUrl(val) ? <FileLink url={val} name={label} /> : val}</div>
                         </div>
                       );
                     })}
@@ -158,7 +163,7 @@ export default function ReviewClient(props: Props) {
                   <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.8 }}>
                     {props.countries.map((c) => (
                       <li key={c.id}>
-                        {c.country_code} · {LOGI_OPT[c.logistics_option] ?? "방식 미선택"} · {c.logistics_contract_url ? <a href={c.logistics_contract_url} target="_blank" rel="noreferrer" style={{ color: "var(--acc)" }}>계약서 ↗</a> : <span style={{ color: "var(--ink2)" }}>미업로드</span>}
+                        {c.country_code} · {LOGI_OPT[c.logistics_option] ?? "방식 미선택"} · {c.logistics_contract_url ? <FileLink url={c.logistics_contract_url} name={`물류계약서_${c.country_code}`} label="계약서" /> : <span style={{ color: "var(--ink2)" }}>미업로드</span>}
                         {c.logistics_local_address && <div style={{ color: "var(--ink2)", fontSize: 12 }}>현지주소: {c.logistics_local_address}</div>}
                         {c.logistics_contract_info && <div style={{ color: "var(--ink2)", fontSize: 12 }}>계약정보: {c.logistics_contract_info}</div>}
                       </li>
@@ -174,6 +179,31 @@ export default function ReviewClient(props: Props) {
         );
       })}
 
+      {(props.agencyName || (props.companyDocs?.length ?? 0) > 0) && (
+        <div className="card" style={{ padding: 16, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>브랜드 제공 자료</div>
+          {props.agencyName && (
+            <div style={{ fontSize: 13, marginBottom: 8 }}>
+              <span style={{ color: "var(--ink2)", fontSize: 11 }}>에이전시</span>
+              <div data-testid="review-agency" style={{ fontWeight: 600 }}>{props.agencyName}</div>
+            </div>
+          )}
+          <div style={{ color: "var(--ink2)", fontSize: 11, marginBottom: 4 }}>회사자료 · 브랜드 소개서 (클릭하면 바로 다운로드)</div>
+          {(props.companyDocs?.length ?? 0) === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--ink2)" }}>업로드된 회사자료가 없습니다.</div>
+          ) : (
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.8 }}>
+              {props.companyDocs!.map((d) => (
+                <li key={d.id}>
+                  <FileLink url={d.url} name={d.filename} label={d.filename} />
+                  <span style={{ color: "var(--ink2)", fontSize: 11, marginLeft: 6 }}>{kb(d.size)} · {d.created_at.slice(0, 16).replace("T", " ")}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       <div className="card" style={{ padding: 16, display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ fontSize: 13, color: "var(--ink2)" }}>
           {props.appStatus === "approved" ? "이미 승인되어 브랜드 원장에 매핑되었습니다."
@@ -185,6 +215,18 @@ export default function ReviewClient(props: Props) {
 
       {toast && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#111", color: "#fff", padding: "11px 18px", borderRadius: 10, fontSize: 13, zIndex: 50 }}>{toast}</div>}
     </div>
+  );
+}
+
+// 내부 첨부는 새 창이 아니라 곧바로 저장되게 하고(?dl=1 + download),
+//   브랜드가 직접 적은 외부 링크만 새 창으로 연다.
+function FileLink({ url, name, label }: { url: string; name: string; label?: string }) {
+  const a = fileLinkProps(url, name);
+  const direct = "download" in a; // 우리 서버 첨부 → 즉시 다운로드, 외부 링크 → 새 창
+  return (
+    <a {...a} style={{ color: "var(--acc)" }} title={direct ? "클릭하면 바로 다운로드됩니다." : url}>
+      {label ?? "파일/링크"} {direct ? "⬇" : "↗"}
+    </a>
   );
 }
 

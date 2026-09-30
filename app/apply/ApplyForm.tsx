@@ -3,11 +3,12 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   saveStepAction, submitStepAction, saveCountriesAction, setCountryLogisticsAction, setCountryLogisticsOptionAction, setCountryLogisticsDetailAction,
-  setCountryFbtInterestAction,
+  setCountryFbtInterestAction, removeCompanyDocAction,
   addProductAction, updateProductAction, deleteProductAction, upsertProductCountryAction,
 } from "./actions";
 import FdaListingExample from "@/components/FdaListingExample";
 import ImageTranslate from "@/components/ImageTranslate";
+import { fileDownloadHref } from "@/lib/onb-file-link";
 
 // ── 상수(tpartners 정합) ──
 const COUNTRIES: [string, string][] = [["US", "미국"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"]];
@@ -22,7 +23,14 @@ interface Step { step_no: number; status: string; admin_feedback: string }
 export interface Country { id: string; country_code: string; country_name: string; has_existing_shop: number; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string; fbt_interest?: boolean }
 export interface ProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; detail_page_en?: string; translation_status: string }
 export interface Product { id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string; label_photo_url?: string }
-interface Props { email: string; app: Record<string, unknown>; steps: Step[]; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]> }
+export interface OnbFile { id: string; field: string; filename: string; mime: string; size: number; created_by: string; created_at: string; url: string }
+interface Props {
+  email: string; app: Record<string, unknown>; steps: Step[]; countries: Country[];
+  products: Product[]; productCountries: Record<string, ProductCountry[]>;
+  /** 앞단 에이전시명(없으면 빈 값 = 직접 유입). 담당자가 계정 발급 때 적는다. */
+  agencyName?: string;
+  companyDocs?: OnbFile[];
+}
 
 const sv = (app: Record<string, unknown>, k: string): string => (app[k] == null ? "" : String(app[k]));
 
@@ -79,6 +87,13 @@ export default function ApplyForm(props: Props) {
     <div style={{ paddingBottom: 60 }}>
       <header style={{ display: "flex", alignItems: "center", gap: 10, padding: "20px 4px 14px" }}>
         <span style={{ color: ACC, fontWeight: 800, fontSize: 15 }}>TikTok Shop 온보딩</span>
+        {props.agencyName && (
+          <span data-testid="apply-agency"
+            style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 999, padding: "3px 10px" }}
+            title="이 신청서는 아래 에이전시를 통해 접수되었습니다.">
+            에이전시 · {props.agencyName}
+          </span>
+        )}
         <span style={{ color: "#8b93a1", fontSize: 13, marginLeft: "auto" }}>{props.email}</span>
         <button onClick={logout} style={{ background: "transparent", color: "#8b93a1", border: "1px solid #d5dae1", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>로그아웃</button>
       </header>
@@ -102,7 +117,12 @@ export default function ApplyForm(props: Props) {
 
       {!locked && (
         <>
-          {active === 0 && <Step1 v={v} set={set} disabled={!editable} countries={props.countries} onChange={() => router.refresh()} />}
+          {active === 0 && <>
+            <Step1 v={v} set={set} disabled={!editable} countries={props.countries} onChange={() => router.refresh()} />
+            <div style={{ marginTop: 14 }}>
+              <CompanyDocs initial={props.companyDocs ?? []} disabled={!editable} />
+            </div>
+          </>}
           {active === 1 && <Step2 v={v} set={set} app={props.app} disabled={!editable} />}
           {active === 2 && <Step3 v={v} set={set} disabled={!editable} />}
           {active === 3 && <Step4 disabled={!editable} countries={props.countries} products={props.products} productCountries={props.productCountries} onChange={() => router.refresh()} flash={flash} />}
@@ -148,6 +168,80 @@ export default function ApplyForm(props: Props) {
 }
 
 // ══════════ Step 1 — 기본신청 ══════════
+// ══════════ 회사자료(브랜드 소개서 등) — 여러 개 첨부 ══════════
+//   형식이 제각각이고 용량도 커서 이 슬롯만 50MB·문서/압축까지 받는다.
+//   올린 파일은 목록으로 보여주고 지울 수 있다(지운 파일은 감추기만 한다).
+function CompanyDocs({ initial, disabled }: { initial: OnbFile[]; disabled: boolean }) {
+  const [files, setFiles] = useState<OnbFile[]>(initial);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = Array.from(e.target.files ?? []);
+    if (list.length === 0) return;
+    setBusy(true); setMsg("");
+    const added: OnbFile[] = [];
+    const fails: string[] = [];
+    for (const f of list) {
+      const r = await uploadFile("company_docs", f);
+      if (r.ok && r.url) added.push({
+        id: r.url.split("/").pop() ?? "", field: "company_docs", filename: f.name,
+        mime: f.type || "", size: f.size, created_by: "", created_at: new Date().toISOString(), url: r.url,
+      });
+      else fails.push(`${f.name}: ${r.error ?? "실패"}`);
+    }
+    setBusy(false);
+    e.target.value = "";
+    if (added.length) setFiles((prev) => [...added, ...prev]);
+    setMsg([
+      added.length ? `${added.length}개 업로드됨` : "",
+      fails.length ? `실패 ${fails.length}개 — ${fails.join(" / ")}` : "",
+    ].filter(Boolean).join(" · "));
+  };
+
+  const drop = async (id: string) => {
+    setBusy(true); setMsg("");
+    const r = await removeCompanyDocAction(id);
+    setBusy(false);
+    if (r.ok) { setFiles((prev) => prev.filter((f) => f.id !== id)); setMsg("삭제되었습니다."); }
+    else setMsg(r.error ?? "삭제하지 못했습니다.");
+  };
+
+  const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`);
+
+  return (
+    <Card title="브랜드 소개서 · 회사자료 (선택)"
+      desc="기존에 쓰시던 브랜드 소개서·회사 소개자료·제품 카탈로그를 그대로 올려주세요. 해외 소개자료를 만들 때 그대로 활용합니다.">
+      {!disabled && (
+        <div style={{ display: "grid", gap: 6 }}>
+          <input data-testid="company-docs-input" type="file" multiple disabled={busy}
+            accept=".pdf,.jpg,.jpeg,.png,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.key,.zip,.hwp,.hwpx"
+            onChange={pick} style={{ fontSize: 13 }} />
+          <div style={{ fontSize: 11.5, color: "#8b93a1" }}>
+            여러 개 한 번에 선택할 수 있습니다 · 1개당 <b>50MB</b> 까지 · 최대 20개 ·
+            PDF · 이미지 · PPT · 워드 · 엑셀 · 한글 · ZIP
+          </div>
+        </div>
+      )}
+      {busy && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>업로드 중… (용량이 크면 시간이 걸립니다)</div>}
+      {msg && <div data-testid="company-docs-msg" style={{ fontSize: 12, color: msg.includes("실패") || msg.includes("못") ? "#e03131" : "#0b7a52", marginTop: 6 }}>{msg}</div>}
+
+      <div data-testid="company-docs-list" style={{ marginTop: 10, display: "grid", gap: 6 }}>
+        {files.length === 0 && <div style={{ fontSize: 12.5, color: "#9ca3af" }}>올린 자료가 없습니다.</div>}
+        {files.map((f) => (
+          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #e2e6eb", borderRadius: 10, padding: "7px 10px" }}>
+            <span style={{ fontSize: 13, color: "#111", wordBreak: "break-all" }}>{f.filename}</span>
+            <span style={{ fontSize: 11.5, color: "#8b93a1" }}>{kb(f.size)}</span>
+            <a href={fileDownloadHref(f.url)} download={f.filename} style={{ marginLeft: "auto", fontSize: 12, color: ACC, fontWeight: 600 }}>내려받기</a>
+            {!disabled && <button type="button" disabled={busy} onClick={() => drop(f.id)}
+              style={{ fontSize: 11.5, border: "1px solid #e2e6eb", background: "#fff", borderRadius: 7, padding: "2px 8px", cursor: "pointer", color: "#e03131" }}>삭제</button>}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function Step1({ v, set, disabled, countries }: { v: Record<string, string>; set: (k: string, x: string) => void; disabled: boolean; countries: Country[]; onChange: () => void }) {
   // 국가 매트릭스 로컬 상태 — 저장 시 window 로 부모에 전달.
   const [rows, setRows] = useState<Record<string, Partial<Country>>>(() => {

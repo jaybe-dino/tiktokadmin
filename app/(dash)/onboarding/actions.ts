@@ -7,10 +7,12 @@ import {
   deleteCustomer, forceApproveCustomer, reissueCode,
 } from "@/lib/onboarding";
 
-export async function issueCustomerAction(email: string, brandId: string | null, note: string, sendMail?: boolean): Promise<{ ok: boolean; code?: string; error?: string; mailed?: boolean }> {
+export async function issueCustomerAction(email: string, brandId: string | null, note: string, sendMail?: boolean, agency?: string):
+  Promise<{ ok: boolean; code?: string; error?: string; mailed?: boolean; note?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "권한이 없습니다." };
-  const r = await issueCustomer(email, brandId || null, note, u.id);
+  // 앞단 에이전시가 있으면 그 이름을 함께 저장한다(없으면 빈 값 = 직접 유입).
+  const r = await issueCustomer(email, brandId || null, note, u.id, agency ?? "");
   if (!r.ok) return r;
   revalidatePath("/onboarding");
   // 선택: 발급 코드+로그인 링크를 고객에게 이메일 발송.

@@ -87,3 +87,12 @@ export async function deleteProductCountryAction(id: string) {
   const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
   const r = await deleteProductCountry(id); revalidatePath("/apply"); return r;
 }
+
+/** 회사자료 첨부 삭제 — 본인 신청서의 파일만(감추기만 하고 행은 남긴다). */
+export async function removeCompanyDocAction(fileId: string) {
+  const app = await currentApp(); if (!app) return { ok: false, error: "세션 만료" };
+  const { removeOnbFile } = await import("@/lib/onboarding");
+  const r = await removeOnbFile(app.id, fileId);
+  revalidatePath("/apply");
+  return r;
+}
