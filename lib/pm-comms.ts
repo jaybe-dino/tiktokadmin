@@ -81,6 +81,10 @@ export function noIngestCaveats(): string[] {
   return NO_INGEST_CHANNELS.map((c) => `${c.label}: 자동 수집 미연결(수동 등록만)`);
 }
 const PREVIEW_LEN = 400;
+// Previously imported Kakao transcripts/summaries live in brand_sources notes.
+// Only an explicit import header classifies a legacy note; merely mentioning
+// Kakao in an ordinary note must not change its channel. Keep the original IDs.
+const LEGACY_KAKAO = `COALESCE(s.payload->>'text', s.payload->>'note', '') ~ '^\\[카카오톡[[:space:]·]'`;
 
 const CH_LABEL: Record<CommChannel, string> = {
   email: "이메일(Gmail 수집)", email_linked: "이메일(수기 연결)", meeting: "Zoom 회의 전사",
@@ -160,7 +164,8 @@ const SOURCES: SourceDef[] = [
                  NULLIF(s.source_url,'') AS source_url,
                  '내부 기록(brand_sources · ' || s.site || ')' AS source_label
             FROM brand_sources s
-           WHERE s.brand_id = $1 AND s.event IN ('note','memo','contact_logged')`,
+           WHERE s.brand_id = $1 AND s.event IN ('note','memo','contact_logged')
+             AND NOT (${LEGACY_KAKAO})`,
   },
   {
     channel: "comment", table: "comments",
@@ -176,7 +181,30 @@ const SOURCES: SourceDef[] = [
                  COALESCE(NULLIF(p.source_label,''),'수동 등록 대화') AS title,
                  p.body, NULLIF(p.source_url,'') AS source_url,
                  '사람이 등록한 원문(' || p.channel || ')' AS source_label
-            FROM pm_manual_comms p WHERE p.brand_id = $1`,
+            FROM pm_manual_comms p WHERE p.brand_id = $1
+              AND p.channel NOT IN ('kakao','slack')`,
+  },
+  ...(["kakao", "slack"] as const).map((channel): SourceDef => ({
+    channel, table: "pm_manual_comms",
+    sql: `SELECT 'manual-' || p.id::text AS id, p.occurred_at,
+                 'unknown' AS direction, p.author,
+                 COALESCE(NULLIF(p.source_label,''),'수동 등록 대화') AS title,
+                 p.body, NULLIF(p.source_url,'') AS source_url,
+                 '수동 등록(' || p.channel || ')' AS source_label
+            FROM pm_manual_comms p WHERE p.brand_id = $1 AND p.channel = '${channel}'`,
+  })),
+  {
+    channel: "kakao", table: "brand_sources",
+    sql: `SELECT 'note-' || s.id::text AS id, s.occurred_at,
+                 'unknown' AS direction,
+                 COALESCE(s.payload->>'by','') AS author,
+                 '카카오톡 기록(기존 타임라인 입력)' AS title,
+                 COALESCE(s.payload->>'text', s.payload->>'note', '') AS body,
+                 NULLIF(s.source_url,'') AS source_url,
+                 '기존 카카오톡 기록 · 요약/화면 전사 여부는 본문 참조 · 시각은 등록 시각' AS source_label
+            FROM brand_sources s
+           WHERE s.brand_id = $1 AND s.event IN ('note','memo','contact_logged')
+             AND (${LEGACY_KAKAO})`,
   },
 ];
 
@@ -230,6 +258,7 @@ async function ingestStates(): Promise<Record<CommChannel, { state: IngestState;
 }
 
 interface RawRow {
+  channel: CommChannel;
   id: string; occurred_at: string; direction: string; author: string;
   title: string; body: string; source_url: string | null; source_label: string;
 }
@@ -257,19 +286,33 @@ export async function brandCommTimeline(brandId: string, opts: {
 
   // 채널별 건수·최근 시각 — 각각 따로 물어 실패를 격리한다.
   const stats = new Map<CommChannel, { query: QueryState; queryNote: string; count: number | null; latestAt: string | null }>();
+  // Multiple storage tables can feed one channel. Aggregate their real counts
+  // and retain failures rather than overwriting an earlier failure with success.
+  const addStat = (channel: CommChannel, next: NonNullable<ReturnType<typeof stats.get>>) => {
+    const prev = stats.get(channel);
+    if (!prev) { stats.set(channel, next); return; }
+    const failed = prev.query !== "ok" || next.query !== "ok";
+    stats.set(channel, {
+      query: failed ? "error" : "ok",
+      queryNote: [prev.queryNote, next.queryNote].filter(Boolean).join(" · "),
+      count: failed ? null : (prev.count ?? 0) + (next.count ?? 0),
+      latestAt: [prev.latestAt, next.latestAt].filter((v): v is string => !!v)
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null,
+    });
+  };
   const usable: SourceDef[] = [];
   for (const s of SOURCES) {
     if (present && !present.has(s.table)) {
-      stats.set(s.channel, { query: "absent", queryNote: `표(${s.table})가 없습니다 — 마이그레이션 미적용`, count: null, latestAt: null });
+      addStat(s.channel, { query: "absent", queryNote: `표(${s.table})가 없습니다 — 마이그레이션 미적용`, count: null, latestAt: null });
       continue;
     }
     try {
       const r = await queryOne<{ n: string; latest: string | null }>(
         `SELECT count(*)::text AS n, max(occurred_at)::text AS latest FROM (${s.sql}) x`, [brandId]);
-      stats.set(s.channel, { query: "ok", queryNote: "", count: Number(r?.n ?? 0), latestAt: r?.latest ?? null });
+      addStat(s.channel, { query: "ok", queryNote: "", count: Number(r?.n ?? 0), latestAt: r?.latest ?? null });
       if (wanted.some((w) => w.channel === s.channel)) usable.push(s);
     } catch (e) {
-      stats.set(s.channel, {
+      addStat(s.channel, {
         query: "error", queryNote: `조회 실패 — ${(e as Error).message.slice(0, 140)}`, count: null, latestAt: null,
       });
     }
@@ -280,7 +323,7 @@ export async function brandCommTimeline(brandId: string, opts: {
   let unionError: string | null = null;
 
   if (usable.length > 0) {
-    const union = usable.map((s) => `(${s.sql})`).join("\n UNION ALL \n");
+    const union = usable.map((s) => `(SELECT '${s.channel}'::text AS channel, src.* FROM (${s.sql}) src)`).join("\n UNION ALL \n");
     const search = like
       ? `WHERE (u.title ILIKE $2 OR u.body ILIKE $2 OR u.author ILIKE $2 OR u.source_label ILIKE $2)`
       : "";
@@ -294,7 +337,7 @@ export async function brandCommTimeline(brandId: string, opts: {
       const off = (page - 1) * pageSize;
       const args: unknown[] = like ? [brandId, like, pageSize, off] : [brandId, pageSize, off];
       const rows = await query<RawRow>(
-        `SELECT u.id, u.occurred_at::text AS occurred_at, u.direction, u.author, u.title,
+        `SELECT u.channel, u.id, u.occurred_at::text AS occurred_at, u.direction, u.author, u.title,
                 u.body, u.source_url, u.source_label
            FROM (${union}) u ${search}
           ORDER BY u.occurred_at DESC NULLS LAST, u.id DESC
@@ -303,10 +346,7 @@ export async function brandCommTimeline(brandId: string, opts: {
       items = rows.map((r) => {
         const body = (r.body ?? "").trim();
         const flat = body.replace(/\s+/g, " ");
-        const ch = (r.id.split("-")[0] ?? "") as string;
-        const channel: CommChannel =
-          ch === "email" ? "email" : ch === "elink" ? "email_linked" : ch === "meeting" ? "meeting"
-          : ch === "mnote" ? "meeting_note" : ch === "note" ? "note" : ch === "cmt" ? "comment" : "manual";
+        const channel = r.channel;
         return {
           id: r.id, channel, channelLabel: CH_LABEL[channel],
           occurredAt: r.occurred_at,
@@ -329,20 +369,16 @@ export async function brandCommTimeline(brandId: string, opts: {
   const page = Math.min(Math.max(1, opts.page ?? 1), pageCount);
 
   const channels: ChannelStatus[] = [
-    ...SOURCES.map((s): ChannelStatus => {
-      const st = stats.get(s.channel)!;
-      const ing = ingest[s.channel];
+    ...[...new Set(SOURCES.map((s) => s.channel))].map((channel): ChannelStatus => {
+      const st = stats.get(channel)!;
+      const ing = ingest[channel];
       return {
-        channel: s.channel, label: CH_LABEL[s.channel],
+        channel, label: CH_LABEL[channel],
         query: st.query, queryNote: st.queryNote || (st.count === 0 ? "조회됨 · 기록된 대화 없음" : ""),
         ingest: ing.state, ingestNote: ing.note,
         count: st.count, latestAt: st.latestAt,
       };
     }),
-    ...(["slack", "kakao"] as const).map((c): ChannelStatus => ({
-      channel: c, label: CH_LABEL[c], query: "absent", queryNote: "저장된 대화가 없습니다",
-      ingest: ingest[c].state, ingestNote: ingest[c].note, count: null, latestAt: null,
-    })),
   ];
 
   const partial = channels.some((c) => c.query === "error") || Boolean(unionError);
