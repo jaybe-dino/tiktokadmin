@@ -42,7 +42,7 @@ const GROUPS: Group[] = [
   ]},
   { title: "온보딩·제품", items: [
     { href: "/onboarding", label: "온보딩 신청서", ic: "📝" },
-    { href: "/weekly-onboarding", label: "주간 온보딩 신청", ic: "🗓️" },
+    { href: "/weekly-onboarding", label: "온보딩 사전신청", ic: "🗓️" },
     { href: "/docs", label: "서류·물류", ic: "📂" },
     { href: "/products", label: "제품·인증", ic: "📦" },
     { href: "/assets", label: "자산 저장소", ic: "🗄️" },

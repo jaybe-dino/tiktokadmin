@@ -3,10 +3,10 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   weekKey, normEmail, normPhone, normSite, EMAIL_RE,
-  WEEKLY_STATUSES, WEEKLY_STATUS_LABEL, WEEKLY_SLOTS, WEEKLY_SOURCE,
+  WEEKLY_STATUSES, WEEKLY_STATUS_LABEL, WEEKLY_SOURCE,
 } from "../lib/weekly-onboarding-model";
 import {
-  WEEKLY_DAY1_SMS_DRAFT, WEEKLY_FORBIDDEN_CLAIMS, WEEKLY_LINK_PLACEHOLDER,
+  WEEKLY_DAY1_SMS_DRAFT, WEEKLY_FORBIDDEN_CLAIMS, WEEKLY_APPLY_URL,
 } from "../lib/weekly-onboarding-copy";
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
@@ -66,16 +66,19 @@ describe("상태·출처", () => {
   it("유입 출처를 따로 둔다", () => {
     expect(WEEKLY_SOURCE).toBe("weekly_onboarding");
   });
-  it("모집 수는 안내값이다", () => {
-    expect(WEEKLY_SLOTS).toBe(3);
+  it("모집 수량을 코드에 두지 않는다(세어서 막는 로직이 없으므로)", () => {
+    for (const f of ["../lib/weekly-onboarding-model.ts", "../lib/weekly-onboarding.ts",
+                     "../app/(dash)/weekly-onboarding/actions.ts"]) {
+      expect(code(f), f).not.toMatch(/WEEKLY_SLOTS/);
+    }
   });
 });
 
 describe("1일차 추가 문구 — 초안으로만 둔다", () => {
   it("요청하신 문구 그대로다", () => {
     expect(WEEKLY_DAY1_SMS_DRAFT).toBe(
-      "이번 주 틱톡샵 온보딩은 3개 브랜드 모집 중입니다. 세미나 전 상담·준비를 원하시면 신청해 주세요: [신청 링크]");
-    expect(WEEKLY_DAY1_SMS_DRAFT).toContain(WEEKLY_LINK_PLACEHOLDER);
+      "틱톡샵 온보딩은 한정된 슬롯으로 진행됩니다. 사전 신청이 필요한 팀은 신청해 주세요: https://admin.glovek.space/weekly");
+    expect(WEEKLY_DAY1_SMS_DRAFT).toContain(WEEKLY_APPLY_URL);
   });
   it("마감·잔여석·확정 같은 허위 표현이 없다", () => {
     for (const w of WEEKLY_FORBIDDEN_CLAIMS) {
@@ -135,12 +138,17 @@ describe("배선 감사", () => {
     expect(panel).not.toMatch(/slots\s*(<|>|===|!==|==)|(<|>|===|!==|==)\s*(ov\.)?slots/);
     expect(panel).not.toMatch(/total\s*(>=|>)\s*\d|마감되었습니다|접수 마감/);
   });
-  it("공개 폼이 확정·완료를 약속하지 않는다", () => {
+  it("공개 폼 문구가 확정 문안과 일치하고 수량·잔여석을 말하지 않는다", () => {
     const form = read("../app/weekly/WeeklyApplyForm.tsx");
-    expect(form).toContain("계약·입점이 확정되거나");
-    expect(form).toContain("보장하지는 않습니다");
+    expect(form).toContain("틱톡샵 온보딩 신청서");
+    expect(form).toContain("틱톡샵 온보딩은 한정된 슬롯으로 진행됩니다.");
+    expect(form).toContain("담당자가 확인 후 진행 가능 일정과 준비 사항을 안내드립니다.");
+    expect(form).toContain("신청 후 담당자 확인을 거쳐 일정이 안내됩니다.");
     // 화면에 실제로 그려지는 문구에 잔여석·선착순 표현이 없어야 한다(주석은 제외).
-    expect(code("../app/weekly/WeeklyApplyForm.tsx")).not.toMatch(/잔여|선착순|마감 임박|남은 자리/);
+    const formCode = code("../app/weekly/WeeklyApplyForm.tsx");
+    expect(formCode).not.toMatch(/잔여|선착순|마감 임박|남은 자리/);
+    // 몇 개 브랜드 모집 같은 수량 표현을 쓰지 않는다.
+    expect(formCode).not.toMatch(/\d+\s*개\s*브랜드|매주|주간/);
   });
   it("공개 폼은 is_test 를 받지 않는다", () => {
     const action = read("../app/weekly/actions.ts");

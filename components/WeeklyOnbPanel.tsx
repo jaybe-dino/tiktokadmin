@@ -1,5 +1,5 @@
 "use client";
-// 주간 온보딩 신청 목록 — 직원이 바로 조회하고 연락하는 화면.
+// 온보딩 사전신청 목록 — 직원이 바로 조회하고 연락하는 화면.
 //   전화·메일은 직원이 직접 건다(이 화면에서 자동 발송하지 않는다).
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -77,7 +77,7 @@ export default function WeeklyOnbPanel() {
           </div>
           {ov.counts && (
             <div style={{ color: "var(--ink3)", fontSize: 11.5 }}>
-              이번 주({ov.counts.week}) 접수 <b>{ov.counts.total}</b>건 · 모집 안내 {ov.slots}개 브랜드
+              이번 접수주({ov.counts.week}) 접수 <b>{ov.counts.total}</b>건
               {" "}— 접수 수로 자동 마감하거나 선착순을 확정하지 않습니다(담당자가 개별 판단).
             </div>
           )}
@@ -86,7 +86,7 @@ export default function WeeklyOnbPanel() {
 
       <div className="card" data-testid="weekly-list">
         <div className="hd">
-          <b>📋 틱톡샵 주간 온보딩 신청</b>
+          <b>📋 틱톡샵 온보딩 신청서 접수</b>
           <span style={{ color: "var(--ink3)", fontSize: 11 }}>
             이 목록은 신청 접수 기록입니다 — 계약·온보딩 단계와는 별개이며 기존 고객 값을 바꾸지 않습니다.
           </span>
@@ -132,7 +132,7 @@ function Row({ r, admins, onDone }: {
         {r.site_url && <a href={r.site_url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: "var(--acc)" }}>사이트 ↗</a>}
         <span className="chip" style={{ fontSize: 10.5 }}>{WEEKLY_STATUS_LABEL[r.status] ?? r.status}</span>
         <span style={{ marginLeft: "auto", color: "var(--ink3)", fontSize: 11 }}>
-          {kst(r.created_at)} · {r.week_key} 주차
+          {kst(r.created_at)} · 접수주 {r.week_key}
         </span>
       </div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 5, fontSize: 12.5 }}>

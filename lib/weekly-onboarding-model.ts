@@ -2,8 +2,7 @@
 //   화면(use client)이 상태 라벨 같은 값을 쓰려면 pg 를 끌고 오는 모듈에서 가져오면 안 된다.
 //   저장·조회는 lib/weekly-onboarding.ts 에 있다.
 
-/** 모집 안내에 쓰는 주간 브랜드 수. 안내 문구일 뿐 접수를 막는 데 쓰지 않는다. */
-export const WEEKLY_SLOTS = 3;
+// 모집 수량(몇 개 브랜드)은 쓰지 않는다 — 세어서 막는 로직이 없어 숫자를 말하지 않는다.
 export const WEEKLY_SOURCE = "weekly_onboarding";
 
 export const WEEKLY_STATUSES = ["new", "contacted", "scheduled", "done", "dropped"] as const;

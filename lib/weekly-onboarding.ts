@@ -7,14 +7,14 @@
 //     · 선착순 확정·자동 마감 판정을 하지 않는다.
 import { query, queryOne } from "./db";
 import {
-  WEEKLY_SLOTS, WEEKLY_SOURCE, WEEKLY_STATUSES, WEEKLY_STATUS_LABEL,
+  WEEKLY_SOURCE, WEEKLY_STATUSES, WEEKLY_STATUS_LABEL,
   EMAIL_RE, cleanText as clean, normEmail, normPhone, normSite, weekKey,
   type WeeklyStatus,
 } from "./weekly-onboarding-model";
 
 // 순수 값은 모델 모듈에 있다(클라이언트가 pg 를 끌고 오지 않도록). 여기서 다시 내보낸다.
 export {
-  WEEKLY_SLOTS, WEEKLY_SOURCE, WEEKLY_STATUSES, WEEKLY_STATUS_LABEL,
+  WEEKLY_SOURCE, WEEKLY_STATUSES, WEEKLY_STATUS_LABEL,
   EMAIL_RE, normEmail, normPhone, normSite, weekKey,
 };
 export type { WeeklyStatus };

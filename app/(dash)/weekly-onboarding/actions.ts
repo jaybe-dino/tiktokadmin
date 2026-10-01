@@ -7,7 +7,7 @@ import { query } from "@/lib/db";
 import {
   weeklySchemaState, listWeeklyApplications, weeklyCounts,
   setWeeklyStatus, setWeeklyOwner, setWeeklyNote, deleteWeeklyTestRows,
-  WEEKLY_SCHEMA_MIGRATION, WEEKLY_SLOTS,
+  WEEKLY_SCHEMA_MIGRATION,
 } from "@/lib/weekly-onboarding";
 
 const ADMIN_ROLES = new Set(["exec", "lead"]);
@@ -16,7 +16,6 @@ export interface WeeklyOverview {
   schemaReady: boolean;
   schemaError?: string;
   migration: string;
-  slots: number;
   rows: Awaited<ReturnType<typeof listWeeklyApplications>>;
   counts: Awaited<ReturnType<typeof weeklyCounts>> | null;
   admins: { id: string; name: string }[];
@@ -35,7 +34,7 @@ export async function weeklyOverviewAction(includeTest = false):
       data: {
         schemaReady: false,
         schemaError: `마이그레이션 ${WEEKLY_SCHEMA_MIGRATION} 미적용 — 없는 표: ${schema.missing.join(", ") || schema.error || "확인 실패"}`,
-        migration: WEEKLY_SCHEMA_MIGRATION, slots: WEEKLY_SLOTS,
+        migration: WEEKLY_SCHEMA_MIGRATION,
         rows: [], counts: null, admins: [], canAdmin: ADMIN_ROLES.has(u.role), formPath: "/weekly",
       },
     };
@@ -50,7 +49,7 @@ export async function weeklyOverviewAction(includeTest = false):
     return {
       ok: true,
       data: {
-        schemaReady: true, migration: WEEKLY_SCHEMA_MIGRATION, slots: WEEKLY_SLOTS,
+        schemaReady: true, migration: WEEKLY_SCHEMA_MIGRATION,
         rows, counts, admins, canAdmin: ADMIN_ROLES.has(u.role), formPath: "/weekly",
       },
     };

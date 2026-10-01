@@ -1,11 +1,9 @@
 "use client";
-// 틱톡샵 주간 온보딩 신청(공개).
-//   · "주 3개 브랜드 모집"은 모집 안내다 — 잔여석·마감을 표시하지 않는다.
-//   · 신청만으로 계약·입점 확정이나 세미나 전 완료를 약속하지 않는다.
+// 틱톡샵 온보딩 신청서(공개).
+//   · 수량(몇 개 브랜드 모집)을 쓰지 않는다 — 세어서 막는 로직이 없기 때문이다.
+//   · 잔여석·마감·선착순을 표시하지 않는다.
 import { useState, useTransition } from "react";
 import { submitWeeklyApplyAction } from "./actions";
-
-const SLOTS = 3;
 
 export default function WeeklyApplyForm() {
   const [pending, start] = useTransition();
@@ -32,11 +30,11 @@ export default function WeeklyApplyForm() {
           <h1 style={S.h1}>신청이 접수되었습니다</h1>
           <p style={S.muted}>
             {done.already
-              ? "이번 주에 이미 접수된 신청이 있어 중복으로 등록하지 않았습니다. 담당자가 순차로 연락드립니다."
-              : "담당자가 순차로 연락드려 상담 일정을 잡아드립니다."}
+              ? "이미 접수된 신청이 있어 중복으로 등록하지 않았습니다."
+              : "신청이 정상적으로 접수되었습니다."}
           </p>
           <p style={S.muted}>
-            접수는 상담·준비 절차의 시작이며, <b>계약이나 입점이 확정된 것은 아닙니다.</b>
+            신청 후 담당자 확인을 거쳐 일정이 안내됩니다.
           </p>
         </div>
       </main>
@@ -47,15 +45,13 @@ export default function WeeklyApplyForm() {
     <main style={S.page}>
       <div style={S.card}>
         <div style={S.badge}>TikTok Shop</div>
-        <h1 style={S.h1}>틱톡샵 주간 온보딩 신청</h1>
+        <h1 style={S.h1}>틱톡샵 온보딩 신청서</h1>
         <p style={S.lead}>
-          매주 <b>{SLOTS}개 브랜드</b>를 모집해 온보딩 상담과 준비를 함께 진행합니다.
-          세미나 전에 미리 상담하고 준비하고 싶은 브랜드는 아래로 신청해 주세요.
+          틱톡샵 온보딩은 한정된 슬롯으로 진행됩니다. 사전 신청이 필요한 팀은 아래 정보를 남겨 주세요.
+          담당자가 확인 후 진행 가능 일정과 준비 사항을 안내드립니다.
         </p>
         <div style={S.notice}>
-          신청은 상담·준비 절차의 시작입니다. <b>신청만으로 계약·입점이 확정되거나,
-          세미나 전에 온보딩이 완료되는 것을 보장하지는 않습니다.</b>
-          접수 순서와 준비 상황을 함께 보고 담당자가 개별로 안내드립니다.
+          신청 후 담당자 확인을 거쳐 일정이 안내됩니다.
         </div>
 
         <div style={S.grid}>
@@ -75,7 +71,7 @@ export default function WeeklyApplyForm() {
 
         {err && <div style={S.err}>{err}</div>}
         <button style={{ ...S.btn, opacity: pending ? 0.6 : 1 }} disabled={pending} onClick={submit}>
-          {pending ? "접수 중…" : "온보딩 상담 신청하기"}
+          {pending ? "접수 중…" : "온보딩 사전 신청하기"}
         </button>
         <p style={S.privacy}>
           제출하신 정보는 틱톡샵 온보딩 상담 안내 목적으로만 사용되며, 안내 종료 후 관련 법령에 따라 처리됩니다.
