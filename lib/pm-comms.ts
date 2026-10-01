@@ -243,7 +243,7 @@ async function tablesPresent(names: string[]): Promise<Set<string>> {
 }
 
 /** 자동 수집 설정 상태 — 환경설정을 읽을 수 없으면 unknown 이다. */
-async function ingestStates(): Promise<Record<CommChannel, { state: IngestState; note: string }>> {
+async function ingestStates(brandId: string): Promise<Record<CommChannel, { state: IngestState; note: string }>> {
   const base: Record<CommChannel, { state: IngestState; note: string }> = {
     email: { state: "unknown", note: "수집 상태 미확인" },
     email_linked: { state: "internal", note: "사람이 브랜드에 연결한 메일" },
@@ -255,6 +255,21 @@ async function ingestStates(): Promise<Record<CommChannel, { state: IngestState;
     slack: { state: "none", note: "자동 수집 경로가 없습니다 — 원문 수동 등록만 가능합니다." },
     kakao: { state: "none", note: "자동 수집 경로가 없습니다 — 원문 수동 등록만 가능합니다." },
   };
+
+  // 카카오는 수집기(PC)에서 받아 저장하는 경로가 생겼다.
+  //   방이 연결되고 실제로 저장까지 된 적이 있을 때만 "설정됨"이라고 말한다 —
+  //   수집기가 붙기 전에는 연결됐다고 표시하지 않는다.
+  try {
+    const { brandKakaoState } = await import("./kakao-rooms");
+    const k = await brandKakaoState(brandId);
+    if (k.ready) {
+      base.kakao = k.lastIngestAt
+        ? { state: "configured", note: k.note }
+        : { state: "off", note: k.note };
+    }
+  } catch {
+    // 표가 없거나 조회에 실패하면 기본값(자동 수집 경로 없음)을 그대로 둔다.
+  }
 
   // 메일: Gmail 서비스계정 + 동기화 켠 계정이 있어야 수집된다.
   try {
@@ -304,7 +319,7 @@ export async function brandCommTimeline(brandId: string, opts: {
   const like = q ? `%${q}%` : null;
 
   const present = await tablesPresent(SOURCES.map((s) => s.table)).catch(() => null);
-  const ingest = await ingestStates();
+  const ingest = await ingestStates(brandId);
 
   const wanted = opts.channels && opts.channels.length
     ? SOURCES.filter((s) => opts.channels!.includes(s.channel))
