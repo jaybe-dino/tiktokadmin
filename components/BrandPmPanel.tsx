@@ -213,7 +213,7 @@ export default function BrandPmPanel({ brandId, admins }: { brandId: string; adm
             <>
               <div data-testid="pm-channels" style={{ overflowX: "auto" }}>
                 <table className="t" style={{ fontSize: 11.5, width: "100%" }}>
-                  <thead><tr><th>채널</th><th>DB 조회</th><th>자동 수집</th><th>건수</th><th>가장 최근</th></tr></thead>
+                  <thead><tr><th>채널</th><th>DB 조회</th><th>자동 수집</th><th>저장 건수</th><th>가장 최근</th><th>시각 기준</th></tr></thead>
                   <tbody>
                     {tl.channels.map((c) => (
                       <tr key={c.channel}>
@@ -226,12 +226,19 @@ export default function BrandPmPanel({ brandId, admins }: { brandId: string; adm
                         </td>
                         <td>{c.count == null ? "—" : c.count}</td>
                         <td>{ts(c.latestAt)}</td>
+                        <td style={{ color: "var(--ink3)" }}>
+                          {c.latestAt == null ? "—"
+                            : c.latestKind === "stored" ? "저장 시각" : "대화 시각"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               <div className="note" style={{ fontSize: 11.5 }}>
+                “저장 건수”는 이 화면에서 볼 수 있게 저장된 기록의 수입니다 — 외부 대화를 자동으로 모두
+                받아온다는 뜻이 아닙니다. “시각 기준”이 <b>저장 시각</b>이면 우리가 기록을 남긴 때이고,
+                실제 대화가 오간 시각은 본문에서 확인해야 합니다.<br />
                 {tl.rangeNote}<br />
                 이 목록은 <b>연결·조회 가능한 채널만</b> 담습니다. 모든 채널을 100% 추적한다는 뜻이 아닙니다.
               </div>

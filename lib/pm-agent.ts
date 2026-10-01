@@ -426,9 +426,18 @@ export async function collectFacts(brandId: string, today = kstToday()): Promise
         AND COALESCE(started_at, scheduled_at, created_at) < now() - interval '2 hours'
       ORDER BY COALESCE(started_at, created_at) DESC LIMIT 5`, [brandId]);
 
+  // 채널을 통틀어 가장 최근 기록 한 건 — 그 시각이 실제 대화 시각인지 저장 시각인지도 함께 둔다.
+  //   (사람이 붙여 넣은 전사는 "저장 시각" 이므로 실제 대화 시각이라고 말하지 않는다.)
+  const latest = tl.channels
+    .filter((c) => c.query === "ok" && c.latestAt)
+    .sort((x, y) => new Date(y.latestAt!).getTime() - new Date(x.latestAt!).getTime())[0] ?? null;
+
   return {
     brandId, brandName: b.brand_name, state: b.state, today,
     lastContactAt: b.last_contact_at,
+    lastRecordAt: latest?.latestAt ?? null,
+    lastRecordKind: latest ? latest.latestKind : null,
+    lastRecordChannel: latest?.label ?? null,
     channelErrors: tl.channels.filter((c) => c.query === "error").map((c) => c.label),
     channelsNotConnected: tl.channels.filter((c) => c.ingest === "none" || c.ingest === "off").map((c) => c.label),
     commCount: tl.total,

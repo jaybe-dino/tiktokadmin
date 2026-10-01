@@ -31,8 +31,15 @@ export interface ChannelStatus {
   ingestNote: string;
   /** 이 채널의 건수 — query!=='ok' 면 null(0 과 구분). */
   count: number | null;
-  /** 실제 최근 수신 시각 — query!=='ok' 면 null. */
+  /** 가장 최근 기록의 시각 — query!=='ok' 면 null. */
   latestAt: string | null;
+  /**
+   * latestAt 이 무엇의 시각인지.
+   *   conversation = 실제 대화가 오간 시각(메일 수신·회의 시작·사람이 적어 넣은 대화 시각)
+   *   stored       = 우리가 기록을 남긴 시각(메모·코멘트 등록 시각)
+   * 둘을 섞어 "마지막 수신"이라고 부르지 않기 위해 따로 둔다.
+   */
+  latestKind: "conversation" | "stored";
 }
 
 export interface CommItem {
@@ -81,10 +88,27 @@ export function noIngestCaveats(): string[] {
   return NO_INGEST_CHANNELS.map((c) => `${c.label}: 자동 수집 미연결(수동 등록만)`);
 }
 const PREVIEW_LEN = 400;
-// Previously imported Kakao transcripts/summaries live in brand_sources notes.
-// Only an explicit import header classifies a legacy note; merely mentioning
-// Kakao in an ordinary note must not change its channel. Keep the original IDs.
-const LEGACY_KAKAO = `COALESCE(s.payload->>'text', s.payload->>'note', '') ~ '^\\[카카오톡[[:space:]·]'`;
+// 예전에 사람이 붙여 넣은 카카오톡 전사·요약은 brand_sources 메모로 남아 있다.
+//   "머리말"로 시작하는 메모만 카카오로 분류한다 — 본문에 카카오를 언급했을 뿐인
+//   보통 메모의 채널을 바꾸면 안 된다. 기존 증거 ID(note-…)는 그대로 둔다.
+//   판정 규칙(실제 Postgres 로 검증):
+//     ① 괄호로 열고 바로 카카오 토큰: "[카카오톡] …" "【카카오톡】 전사" "[카톡] …"
+//     ② 토큰으로 시작하고 구분기호나 전사 성격의 낱말이 뒤따름:
+//        "카톡 · 9/30" "카카오 화면 전사 1/2" "KakaoTalk transcript"
+//   아래는 일부러 제외한다(머리말이 아니거나 카카오톡 대화가 아님):
+//     "카카오톡 연동 문의 메모" · "카카오톡으로 안내 드렸습니다" · "카카오페이 …" · "[카카오 알림톡 …]"
+const KAKAO_TOKEN = "(카카오톡|카톡|카카오|[Kk]akao[[:space:]]?[Tt]alk)";
+const KAKAO_HEAD_BRACKET =
+  `^[[:space:]]*[\\[【(][[:space:]]*${KAKAO_TOKEN}[[:space:]]*([]】)·:|/]|[[:space:]]|$)`;
+const KAKAO_HEAD_PLAIN =
+  `^[[:space:]]*${KAKAO_TOKEN}[[:space:]]*([·:|/]|[-–—][[:space:]]|[[:space:]]*(화면|원문|전사|요약|대화|채팅|캡처|스크린|메시지|로그|[Tt]ranscript))`;
+// 카카오의 다른 서비스를 가리키는 머리말은 대화 기록이 아니다.
+const KAKAO_NOT_CHAT =
+  `^[[:space:]]*[\\[【(]?[[:space:]]*카카오[[:space:]]*(페이|뱅크|맵|모빌리티|스토리|웹툰|엔터|커머스|알림톡|싱크)`;
+const KAKAO_TEXT = `COALESCE(s.payload->>'text', s.payload->>'note', '')`;
+const LEGACY_KAKAO =
+  `((${KAKAO_TEXT} ~ '${KAKAO_HEAD_BRACKET}' OR ${KAKAO_TEXT} ~ '${KAKAO_HEAD_PLAIN}')`
+  + ` AND ${KAKAO_TEXT} !~ '${KAKAO_NOT_CHAT}')`;
 
 const CH_LABEL: Record<CommChannel, string> = {
   email: "이메일(Gmail 수집)", email_linked: "이메일(수기 연결)", meeting: "Zoom 회의 전사",
@@ -102,6 +126,8 @@ interface SourceDef {
   /** 이 채널이 없으면(마이그레이션 미적용) absent 로 처리한다. */
   table: string;
   sql: string;
+  /** occurred_at 이 대화 시각인지, 우리가 기록을 남긴 시각인지. 기본은 대화 시각. */
+  timeKind?: "conversation" | "stored";
 }
 
 const SOURCES: SourceDef[] = [
@@ -153,7 +179,7 @@ const SOURCES: SourceDef[] = [
             FROM meeting_notes n WHERE n.brand_id = $1`,
   },
   {
-    channel: "note", table: "brand_sources",
+    channel: "note", table: "brand_sources", timeKind: "stored",
     sql: `SELECT 'note-' || s.id::text AS id, s.occurred_at,
                  'internal' AS direction,
                  COALESCE(s.payload->>'by','') AS author,
@@ -168,7 +194,7 @@ const SOURCES: SourceDef[] = [
              AND NOT (${LEGACY_KAKAO})`,
   },
   {
-    channel: "comment", table: "comments",
+    channel: "comment", table: "comments", timeKind: "stored",
     sql: `SELECT 'cmt-' || c.id::text AS id, c.created_at AS occurred_at,
                  'internal' AS direction, c.author, '협업 코멘트' AS title,
                  c.body, NULL::text AS source_url, '브랜드360 코멘트(comments)' AS source_label
@@ -194,7 +220,7 @@ const SOURCES: SourceDef[] = [
             FROM pm_manual_comms p WHERE p.brand_id = $1 AND p.channel = '${channel}'`,
   })),
   {
-    channel: "kakao", table: "brand_sources",
+    channel: "kakao", table: "brand_sources", timeKind: "stored",
     sql: `SELECT 'note-' || s.id::text AS id, s.occurred_at,
                  'unknown' AS direction,
                  COALESCE(s.payload->>'by','') AS author,
@@ -285,35 +311,50 @@ export async function brandCommTimeline(brandId: string, opts: {
     : SOURCES;
 
   // 채널별 건수·최근 시각 — 각각 따로 물어 실패를 격리한다.
-  const stats = new Map<CommChannel, { query: QueryState; queryNote: string; count: number | null; latestAt: string | null }>();
+  const stats = new Map<CommChannel, {
+    query: QueryState; queryNote: string; count: number | null;
+    latestAt: string | null; latestKind: "conversation" | "stored";
+  }>();
   // Multiple storage tables can feed one channel. Aggregate their real counts
   // and retain failures rather than overwriting an earlier failure with success.
   const addStat = (channel: CommChannel, next: NonNullable<ReturnType<typeof stats.get>>) => {
     const prev = stats.get(channel);
     if (!prev) { stats.set(channel, next); return; }
     const failed = prev.query !== "ok" || next.query !== "ok";
+    // 가장 최근 기록 한 건을 고르고, 그 기록의 시각이 무엇인지도 함께 가져온다.
+    const newer = (!prev.latestAt) ? next
+      : (!next.latestAt) ? prev
+      : (new Date(next.latestAt).getTime() > new Date(prev.latestAt).getTime() ? next : prev);
     stats.set(channel, {
       query: failed ? "error" : "ok",
       queryNote: [prev.queryNote, next.queryNote].filter(Boolean).join(" · "),
+      // 저장소 하나를 못 읽으면 건수를 알 수 없다 — 더한 값으로 아는 척하지 않는다.
       count: failed ? null : (prev.count ?? 0) + (next.count ?? 0),
-      latestAt: [prev.latestAt, next.latestAt].filter((v): v is string => !!v)
-        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null,
+      latestAt: newer.latestAt,
+      latestKind: newer.latestAt ? newer.latestKind : prev.latestKind,
     });
   };
   const usable: SourceDef[] = [];
   for (const s of SOURCES) {
     if (present && !present.has(s.table)) {
-      addStat(s.channel, { query: "absent", queryNote: `표(${s.table})가 없습니다 — 마이그레이션 미적용`, count: null, latestAt: null });
+      addStat(s.channel, {
+        query: "absent", queryNote: `표(${s.table})가 없습니다 — 마이그레이션 미적용`,
+        count: null, latestAt: null, latestKind: s.timeKind ?? "conversation",
+      });
       continue;
     }
     try {
       const r = await queryOne<{ n: string; latest: string | null }>(
         `SELECT count(*)::text AS n, max(occurred_at)::text AS latest FROM (${s.sql}) x`, [brandId]);
-      addStat(s.channel, { query: "ok", queryNote: "", count: Number(r?.n ?? 0), latestAt: r?.latest ?? null });
+      addStat(s.channel, {
+        query: "ok", queryNote: "", count: Number(r?.n ?? 0),
+        latestAt: r?.latest ?? null, latestKind: s.timeKind ?? "conversation",
+      });
       if (wanted.some((w) => w.channel === s.channel)) usable.push(s);
     } catch (e) {
       addStat(s.channel, {
-        query: "error", queryNote: `조회 실패 — ${(e as Error).message.slice(0, 140)}`, count: null, latestAt: null,
+        query: "error", queryNote: `조회 실패 — ${(e as Error).message.slice(0, 140)}`,
+        count: null, latestAt: null, latestKind: s.timeKind ?? "conversation",
       });
     }
   }
@@ -376,7 +417,7 @@ export async function brandCommTimeline(brandId: string, opts: {
         channel, label: CH_LABEL[channel],
         query: st.query, queryNote: st.queryNote || (st.count === 0 ? "조회됨 · 기록된 대화 없음" : ""),
         ingest: ing.state, ingestNote: ing.note,
-        count: st.count, latestAt: st.latestAt,
+        count: st.count, latestAt: st.latestAt, latestKind: st.latestKind,
       };
     }),
   ];

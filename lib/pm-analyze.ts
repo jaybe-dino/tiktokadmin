@@ -25,8 +25,18 @@ export interface PmFacts {
   state: string;
   /** 오늘(KST 기준 날짜 문자열 YYYY-MM-DD). */
   today: string;
-  /** 마지막 고객 접촉 시각(ISO) — 없으면 null. */
+  /**
+   * 마지막 고객 접촉 시각(ISO) — brands.last_contact_at. 없으면 null.
+   *   이 값은 우리가 보낸/받은 발송 기록에서만 움직인다. 카카오 전사를 붙여 넣는 것처럼
+   *   사람이 남긴 기록으로는 갱신되지 않으므로, 아래 lastRecordAt 과 함께 봐야 한다.
+   */
   lastContactAt: string | null;
+  /** 채널을 통틀어 가장 최근 대화 기록의 시각(ISO) — 없으면 null. */
+  lastRecordAt: string | null;
+  /** lastRecordAt 이 실제 대화 시각인지(conversation) 우리가 기록을 남긴 시각인지(stored). */
+  lastRecordKind: "conversation" | "stored" | null;
+  /** 그 기록이 어느 채널인지(사람이 읽는 라벨). */
+  lastRecordChannel: string | null;
   /** 채널 상태 — 확인 실패한 채널이 있으면 그 사실만 제안으로 올린다. */
   channelErrors: string[];
   channelsNotConnected: string[];
@@ -126,17 +136,43 @@ export function rulesSuggestions(f: PmFacts): PmSuggestion[] {
     });
   }
 
-  // ③ 접촉 공백 — 마지막 접촉 시각이 있을 때만 계산한다(없으면 수치를 만들지 않는다).
-  if (f.lastContactAt) {
-    const days = dayDiff(f.today, f.lastContactAt.slice(0, 10));
+  // ③ 접촉 공백 — 발송 기록(lastContactAt)만 보면 사람이 붙여 넣은 대화 기록을 놓친다.
+  //   예: 9/30 카카오 전사를 메모로 남겼는데 발송 기록은 9/3 이면 "27일 연락 없음"이 되어
+  //   실제와 어긋난다. 두 값 중 더 최근 것을 기준으로 삼고, 그 시각이 실제 대화 시각인지
+  //   우리가 기록을 남긴 시각인지 문구에 그대로 적는다(아는 것 이상으로 말하지 않는다).
+  const contactDay = f.lastContactAt ? f.lastContactAt.slice(0, 10) : null;
+  const recordDay = f.lastRecordAt ? f.lastRecordAt.slice(0, 10) : null;
+  const latestDay = [contactDay, recordDay].filter((v): v is string => !!v)
+    .sort((a, b) => b.localeCompare(a))[0] ?? null;
+  const fromRecord = Boolean(latestDay && recordDay === latestDay && contactDay !== latestDay);
+
+  if (latestDay) {
+    const days = dayDiff(f.today, latestDay);
     if (days >= STALE_CONTACT_DAYS) {
+      const basis = fromRecord
+        ? `${f.lastRecordKind === "stored"
+            ? `기록을 남긴 시각 기준 ${latestDay}(${f.lastRecordChannel ?? "기록"}) — 실제 대화 시각은 본문에서 확인이 필요합니다`
+            : `마지막 대화 기록은 ${latestDay}(${f.lastRecordChannel ?? "기록"}) 입니다`}`
+        : `기록상 마지막 접촉은 ${latestDay} 입니다`;
       out.push({
         kind: "todo",
         title: `마지막 접촉 후 ${days}일 — 연락 필요`,
-        detail: `기록상 마지막 접촉은 ${f.lastContactAt.slice(0, 10)} 입니다. 다음 연락 계획을 잡아 주세요.`,
+        detail: `${basis}. 다음 연락 계획을 잡아 주세요.`,
         priority: days >= 30 ? 1 : 2,
         dedupeKey: "rules:stale_contact",
-        evidenceKind: "contact", evidenceId: "", evidenceLabel: `마지막 접촉 ${f.lastContactAt.slice(0, 10)}`,
+        evidenceKind: "contact", evidenceId: "", evidenceLabel: `마지막 ${fromRecord ? "기록" : "접촉"} ${latestDay}`,
+      });
+    }
+    // 발송 기록이 대화 기록보다 한참 뒤처져 있으면 그 사실만 알린다(수치를 만들지 않는다).
+    if (fromRecord && contactDay && dayDiff(latestDay, contactDay) >= STALE_CONTACT_DAYS) {
+      out.push({
+        kind: "question",
+        title: "발송 기록과 대화 기록의 시점이 다릅니다",
+        detail: `자동 발송·수신 기록의 마지막 접촉은 ${contactDay} 인데, 대화 기록은 ${latestDay}(${f.lastRecordChannel ?? "기록"}) 까지 있습니다. `
+          + "연락 주기 판단은 대화 기록을 기준으로 했습니다. 접촉 기록을 맞춰 두면 다음 점검이 정확해집니다.",
+        priority: 3,
+        dedupeKey: "rules:contact_record_gap",
+        evidenceKind: "contact", evidenceId: "", evidenceLabel: `접촉 ${contactDay} · 기록 ${latestDay}`,
       });
     }
   } else {

@@ -5,6 +5,7 @@ import { kpiProgress, kpiRisk, rulesSuggestions, nextActionLine, dayDiff, type P
 const base = (over: Partial<PmFacts> = {}): PmFacts => ({
   brandId: "b1", brandName: "예시브랜드", state: "onboarding", today: "2026-09-27",
   lastContactAt: "2026-09-26T00:00:00Z",
+  lastRecordAt: null, lastRecordKind: null, lastRecordChannel: null,
   channelErrors: [], channelsNotConnected: ["Slack", "카카오톡"],
   commCount: 5, kpis: [], openTasks: [], meetingsWithoutTranscript: [], ...over,
 });
@@ -150,5 +151,70 @@ describe("규칙 점검 — 근거 없는 사실을 만들지 않는다", () => 
     const out = rulesSuggestions(base({ channelErrors: ["이메일"] }));
     expect(nextActionLine(out, [])).toContain("문제:");
     expect(nextActionLine([], [])).toBe("");
+  });
+});
+
+describe("접촉 공백 — 발송 기록과 대화 기록을 함께 본다", () => {
+  const stale = (over: Partial<PmFacts> = {}) =>
+    rulesSuggestions(base({ today: "2026-10-01", ...over }));
+  const find = (list: ReturnType<typeof rulesSuggestions>, key: string) =>
+    list.find((x) => x.dedupeKey === key);
+
+  it("발송 기록만 오래됐어도 더 최근 대화 기록이 있으면 연락 없음으로 보지 않는다", () => {
+    const out = stale({
+      lastContactAt: "2026-09-03T00:00:00Z",
+      lastRecordAt: "2026-09-30T09:44:00Z", lastRecordKind: "stored", lastRecordChannel: "카카오톡",
+    });
+    expect(find(out, "rules:stale_contact")).toBeUndefined();
+  });
+
+  it("대신 발송 기록과 대화 기록의 시점 차이를 질문으로 알린다", () => {
+    const out = stale({
+      lastContactAt: "2026-09-03T00:00:00Z",
+      lastRecordAt: "2026-09-30T09:44:00Z", lastRecordKind: "stored", lastRecordChannel: "카카오톡",
+    });
+    const gap = find(out, "rules:contact_record_gap");
+    expect(gap).toBeTruthy();
+    expect(gap!.detail).toContain("2026-09-03");
+    expect(gap!.detail).toContain("2026-09-30");
+  });
+
+  it("대화 기록도 오래됐으면 그 시각을 기준으로 일수를 센다", () => {
+    const out = stale({
+      lastContactAt: "2026-09-03T00:00:00Z",
+      lastRecordAt: "2026-09-05T00:00:00Z", lastRecordKind: "stored", lastRecordChannel: "카카오톡",
+    });
+    const s = find(out, "rules:stale_contact");
+    expect(s).toBeTruthy();
+    expect(s!.title).toContain("26일");          // 9/5 → 10/1
+    // 저장 시각 기준임을 문구에 그대로 적는다(실제 대화 시각이라고 말하지 않는다).
+    expect(s!.detail).toContain("기록을 남긴 시각 기준");
+    expect(s!.detail).toContain("확인이 필요");
+  });
+
+  it("사람이 적어 넣은 대화 시각이면 저장 시각이라고 적지 않는다", () => {
+    const out = stale({
+      lastContactAt: null,
+      lastRecordAt: "2026-09-05T00:00:00Z", lastRecordKind: "conversation", lastRecordChannel: "수동 등록 대화",
+    });
+    const s = find(out, "rules:stale_contact");
+    expect(s!.detail).toContain("마지막 대화 기록은 2026-09-05");
+    expect(s!.detail).not.toContain("기록을 남긴 시각 기준");
+  });
+
+  it("발송 기록이 더 최근이면 기존 문구 그대로다", () => {
+    const out = stale({
+      lastContactAt: "2026-09-05T00:00:00Z",
+      lastRecordAt: "2026-09-01T00:00:00Z", lastRecordKind: "stored", lastRecordChannel: "카카오톡",
+    });
+    const s = find(out, "rules:stale_contact");
+    expect(s!.detail).toContain("기록상 마지막 접촉은 2026-09-05");
+    expect(find(out, "rules:contact_record_gap")).toBeUndefined();
+  });
+
+  it("둘 다 없으면 수치를 만들지 않고 질문만 남긴다", () => {
+    const out = stale({ lastContactAt: null, lastRecordAt: null, lastRecordKind: null });
+    expect(find(out, "rules:stale_contact")).toBeUndefined();
+    expect(find(out, "rules:no_contact_record")).toBeTruthy();
   });
 });
