@@ -1,6 +1,8 @@
 "use server";
 // 유입 소스 키별 연속 안내(드립) 설정 — 저장·미리보기·수동 실행.
+import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
+import { applyDay1Notice, type Day1Report } from "@/lib/lead-sequence-day1";
 import {
   saveSeqConfig, saveSeqStep, listSeqSteps, listSeqQueue, cancelLead,
   copySeqSteps, planSchedule, getSeqConfig, getSeqStep, seqDbError,
@@ -88,4 +90,19 @@ export async function cancelSeqAction(brandId: string, note: string): Promise<{ 
   if (!canEdit(u.role)) return { ok: false, error: "권한 없음(파트장·대표만)" };
   const n = await cancelLead(brandId, note || "수동 중단");
   return { ok: true, canceled: n };
+}
+
+// ── 1일차 "주간 슬롯" 안내 일괄 적용 ─────────────────────────
+//   대표 승인에 따라 모든 유입 루트의 1일차 문자·메일 본문에만 같은 문구를 넣는다.
+//   이 액션은 문구만 바꾼다 — 발송하지 않고 일정·토글·수신거부 설정도 건드리지 않는다.
+export async function day1NoticeAction(mode: "apply" | "remove", dryRun: boolean):
+  Promise<{ ok: boolean; error?: string; report?: Day1Report }> {
+  const u = await currentUser();
+  if (!u) return { ok: false, error: "세션 만료" };
+  if (!canEdit(u.role)) return { ok: false, error: "권한 없음(파트장·대표만)" };
+  try {
+    const report = await applyDay1Notice({ mode, dryRun, actor: u.name || u.id });
+    if (!dryRun) revalidatePath("/channels");
+    return { ok: true, report };
+  } catch (e) { return { ok: false, error: seqDbError(e) }; }
 }

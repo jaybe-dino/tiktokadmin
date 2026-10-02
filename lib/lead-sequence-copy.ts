@@ -4,17 +4,28 @@
 //   · 5일차(회사소개 단독 발송)는 이번 범위에서 제외 — 1~4일차만 둔다.
 //   DB 의존 없음 — 편집 화면(클라이언트)에서도 그대로 쓴다.
 
+import { withDay1Notice } from "./weekly-day1-notice";
+
 export interface SeqCopy { day_no: number; email_subject: string; email_body: string; sms_body: string }
 
 /** 상담 예약 링크 — 모든 회차 공통. */
 export const CONSULT_URL = "https://scheduler.zoom.us/nwa36f2letmqfr4bht4pgtzve0/tpartners2";
 
+/**
+ * 1일차에는 "틱톡샵 온보딩 주간 슬롯" 안내가 함께 들어간다(대표 승인).
+ *   문구 원본은 lib/weekly-day1-notice.ts 한 곳에 두고, 일괄 적용 기능과 같은 글을 쓴다.
+ */
+const DAY1_SMS = withDay1Notice(
+  "[디노스튜디오·GloveK]\n글로벌 50개국 해외 진출 가이드북을 보내드립니다. 국가별 진출 준비와 틱톡샵 운영 특집을 확인해 보세요.\n▶ 가이드북\nhttps://glovek.space/guidebook\n“우리 브랜드는 틱톡샵부터 시작해도 될까?”\n주요 제품과 준비 상황을 바탕으로 진출 국가·입점 준비·운영 방향을 함께 검토해 보세요.\n▶ 틱톡샵 1:1 상담 예약\nhttps://scheduler.zoom.us/nwa36f2letmqfr4bht4pgtzve0/tpartners2",
+  "sms");
+
 export const APPROVED_COPY: SeqCopy[] = [
   {
     day_no: 1,
     email_subject: "[GloveK] 글로벌 50개국 가이드북 도착! 우리 브랜드, 틱톡샵부터 시작해도 될까요?",
-    email_body: "안녕하세요. 디노스튜디오 GloveK입니다.\n\n해외 진출을 준비하시는 데 도움이 될 글로벌 50개국 해외 진출 가이드북을 보내드립니다.\n국가별 시장과 판매 채널, 인증·규제, 계약, 물류·정산 등 해외 진출에 필요한 내용을 담았습니다. 틱톡샵 진출·운영 특집도 함께 확인하실 수 있습니다.\n\n📖 글로벌 50개국 진출 가이드북 보기\nhttps://glovek.space/guidebook\n\n다양한 진출 방법 중 우리 브랜드가 틱톡샵을 검토하고 있다면, 먼저 확인할 질문이 있습니다.\n“우리 제품은 틱톡샵에 적합할까?”\n“어느 국가에서, 어떤 제품으로 시작하면 좋을까?”\n“입점과 판매를 위해 무엇을 준비해야 할까?”\n\nGloveK의 틱톡샵 1:1 상담에서 주요 제품과 현재 준비 상황을 바탕으로 함께 검토해 보세요.\n아직 입점을 결정하지 않으셔도 괜찮습니다. 우리 브랜드에 맞는 진출 방식인지 판단하는 것부터 상담하실 수 있습니다.\n\n📅 우리 브랜드 틱톡샵 진출 상담 예약\nhttps://scheduler.zoom.us/nwa36f2letmqfr4bht4pgtzve0/tpartners2\n\n디노스튜디오 GloveK 드림",
-    sms_body: "[디노스튜디오·GloveK]\n글로벌 50개국 해외 진출 가이드북을 보내드립니다. 국가별 진출 준비와 틱톡샵 운영 특집을 확인해 보세요.\n▶ 가이드북\nhttps://glovek.space/guidebook\n“우리 브랜드는 틱톡샵부터 시작해도 될까?”\n주요 제품과 준비 상황을 바탕으로 진출 국가·입점 준비·운영 방향을 함께 검토해 보세요.\n▶ 틱톡샵 1:1 상담 예약\nhttps://scheduler.zoom.us/nwa36f2letmqfr4bht4pgtzve0/tpartners2",
+    email_body: withDay1Notice(
+      "안녕하세요. 디노스튜디오 GloveK입니다.\n\n해외 진출을 준비하시는 데 도움이 될 글로벌 50개국 해외 진출 가이드북을 보내드립니다.\n국가별 시장과 판매 채널, 인증·규제, 계약, 물류·정산 등 해외 진출에 필요한 내용을 담았습니다. 틱톡샵 진출·운영 특집도 함께 확인하실 수 있습니다.\n\n📖 글로벌 50개국 진출 가이드북 보기\nhttps://glovek.space/guidebook\n\n다양한 진출 방법 중 우리 브랜드가 틱톡샵을 검토하고 있다면, 먼저 확인할 질문이 있습니다.\n“우리 제품은 틱톡샵에 적합할까?”\n“어느 국가에서, 어떤 제품으로 시작하면 좋을까?”\n“입점과 판매를 위해 무엇을 준비해야 할까?”\n\nGloveK의 틱톡샵 1:1 상담에서 주요 제품과 현재 준비 상황을 바탕으로 함께 검토해 보세요.\n아직 입점을 결정하지 않으셔도 괜찮습니다. 우리 브랜드에 맞는 진출 방식인지 판단하는 것부터 상담하실 수 있습니다.\n\n📅 우리 브랜드 틱톡샵 진출 상담 예약\nhttps://scheduler.zoom.us/nwa36f2letmqfr4bht4pgtzve0/tpartners2\n\n디노스튜디오 GloveK 드림", "email"),
+    sms_body: DAY1_SMS,
   },
   {
     day_no: 2,
