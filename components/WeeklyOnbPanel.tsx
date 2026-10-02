@@ -6,7 +6,7 @@ import {
   weeklyOverviewAction, weeklySetStatusAction, weeklySetOwnerAction,
   weeklySetNoteAction, weeklyClearTestAction, type WeeklyOverview,
 } from "@/app/(dash)/weekly-onboarding/actions";
-import { WEEKLY_STATUSES, WEEKLY_STATUS_LABEL } from "@/lib/weekly-onboarding-model";
+import { WEEKLY_STATUSES, WEEKLY_STATUS_LABEL, revenueLabel } from "@/lib/weekly-onboarding-model";
 
 type Res = { ok: boolean; error?: string; note?: string };
 function useAction() {
@@ -92,6 +92,12 @@ export default function WeeklyOnbPanel() {
           </span>
         </div>
         <div className="bd" style={{ display: "grid", gap: 10 }}>
+          {!ov.revenueReady && (
+            <div className="note" style={{ color: "#c25400" }}>
+              마이그레이션 <b>{ov.revenueMigration}</b> 미적용 — 신청은 정상 접수되지만
+              <b> 새 신청의 매출 구간이 저장되지 않습니다.</b> 설정 &gt; 마이그레이션에서 이 파일만 단독 적용하세요.
+            </div>
+          )}
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
             <label><input type="checkbox" checked={showTest} onChange={(e) => setShowTest(e.target.checked)} /> 검수용 TEST 포함</label>
             {ov.canAdmin && showTest && (
@@ -139,6 +145,11 @@ function Row({ r, admins, onDone }: {
         <span>{r.contact_name}{r.contact_title && ` ${r.contact_title}`}</span>
         <a href={`tel:${r.phone}`} style={{ color: "var(--acc)" }}>📞 {phoneFmt(r.phone)}</a>
         <a href={`mailto:${r.email}`} style={{ color: "var(--acc)" }}>✉️ {r.email}</a>
+      </div>
+      <div style={{ fontSize: 12, marginTop: 5 }}>
+        <span style={{ color: "var(--ink3)" }}>자가 기입 매출</span>{" "}
+        <b style={{ color: r.revenue_band ? undefined : "var(--ink3)" }}>{revenueLabel(r.revenue_band)}</b>
+        <span style={{ color: "var(--ink3)", fontSize: 11 }}> · 신청자가 직접 고른 값(브랜드 원장 매출과 별개)</span>
       </div>
       {r.note && <div style={{ fontSize: 12, color: "var(--ink2)", marginTop: 5, whiteSpace: "pre-wrap" }}>문의: {r.note}</div>}
 

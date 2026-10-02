@@ -38,3 +38,32 @@ export function weekKey(now = new Date()): string {
   const mon = new Date(k.getTime() - back * 86400_000);
   return mon.toISOString().slice(0, 10);
 }
+
+// ── 자가 기입 매출 구간 ─────────────────────────────────────
+//   신청자가 직접 고른 값이다. 브랜드 원장의 매출과 다른 값이며 섞어 쓰지 않는다.
+export const REVENUE_HELP = "최근 12개월 브랜드 전체 매출 기준 · 원화(KRW)";
+export const REVENUE_LABEL_TEXT = "현재 브랜드 매출액을 기입해 주세요";
+
+export const REVENUE_BANDS = [
+  { key: "pre", label: "매출 발생 전" },
+  { key: "lt1", label: "1억원 미만" },
+  { key: "b1_5", label: "1억원 이상~5억원 미만" },
+  { key: "b5_10", label: "5억원 이상~10억원 미만" },
+  { key: "b10_30", label: "10억원 이상~30억원 미만" },
+  { key: "b30_100", label: "30억원 이상~100억원 미만" },
+  { key: "gte100", label: "100억원 이상" },
+  { key: "unknown", label: "확인 필요" },
+] as const;
+
+export type RevenueBand = (typeof REVENUE_BANDS)[number]["key"];
+export const REVENUE_KEYS = REVENUE_BANDS.map((b) => b.key) as readonly RevenueBand[];
+
+export function isRevenueBand(v: unknown): v is RevenueBand {
+  return (REVENUE_KEYS as readonly string[]).includes(String(v ?? ""));
+}
+
+/** 저장값 → 표시 문구. 미기입(기존 신청)은 null 이므로 그대로 "미기입"으로 적는다. */
+export function revenueLabel(v: unknown): string {
+  const hit = REVENUE_BANDS.find((b) => b.key === String(v ?? ""));
+  return hit ? hit.label : "미기입";
+}

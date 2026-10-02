@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   weekKey, normEmail, normPhone, normSite, EMAIL_RE,
   WEEKLY_STATUSES, WEEKLY_STATUS_LABEL, WEEKLY_SOURCE,
+  REVENUE_BANDS, REVENUE_KEYS, isRevenueBand, revenueLabel, REVENUE_HELP, REVENUE_LABEL_TEXT,
 } from "../lib/weekly-onboarding-model";
 import {
   WEEKLY_DAY1_SMS_DRAFT, WEEKLY_FORBIDDEN_CLAIMS, WEEKLY_APPLY_URL,
@@ -71,6 +72,70 @@ describe("상태·출처", () => {
                      "../app/(dash)/weekly-onboarding/actions.ts"]) {
       expect(code(f), f).not.toMatch(/WEEKLY_SLOTS/);
     }
+  });
+});
+
+describe("자가 기입 매출 구간", () => {
+  it("요청하신 8개 구간이 순서대로 있다", () => {
+    expect(REVENUE_BANDS.map((b) => b.label)).toEqual([
+      "매출 발생 전",
+      "1억원 미만",
+      "1억원 이상~5억원 미만",
+      "5억원 이상~10억원 미만",
+      "10억원 이상~30억원 미만",
+      "30억원 이상~100억원 미만",
+      "100억원 이상",
+      "확인 필요",
+    ]);
+  });
+  it("질문·보조문구가 요청 그대로다", () => {
+    expect(REVENUE_LABEL_TEXT).toBe("현재 브랜드 매출액을 기입해 주세요");
+    expect(REVENUE_HELP).toBe("최근 12개월 브랜드 전체 매출 기준 · 원화(KRW)");
+  });
+  it("허용값만 통과한다", () => {
+    for (const k of REVENUE_KEYS) expect(isRevenueBand(k), k).toBe(true);
+    for (const bad of ["", "   ", "1억", "pre ", "PRE", null, undefined, 1]) {
+      expect(isRevenueBand(bad), String(bad)).toBe(false);
+    }
+  });
+  it("저장키는 라벨이 아니라 코드다(라벨이 바뀌어도 기존 데이터가 안 깨진다)", () => {
+    expect(REVENUE_KEYS).toEqual(["pre", "lt1", "b1_5", "b5_10", "b10_30", "b30_100", "gte100", "unknown"]);
+  });
+  it("미기입(기존 신청)은 '미기입'으로 표시한다", () => {
+    expect(revenueLabel(null)).toBe("미기입");
+    expect(revenueLabel("")).toBe("미기입");
+    expect(revenueLabel("b1_5")).toBe("1억원 이상~5억원 미만");
+  });
+  it("공개 폼에 필수 select 와 보조문구가 있고 기본값은 빈 값이다", () => {
+    const form = read("../app/weekly/WeeklyApplyForm.tsx");
+    expect(form).toContain("REVENUE_LABEL_TEXT");
+    expect(form).toContain("REVENUE_HELP");
+    expect(form).toContain('<option value="">선택해 주세요</option>');
+    expect(form).toContain('revenueBand: ""');
+  });
+  it("관리자 카드에 자가 기입 값임을 밝혀 표시한다", () => {
+    const panel = read("../components/WeeklyOnbPanel.tsx");
+    expect(panel).toContain("자가 기입 매출");
+    expect(panel).toContain("브랜드 원장 매출과 별개");
+    expect(panel).toContain("revenueLabel(r.revenue_band)");
+  });
+  it("브랜드 원장 매출을 건드리지 않는다", () => {
+    for (const f of ["../lib/weekly-onboarding.ts", "../lib/weekly-onboarding-model.ts",
+                     "../app/weekly/actions.ts", "../app/(dash)/weekly-onboarding/actions.ts"]) {
+      const src = code(f);
+      expect(src, f).not.toMatch(/UPDATE brands|INSERT INTO brands|products_master|monthly_revenue/);
+    }
+  });
+  it("0108 미적용에도 접수·목록이 깨지지 않게 분기한다", () => {
+    const lib = code("../lib/weekly-onboarding.ts");
+    expect(lib).toContain("hasRevenueColumn");
+    expect(lib).toContain("NULL::text AS revenue_band");
+  });
+  it("0108 마이그레이션은 추가만 하고 기존 행을 채우지 않는다", () => {
+    const sql = read("../migrations/0108_weekly_onb_revenue.sql");
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS revenue_band");
+    expect(sql).toContain("revenue_band IS NULL OR revenue_band IN");
+    expect(sql.replace(/IS NULL/g, "")).not.toMatch(/\b(DROP|TRUNCATE|DELETE|UPDATE)\b/i);
   });
 });
 

@@ -9,6 +9,8 @@ export interface WeeklyFormInput {
   brandName: string; companyName: string; siteUrl?: string;
   contactName: string; contactTitle?: string;
   phone: string; email: string; note?: string;
+  /** 신청자가 고른 자가 기입 매출 구간(필수). 서버가 허용값인지 다시 검사한다. */
+  revenueBand?: string;
 }
 
 export async function submitWeeklyApplyAction(input: WeeklyFormInput):
@@ -18,6 +20,7 @@ export async function submitWeeklyApplyAction(input: WeeklyFormInput):
     brandName: input.brandName, companyName: input.companyName, siteUrl: input.siteUrl,
     contactName: input.contactName, contactTitle: input.contactTitle,
     phone: input.phone, email: input.email, note: input.note,
+    revenueBand: input.revenueBand,
   };
   const r = await submitWeeklyApplication(safe);
   return r.ok ? { ok: true, already: r.already } : { ok: false, error: r.error };

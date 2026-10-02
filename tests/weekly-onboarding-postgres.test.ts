@@ -18,6 +18,7 @@ const TEST_INPUT = {
   brandName: "TEST 합성브랜드", companyName: "TEST 합성회사",
   siteUrl: "test-brand.example.com", contactName: "TEST 담당자", contactTitle: "팀장",
   phone: "010-0000-0000", email: "test-weekly@example.invalid", note: "TEST 합성 신청",
+  revenueBand: "b1_5",
   isTest: true,
 };
 
@@ -30,6 +31,7 @@ describe.skipIf(!process.env.WEEKLY_TEST_DB_URL)("주간 온보딩 신청 (Postg
     `);
     // 실제 마이그레이션 파일을 그대로 적용한다(파일과 코드가 어긋나면 여기서 터진다).
     await ctx.pool.query(readFileSync(new URL("../migrations/0107_weekly_onboarding_apply.sql", import.meta.url), "utf8"));
+    await ctx.pool.query(readFileSync(new URL("../migrations/0108_weekly_onb_revenue.sql", import.meta.url), "utf8"));
   });
   afterAll(async () => { await ctx.pool.end(); });
   beforeEach(async () => { await ctx.pool.query("TRUNCATE weekly_onb_applications, weekly_onb_events"); });
@@ -52,6 +54,58 @@ describe.skipIf(!process.env.WEEKLY_TEST_DB_URL)("주간 온보딩 신청 (Postg
     expect(row.source).toBe("weekly_onboarding");
     expect(row.status).toBe("new");
     expect(row.is_test).toBe(true);
+    expect(row.revenue_band).toBe("b1_5");
+  });
+
+  it("매출 구간은 필수이고 목록에 없는 값은 거부한다", async () => {
+    for (const bad of ["", "1억", "PRE", undefined]) {
+      const r = await W.submitWeeklyApplication({ ...TEST_INPUT, revenueBand: bad as string });
+      expect(r.ok, String(bad)).toBe(false);
+      expect(r.error, String(bad)).toContain("매출액");
+    }
+    const n = await ctx.pool.query("SELECT count(*)::int AS n FROM weekly_onb_applications");
+    expect(n.rows[0].n).toBe(0);
+  });
+
+  it("8개 구간이 모두 실제로 저장된다", async () => {
+    const { REVENUE_KEYS } = await import("../lib/weekly-onboarding-model");
+    for (const [i, k] of REVENUE_KEYS.entries()) {
+      const r = await W.submitWeeklyApplication({
+        ...TEST_INPUT, revenueBand: k, email: `band-${i}@example.invalid`, phone: `0100000${String(1000 + i)}`,
+      });
+      expect(r.ok, k).toBe(true);
+    }
+    const rows = await ctx.pool.query("SELECT revenue_band FROM weekly_onb_applications ORDER BY created_at");
+    expect(new Set(rows.rows.map((x) => x.revenue_band)).size).toBe(REVENUE_KEYS.length);
+  });
+
+  it("같은 주 재제출이면 매출 구간만 최신 선택으로 갱신된다", async () => {
+    await W.submitWeeklyApplication({ ...TEST_INPUT, revenueBand: "pre" });
+    const again = await W.submitWeeklyApplication({ ...TEST_INPUT, revenueBand: "gte100" });
+    expect(again.already).toBe(true);
+    const rows = await ctx.pool.query("SELECT revenue_band, brand_name FROM weekly_onb_applications");
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0].revenue_band).toBe("gte100");
+  });
+
+  it("기존 신청(미기입)은 null 로 남고 목록에서 '미기입'으로 읽힌다", async () => {
+    const { revenueLabel } = await import("../lib/weekly-onboarding-model");
+    await ctx.pool.query(
+      `INSERT INTO weekly_onb_applications
+         (brand_name, company_name, contact_name, phone, email, week_key, dedupe_key, is_test)
+       VALUES ('이전 신청','이전 회사','담당','01099999999','old@example.invalid', $1, 'old|01099999999', true)`,
+      [W.weekKey()]);
+    const rows = await W.listWeeklyApplications({ includeTest: true });
+    expect(rows[0].revenue_band).toBeNull();
+    expect(revenueLabel(rows[0].revenue_band)).toBe("미기입");
+  });
+
+  it("DB 제약이 허용값 밖을 막는다", async () => {
+    await expect(ctx.pool.query(
+      `INSERT INTO weekly_onb_applications
+         (brand_name, company_name, contact_name, phone, email, week_key, dedupe_key, revenue_band)
+       VALUES ('x','x','x','01088887777','bad@example.invalid', $1, 'bad|01088887777', '1억')`,
+      [W.weekKey()])).rejects.toThrow();
   });
 
   it("같은 주에 다시 눌러도 한 건만 남는다", async () => {
@@ -135,6 +189,25 @@ describe.skipIf(!process.env.WEEKLY_TEST_DB_URL)("주간 온보딩 신청 (Postg
     const left = await W.listWeeklyApplications({ includeTest: true });
     expect(left).toHaveLength(1);
     expect(left[0].is_test).toBe(false);
+  });
+
+  it("0108 미적용이어도 접수와 목록이 깨지지 않는다", async () => {
+    // 운영에 0108 이 아직 안 올라간 상태를 그대로 재현한다.
+    await ctx.pool.query("ALTER TABLE weekly_onb_applications DROP COLUMN revenue_band");
+    try {
+      const r = await W.submitWeeklyApplication(TEST_INPUT);
+      expect(r.ok).toBe(true);
+      expect(r.revenueNotStored).toBe(true);     // 저장되지 않았음을 숨기지 않는다
+      const rows = await W.listWeeklyApplications({ includeTest: true });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].revenue_band).toBeNull();
+      const st = await W.weeklySchemaState();
+      expect(st.ready).toBe(true);
+      expect(st.revenueReady).toBe(false);
+      expect(st.revenueMigration).toBe("0108_weekly_onb_revenue.sql");
+    } finally {
+      await ctx.pool.query(readFileSync(new URL("../migrations/0108_weekly_onb_revenue.sql", import.meta.url), "utf8"));
+    }
   });
 
   it("brands 표를 건드리지 않는다(존재하지 않아도 접수된다)", async () => {

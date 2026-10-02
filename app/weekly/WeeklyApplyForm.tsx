@@ -4,6 +4,7 @@
 //   · 잔여석·마감·선착순을 표시하지 않는다.
 import { useState, useTransition } from "react";
 import { submitWeeklyApplyAction } from "./actions";
+import { REVENUE_BANDS, REVENUE_HELP, REVENUE_LABEL_TEXT } from "@/lib/weekly-onboarding-model";
 
 export default function WeeklyApplyForm() {
   const [pending, start] = useTransition();
@@ -11,10 +12,13 @@ export default function WeeklyApplyForm() {
   const [err, setErr] = useState("");
   const [v, setV] = useState({
     brandName: "", companyName: "", siteUrl: "",
-    contactName: "", contactTitle: "", phone: "", email: "", note: "",
+    contactName: "", contactTitle: "", phone: "", email: "",
+    // 기본은 빈 값 — 신청자가 직접 고르게 한다(아무 구간도 미리 선택하지 않는다).
+    revenueBand: "", note: "",
   });
-  const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setV((p) => ({ ...p, [k]: e.target.value }));
+  const set = (k: keyof typeof v) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setV((p) => ({ ...p, [k]: e.target.value }));
 
   const submit = () => start(async () => {
     setErr("");
@@ -63,6 +67,14 @@ export default function WeeklyApplyForm() {
           <Field label="연락처" required value={v.phone} onChange={set("phone")} placeholder="010-0000-0000" />
           <Field label="이메일" required value={v.email} onChange={set("email")} placeholder="name@company.com" />
           <div style={{ gridColumn: "1 / -1" }}>
+            <label style={S.label}>{REVENUE_LABEL_TEXT}<span style={{ color: "#e03131" }}> *</span></label>
+            <select style={S.input} value={v.revenueBand} onChange={set("revenueBand")}>
+              <option value="">선택해 주세요</option>
+              {REVENUE_BANDS.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+            </select>
+            <p style={S.hint}>{REVENUE_HELP}</p>
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
             <label style={S.label}>문의 사항 (선택)</label>
             <textarea style={{ ...S.input, height: 88, resize: "vertical" }} value={v.note}
               onChange={set("note")} placeholder="상담 때 먼저 확인하고 싶은 내용이 있으면 적어주세요." />
@@ -105,6 +117,7 @@ const S: Record<string, React.CSSProperties> = {
   input: { width: "100%", boxSizing: "border-box", border: "1px solid #dfe3e8", borderRadius: 10, padding: "11px 12px", fontSize: 14, color: "#111", background: "#fff" },
   err: { marginTop: 14, fontSize: 13, color: "#c92a2a" },
   btn: { width: "100%", border: 0, borderRadius: 12, background: "#111827", color: "#fff", padding: "14px 18px", fontSize: 15, fontWeight: 800, cursor: "pointer", marginTop: 16 },
+  hint: { fontSize: 11.5, color: "#6b7280", lineHeight: 1.6, margin: "6px 0 0" },
   privacy: { fontSize: 11.5, color: "#9aa3af", lineHeight: 1.7, marginTop: 14, marginBottom: 0 },
   muted: { fontSize: 14, color: "#374151", lineHeight: 1.8 },
 };

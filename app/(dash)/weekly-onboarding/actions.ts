@@ -16,6 +16,9 @@ export interface WeeklyOverview {
   schemaReady: boolean;
   schemaError?: string;
   migration: string;
+  /** 매출 구간 컬럼(0108) 적용 여부 — false 면 새 신청의 매출 구간이 저장되지 않는다. */
+  revenueReady: boolean;
+  revenueMigration: string;
   rows: Awaited<ReturnType<typeof listWeeklyApplications>>;
   counts: Awaited<ReturnType<typeof weeklyCounts>> | null;
   admins: { id: string; name: string }[];
@@ -35,6 +38,7 @@ export async function weeklyOverviewAction(includeTest = false):
         schemaReady: false,
         schemaError: `마이그레이션 ${WEEKLY_SCHEMA_MIGRATION} 미적용 — 없는 표: ${schema.missing.join(", ") || schema.error || "확인 실패"}`,
         migration: WEEKLY_SCHEMA_MIGRATION,
+        revenueReady: schema.revenueReady, revenueMigration: schema.revenueMigration,
         rows: [], counts: null, admins: [], canAdmin: ADMIN_ROLES.has(u.role), formPath: "/weekly",
       },
     };
@@ -50,6 +54,7 @@ export async function weeklyOverviewAction(includeTest = false):
       ok: true,
       data: {
         schemaReady: true, migration: WEEKLY_SCHEMA_MIGRATION,
+        revenueReady: schema.revenueReady, revenueMigration: schema.revenueMigration,
         rows, counts, admins, canAdmin: ADMIN_ROLES.has(u.role), formPath: "/weekly",
       },
     };
