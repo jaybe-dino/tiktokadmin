@@ -5,6 +5,8 @@ import {
   weekKey, normEmail, normPhone, normSite, EMAIL_RE,
   WEEKLY_STATUSES, WEEKLY_STATUS_LABEL, WEEKLY_SOURCE,
   REVENUE_BANDS, REVENUE_KEYS, isRevenueBand, revenueLabel, REVENUE_HELP, REVENUE_LABEL_TEXT,
+  LEGACY_REVENUE_BANDS, LEGACY_REVENUE_KEYS, ALL_REVENUE_KEYS,
+  isKnownRevenueBand, isLegacyRevenueBand,
 } from "../lib/weekly-onboarding-model";
 import {
   WEEKLY_DAY1_SMS_DRAFT, WEEKLY_FORBIDDEN_CLAIMS, WEEKLY_APPLY_URL,
@@ -76,15 +78,14 @@ describe("상태·출처", () => {
 });
 
 describe("자가 기입 매출 구간", () => {
-  it("요청하신 8개 구간이 순서대로 있다", () => {
+  it("요청하신 7개 구간이 순서대로 있다", () => {
     expect(REVENUE_BANDS.map((b) => b.label)).toEqual([
       "매출 발생 전",
-      "1억원 미만",
-      "1억원 이상~5억원 미만",
-      "5억원 이상~10억원 미만",
-      "10억원 이상~30억원 미만",
-      "30억원 이상~100억원 미만",
-      "100억원 이상",
+      "1억원 이상~10억원 미만",
+      "10억원 이상~50억원 미만",
+      "50억원 이상~200억원 미만",
+      "200억원~500억 이상",
+      "500억~1000억 이상",
       "확인 필요",
     ]);
   });
@@ -99,12 +100,30 @@ describe("자가 기입 매출 구간", () => {
     }
   });
   it("저장키는 라벨이 아니라 코드다(라벨이 바뀌어도 기존 데이터가 안 깨진다)", () => {
-    expect(REVENUE_KEYS).toEqual(["pre", "lt1", "b1_5", "b5_10", "b10_30", "b30_100", "gte100", "unknown"]);
+    expect(REVENUE_KEYS).toEqual(["pre", "b1_10", "b10_50", "b50_200", "b200_500", "b500_1000", "unknown"]);
+  });
+  it("예전 구간은 폼에서 빠졌지만 라벨은 남아 기존 신청이 그대로 읽힌다", () => {
+    expect(LEGACY_REVENUE_KEYS).toEqual(["lt1", "b1_5", "b5_10", "b10_30", "b30_100", "gte100"]);
+    expect(revenueLabel("b1_5")).toBe("1억원 이상~5억원 미만");
+    expect(revenueLabel("gte100")).toBe("100억원 이상");
+    for (const k of LEGACY_REVENUE_KEYS) {
+      expect(isLegacyRevenueBand(k), k).toBe(true);
+      expect(isKnownRevenueBand(k), k).toBe(true);
+      // 새로 접수할 때는 더 이상 받지 않는다.
+      expect(isRevenueBand(k), k).toBe(false);
+    }
+  });
+  it("새 구간과 예전 구간의 키가 겹치지 않는다(pre·unknown 은 뜻이 같아 그대로 쓴다)", () => {
+    const overlap = REVENUE_KEYS.filter((k) => (LEGACY_REVENUE_KEYS as readonly string[]).includes(k));
+    expect(overlap).toEqual([]);
+    expect(ALL_REVENUE_KEYS).toHaveLength(REVENUE_KEYS.length + LEGACY_REVENUE_KEYS.length);
+    expect(new Set(ALL_REVENUE_KEYS).size).toBe(ALL_REVENUE_KEYS.length);
   });
   it("미기입(기존 신청)은 '미기입'으로 표시한다", () => {
     expect(revenueLabel(null)).toBe("미기입");
     expect(revenueLabel("")).toBe("미기입");
-    expect(revenueLabel("b1_5")).toBe("1억원 이상~5억원 미만");
+    expect(revenueLabel("없는값")).toBe("미기입");
+    expect(isLegacyRevenueBand(null)).toBe(false);
   });
   it("공개 폼에 필수 select 와 보조문구가 있고 기본값은 빈 값이다", () => {
     const form = read("../app/weekly/WeeklyApplyForm.tsx");
@@ -118,6 +137,9 @@ describe("자가 기입 매출 구간", () => {
     expect(panel).toContain("자가 기입 매출");
     expect(panel).toContain("브랜드 원장 매출과 별개");
     expect(panel).toContain("revenueLabel(r.revenue_band)");
+    // 예전 구간으로 접수된 건은 한눈에 구분되게 표시한다.
+    expect(panel).toContain("isLegacyRevenueBand(r.revenue_band)");
+    expect(panel).toContain("이전 구간");
   });
   it("브랜드 원장 매출을 건드리지 않는다", () => {
     for (const f of ["../lib/weekly-onboarding.ts", "../lib/weekly-onboarding-model.ts",
@@ -136,6 +158,31 @@ describe("자가 기입 매출 구간", () => {
     expect(sql).toContain("ADD COLUMN IF NOT EXISTS revenue_band");
     expect(sql).toContain("revenue_band IS NULL OR revenue_band IN");
     expect(sql.replace(/IS NULL/g, "")).not.toMatch(/\b(DROP|TRUNCATE|DELETE|UPDATE)\b/i);
+  });
+  it("0110 마이그레이션은 허용값만 넓히고 기존 값을 바꾸지 않는다", () => {
+    const sql = read("../migrations/0110_weekly_onb_revenue_bands.sql");
+    // 새 구간과 예전 구간이 모두 허용값에 들어 있어야 기존 행이 검사에서 떨어지지 않는다.
+    for (const k of ALL_REVENUE_KEYS) expect(sql, k).toContain(`'${k}'`);
+    // 데이터를 옮기거나 지우는 구문이 없다(CHECK 교체를 위한 DROP CONSTRAINT 만 허용).
+    const body = sql.split("\n").filter((l) => !/^\s*--/.test(l)).join("\n");
+    expect(body).not.toMatch(/\bUPDATE\s+weekly_onb_applications\b/i);
+    expect(body).not.toMatch(/\bDELETE\s+FROM\b/i);
+    expect(body).not.toMatch(/\bTRUNCATE\b/i);
+    expect(body).not.toMatch(/\bDROP\s+(TABLE|COLUMN)\b/i);
+    const drops = [...body.matchAll(/\bDROP\s+(\w+)/gi)].map((m) => m[1].toUpperCase());
+    expect(drops).toEqual(["CONSTRAINT"]);
+  });
+  it("0110 미적용에도 접수가 깨지지 않게 분기한다", () => {
+    const lib = code("../lib/weekly-onboarding.ts");
+    expect(lib).toContain("hasNewRevenueBands");
+    expect(lib).toContain("isRevenueCheckViolation");
+    // CHECK 에 걸리면 매출 구간만 빼고 다시 넣는다(접수를 떨어뜨리지 않는다).
+    expect(lib).toMatch(/isRevenueCheckViolation\(e\)[\s\S]{0,200}insert\(false\)/);
+  });
+  it("0110 미적용 안내가 관리자 화면에 뜬다", () => {
+    const panel = read("../components/WeeklyOnbPanel.tsx");
+    expect(panel).toContain("ov.bandsMigration");
+    expect(panel).toContain("!ov.bandsReady");
   });
 });
 

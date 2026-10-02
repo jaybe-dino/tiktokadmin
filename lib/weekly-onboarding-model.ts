@@ -46,24 +46,52 @@ export const REVENUE_LABEL_TEXT = "현재 브랜드 매출액을 기입해 주�
 
 export const REVENUE_BANDS = [
   { key: "pre", label: "매출 발생 전" },
+  { key: "b1_10", label: "1억원 이상~10억원 미만" },
+  { key: "b10_50", label: "10억원 이상~50억원 미만" },
+  { key: "b50_200", label: "50억원 이상~200억원 미만" },
+  { key: "b200_500", label: "200억원~500억 이상" },
+  { key: "b500_1000", label: "500억~1000억 이상" },
+  { key: "unknown", label: "확인 필요" },
+] as const;
+
+/**
+ * 2026-10 이전에 쓰던 구간. 폼에서는 더 고를 수 없지만 이미 저장된 신청이 있으므로
+ * 라벨은 그대로 둔다 — 기존 값을 새 구간으로 옮겨 적거나 지우지 않는다.
+ */
+export const LEGACY_REVENUE_BANDS = [
   { key: "lt1", label: "1억원 미만" },
   { key: "b1_5", label: "1억원 이상~5억원 미만" },
   { key: "b5_10", label: "5억원 이상~10억원 미만" },
   { key: "b10_30", label: "10억원 이상~30억원 미만" },
   { key: "b30_100", label: "30억원 이상~100억원 미만" },
   { key: "gte100", label: "100억원 이상" },
-  { key: "unknown", label: "확인 필요" },
 ] as const;
 
 export type RevenueBand = (typeof REVENUE_BANDS)[number]["key"];
+export type LegacyRevenueBand = (typeof LEGACY_REVENUE_BANDS)[number]["key"];
+/** 지금 폼에서 고를 수 있는 값. */
 export const REVENUE_KEYS = REVENUE_BANDS.map((b) => b.key) as readonly RevenueBand[];
+export const LEGACY_REVENUE_KEYS = LEGACY_REVENUE_BANDS.map((b) => b.key) as readonly LegacyRevenueBand[];
+/** 저장돼 있을 수 있는 모든 값(= DB CHECK 가 허용해야 하는 집합). */
+export const ALL_REVENUE_KEYS: readonly string[] = [...REVENUE_KEYS, ...LEGACY_REVENUE_KEYS];
 
+/** 새로 접수할 때 받아들이는 값 — 지금 폼에 없는 값은 받지 않는다. */
 export function isRevenueBand(v: unknown): v is RevenueBand {
   return (REVENUE_KEYS as readonly string[]).includes(String(v ?? ""));
+}
+/** 이미 저장된 값인지(표시용). 예전 구간도 참이다. */
+export function isKnownRevenueBand(v: unknown): boolean {
+  return ALL_REVENUE_KEYS.includes(String(v ?? ""));
+}
+/** 더 이상 고를 수 없는 예전 구간인지 — 관리자 화면에서 표시만 구분한다. */
+export function isLegacyRevenueBand(v: unknown): v is LegacyRevenueBand {
+  return (LEGACY_REVENUE_KEYS as readonly string[]).includes(String(v ?? ""));
 }
 
 /** 저장값 → 표시 문구. 미기입(기존 신청)은 null 이므로 그대로 "미기입"으로 적는다. */
 export function revenueLabel(v: unknown): string {
-  const hit = REVENUE_BANDS.find((b) => b.key === String(v ?? ""));
+  const key = String(v ?? "");
+  const hit = REVENUE_BANDS.find((b) => b.key === key)
+    ?? LEGACY_REVENUE_BANDS.find((b) => b.key === key);
   return hit ? hit.label : "미기입";
 }

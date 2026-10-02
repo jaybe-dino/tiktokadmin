@@ -10,6 +10,8 @@ import {
   WEEKLY_SOURCE, WEEKLY_STATUSES, WEEKLY_STATUS_LABEL,
   EMAIL_RE, cleanText as clean, normEmail, normPhone, normSite, weekKey,
   REVENUE_BANDS, REVENUE_KEYS, isRevenueBand, revenueLabel,
+  LEGACY_REVENUE_BANDS, LEGACY_REVENUE_KEYS, ALL_REVENUE_KEYS,
+  isKnownRevenueBand, isLegacyRevenueBand,
   type WeeklyStatus, type RevenueBand,
 } from "./weekly-onboarding-model";
 
@@ -18,12 +20,19 @@ export {
   WEEKLY_SOURCE, WEEKLY_STATUSES, WEEKLY_STATUS_LABEL,
   EMAIL_RE, normEmail, normPhone, normSite, weekKey,
   REVENUE_BANDS, REVENUE_KEYS, isRevenueBand, revenueLabel,
+  LEGACY_REVENUE_BANDS, LEGACY_REVENUE_KEYS, ALL_REVENUE_KEYS,
+  isKnownRevenueBand, isLegacyRevenueBand,
 };
 export type { WeeklyStatus, RevenueBand };
 
 export const WEEKLY_SCHEMA_MIGRATION = "0107_weekly_onboarding_apply.sql";
 /** 자가 기입 매출 구간 컬럼을 더하는 마이그레이션. 미적용이어도 제출·목록은 그대로 동작한다. */
 export const WEEKLY_REVENUE_MIGRATION = "0108_weekly_onb_revenue.sql";
+/**
+ * 바뀐 매출 구간(1억~10억 … 500억~1000억)을 저장할 수 있게 CHECK 를 넓히는 마이그레이션.
+ *   미적용이어도 접수 자체는 그대로 되고, 매출 구간만 저장되지 않는다.
+ */
+export const WEEKLY_BANDS_MIGRATION = "0110_weekly_onb_revenue_bands.sql";
 
 /**
  * revenue_band 컬럼이 실제로 있는지 — 0108 미적용 DB 에서도 접수가 깨지지 않게 분기한다.
@@ -50,11 +59,42 @@ export async function hasRevenueColumn(): Promise<boolean> {
   }
 }
 
+/**
+ * 지금 폼의 구간을 DB 가 받아 주는지 — 0110 미적용 DB 에서도 접수가 깨지지 않게 분기한다.
+ *   CHECK 제약의 정의문에 새 키가 들어 있는지로 본다(제약 이름이 바뀌어도 내용으로 판단).
+ */
+let bandsCache: boolean | null = null;
+function forgetBands(): void { bandsCache = null; }
+/** 새 구간을 넣다가 CHECK 에 걸린 오류인지. */
+function isRevenueCheckViolation(e: unknown): boolean {
+  const msg = (e as Error)?.message ?? "";
+  return /revenue_band_check/.test(msg) || (/check constraint/i.test(msg) && /revenue/.test(msg));
+}
+export async function hasNewRevenueBands(): Promise<boolean> {
+  if (bandsCache !== null) return bandsCache;
+  try {
+    const rows = await query<{ def: string }>(
+      `SELECT pg_get_constraintdef(c.oid) AS def
+         FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'weekly_onb_applications' AND c.contype = 'c'`);
+    // 제약이 하나도 없으면(= 값 제한 없음) 새 구간도 그대로 들어간다.
+    const checks = rows.filter((r) => /revenue_band/.test(r.def));
+    bandsCache = checks.length === 0 || checks.every((r) => /'b1_10'/.test(r.def));
+    return bandsCache;
+  } catch {
+    return false;
+  }
+}
+
 export interface WeeklySchemaState {
   ready: boolean; missing: string[]; error?: string;
   /** 매출 구간 컬럼(0108) 적용 여부. false 면 새 신청의 매출 구간이 저장되지 않는다. */
   revenueReady: boolean;
   revenueMigration: string;
+  /** 바뀐 구간(0110) 허용 여부. false 면 새 구간을 고른 신청이 미기입으로 저장된다. */
+  bandsReady: boolean;
+  bandsMigration: string;
 }
 export async function weeklySchemaState(): Promise<WeeklySchemaState> {
   const need = ["weekly_onb_applications", "weekly_onb_events"];
@@ -69,11 +109,14 @@ export async function weeklySchemaState(): Promise<WeeklySchemaState> {
       // 적용 직후 화면이 바로 바뀌도록 캐시를 비우고 실제를 본다.
       revenueReady: ready ? (forgetRevenueColumn(), await hasRevenueColumn()) : false,
       revenueMigration: WEEKLY_REVENUE_MIGRATION,
+      bandsReady: ready ? (forgetBands(), await hasNewRevenueBands()) : false,
+      bandsMigration: WEEKLY_BANDS_MIGRATION,
     };
   } catch (e) {
     return {
       ready: false, missing: need, error: (e as Error).message.slice(0, 200),
       revenueReady: false, revenueMigration: WEEKLY_REVENUE_MIGRATION,
+      bandsReady: false, bandsMigration: WEEKLY_BANDS_MIGRATION,
     };
   }
 }
@@ -122,22 +165,19 @@ export async function submitWeeklyApplication(input: WeeklyApplyInput, now = new
   const dedupe = `${email}|${phone}`;
 
   // 0108 미적용 DB 에서도 접수가 깨지지 않게, 컬럼이 있을 때만 함께 저장한다.
-  const withRevenue = await hasRevenueColumn();
+  // 컬럼이 있고(0108) 지금 구간을 CHECK 가 받아 줄 때(0110)만 함께 저장한다.
+  //   둘 중 하나라도 아니면 접수는 그대로 받고 매출 구간만 비워 둔다 — 신청이 깨지지 않게.
+  const withRevenue = (await hasRevenueColumn()) && (await hasNewRevenueBands());
   const cols = ["brand_name", "company_name", "site_url", "contact_name", "contact_title",
     "phone", "email", "note", "week_key", "dedupe_key", "source", "is_test"];
   const vals: unknown[] = [brandName, companyName, site.value, contactName, contactTitle, phone, email,
     clean(input.note, 1000), wk, dedupe, WEEKLY_SOURCE, Boolean(input.isTest)];
-  if (withRevenue) { cols.push("revenue_band"); vals.push(revenue); }
-  const ph = vals.map((_, i) => `$${i + 1}`).join(",");
-  // 같은 주 재제출이면 매출 구간만 최신 선택으로 갱신한다(다른 값·연락 상태는 건드리지 않는다).
-  const onConflict = withRevenue
-    ? "DO UPDATE SET revenue_band = EXCLUDED.revenue_band, updated_at = now()"
-    : "DO UPDATE SET updated_at = now()";
 
   const insert = async (useRevenue: boolean) => {
-    const c = useRevenue ? cols : cols.filter((x) => x !== "revenue_band");
-    const v = useRevenue ? vals : vals.slice(0, cols.indexOf("revenue_band") >= 0 ? cols.indexOf("revenue_band") : vals.length);
+    const c = useRevenue ? [...cols, "revenue_band"] : cols;
+    const v = useRevenue ? [...vals, revenue] : vals;
     const placeholders = v.map((_, i) => `$${i + 1}`).join(",");
+    // 같은 주 재제출이면 매출 구간만 최신 선택으로 갱신한다(다른 값·연락 상태는 건드리지 않는다).
     const conflict = useRevenue
       ? "DO UPDATE SET revenue_band = EXCLUDED.revenue_band, updated_at = now()"
       : "DO UPDATE SET updated_at = now()";
@@ -154,9 +194,10 @@ export async function submitWeeklyApplication(input: WeeklyApplyInput, now = new
     try {
       r = await insert(withRevenue);
     } catch (e) {
-      // 프로브 이후 컬럼이 사라졌어도 접수를 떨어뜨리지 않는다(캐시를 비우고 컬럼 없이 재시도).
-      if (withRevenue && isMissingRevenueColumn(e)) {
-        forgetRevenueColumn();
+      // 프로브 이후에 컬럼이 사라졌거나(롤백) CHECK 가 아직 예전 값만 받는 경우에도
+      //   접수를 떨어뜨리지 않는다 — 캐시를 비우고 매출 구간 없이 다시 넣는다.
+      if (withRevenue && (isMissingRevenueColumn(e) || isRevenueCheckViolation(e))) {
+        if (isMissingRevenueColumn(e)) forgetRevenueColumn(); else forgetBands();
         used = false;
         r = await insert(false);
       } else throw e;
@@ -171,6 +212,7 @@ export async function submitWeeklyApplication(input: WeeklyApplyInput, now = new
     return { ok: false, error: "접수 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요." };
   }
 }
+
 
 // ── 관리자 조회 ─────────────────────────────────────────────
 export interface WeeklyRow {
