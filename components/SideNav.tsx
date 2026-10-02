@@ -37,6 +37,7 @@ const GROUPS: Group[] = [
     { href: "/drafts", label: "초안함", ic: "✉️" },
     { href: "/campaigns", label: "캠페인·윈백", ic: "📮" },
     { href: "/seminar", label: "세미나 안내 발송", ic: "🎓" },
+    { href: "/seminar-events", label: "세미나 관리", ic: "🎫" },
     { href: "/kakao", label: "카카오 수집", ic: "💬" },
     { href: "/qna", label: "QnA 지식베이스", ic: "💬" },
   ]},
