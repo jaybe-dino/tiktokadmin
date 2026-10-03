@@ -6,6 +6,7 @@ import { listIntakeSources } from "@/lib/intake-sources";
 import ChannelManager from "@/components/ChannelManager";
 import IntakeSourceManager from "@/components/IntakeSourceManager";
 import AdOptoutQaPanel from "@/components/AdOptoutQaPanel";
+import WeeklyDay1NoticePanel from "@/components/WeeklyDay1NoticePanel";
 import { listSeqConfigs } from "@/lib/lead-sequence";
 import Link from "next/link";
 
@@ -53,6 +54,9 @@ export default async function ChannelsPage() {
       <div style={{ marginTop: 14 }}>
         <IntakeSourceManager sources={sources} canEdit={canEdit} />
       </div>
+
+      {/* 1일차 안내에 주간 슬롯 문구 넣기 — 문구만 바꾸고 발송하지 않는다 */}
+      <WeeklyDay1NoticePanel canEdit={canEdit} />
 
       {/* 광고 수신거부 QA — 합성 주소로만 동작(실제 고객·실발송 없음) */}
       <AdOptoutQaPanel canEdit={canEdit} />

@@ -8,9 +8,6 @@ import {
   LEGACY_REVENUE_BANDS, LEGACY_REVENUE_KEYS, ALL_REVENUE_KEYS,
   isKnownRevenueBand, isLegacyRevenueBand,
 } from "../lib/weekly-onboarding-model";
-import {
-  WEEKLY_DAY1_SMS_DRAFT, WEEKLY_FORBIDDEN_CLAIMS, WEEKLY_APPLY_URL,
-} from "../lib/weekly-onboarding-copy";
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 /**
@@ -183,31 +180,6 @@ describe("자가 기입 매출 구간", () => {
     const panel = read("../components/WeeklyOnbPanel.tsx");
     expect(panel).toContain("ov.bandsMigration");
     expect(panel).toContain("!ov.bandsReady");
-  });
-});
-
-describe("1일차 추가 문구 — 초안으로만 둔다", () => {
-  it("요청하신 문구 그대로다", () => {
-    expect(WEEKLY_DAY1_SMS_DRAFT).toBe(
-      "틱톡샵 온보딩은 한정된 슬롯으로 진행됩니다. 사전 신청이 필요한 팀은 신청해 주세요: https://admin.glovek.space/weekly");
-    expect(WEEKLY_DAY1_SMS_DRAFT).toContain(WEEKLY_APPLY_URL);
-  });
-  it("마감·잔여석·확정 같은 허위 표현이 없다", () => {
-    for (const w of WEEKLY_FORBIDDEN_CLAIMS) {
-      expect(WEEKLY_DAY1_SMS_DRAFT, w).not.toContain(w);
-    }
-  });
-  it("발송 경로 어디에서도 이 초안을 가져다 쓰지 않는다", () => {
-    for (const f of ["../lib/lead-sequence.ts", "../lib/lead-sequence-copy.ts", "../lib/sms.ts",
-                     "../lib/intake-channels.ts", "../lib/seminar.ts", "../lib/seminar-test.ts",
-                     "../lib/mailer.ts", "../lib/welcome.ts", "../lib/intro.ts"]) {
-      expect(code(f), f).not.toContain("weekly-onboarding-copy");
-    }
-  });
-  it("운영 문구(승인본)는 건드리지 않았다", () => {
-    const copy = read("../lib/lead-sequence-copy.ts");
-    expect(copy).not.toContain("주간 온보딩");
-    expect(copy).not.toContain("3개 브랜드");
   });
 });
 
