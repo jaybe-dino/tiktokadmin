@@ -188,4 +188,28 @@ describe.skipIf(!process.env.KAKAO_TEST_DB_URL)("카카오 수집 (PostgreSQL)",
     expect(a.stored).toBe(1);
     expect(c.stored).toBe(1);
   });
+
+  it("긴 원문·발언자·방명·공백을 보존하고 저장된 내용의 해시로 검증한다", async () => {
+    const roomName = "방".repeat(350);
+    await K.ingestKakaoMessages({ roomKey: "raw-room", roomName, messages: [] });
+    await K.linkKakaoRoom((await K.listKakaoRooms())[0].id, BRAND, "operator");
+    const m = { externalId: "id".repeat(200), at: "2026-10-02T08:00:00+09:00",
+      author: "작성자".repeat(100), text: "  " + "원문\n".repeat(7000) + "  " };
+    await K.ingestKakaoMessages({ roomKey: "raw-room", roomName, messages: [m] });
+    const r = await ctx.pool.query("SELECT body, author, source_label, source_ref FROM pm_manual_comms");
+    expect(r.rows[0]).toMatchObject({ body: m.text, author: m.author,
+      source_label: `카카오톡 · ${roomName}`, source_ref: `kakao:raw-room:${m.externalId}` });
+    const verified = await K.verifyKakaoMessages("raw-room", [m.externalId, "missing"]);
+    const { createHash } = await import("node:crypto");
+    const hash = createHash("sha256").update(JSON.stringify([
+      "2026-10-01T23:00:00.000Z", m.author, `카카오톡 · ${roomName}`, m.text,
+    ])).digest("hex");
+    expect(verified.brandId).toBe(BRAND);
+    expect(verified.receipts).toEqual([{ external_id: m.externalId, sha256: hash }]);
+  });
+
+  it("미연결 방의 검증 요청은 성공으로 보고하지 않는다", async () => {
+    await K.ingestKakaoMessages({ roomKey: "pending-room", messages: [] });
+    expect((await K.verifyKakaoMessages("pending-room", ["x"])).ok).toBe(false);
+  });
 });

@@ -7,6 +7,7 @@
 //     · 같은 메시지를 두 번 받아도 한 번만 저장한다(brand_id + source_ref 유니크).
 //     · 수집기가 실제로 보내 저장까지 된 적이 없으면 "자동 수집됨"이라고 말하지 않는다.
 import { query, queryOne } from "./db";
+import { createHash } from "node:crypto";
 
 export const KAKAO_SCHEMA_MIGRATION = "0106_kakao_rooms.sql";
 /** 수집기 인증에 쓰는 환경변수 이름. 값은 코드에 두지 않는다(미설정이면 수집을 거부한다). */
@@ -167,7 +168,7 @@ export async function ingestKakaoMessages(input: {
                status, note, last_seen_at::text AS last_seen_at, last_message_at::text AS last_message_at,
                last_ingest_at::text AS last_ingest_at, last_error, stored_count,
                linked_by, linked_at::text AS linked_at, created_at::text AS created_at`,
-    [roomKey, (input.roomName ?? "").slice(0, 300)]);
+    [roomKey, input.roomName ?? ""]);
   if (!room) {
     await logRun({ roomKey, agent, ...base, reason: "방 등록 실패" });
     return { ...base, reason: "방 등록 실패" };
@@ -189,10 +190,10 @@ export async function ingestKakaoMessages(input: {
   let newest: string | null = null;
   for (const m of messages) {
     const at = iso(m?.at);
-    const text = String(m?.text ?? "").trim();
+    const text = String(m?.text ?? "");
     const ext = String(m?.externalId ?? "").trim();
     // 시각이나 본문이 없으면 저장하지 않는다(시각을 지어내지 않는다).
-    if (!at || !text || !ext) { skipped += 1; continue; }
+    if (!at || !text.trim() || !ext) { skipped += 1; continue; }
     try {
       const r = await queryOne<{ id: string }>(
         `INSERT INTO pm_manual_comms
@@ -200,9 +201,9 @@ export async function ingestKakaoMessages(input: {
          VALUES ($1,'kakao',$2,$3,$4,'',$5,$6,$7,'kakao_collector')
          ON CONFLICT (brand_id, source_ref) WHERE source_ref <> '' DO NOTHING
          RETURNING id`,
-        [room.brand_id, at, String(m.author ?? "").slice(0, 200),
-         `카카오톡 · ${room.room_name || roomKey}`.slice(0, 300), text.slice(0, 20000),
-         "kakao_collector", `kakao:${roomKey}:${ext}`.slice(0, 300)]);
+        [room.brand_id, at, String(m.author ?? ""),
+         `카카오톡 · ${room.room_name || roomKey}`, text,
+         "kakao_collector", `kakao:${roomKey}:${ext}`]);
       if (r) { stored += 1; if (!newest || at > newest) newest = at; }
       else duplicate += 1;
     } catch {
@@ -227,6 +228,33 @@ export async function ingestKakaoMessages(input: {
   };
   await logRun({ roomKey, agent, ...out });
   return out;
+}
+
+/** Read persisted evidence from the same table used by Brand360. No raw text leaves
+ * this endpoint: the collector compares hashes before advancing its checkpoint. */
+export async function verifyKakaoMessages(roomKey: string, externalIds: string[]) {
+  const room = await queryOne<{ brand_id: string | null; status: string }>(
+    "SELECT brand_id::text, status FROM kakao_rooms WHERE room_key=$1", [roomKey]);
+  if (!room || room.status !== "linked" || !room.brand_id) {
+    return { ok: false, roomStatus: room?.status ?? "unknown", brandId: null, receipts: [] };
+  }
+  const refs = externalIds.map((id) => `kakao:${roomKey}:${id}`);
+  const rows = await query<{
+    source_ref: string; occurred_at: string; author: string; source_label: string; body: string;
+  }>(`SELECT source_ref, occurred_at::text, author, source_label, body
+        FROM pm_manual_comms WHERE brand_id=$1::uuid AND channel='kakao'
+          AND ingest_source='kakao_collector' AND source_ref=ANY($2::text[])`,
+  [room.brand_id, refs]);
+  const prefix = `kakao:${roomKey}:`;
+  return {
+    ok: true, roomStatus: room.status, brandId: room.brand_id,
+    receipts: rows.map((r) => ({
+      external_id: r.source_ref.slice(prefix.length),
+      sha256: createHash("sha256").update(JSON.stringify([
+        new Date(r.occurred_at).toISOString(), r.author, r.source_label, r.body,
+      ])).digest("hex"),
+    })),
+  };
 }
 
 async function logRun(r: {
