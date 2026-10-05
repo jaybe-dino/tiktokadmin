@@ -11,7 +11,9 @@
 //     · 2차(후속) 문구는 내용 미확정이라 이 경로에서 실제 발송하지 않는다 — 미리보기만 된다.
 import { query, queryOne } from "./db";
 import { getSeminarConfig, listSeminarTemplates, type SeminarConfig } from "./seminar";
-import { atKst, sessionLabel, renderTemplate, normPhone, normEmail, isHttpUrl, type SeminarChannel, type SeminarStage } from "./seminar-schedule";
+import { atKst, normPhone, normEmail, isHttpUrl, type SeminarChannel, type SeminarStage } from "./seminar-schedule";
+// 실제 발송과 "같은" 치환·조립 함수를 쓴다 — 미리보기와 실제 제목이 갈라지지 않게.
+import { seminarVars, composeSeminarMessage, maskTo as maskAddr } from "./seminar-message";
 
 export const SEMINAR_TEST_MIGRATION = "0105_seminar_test_send.sql";
 /** 선점된 채 멈춘 테스트 발송을 되돌리기까지의 시간(분). */
@@ -70,16 +72,9 @@ export async function setTestRecipients(input: { phone?: string; email?: string 
 }
 
 /** 주소 마스킹 — 원장에는 마스킹한 값만 남긴다. */
+/** 공용 구현을 그대로 쓴다(실제 발송 기록과 같은 모양으로 남게). */
 export function maskTo(channel: SeminarChannel, raw: string): string {
-  const v = (raw ?? "").trim();
-  if (!v) return "";
-  if (channel === "sms") {
-    const d = normPhone(v);
-    return d.length >= 7 ? `${d.slice(0, 3)}****${d.slice(-4)}` : "***";
-  }
-  const [id, dom] = v.split("@");
-  if (!dom) return "***";
-  return `${id.slice(0, 2)}${"*".repeat(Math.max(1, id.length - 2))}@${dom}`;
+  return maskAddr(channel, raw);
 }
 
 export interface TestPreview {
@@ -135,18 +130,24 @@ export async function previewSeminarTest(input: { channel: SeminarChannel; stage
   const at = stage === "notice"
     ? atKst(sessionDate, cfg.sessionHour, cfg.sessionMinute)
     : atKst(sessionDate, cfg.followupHour, cfg.followupMinute);
-  const vars = {
-    브랜드명: TEST_VARS_BRAND, 담당자명: TEST_VARS_CONTACT,
-    일시: sessionLabel(at), 줌링크: cfg.zoomUrl,
-    세미나명: cfg.sessionTitle || "GloveK 온라인 세미나",
-  };
+  // 회차 스냅샷이 없는 경로이므로 설정값만 넘긴다 — 기준은 실제 발송과 같다.
+  const vars = seminarVars({
+    brandName: TEST_VARS_BRAND, contactName: TEST_VARS_CONTACT, at,
+    configTitle: cfg.sessionTitle, configZoomUrl: cfg.zoomUrl,
+  });
 
   const rawBody = channel === "sms" ? tpl.smsBody : tpl.emailBody;
   if (!rawBody.trim()) blockers.push(`${channel === "sms" ? "문자" : "메일"} 문구 본문이 비어 있습니다`);
   if (channel === "email" && !tpl.emailSubject.trim()) blockers.push("메일 제목이 비어 있습니다");
 
-  const subject = channel === "email" ? `${TEST_MARK} ${renderTemplate(tpl.emailSubject, vars)}`.trim() : "";
-  const body = [`${TEST_MARK} ${renderTemplate(rawBody, vars)}`.trim(), "", TEST_BODY_NOTE].join("\n");
+  // 실제 발송과 같은 조립 함수. 테스트 경로만 [테스트] 표시와 안내문을 더한다.
+  const composed = composeSeminarMessage({
+    channel, purpose: tpl.purpose, vars,
+    template: { emailSubject: tpl.emailSubject, emailBody: tpl.emailBody, smsBody: tpl.smsBody },
+    mark: TEST_MARK, footNote: TEST_BODY_NOTE,
+  });
+  const subject = composed.subject;
+  const body = composed.body;
 
   return {
     ok: blockers.length === 0,

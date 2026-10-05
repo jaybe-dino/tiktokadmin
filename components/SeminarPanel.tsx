@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   seminarOverviewAction, seminarSaveConfigAction, seminarSaveTemplateAction,
   seminarPreviewAction, seminarBuildAction, seminarDispatchAction, seminarSessionDetailAction,
+  seminarSendAttemptsAction,
   seminarTestStateAction, seminarSaveTestRecipientsAction, seminarPreviewTestAction, seminarSendTestAction,
   type SeminarOverview, type SeminarTestState,
 } from "@/app/(dash)/seminar/actions";
@@ -603,7 +604,7 @@ function SessionsCard({ ov }: { ov: SeminarOverview }) {
                 {detail && (
                   <div style={{ maxHeight: 360, overflow: "auto" }}>
                     <table className="t" style={{ fontSize: 12 }}>
-                      <thead><tr><th>단계</th><th>채널</th><th>브랜드</th><th>상태</th><th>예정</th><th>발송</th><th>시도</th><th>메시지 id</th><th>사유</th></tr></thead>
+                      <thead><tr><th>단계</th><th>채널</th><th>브랜드</th><th>상태</th><th>예정</th><th>발송</th><th>시도</th><th>메시지 id</th><th>보낸 내용</th><th>사유</th></tr></thead>
                       <tbody>
                         {detail.sends.map((x) => (
                           <tr key={x.id}>
@@ -615,10 +616,11 @@ function SessionsCard({ ov }: { ov: SeminarOverview }) {
                             <td>{kst(x.sent_at)}</td>
                             <td>{x.attempts}</td>
                             <td style={{ color: "var(--ink3)" }}>{x.provider_id ? `${x.provider}:${x.provider_id}` : "—"}</td>
+                            <td><SendContent sendId={x.id} logCount={x.log_count} /></td>
                             <td style={{ color: x.error ? "#c92a2a" : "var(--ink3)" }}>{x.error || x.skip_reason || ""}</td>
                           </tr>
                         ))}
-                        {detail.sends.length === 0 && <tr><td colSpan={9} style={{ color: "var(--ink3)" }}>발송 예약이 없습니다.</td></tr>}
+                        {detail.sends.length === 0 && <tr><td colSpan={10} style={{ color: "var(--ink3)" }}>발송 예약이 없습니다.</td></tr>}
                       </tbody>
                     </table>
                     <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--ink3)" }}>
@@ -676,4 +678,56 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 function Msg({ m }: { m: { ok: boolean; text: string } }) {
   return <div style={{ marginTop: 6, fontSize: 12, whiteSpace: "pre-wrap", color: m.ok ? "#0b7a52" : "#c92a2a" }}>{m.text}</div>;
+}
+
+// ── 보낸 내용(시도별 불변 기록) ─────────────────────────────
+//   기록이 없는 건은 "기록 없음"으로 둔다 — 지난 발송을 소급 생성하지 않는다.
+function SendContent({ sendId, logCount }: { sendId: string; logCount: number }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof seminarSendAttemptsAction>>["data"] | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  if (!logCount) return <span style={{ color: "var(--ink3)" }}>기록 없음</span>;
+
+  const load = async () => {
+    if (open) { setOpen(false); return; }
+    setOpen(true);
+    if (rows) return;
+    setBusy(true);
+    const r = await seminarSendAttemptsAction(sendId);
+    setBusy(false);
+    if (!r.ok) { setErr(r.error ?? "불러오지 못했습니다"); return; }
+    setErr(""); setRows(r.data ?? []);
+  };
+
+  return (
+    <>
+      <button className="btn sm" style={{ fontSize: 11 }} onClick={() => void load()}>
+        {open ? "닫기" : `보기 (${logCount})`}
+      </button>
+      {open && (
+        <div style={{ marginTop: 5, maxWidth: 420 }}>
+          {busy && <span style={{ fontSize: 11, color: "var(--ink3)" }}>불러오는 중…</span>}
+          {err && <span style={{ fontSize: 11, color: "#c92a2a" }}>{err}</span>}
+          {rows?.map((at) => (
+            <div key={at.id} style={{ border: "1px solid var(--line)", borderRadius: 7, padding: 7, marginTop: 5 }}>
+              <div style={{ fontSize: 10.5, color: "var(--ink3)" }}>
+                {at.attempt_no}번째 시도 · {at.channel === "email" ? "메일" : "문자"} · {at.to_masked || "—"}
+                {" · "}{at.result === "sent" ? "발송" : at.result === "failed" ? "실패" : "시도"}
+                {at.provider_id ? ` · ${at.provider}:${at.provider_id}` : ""}
+              </div>
+              <div style={{ fontSize: 10.5, color: "var(--ink3)" }}>
+                시작 {kst(at.started_at)}{at.finished_at ? ` · 종료 ${kst(at.finished_at)}` : ""}
+              </div>
+              {at.subject && <div style={{ fontSize: 11.5, fontWeight: 700, marginTop: 4 }}>{at.subject}</div>}
+              <pre style={{ margin: "4px 0 0", fontSize: 11, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{at.body}</pre>
+              {at.error && <div style={{ fontSize: 11, color: "#c92a2a", marginTop: 3 }}>{at.error}</div>}
+            </div>
+          ))}
+          {rows && rows.length === 0 && <span style={{ fontSize: 11, color: "var(--ink3)" }}>기록 없음</span>}
+        </div>
+      )}
+    </>
+  );
 }

@@ -9,10 +9,19 @@
 import { query, queryOne } from "./db";
 import {
   buildSession, nextSessionDate, latePlan, dedupeKeys, normEmail, normPhone,
-  renderTemplate, sessionLabel, sendBlockers, isHttpUrl, shiftDay, atKst,
+  sendBlockers, isHttpUrl, shiftDay, atKst,
   type SeminarSession, type SeminarScheduleConfig, type WeekMode, type LatePolicy,
   type DedupeScope, type SeminarStage, type SeminarChannel,
 } from "./seminar-schedule";
+
+import {
+  seminarVars, composeSeminarMessage, maskTo,
+  type ComposedMessage,
+} from "./seminar-message";
+import {
+  attemptsSchemaState, beginAttempt, finishAttempt,
+  SEMINAR_ATTEMPTS_MIGRATION,
+} from "./seminar-attempts";
 
 export const SEMINAR_SCHEMA_MIGRATION = "0103_seminar_notify.sql";
 /** 'sending' 으로 선점된 채 멈춘 발송을 되돌리기까지의 시간(분). */
@@ -490,6 +499,9 @@ export async function sessionBlockers(row: SessionRow): Promise<string[]> {
   for (const t of tpls) {
     if (!t.enabled) out.add(`${t.stage === "notice" ? "안내" : "후속"} 문구가 아직 초안(비활성)입니다`);
   }
+  // 보낸 내용을 남길 수 없으면 아예 보내지 않는다 — 화면에서도 이유가 보이게 한다.
+  const log = await attemptsSchemaState();
+  if (!log.ready) out.add(`${log.error ?? `마이그레이션 ${SEMINAR_ATTEMPTS_MIGRATION} 미적용`} — 기록을 남길 수 없어 보내지 않습니다`);
   return [...out];
 }
 
@@ -532,21 +544,29 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
     return { ...zero, blocked: ["고정 Zoom 링크가 설정되지 않았습니다 — 링크 없이 보내지 않습니다"] };
   }
 
+  // 보낸 내용을 남길 수 없으면 보내지 않는다 — 기록 없는 발송을 만들지 않기 위해 먼저 막는다.
+  const logSchema = await attemptsSchemaState();
+  if (!logSchema.ready) {
+    return { ...zero, blocked: [`${logSchema.error ?? `마이그레이션 ${SEMINAR_ATTEMPTS_MIGRATION} 미적용`} — 기록을 남길 수 없어 보내지 않습니다`] };
+  }
+
   const run = await startRun("dispatch", triggeredBy);
   if (!run) return { ...zero, blocked: ["다른 발송 실행이 진행 중입니다"] };
 
   const res: DispatchResult = { ...zero };
   try {
     // 원자적 선점 — 같은 행을 두 실행이 동시에 집지 못한다.
+    //   claimed_by 에 이 실행 id 를 적어 둔다. 중간에 멈출 때 "내가 잡은 것"만 돌려놓기 위해서다.
     const claimed = await query<{ id: string }>(
-      `UPDATE seminar_sends SET status='sending', claimed_at=now(), attempts=attempts+1, updated_at=now()
+      `UPDATE seminar_sends SET status='sending', claimed_at=now(), claimed_by=$3::uuid,
+              attempts=attempts+1, updated_at=now()
         WHERE id IN (
           SELECT id FROM seminar_sends
            WHERE status='queued' AND due_at <= $1
            ORDER BY due_at
            LIMIT $2
            FOR UPDATE SKIP LOCKED)
-        RETURNING id`, [now.toISOString(), limit]);
+        RETURNING id`, [now.toISOString(), limit, run]);
     res.due = claimed.length;
     if (claimed.length === 0) { await finishRun(run, "done", "보낼 예약 없음"); return res; }
 
@@ -564,6 +584,9 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
 
     const tpls = new Map((await listSeminarTemplates()).map((t) => [t.stage, t]));
     const staleMs = cfg.staleHours * 3600_000;
+    // 이 실행에서 손을 댄 예약. 중간에 멈추면 "손대지 않은 것"만 되돌린다.
+    const handled = new Set<string>();
+    let abort = "";
 
     for (const r of rows) {
       const tpl = tpls.get(r.stage);
@@ -571,7 +594,23 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
         await query(
           "UPDATE seminar_sends SET status='skipped', skip_reason=$2, updated_at=now() WHERE id=$1",
           [r.id, reason.slice(0, 300)]);
+        handled.add(r.id);
         res.skipped += 1;
+      };
+      /** 보내지 않고 결과만 남긴다(전송 시도 없음). 재시도 여지가 있으면 예약으로 되돌린다. */
+      const noSend = async (reason: string) => {
+        if (r.attempts >= cfg.maxAttempts) {
+          await query("UPDATE seminar_sends SET status='failed', error=$2, updated_at=now() WHERE id=$1",
+            [r.id, reason.slice(0, 300)]);
+          res.failed += 1;
+        } else {
+          const backoff = Math.min(r.attempts, 6) * 5 * 60_000;
+          await query(
+            "UPDATE seminar_sends SET status='queued', error=$2, due_at=$3, updated_at=now() WHERE id=$1",
+            [r.id, reason.slice(0, 300), new Date(now.getTime() + backoff).toISOString()]);
+          res.retry += 1;
+        }
+        handled.add(r.id);
       };
 
       if (!tpl) { await skip("문구가 없습니다"); continue; }
@@ -612,13 +651,40 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
       }
 
       const at = r.stage === "notice" ? new Date(r.starts_at) : new Date(r.followup_at);
-      const vars = {
-        브랜드명: r.brand_name || "고객", 담당자명: r.contact_name || r.brand_name || "고객",
-        일시: sessionLabel(at), 줌링크: zoom,
-        세미나명: r.session_title || cfg.sessionTitle || "GloveK 온라인 세미나",
-      };
+      // 미리보기·테스트 발송과 같은 함수로 치환한다(제목 기준: 지금 설정값).
+      const vars = seminarVars({
+        brandName: r.brand_name, contactName: r.contact_name, at,
+        configTitle: cfg.sessionTitle, sessionTitle: r.session_title,
+        configZoomUrl: cfg.zoomUrl, sessionZoomUrl: r.zoom_url,
+      });
+      // 실제로 나갈 최종 제목·본문(수신거부 꼬리말까지 포함). 기록도 이 값을 그대로 남긴다.
+      const msg = composeSeminarMessage({
+        channel: r.channel, purpose: tpl.purpose, vars, optoutUrl,
+        template: { emailSubject: tpl.emailSubject, emailBody: tpl.emailBody, smsBody: tpl.smsBody },
+      });
+      const to = r.channel === "sms" ? normPhone(r.phone) : normEmail(r.email);
+      // 예약을 만든 뒤에 연락처가 지워졌을 수 있다 — 빈 주소로는 보내지 않는다.
+      if (!to) { await skip("수신 연락처가 없습니다"); continue; }
 
-      const outcome = await deliver(r, tpl, vars, optoutUrl);
+      // ── 전송 직전 마스터 스위치 재확인 ──
+      //   실행 시작 때 읽어 둔 값이 아니라 DB 를 다시 본다. 조회가 안 되면 보내지 않는다(fail closed).
+      //   이미 외부 provider 로 넘어간 요청은 여기서 취소할 수 없다 — 다음 건부터 멈춘다.
+      const live = await liveSendEnabled();
+      if (!live.ok) { abort = `마스터 스위치 확인 실패 — 보내지 않고 중단했습니다(${(live.error ?? "").slice(0, 80)})`; break; }
+      if (!live.enabled) { abort = "실행 중 자동발송 마스터 스위치가 꺼져 중단했습니다"; break; }
+
+      // ── 보낼 내용을 먼저 남긴다 ──
+      //   기록을 남기지 못하면 전송하지 않는다(기록 없는 발송을 만들지 않는다).
+      const logId = await beginAttempt({
+        sendId: r.id, sessionId: r.session_id, targetId: r.target_id, runId: run,
+        stage: r.stage, channel: r.channel, attemptNo: r.attempts,
+        toMasked: maskTo(r.channel, to), subject: msg.subject, body: msg.body, purpose: tpl.purpose,
+      });
+      if (!logId) { await noSend("발송 기록을 남기지 못해 보내지 않았습니다"); continue; }
+
+      const outcome = await transmit(r.channel, to, msg);
+      await finishAttempt(logId, outcome);
+      handled.add(r.id);
       if (outcome.ok) {
         await query(
           `UPDATE seminar_sends SET status='sent', sent_at=now(), provider=$2, provider_id=$3,
@@ -639,6 +705,24 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
         res.retry += 1;
       }
     }
+    if (abort) {
+      // 아직 손대지 않은 선점 건만 예약으로 되돌린다.
+      //   · claimed_by 로 "이 실행이 잡은 것"만 고른다 — 다른 실행의 선점은 건드리지 않는다.
+      //   · 이미 시도한 건(handled)은 제외하고, attempts·기록도 되돌리지 않는다.
+      const pending = claimed.map((c) => c.id).filter((id) => !handled.has(id));
+      let released = 0;
+      if (pending.length) {
+        const back = await query<{ id: string }>(
+          `UPDATE seminar_sends SET status='queued', updated_at=now()
+            WHERE id = ANY($1::uuid[]) AND status='sending' AND claimed_by = $2::uuid
+            RETURNING id`, [pending, run]).catch(() => []);
+        released = back.length;
+      }
+      const summary = `${abort} · 발송 ${res.sent} · 실패 ${res.failed} · 제외 ${res.skipped} · 재시도 ${res.retry} · 미처리 반환 ${released}`;
+      await finishRun(run, "done", summary);
+      return { ...res, blocked: [abort] };
+    }
+
     await finishRun(run, "done",
       `대상 ${res.due} · 발송 ${res.sent} · 실패 ${res.failed} · 제외 ${res.skipped} · 재시도 ${res.retry}`);
     return res;
@@ -650,32 +734,35 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
 
 interface Outcome { ok: boolean; provider: string; providerId?: string; error?: string }
 
-/** 실제 전송. provider 와 메시지 id 를 그대로 돌려준다(원장에 남긴다). */
-async function deliver(
-  r: DueRow, tpl: SeminarTemplate,
-  vars: { 브랜드명: string; 담당자명: string; 일시: string; 줌링크: string; 세미나명: string },
-  optoutUrl: string,
-): Promise<Outcome> {
-  if (r.channel === "sms") {
-    let msg = renderTemplate(tpl.smsBody, vars);
-    if (tpl.purpose === "ad" && optoutUrl) {
-      const { withSmsOptout } = await import("./ad-optout");
-      msg = withSmsOptout(msg, optoutUrl);
-    }
+/**
+ * 전송 직전에 보는 "지금의" 마스터 스위치.
+ *   실행 시작 때 읽어 둔 설정이 아니라 DB 를 다시 읽는다.
+ *   조회가 실패하면 켜져 있다고 보지 않는다(fail closed) — 호출부가 중단한다.
+ */
+async function liveSendEnabled(): Promise<{ ok: boolean; enabled: boolean; error?: string }> {
+  try {
+    const r = await queryOne<{ enabled: boolean }>("SELECT enabled FROM seminar_config WHERE id=1");
+    if (!r) return { ok: false, enabled: false, error: "설정 행이 없습니다" };
+    return { ok: true, enabled: Boolean(r.enabled) };
+  } catch (e) {
+    return { ok: false, enabled: false, error: (e as Error).message.slice(0, 160) };
+  }
+}
+
+/**
+ * 실제 전송. 조립은 composeSeminarMessage 가 이미 끝냈고, 여기서는 보내기만 한다.
+ *   provider 와 메시지 id 를 그대로 돌려준다(원장·시도 기록에 남긴다).
+ */
+async function transmit(channel: SeminarChannel, to: string, msg: ComposedMessage): Promise<Outcome> {
+  if (channel === "sms") {
     const { sendSms } = await import("./sms");
-    const out = await sendSms({ receiver: normPhone(r.phone), msg, title: "GloveK 세미나" })
+    const out = await sendSms({ receiver: to, msg: msg.body, title: "GloveK 세미나" })
       .catch((e) => ({ ok: false, message: (e as Error).message } as { ok: boolean; message: string; msgId?: string }));
     return { ok: out.ok, provider: "aligo", providerId: out.msgId, error: out.ok ? undefined : out.message };
   }
-  let body = renderTemplate(tpl.emailBody, vars);
-  if (tpl.purpose === "ad" && optoutUrl) {
-    const { withMailOptout } = await import("./ad-optout");
-    body = withMailOptout(body, optoutUrl);
-  }
   const { sendEmail } = await import("./mailer");
-  const out = await sendEmail({
-    to: normEmail(r.email), subject: renderTemplate(tpl.emailSubject, vars), text: body,
-  }).catch((e) => ({ ok: false, error: (e as Error).message } as { ok: boolean; error?: string; id?: string; via?: string }));
+  const out = await sendEmail({ to, subject: msg.subject, text: msg.body })
+    .catch((e) => ({ ok: false, error: (e as Error).message } as { ok: boolean; error?: string; id?: string; via?: string }));
   return { ok: out.ok, provider: out.via ?? "mail", providerId: out.id, error: out.ok ? undefined : (out.error ?? "발송 실패") };
 }
 
@@ -714,16 +801,30 @@ export interface SendRow {
   due_at: string; sent_at: string | null; attempts: number;
   provider: string; provider_id: string; error: string; skip_reason: string;
   brand_name: string; contact_name: string; email: string; phone: string;
+  /** 보낸 내용 기록 수. 0 이면 기록 없음(0111 적용 전 발송). */
+  log_count: number;
 }
 export async function listSessionSends(sessionId: string, limit = 500): Promise<SendRow[]> {
+  // log_count = 보낸 내용 기록 수. 0 이면 화면에 "기록 없음"으로 보인다
+  //   (0111 적용 전에 나간 건은 소급 생성하지 않는다).
   return query<SendRow>(
     `SELECT s.id, s.stage, s.channel, s.status, s.due_at::text AS due_at, s.sent_at::text AS sent_at,
             s.attempts, s.provider, s.provider_id, s.error, s.skip_reason,
-            t.brand_name, t.contact_name, t.email, t.phone
+            t.brand_name, t.contact_name, t.email, t.phone,
+            (SELECT count(*) FROM seminar_send_attempts a WHERE a.send_id = s.id)::int AS log_count
        FROM seminar_sends s JOIN seminar_targets t ON t.id = s.target_id
       WHERE s.session_id=$1
       ORDER BY s.stage DESC, s.due_at, t.brand_name
-      LIMIT $2`, [sessionId, limit]);
+      LIMIT $2`, [sessionId, limit])
+    .catch(async () => query<SendRow>(
+      // 0111 미적용 DB 에서도 목록이 깨지지 않게.
+      `SELECT s.id, s.stage, s.channel, s.status, s.due_at::text AS due_at, s.sent_at::text AS sent_at,
+              s.attempts, s.provider, s.provider_id, s.error, s.skip_reason,
+              t.brand_name, t.contact_name, t.email, t.phone, 0 AS log_count
+         FROM seminar_sends s JOIN seminar_targets t ON t.id = s.target_id
+        WHERE s.session_id=$1
+        ORDER BY s.stage DESC, s.due_at, t.brand_name
+        LIMIT $2`, [sessionId, limit]));
 }
 
 export interface TargetRow {

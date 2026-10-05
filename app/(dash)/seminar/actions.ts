@@ -158,6 +158,24 @@ export async function seminarSessionDetailAction(sessionId: string): Promise<{
   }
 }
 
+/**
+ * 예약 1건의 "실제 보낸 내용" 이력. 기록이 없으면 빈 배열이다
+ *   (0111 적용 전 발송은 소급 생성하지 않는다 — 화면에서 "기록 없음"으로 보인다).
+ */
+export async function seminarSendAttemptsAction(sendId: string): Promise<{
+  ok: boolean; error?: string;
+  data?: Awaited<ReturnType<typeof import("@/lib/seminar-attempts").listSendAttempts>>;
+}> {
+  const a = await reader();
+  if (!a.ok) return a;
+  try {
+    const { listSendAttempts } = await import("@/lib/seminar-attempts");
+    return { ok: true, data: await listSendAttempts(sendId) };
+  } catch (e) {
+    return { ok: false, error: `발송 내용을 불러오지 못했습니다 — ${(e as Error).message.slice(0, 200)}` };
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 // 지정 수신자 테스트 발송 — 관리자 전용.
 //   저장된 담당자 연락처로만 1건씩 나간다. 고객 회차·대상·수신거부 기록은 건드리지 않는다.

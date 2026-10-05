@@ -10,7 +10,7 @@ interface LeadRow { id: string; brand_id: string; source: string | null; occurre
 interface BrandRow { id: string; brand_name: string; contact_name: string; email: string; phone: string; msg_opt_out: boolean; is_test: boolean; state: string }
 interface SessionRow { id: string; session_date: string; starts_at: string; followup_at: string; notice_due_at: string; window_from: string; window_to: string; week_mode: string; source_keys: string[]; zoom_url: string; session_title: string; dedupe_scope: string; status: string; note: string; built_at: string | null; created_at: string }
 interface TargetRow { id: string; session_id: string; brand_id: string; lead_event_id: string; applied_at: string; source_key: string; brand_name: string; contact_name: string; email: string; phone: string; dedupe_email: string; dedupe_phone: string; status: string; exclude_reason: string; late: boolean }
-interface SendRow { id: string; session_id: string; target_id: string; stage: string; channel: string; due_at: string; status: string; attempts: number; claimed_at: string | null; sent_at: string | null; provider: string; provider_id: string; error: string; skip_reason: string }
+interface SendRow { id: string; session_id: string; target_id: string; stage: string; channel: string; due_at: string; status: string; attempts: number; claimed_at: string | null; claimed_by: string | null; sent_at: string | null; provider: string; provider_id: string; error: string; skip_reason: string }
 interface RunRow { id: string; kind: string; status: string; started_at: string; finished_at: string | null; summary: string; error: string | null; triggered_by: string }
 
 const cfg0 = () => ({
@@ -39,6 +39,15 @@ const db = {
   targets: [] as TargetRow[],
   sends: [] as SendRow[],
   runs: [] as RunRow[],
+  // 0111 — 보낸 내용 기록. attemptsSchema=false 면 "표 없음"으로 본다.
+  attemptsSchema: true,
+  attempts: [] as { id: string; send_id: string; attempt_no: number; channel: string; stage: string; to_masked: string; subject: string; body: string; purpose: string; result: string; provider: string; provider_id: string; error: string }[],
+  /** beginAttempt 를 실패시켜 "기록 못 남김"을 흉내 낸다. */
+  attemptsWriteFails: false,
+  /** 첫 전송 직후에 부르는 훅(루프 중 OFF 등을 흉내 낸다). */
+  onSend: null as null | (() => void),
+  /** seminar_config 조회를 실패시켜 fail closed 를 확인한다. */
+  configReadFails: false,
   seq: 0,
   // 발송 계층 관찰용
   smsSent: [] as { to: string; msg: string }[],
@@ -57,7 +66,38 @@ vi.mock("../lib/db", () => {
         ? ["seminar_config", "seminar_templates", "seminar_sessions", "seminar_targets", "seminar_sends", "seminar_runs"].map((t) => ({ table_name: t }))
         : [];
     }
-    if (sql.includes("FROM seminar_config")) return [{ ...db.cfg }];
+    if (sql.includes("to_regclass('public.seminar_send_attempts')")) {
+      return db.attemptsSchema ? [{ reg: "seminar_send_attempts" }] : [{ reg: null }];
+    }
+    if (sql.includes("information_schema.columns") && sql.includes("claimed_by")) {
+      return db.attemptsSchema ? [{ column_name: "claimed_by" }] : [];
+    }
+    if (sql.includes("INSERT INTO seminar_send_attempts")) {
+      if (db.attemptsWriteFails) throw new Error("기록 저장 실패(검수용)");
+      const [send_id, , , , stage, channel, attempt_no, to_masked, subject, body, purpose] = a as never[] as string[];
+      if (db.attempts.some((x) => x.send_id === send_id && x.attempt_no === Number(attempt_no))) return [];
+      const row = {
+        id: id("at"), send_id, attempt_no: Number(attempt_no), channel, stage,
+        to_masked, subject, body, purpose, result: "attempted", provider: "", provider_id: "", error: "",
+      };
+      db.attempts.push(row);
+      return [{ id: row.id }];
+    }
+    if (sql.includes("FROM seminar_send_attempts WHERE send_id")) {
+      const [send_id, no] = a as never[] as string[];
+      const hit = db.attempts.find((x) => x.send_id === send_id && x.attempt_no === Number(no));
+      return hit ? [{ id: hit.id }] : [];
+    }
+    if (sql.includes("UPDATE seminar_send_attempts")) {
+      const [attId, result, provider, providerId, error] = a as never[] as string[];
+      const hit = db.attempts.find((x) => x.id === attId);
+      if (hit) { hit.result = result; hit.provider = provider; hit.provider_id = providerId; hit.error = error; }
+      return [];
+    }
+    if (sql.includes("FROM seminar_config")) {
+      if (db.configReadFails) throw new Error("설정 조회 실패(검수용)");
+      return [{ ...db.cfg }];
+    }
     if (sql.includes("UPDATE seminar_config SET")) {
       // set 절을 파싱해 실제 컬럼에 반영
       const sets = sql.slice(sql.indexOf("SET") + 3, sql.indexOf("WHERE")).split(",").map((x) => x.trim());
@@ -178,7 +218,7 @@ vi.mock("../lib/db", () => {
       if (db.sends.some((s) => s.session_id === session_id && s.target_id === target_id && s.stage === stage && s.channel === channel)) return [];
       const row: SendRow = {
         id: id("sd"), session_id, target_id, stage, channel, due_at, status: "queued",
-        attempts: 0, claimed_at: null, sent_at: null, provider: "", provider_id: "", error: "", skip_reason: "",
+        attempts: 0, claimed_at: null, claimed_by: null, sent_at: null, provider: "", provider_id: "", error: "", skip_reason: "",
       };
       db.sends.push(row);
       return [{ id: row.id }];
@@ -188,7 +228,8 @@ vi.mock("../lib/db", () => {
       const limit = Number(a[1]);
       const picked = db.sends.filter((s) => s.status === "queued" && new Date(s.due_at).getTime() <= now)
         .sort((x, y) => x.due_at.localeCompare(y.due_at)).slice(0, limit);
-      picked.forEach((s) => { s.status = "sending"; s.attempts += 1; s.claimed_at = new Date(now).toISOString(); });
+      const by = a[2] == null ? null : String(a[2]);
+      picked.forEach((s) => { s.status = "sending"; s.attempts += 1; s.claimed_at = new Date(now).toISOString(); s.claimed_by = by; });
       return picked.map((s) => ({ id: s.id }));
     }
     if (sql.includes("FROM seminar_sends s") && sql.includes("JOIN seminar_targets t")) {
@@ -211,7 +252,8 @@ vi.mock("../lib/db", () => {
       // listSessionSends
       return db.sends.filter((s) => s.session_id === a[0]).map((s) => {
         const t = db.targets.find((x) => x.id === s.target_id)!;
-        return { ...s, brand_name: t.brand_name, contact_name: t.contact_name, email: t.email, phone: t.phone };
+        return { ...s, brand_name: t.brand_name, contact_name: t.contact_name, email: t.email, phone: t.phone,
+          log_count: db.attempts.filter((x) => x.send_id === s.id).length };
       });
     }
     if (sql.includes("UPDATE seminar_sends SET status='skipped'")) {
@@ -230,6 +272,14 @@ vi.mock("../lib/db", () => {
     if (sql.includes("UPDATE seminar_sends SET status='queued'") && sql.includes("due_at=$3")) {
       const s = db.sends.find((x) => x.id === a[0]); if (s) { s.status = "queued"; s.error = String(a[1]); s.due_at = String(a[2]); }
       return [];
+    }
+    if (sql.includes("UPDATE seminar_sends SET status='queued'") && sql.includes("claimed_by = $2")) {
+      // 중단 시 "내가 잡은 미처리분"만 되돌린다.
+      const ids = a[0] as unknown as string[];
+      const runId = String(a[1]);
+      const out = db.sends.filter((s) => ids.includes(s.id) && s.status === "sending" && s.claimed_by === runId);
+      out.forEach((s) => { s.status = "queued"; });
+      return out.map((s) => ({ id: s.id }));
     }
     if (sql.includes("UPDATE seminar_sends SET status='queued'")) {  // releaseStale
       const cut = new Date(String(a[0])).getTime();
@@ -266,12 +316,14 @@ vi.mock("../lib/db", () => {
 vi.mock("../lib/sms", () => ({
   sendSms: async (i: { receiver: string; msg: string }) => {
     db.smsSent.push({ to: i.receiver, msg: i.msg });
+    if (db.smsSent.length + db.mailSent.length === 1 && db.onSend) db.onSend();
     return db.smsOk ? { ok: true, msgId: "aligo-1", message: "성공" } : { ok: false, message: "문자 실패(모의)" };
   },
 }));
 vi.mock("../lib/mailer", () => ({
   sendEmail: async (i: { to: string; subject: string; text: string }) => {
     db.mailSent.push({ to: i.to, subject: i.subject, body: i.text });
+    if (db.smsSent.length + db.mailSent.length === 1 && db.onSend) db.onSend();
     return db.mailOk ? { ok: true, id: "mail-1", via: "gmail" } : { ok: false, error: "메일 실패(모의)" };
   },
 }));
@@ -309,6 +361,8 @@ function reset() {
   db.schema = true; db.cfg = cfg0(); db.seq = 0;
   db.brands = []; db.leads = []; db.sessions = []; db.targets = []; db.sends = []; db.runs = [];
   db.smsSent = []; db.mailSent = []; db.smsOk = true; db.mailOk = true;
+  db.attemptsSchema = true; db.attempts = []; db.attemptsWriteFails = false;
+  db.onSend = null; db.configReadFails = false;
   db.adBlocked = false; db.adError = "";
   db.templates = [
     { stage: "notice", enabled: true, purpose: "service", send_email: true, send_sms: true,
@@ -502,6 +556,75 @@ describe("발송", () => {
     db.leads = [lead(1, "b1", "apply_seminar", kstIso("2026-09-29", 10, 0))];
     await S.buildSessionTargets(D, "t", new Date(kstIso("2026-10-01", 9, 0)));
   }
+
+  it("보낸 내용이 시도별로 기록되고, 기록 본문이 실제 전송 본문과 같다", async () => {
+    await seedOne();
+    await S.dispatchDue(50, new Date(kstIso("2026-10-05", 9, 1)));
+    expect(db.attempts).toHaveLength(2);                 // 메일 + 문자
+    const mail = db.attempts.find((x) => x.channel === "email")!;
+    const sms = db.attempts.find((x) => x.channel === "sms")!;
+    expect(mail.subject).toBe(db.mailSent[0].subject);
+    expect(mail.body).toBe(db.mailSent[0].body);
+    expect(sms.body).toBe(db.smsSent[0].msg);
+    expect(mail.result).toBe("sent");
+    expect(mail.to_masked).toContain("*");               // 원문 주소를 남기지 않는다
+  });
+
+  it("제목은 회차 스냅샷이 아니라 지금 설정값을 따른다", async () => {
+    await seedOne();
+    db.cfg.session_title = "틱톡샵 온라인 세미나 | glovek";
+    db.sessions.forEach((x) => { x.session_title = "GloveK 온라인 세미나 | 녹화 강의"; });
+    await S.dispatchDue(50, new Date(kstIso("2026-10-05", 9, 1)));
+    expect(db.mailSent[0].subject).toContain("틱톡샵 온라인 세미나 | glovek");
+    expect(db.mailSent[0].subject).not.toContain("녹화 강의");
+    // 회차 스냅샷은 그대로 둔다.
+    expect(db.sessions[0].session_title).toBe("GloveK 온라인 세미나 | 녹화 강의");
+  });
+
+  it("실행 중 마스터 스위치가 꺼지면 그 뒤로 보내지 않는다", async () => {
+    await seedOne();
+    // 첫 전송 직후 스위치를 끈다.
+    const origSms = db.smsOk;
+    db.onSend = () => { db.cfg.enabled = false; };
+    const r = await S.dispatchDue(50, new Date(kstIso("2026-10-05", 9, 1)));
+    db.onSend = null;
+    expect(db.mailSent.length + db.smsSent.length).toBe(1);
+    expect(r.blocked?.join(" ")).toContain("꺼져 중단");
+    // 1차 2건 중 하나만 나가고 나머지 하나는 예약으로 돌아간다(2차는 아직 예정 시각 전).
+    const notice = db.sends.filter((x) => x.stage === "notice");
+    expect(notice.filter((x) => x.status === "sent")).toHaveLength(1);
+    expect(notice.filter((x) => x.status === "queued")).toHaveLength(1);
+    expect(notice.every((x) => x.attempts === 1)).toBe(true);   // attempts 를 되돌리지 않는다
+    expect(origSms).toBe(true);
+  });
+
+  it("스위치를 읽지 못하면 보내지 않는다(fail closed)", async () => {
+    await seedOne();
+    db.onSend = () => { db.configReadFails = true; };
+    const r = await S.dispatchDue(50, new Date(kstIso("2026-10-05", 9, 1)));
+    db.onSend = null; db.configReadFails = false;
+    expect(db.mailSent.length + db.smsSent.length).toBe(1);
+    expect(r.blocked?.join(" ")).toContain("확인 실패");
+  });
+
+  it("기록을 남기지 못하면 전송하지 않는다", async () => {
+    await seedOne();
+    db.attemptsWriteFails = true;
+    const r = await S.dispatchDue(50, new Date(kstIso("2026-10-05", 9, 1)));
+    expect(db.mailSent).toHaveLength(0);
+    expect(db.smsSent).toHaveLength(0);
+    expect(r.sent).toBe(0);
+    expect(db.sends.every((x) => x.status === "queued")).toBe(true);
+  });
+
+  it("기록 표가 없으면 아예 보내지 않는다", async () => {
+    await seedOne();
+    db.attemptsSchema = false;
+    const r = await S.dispatchDue(50, new Date(kstIso("2026-10-05", 9, 1)));
+    expect(db.mailSent).toHaveLength(0);
+    expect(r.blocked?.join(" ")).toContain("기록을 남길 수 없어");
+    expect(db.sends.every((x) => x.status === "queued" && x.attempts === 0)).toBe(true);
+  });
 
   it("1차 안내가 예정 시각에 나가고 provider 와 메시지 id 가 남는다", async () => {
     await seedOne();
