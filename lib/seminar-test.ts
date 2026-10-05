@@ -14,6 +14,8 @@ import { getSeminarConfig, listSeminarTemplates, type SeminarConfig } from "./se
 import { atKst, normPhone, normEmail, isHttpUrl, type SeminarChannel, type SeminarStage } from "./seminar-schedule";
 // 실제 발송과 "같은" 치환·조립 함수를 쓴다 — 미리보기와 실제 제목이 갈라지지 않게.
 import { seminarVars, composeSeminarMessage, maskTo as maskAddr } from "./seminar-message";
+// 실제 발송과 같은 제공자 경계를 쓴다 — 미리보기·저장·전송이 모두 같은 문자열이 되게.
+import { finalBody, sendSeminarMessage } from "./seminar-transport";
 
 export const SEMINAR_TEST_MIGRATION = "0105_seminar_test_send.sql";
 /** 선점된 채 멈춘 테스트 발송을 되돌리기까지의 시간(분). */
@@ -147,7 +149,8 @@ export async function previewSeminarTest(input: { channel: SeminarChannel; stage
     mark: TEST_MARK, footNote: TEST_BODY_NOTE,
   });
   const subject = composed.subject;
-  const body = composed.body;
+  // 메일은 공용 푸터까지 붙은 "실제로 나갈" 본문을 보여준다(보낸 뒤 기록도 같은 값).
+  const body = await finalBody(channel, composed.body).catch(() => composed.body);
 
   return {
     ok: blockers.length === 0,
@@ -200,30 +203,20 @@ export async function sendSeminarTest(input: { channel: SeminarChannel; sessionD
   if (!claim) return { ok: false, error: "테스트 발송을 기록하지 못했습니다." };
 
   try {
-    if (channel === "sms") {
-      const { sendSms } = await import("./sms");
-      const out = await sendSms({ receiver: to, msg: pv.body, title: "GloveK 세미나 테스트" });
-      if (!out.ok) {
-        await query("UPDATE seminar_test_sends SET status='failed', error=$2 WHERE id=$1",
-          [claim.id, (out.message ?? "발송 실패").slice(0, 300)]);
-        return { ok: false, error: out.message ?? "문자 발송 실패", channel, toMasked: pv.toMasked };
-      }
-      await query(
-        "UPDATE seminar_test_sends SET status='sent', sent_at=now(), provider='aligo', provider_id=$2 WHERE id=$1",
-        [claim.id, (out.msgId ?? "").slice(0, 200)]);
-      return { ok: true, channel, toMasked: pv.toMasked, provider: "aligo", providerId: out.msgId };
-    }
-    const { sendEmail } = await import("./mailer");
-    const out = await sendEmail({ to, subject: pv.subject, text: pv.body });
+    // 실제 안내와 같은 경계를 쓴다 — 저장한 본문(pv.body)을 그대로 보낸다.
+    const out = await sendSeminarMessage(channel, to, { subject: pv.subject, body: pv.body });
     if (!out.ok) {
+      const note = out.indeterminate
+        ? `${out.error ?? "발송 실패"} (결과 불명 — 접수됐을 수 있습니다)`
+        : (out.error ?? "발송 실패");
       await query("UPDATE seminar_test_sends SET status='failed', error=$2 WHERE id=$1",
-        [claim.id, (out.error ?? (out.skipped ? "메일 발송 설정이 없습니다" : "발송 실패")).slice(0, 300)]);
-      return { ok: false, error: out.error ?? "메일 발송 실패", channel, toMasked: pv.toMasked };
+        [claim.id, note.slice(0, 300)]);
+      return { ok: false, error: note, channel, toMasked: pv.toMasked };
     }
     await query(
       "UPDATE seminar_test_sends SET status='sent', sent_at=now(), provider=$2, provider_id=$3 WHERE id=$1",
-      [claim.id, (out.via ?? "mail").slice(0, 40), (out.id ?? "").slice(0, 200)]);
-    return { ok: true, channel, toMasked: pv.toMasked, provider: out.via, providerId: out.id, subject: pv.subject };
+      [claim.id, out.provider.slice(0, 40), (out.providerId ?? "").slice(0, 200)]);
+    return { ok: true, channel, toMasked: pv.toMasked, provider: out.provider, providerId: out.providerId, subject: pv.subject };
   } catch (e) {
     await query("UPDATE seminar_test_sends SET status='failed', error=$2 WHERE id=$1",
       [claim.id, (e as Error).message.slice(0, 300)]).catch(() => {});

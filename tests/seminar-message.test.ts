@@ -127,13 +127,15 @@ describe("배선 감사", () => {
   });
   it("기록에 넘기는 본문과 전송에 넘기는 본문이 같은 값이다", () => {
     // 같은 msg 객체를 beginAttempt 와 transmit 에 넘긴다.
-    expect(lib).toMatch(/body: msg\.body/);
-    expect(lib).toMatch(/subject: msg\.subject/);
-    expect(lib).toMatch(/transmit\(r\.channel, to, msg\)/);
+    // 기록도 전송도 같은 payload 객체를 쓴다(메일 푸터까지 반영된 최종 본문).
+    expect(lib).toMatch(/body: payload\.body/);
+    expect(lib).toMatch(/subject: payload\.subject/);
+    expect(lib).toMatch(/sendSeminarMessage\(r\.channel, to, payload\)/);
+    expect(lib).toMatch(/payload = \{ subject: msg\.subject, body: await finalBody\(/);
   });
   it("기록 → 전송 순서이고, 기록 실패면 보내지 않는다", () => {
     const i = lib.indexOf("const began = await beginAttempt(");
-    const j = lib.indexOf("const outcome = await transmit(");
+    const j = lib.indexOf("const outcome = await sendSeminarMessage(");
     expect(i).toBeGreaterThan(0);
     expect(j).toBeGreaterThan(i);                       // 기록이 먼저
     expect(lib).toMatch(/if \(!began\.ok\)/);
@@ -142,7 +144,7 @@ describe("배선 감사", () => {
   it("기록 직후에도 한 번 더 확인하고 전송한다(그 사이 OFF 대비)", () => {
     const begin = lib.indexOf("const began = await beginAttempt(");
     const go = lib.indexOf("const go = await liveSendState(");
-    const send = lib.indexOf("const outcome = await transmit(");
+    const send = lib.indexOf("const outcome = await sendSeminarMessage(");
     expect(begin).toBeGreaterThan(0);
     expect(go).toBeGreaterThan(begin);                  // 기록 뒤
     expect(send).toBeGreaterThan(go);                   // 전송 앞
@@ -180,7 +182,7 @@ describe("배선 감사", () => {
     expect(att).toContain("export async function priorAttemptState");
     // 전송 전에 이전 기록을 확인하고, 조회 실패도 중단 사유다.
     const i = lib.indexOf("const prior = await priorAttemptState(r.id)");
-    const j = lib.indexOf("const outcome = await transmit(");
+    const j = lib.indexOf("const outcome = await sendSeminarMessage(");
     expect(i).toBeGreaterThan(0);
     expect(j).toBeGreaterThan(i);
     expect(lib).toMatch(/if \(!prior\.ok\)/);
@@ -193,8 +195,10 @@ describe("배선 감사", () => {
     expect(fn).toMatch(/claimed_by=NULL/);
   });
   it("제공자 예외는 거절과 구분해 기록한다", () => {
-    const fn = lib.slice(lib.indexOf("async function transmit("));
-    expect((fn.match(/indeterminate: true/g) ?? []).length).toBe(2);   // 문자·메일 양쪽
+    // 제공자 경계는 lib/seminar-transport.ts 하나로 모았다.
+    const t = code("../lib/seminar-transport.ts");
+    expect((t.match(/indeterminate: true/g) ?? []).length).toBeGreaterThanOrEqual(2);  // 문자·메일 양쪽
+    expect(t).toMatch(/indeterminate: Boolean\(out\.indeterminate\)/);
     const att = code("../lib/seminar-attempts.ts");
     expect(att).toMatch(/o\.ok \? "sent" : o\.indeterminate \? "unknown" : "failed"/);
   });

@@ -22,6 +22,7 @@ import {
   attemptsSchemaState, beginAttempt, finishAttempt, markAttempt, priorAttemptState,
   SEMINAR_ATTEMPTS_MIGRATION,
 } from "./seminar-attempts";
+import { finalBody, sendSeminarMessage } from "./seminar-transport";
 
 export const SEMINAR_SCHEMA_MIGRATION = "0103_seminar_notify.sql";
 /** 'sending' 으로 선점된 채 멈춘 발송을 되돌리기까지의 시간(분). */
@@ -693,6 +694,16 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
       // 예약을 만든 뒤에 연락처가 지워졌을 수 있다 — 빈 주소로는 보내지 않는다.
       if (!to) { await skip("수신 연락처가 없습니다"); continue; }
 
+      // 제공자에게 실제로 넘어갈 최종 본문(메일은 공용 푸터까지 붙인 값).
+      //   기록과 전송이 같은 문자열이 되도록 여기서 한 번만 만든다.
+      let payload: ComposedMessage;
+      try {
+        payload = { subject: msg.subject, body: await finalBody(r.channel, msg.body) };
+      } catch (e) {
+        await noSend(`전송 본문을 만들지 못해 보내지 않았습니다(${(e as Error).message.slice(0, 80)})`);
+        continue;
+      }
+
       // ── 1차 확인: 보낼 수 있는 상태인가 ──
       //   실행 시작 때 읽어 둔 값이 아니라 DB 를 다시 본다. 조회가 안 되면 보내지 않는다(fail closed).
       //   선점 소유권도 함께 본다 — 멈춰 있던 옛 실행이 남의 행을 보내지 않게 한다.
@@ -725,7 +736,7 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
       const began = await beginAttempt({
         sendId: r.id, sessionId: r.session_id, targetId: r.target_id, runId: run,
         stage: r.stage, channel: r.channel, attemptNo: r.attempts,
-        toMasked: maskTo(r.channel, to), subject: msg.subject, body: msg.body, purpose: tpl.purpose,
+        toMasked: maskTo(r.channel, to), subject: payload.subject, body: payload.body, purpose: tpl.purpose,
       });
       if (!began.ok) {
         if (began.reason === "duplicate") {
@@ -751,7 +762,7 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
         continue;
       }
 
-      const outcome = await transmit(r.channel, to, msg);
+      const outcome = await sendSeminarMessage(r.channel, to, payload);
       handled.add(r.id);
       const logged = await finishAttempt(logId, outcome);
       if (!logged) {
@@ -822,12 +833,6 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
   }
 }
 
-interface Outcome {
-  ok: boolean; provider: string; providerId?: string; error?: string;
-  /** 제공자 응답을 확인하지 못함(예외·시간초과). 거절과 구분한다 — 접수됐을 수 있다. */
-  indeterminate?: boolean;
-}
-
 /**
  * 전송 직전에 보는 "지금의" 상태 — 마스터 스위치와 이 행의 선점 소유권.
  *   · 실행 시작 때 읽어 둔 설정이 아니라 DB 를 다시 읽는다.
@@ -850,34 +855,6 @@ async function liveSendState(sendId: string, runId: string):
     return { ok: true, enabled: Boolean(r.enabled), owned, reason };
   } catch (e) {
     return { ok: false, enabled: false, owned: false, reason: "조회 실패", error: (e as Error).message.slice(0, 160) };
-  }
-}
-
-/**
- * 실제 전송. 조립은 composeSeminarMessage 가 이미 끝냈고, 여기서는 보내기만 한다.
- *   provider 와 메시지 id 를 그대로 돌려준다(원장·시도 기록에 남긴다).
- */
-async function transmit(channel: SeminarChannel, to: string, msg: ComposedMessage): Promise<Outcome> {
-  if (channel === "sms") {
-    const { sendSms } = await import("./sms");
-    try {
-      const out = await sendSms({ receiver: to, msg: msg.body, title: "GloveK 세미나" });
-      // 제공자가 응답했다 — 성공이든 거절이든 결과가 확정이다.
-      return { ok: out.ok, provider: "aligo", providerId: out.msgId, error: out.ok ? undefined : out.message };
-    } catch (e) {
-      // 응답을 못 받았다 — 접수됐을 수도 있으므로 거절로 적지 않는다.
-      return { ok: false, provider: "aligo", error: (e as Error).message.slice(0, 200), indeterminate: true };
-    }
-  }
-  const { sendEmail } = await import("./mailer");
-  try {
-    const out = await sendEmail({ to, subject: msg.subject, text: msg.body });
-    return {
-      ok: out.ok, provider: out.via ?? "mail", providerId: out.id,
-      error: out.ok ? undefined : (out.error ?? "발송 실패"),
-    };
-  } catch (e) {
-    return { ok: false, provider: "mail", error: (e as Error).message.slice(0, 200), indeterminate: true };
   }
 }
 

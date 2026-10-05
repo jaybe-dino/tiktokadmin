@@ -41,6 +41,11 @@ export function smsType(msg: string, hasImage = false): "SMS" | "LMS" | "MMS" {
 
 export interface SmsResult {
   ok: boolean;
+  /**
+   * 제공자 응답을 확인하지 못함(연결 실패·시간초과).
+   *   ALIGO 가 code 를 돌려준 "명시적 거절"과 구분한다 — 접수됐을 수도 있다.
+   */
+  indeterminate?: boolean;
   msgId?: string;
   type?: string;
   successCnt?: number;
@@ -219,7 +224,10 @@ async function postAligo(url: string, body: URLSearchParams, type: string): Prom
   } catch (e) {
     // "fetch failed" 한 줄로 끝내지 않는다 — 무엇 때문에 못 붙었는지 남긴다.
     const msg = (e as Error).message;
-    return { ok: false, message: /^ALIGO /.test(msg) ? msg : `문자 발송 실패 — ${netReason(e)}` };
+    return {
+      ok: false, indeterminate: true,
+      message: /^ALIGO /.test(msg) ? msg : `문자 발송 실패 — ${netReason(e)}`,
+    };
   }
 }
 
