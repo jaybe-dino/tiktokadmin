@@ -52,6 +52,8 @@ const db = {
   attemptFinishFails: false,
   /** 기록을 남기는 "도중"에 일어나는 일을 흉내 낸다(그 사이 OFF 등). */
   onBeginAttempt: null as null | (() => void),
+  /** 이전 시도 기록 조회를 실패시켜 fail closed 를 확인한다. */
+  attemptsReadFails: false,
   seq: 0,
   // 발송 계층 관찰용
   smsSent: [] as { to: string; msg: string }[],
@@ -93,6 +95,13 @@ vi.mock("../lib/db", () => {
       };
       db.attempts.push(row);
       return [{ id: row.id }];
+    }
+    if (sql.includes("count(*)::text AS n FROM seminar_send_attempts")) {
+      if (db.attemptsReadFails) throw new Error("기록 조회 실패(검수용)");
+      const mine = db.attempts.filter((x) => x.send_id === String(a[0]));
+      const by: Record<string, number> = {};
+      for (const x of mine) by[x.result] = (by[x.result] ?? 0) + 1;
+      return Object.entries(by).map(([result, n]) => ({ result, n: String(n) }));
     }
     if (sql.includes("FROM seminar_send_attempts WHERE send_id")) {
       const [send_id, no] = a as never[] as string[];
@@ -312,10 +321,22 @@ vi.mock("../lib/db", () => {
       out.forEach((s) => { s.status = "queued"; });
       return out.map((s) => ({ id: s.id }));
     }
-    if (sql.includes("UPDATE seminar_sends SET status='queued'")) {  // releaseStale
+    if (sql.includes("UPDATE seminar_sends s SET status='queued'")) {  // releaseStale ①
       const cut = new Date(String(a[0])).getTime();
-      const out = db.sends.filter((s) => s.status === "sending" && s.claimed_at && new Date(s.claimed_at).getTime() < cut);
-      out.forEach((s) => { s.status = "queued"; });
+      const blocking = (sid: string) =>
+        db.attempts.some((x) => x.send_id === sid && ["sent", "unknown", "attempted"].includes(x.result));
+      const out = db.sends.filter((s) => s.status === "sending" && s.claimed_at
+        && new Date(s.claimed_at).getTime() < cut && !blocking(s.id));
+      out.forEach((s) => { s.status = "queued"; s.claimed_by = null; });
+      return out.map((s) => ({ id: s.id }));
+    }
+    if (sql.includes("SET status='needs_review'") && sql.includes("s.claimed_at < $1")) {  // releaseStale ②
+      const cut = new Date(String(a[0])).getTime();
+      const blocking = (sid: string) =>
+        db.attempts.some((x) => x.send_id === sid && ["sent", "unknown", "attempted"].includes(x.result));
+      const out = db.sends.filter((s) => s.status === "sending" && s.claimed_at
+        && new Date(s.claimed_at).getTime() < cut && blocking(s.id));
+      out.forEach((s) => { s.status = "needs_review"; });
       return out.map((s) => ({ id: s.id }));
     }
 
@@ -394,7 +415,7 @@ function reset() {
   db.smsSent = []; db.mailSent = []; db.smsOk = true; db.mailOk = true;
   db.attemptsSchema = true; db.attempts = []; db.attemptsWriteFails = false;
   db.onSend = null; db.configReadFails = false; db.attemptFinishFails = false;
-  db.onBeginAttempt = null;
+  db.onBeginAttempt = null; db.attemptsReadFails = false;
   db.adBlocked = false; db.adError = "";
   db.templates = [
     { stage: "notice", enabled: true, purpose: "service", send_email: true, send_sms: true,

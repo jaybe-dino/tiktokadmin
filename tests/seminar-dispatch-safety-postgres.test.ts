@@ -17,6 +17,8 @@ const ctx = vi.hoisted(() => ({
   /** 첫 전송 직후에 실행할 훅(루프 중 OFF·조회 실패를 흉내 낸다). */
   onFirstSend: null as null | (() => Promise<void>),
   smsOk: true,
+  /** 제공자 호출이 예외로 끝나는 상황(시간초과 등). */
+  mailThrows: false,
 }));
 
 vi.mock("../lib/db", async () => {
@@ -34,6 +36,7 @@ vi.mock("../lib/sms", () => ({
 }));
 vi.mock("../lib/mailer", () => ({
   sendEmail: async (i: { to: string; subject: string; text: string }) => {
+    if (ctx.mailThrows) throw new Error("연결 시간 초과(검수용)");
     ctx.sent.push({ kind: "email", to: i.to, subject: i.subject, body: i.text });
     if (ctx.sent.length === 1 && ctx.onFirstSend) await ctx.onFirstSend();
     return { ok: true, id: `mail-${ctx.sent.length}`, via: "resend" };
@@ -95,7 +98,7 @@ describe.skipIf(!process.env.SEMINAR_TEST_DB_URL)("세미나 발송 안전장치
   afterAll(async () => { await ctx.pool.end(); });
 
   beforeEach(async () => {
-    ctx.sent = []; ctx.onFirstSend = null; ctx.smsOk = true;
+    ctx.sent = []; ctx.onFirstSend = null; ctx.smsOk = true; ctx.mailThrows = false;
     await ctx.pool.query("TRUNCATE seminar_send_attempts, seminar_sends, seminar_targets, seminar_sessions, seminar_runs, brands CASCADE");
     brandIds.length = 0;
     // 보낼 수 있는 상태로 되돌린다(마스터 ON · 링크 · 문구 활성).
@@ -201,6 +204,32 @@ describe.skipIf(!process.env.SEMINAR_TEST_DB_URL)("세미나 발송 안전장치
     // 내가 잡은 나머지는 정상적으로 예약으로 돌아간다.
     const back = await ctx.pool.query("SELECT count(*)::int AS n FROM seminar_sends WHERE status='queued'");
     expect(back.rows[0].n).toBeGreaterThanOrEqual(1);
+  });
+
+  it("제외 처리도 자기 선점일 때만 한다", async () => {
+    // A = 먼저 처리돼 전송되는 건, B = 제외 대상(대상 아님)이고 그 사이 소유권을 빼앗긴다.
+    const a = await seedTarget(1);
+    const b = await seedTarget(2);
+    await ctx.pool.query("UPDATE seminar_sends SET due_at=$2 WHERE id=$1::uuid",
+      [b.sendId, new Date(NOW.getTime() - 30_000).toISOString()]);      // A 보다 뒤에 처리되게
+    await ctx.pool.query("UPDATE seminar_targets SET status='duplicate' WHERE id=$1::uuid", [b.targetId]);
+    const foreignRun = "44444444-4444-4444-4444-444444444444";
+    ctx.onFirstSend = async () => {
+      await ctx.pool.query(
+        `UPDATE seminar_sends SET claimed_by=$1::uuid
+          WHERE status='sending'
+            AND NOT EXISTS (SELECT 1 FROM seminar_send_attempts x WHERE x.send_id = seminar_sends.id)`,
+        [foreignRun]);
+    };
+    await S.dispatchDue(100, NOW, "test");
+
+    const rows = await ctx.pool.query(
+      "SELECT id::text AS id, status, skip_reason FROM seminar_sends WHERE id = ANY($1::uuid[])",
+      [[a.sendId, b.sendId]]);
+    const bRow = rows.rows.find((x) => x.id === b.sendId)!;
+    // 남의 것이 된 행은 skipped 로 바꾸지 않는다.
+    expect(bRow.status).toBe("sending");
+    expect(bRow.skip_reason).toBe("");
   });
 
   // ── ③ 보낸 내용 기록 ─────────────────────────────────────
@@ -383,7 +412,7 @@ describe.skipIf(!process.env.SEMINAR_TEST_DB_URL)("세미나 발송 안전장치
     const r = await S.dispatchDue(100, NOW, "test");
     expect(ctx.sent).toHaveLength(1);
     expect(r.sent).toBe(0);                                    // 성공으로 세지 않는다
-    expect(r.blocked?.join(" ")).toContain("완료 기록 시점에 선점이 사라졌습니다");
+    expect(r.blocked?.join(" ")).toContain("완료 기록을 남기지 못했습니다");
     const row = await ctx.pool.query("SELECT status FROM seminar_sends WHERE id=$1::uuid", [t.sendId]);
     expect(row.rows[0].status).toBe("sending");                // 남의 행을 sent 로 덮지 않았다
     // 보낸 내용 기록은 남아 있어 수동 대조가 가능하다.
@@ -406,6 +435,124 @@ describe.skipIf(!process.env.SEMINAR_TEST_DB_URL)("세미나 발송 안전장치
     const a = await ctx.pool.query("SELECT subject, body, result, provider_id FROM seminar_send_attempts WHERE send_id=$1::uuid", [t.sendId]);
     expect(a.rows).toHaveLength(1);
     expect(a.rows[0]).toMatchObject({ subject: "이전 제목", body: "이전 본문", result: "sent", provider_id: "prev-1" });
+  });
+
+  // ── 결과 저장 실패 후 복구 → 재실행에서도 provider 호출은 총 1회 ──
+  it("결과·확인필요 저장이 모두 실패해도, DB 복구·stale 회수 후 다시 보내지 않는다", async () => {
+    const t = await seedTarget(1);
+    // 전송 뒤의 모든 기록 갱신을 막는다(결과 저장도, needs_review 저장도 실패).
+    await ctx.pool.query(`
+      CREATE OR REPLACE FUNCTION tmp_block_upd() RETURNS trigger AS $fn$
+      BEGIN
+        -- 선점(queued→sending)은 통과시키고, 그 뒤의 갱신만 막는다.
+        IF TG_TABLE_NAME = 'seminar_sends' AND OLD.status <> 'sending' THEN RETURN NEW; END IF;
+        RAISE EXCEPTION 'DB 장애(검수용)';
+      END;
+      $fn$ LANGUAGE plpgsql;
+      CREATE TRIGGER tmp_block_att BEFORE UPDATE ON seminar_send_attempts
+        FOR EACH ROW EXECUTE FUNCTION tmp_block_upd();
+      CREATE TRIGGER tmp_block_snd BEFORE UPDATE ON seminar_sends
+        FOR EACH ROW EXECUTE FUNCTION tmp_block_upd();
+    `);
+    try {
+      await S.dispatchDue(100, NOW, "test").catch(() => null);
+    } finally {
+      await ctx.pool.query(`
+        DROP TRIGGER IF EXISTS tmp_block_att ON seminar_send_attempts;
+        DROP TRIGGER IF EXISTS tmp_block_snd ON seminar_sends;
+        DROP FUNCTION IF EXISTS tmp_block_upd();`);
+    }
+    expect(ctx.sent).toHaveLength(1);                      // 제공자는 한 번 받았다
+    // 결과를 못 적었으니 기록은 attempted 로, 예약은 sending 으로 남아 있다.
+    const mid = await ctx.pool.query(
+      `SELECT s.status, (SELECT result FROM seminar_send_attempts a WHERE a.send_id=s.id) AS result
+         FROM seminar_sends s WHERE s.id=$1::uuid`, [t.sendId]);
+    expect(mid.rows[0]).toMatchObject({ status: "sending", result: "attempted" });
+
+    // DB 복구 뒤 stale 회수 — 기록이 불확실하므로 예약으로 되돌리지 않는다.
+    await ctx.pool.query("UPDATE seminar_sends SET claimed_at = $1", [new Date(NOW.getTime() - 30 * 60_000).toISOString()]);
+    const rel = await S.releaseStale(NOW);
+    expect(rel.sends).toBe(0);
+    expect(rel.review).toBe(1);
+    const after = await ctx.pool.query("SELECT status FROM seminar_sends WHERE id=$1::uuid", [t.sendId]);
+    expect(after.rows[0].status).toBe("needs_review");
+
+    // 다시 돌려도 보내지 않는다.
+    await S.dispatchDue(100, new Date(NOW.getTime() + 3_600_000), "test");
+    expect(ctx.sent).toHaveLength(1);                      // provider 호출 총 1회
+  });
+
+  it("예약으로 억지로 되돌려도 기록이 있으면 재발송하지 않는다", async () => {
+    const t = await seedTarget(1);
+    // 전송 뒤 seminar_sends 갱신만 실패시킨다(기록은 sent 로 남는다).
+    await ctx.pool.query(`
+      CREATE OR REPLACE FUNCTION tmp_block_snd_only() RETURNS trigger AS $fn$
+      BEGIN
+        IF OLD.status <> 'sending' THEN RETURN NEW; END IF;
+        RAISE EXCEPTION 'DB 장애(검수용)';
+      END;
+      $fn$ LANGUAGE plpgsql;
+      CREATE TRIGGER tmp_block_snd2 BEFORE UPDATE ON seminar_sends
+        FOR EACH ROW EXECUTE FUNCTION tmp_block_snd_only();`);
+    try {
+      await S.dispatchDue(100, NOW, "test").catch(() => null);
+    } finally {
+      await ctx.pool.query(`
+        DROP TRIGGER IF EXISTS tmp_block_snd2 ON seminar_sends;
+        DROP FUNCTION IF EXISTS tmp_block_snd_only();`);
+    }
+    expect(ctx.sent).toHaveLength(1);
+    const att = await ctx.pool.query("SELECT result FROM seminar_send_attempts WHERE send_id=$1::uuid", [t.sendId]);
+    expect(att.rows[0].result).toBe("sent");               // 기록에는 접수가 남았다
+
+    // 운영자가 손으로 예약 상태를 되돌린 최악의 경우까지 가정한다.
+    await ctx.pool.query(
+      "UPDATE seminar_sends SET status='queued', claimed_by=NULL, due_at=$2 WHERE id=$1::uuid",
+      [t.sendId, new Date(NOW.getTime() - 60_000).toISOString()]);
+    await S.dispatchDue(100, NOW, "test");
+    expect(ctx.sent).toHaveLength(1);                      // provider 호출 총 1회
+    const fin = await ctx.pool.query("SELECT status, error FROM seminar_sends WHERE id=$1::uuid", [t.sendId]);
+    expect(fin.rows[0].status).toBe("needs_review");
+    expect(String(fin.rows[0].error)).toContain("대조");
+  });
+
+  it("제공자 예외·시간초과는 거절과 달리 자동 재전송하지 않는다", async () => {
+    const t = await seedTarget(1);
+    ctx.mailThrows = true;
+    const r = await S.dispatchDue(100, NOW, "test");
+    ctx.mailThrows = false;
+    expect(r.sent).toBe(0);
+    expect(r.retry).toBe(0);                               // 재시도 예약으로 돌리지 않는다
+    expect(r.review).toBeGreaterThan(0);
+    const row = await ctx.pool.query(
+      `SELECT s.status, (SELECT result FROM seminar_send_attempts a WHERE a.send_id=s.id) AS result
+         FROM seminar_sends s WHERE s.id=$1::uuid`, [t.sendId]);
+    expect(row.rows[0]).toMatchObject({ status: "needs_review", result: "unknown" });
+
+    // 다시 돌려도 보내지 않는다.
+    await S.dispatchDue(100, new Date(NOW.getTime() + 3_600_000), "test");
+    expect(ctx.sent).toHaveLength(0);
+  });
+
+  it("stale 회수는 기록 없는 선점만 예약으로 되돌린다", async () => {
+    const clean = await seedTarget(1);     // 기록 없음 → 되돌림
+    const dirty = await seedTarget(2);     // attempted 기록 → 확인 필요
+    await ctx.pool.query(
+      "UPDATE seminar_sends SET status='sending', claimed_at = $1, claimed_by = gen_random_uuid()",
+      [new Date(NOW.getTime() - 30 * 60_000).toISOString()]);
+    await ctx.pool.query(
+      `INSERT INTO seminar_send_attempts (send_id, session_id, target_id, stage, channel, attempt_no, body, purpose)
+       VALUES ($1::uuid,$2::uuid,$3::uuid,'notice','email',1,'본문','service')`,
+      [dirty.sendId, sessionId, dirty.targetId]);
+
+    const rel = await S.releaseStale(NOW);
+    expect(rel.sends).toBe(1);
+    expect(rel.review).toBe(1);
+    const rows = await ctx.pool.query("SELECT id::text AS id, status, claimed_by FROM seminar_sends");
+    const c = rows.rows.find((x) => x.id === clean.sendId)!;
+    const d = rows.rows.find((x) => x.id === dirty.sendId)!;
+    expect(c).toMatchObject({ status: "queued", claimed_by: null });
+    expect(d.status).toBe("needs_review");
   });
 
   it("정상 실행은 실행 이력을 done 으로 닫는다", async () => {

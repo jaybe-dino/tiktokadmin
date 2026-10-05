@@ -19,7 +19,7 @@ import {
   type ComposedMessage,
 } from "./seminar-message";
 import {
-  attemptsSchemaState, beginAttempt, finishAttempt, markAttempt,
+  attemptsSchemaState, beginAttempt, finishAttempt, markAttempt, priorAttemptState,
   SEMINAR_ATTEMPTS_MIGRATION,
 } from "./seminar-attempts";
 
@@ -582,7 +582,8 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
          JOIN seminar_targets t ON t.id = s.target_id
          JOIN seminar_sessions ses ON ses.id = s.session_id
          JOIN brands b ON b.id = t.brand_id
-        WHERE s.id = ANY($1::uuid[])`, [claimed.map((c) => c.id)]);
+        WHERE s.id = ANY($1::uuid[])
+        ORDER BY s.due_at, s.id`, [claimed.map((c) => c.id)]);
 
     const tpls = new Map((await listSeminarTemplates()).map((t) => [t.stage, t]));
     const staleMs = cfg.staleHours * 3600_000;
@@ -594,8 +595,9 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
       const tpl = tpls.get(r.stage);
       const skip = async (reason: string) => {
         await query(
-          "UPDATE seminar_sends SET status='skipped', skip_reason=$2, updated_at=now() WHERE id=$1",
-          [r.id, reason.slice(0, 300)]);
+          `UPDATE seminar_sends SET status='skipped', skip_reason=$2, updated_at=now()
+            WHERE id=$1 AND claimed_by=$3::uuid`,
+          [r.id, reason.slice(0, 300), run]);
         handled.add(r.id);
         res.skipped += 1;
       };
@@ -623,14 +625,16 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
       /** 보내지 않고 결과만 남긴다(전송 시도 없음). 재시도 여지가 있으면 예약으로 되돌린다. */
       const noSend = async (reason: string) => {
         if (r.attempts >= cfg.maxAttempts) {
-          await query("UPDATE seminar_sends SET status='failed', error=$2, updated_at=now() WHERE id=$1",
-            [r.id, reason.slice(0, 300)]);
+          await query(
+            `UPDATE seminar_sends SET status='failed', error=$2, updated_at=now()
+              WHERE id=$1 AND claimed_by=$3::uuid`, [r.id, reason.slice(0, 300), run]);
           res.failed += 1;
         } else {
           const backoff = Math.min(r.attempts, 6) * 5 * 60_000;
           await query(
-            "UPDATE seminar_sends SET status='queued', error=$2, due_at=$3, updated_at=now() WHERE id=$1",
-            [r.id, reason.slice(0, 300), new Date(now.getTime() + backoff).toISOString()]);
+            `UPDATE seminar_sends SET status='queued', claimed_by=NULL, error=$2, due_at=$3, updated_at=now()
+              WHERE id=$1 AND claimed_by=$4::uuid`,
+            [r.id, reason.slice(0, 300), new Date(now.getTime() + backoff).toISOString(), run]);
           res.retry += 1;
         }
         handled.add(r.id);
@@ -702,6 +706,19 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
         continue;
       }
 
+      // ── 이전 시도 기록 확인 ──
+      //   결과 저장이 실패해 예약 행이 되돌아왔더라도, 기록에 접수(sent)·결과불명(unknown)·
+      //   결과미기록(attempted) 이 하나라도 있으면 자동으로 다시 보내지 않는다.
+      const prior = await priorAttemptState(r.id);
+      if (!prior.ok) {
+        abort = `이전 시도 기록 확인 실패 — 보내지 않고 중단했습니다(${(prior.error ?? "").slice(0, 80)})`;
+        break;
+      }
+      if (prior.blocking > 0) {
+        await review(`이미 접수됐거나 결과가 확인되지 않은 시도 기록이 있어 보내지 않았습니다(${prior.summary}) — 제공자 로그와 대조하세요`);
+        continue;
+      }
+
       // ── 보낼 내용을 먼저 남긴다 ──
       //   기록을 남기지 못하면 전송하지 않는다(기록 없는 발송을 만들지 않는다).
       //   같은 시도 번호 기록이 이미 있으면 그 기록을 전송 근거로 쓰지 않는다(중복 전송 방지).
@@ -745,12 +762,21 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
         continue;
       }
 
+      if (!outcome.ok && outcome.indeterminate) {
+        // 제공자 응답을 확인하지 못했다 — 접수됐을 수 있어 재시도하지 않는다.
+        await review(`제공자 응답을 확인하지 못했습니다(${(outcome.error ?? "").slice(0, 80)}) — 접수되었을 수 있어 자동 재전송하지 않습니다`);
+        continue;
+      }
       if (outcome.ok) {
         const done = await own(
           `UPDATE seminar_sends SET status='sent', sent_at=now(), provider=$2, provider_id=$3,
                   error='', updated_at=now() WHERE id=$1 AND claimed_by=$4::uuid RETURNING id`,
           [r.id, outcome.provider.slice(0, 40), (outcome.providerId ?? "").slice(0, 200), run]);
-        if (!done) { abort = "전송 후 완료 기록 시점에 선점이 사라졌습니다 — 중복 발송 여부를 수동 확인하세요"; break; }
+        if (!done) {
+          // 기록에는 sent 가 남아 있으므로 다음 실행이 다시 보내지는 않는다.
+          abort = "전송 후 완료 기록을 남기지 못했습니다(선점 소실·DB 오류) — 제공자 로그와 대조하세요";
+          break;
+        }
         res.sent += 1;
       } else if (r.attempts >= cfg.maxAttempts) {
         await own(
@@ -775,7 +801,7 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
       let released = 0;
       if (pending.length) {
         const back = await query<{ id: string }>(
-          `UPDATE seminar_sends SET status='queued', updated_at=now()
+          `UPDATE seminar_sends SET status='queued', claimed_by=NULL, updated_at=now()
             WHERE id = ANY($1::uuid[]) AND status='sending' AND claimed_by = $2::uuid
             RETURNING id`, [pending, run]).catch(() => []);
         released = back.length;
@@ -796,7 +822,11 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
   }
 }
 
-interface Outcome { ok: boolean; provider: string; providerId?: string; error?: string }
+interface Outcome {
+  ok: boolean; provider: string; providerId?: string; error?: string;
+  /** 제공자 응답을 확인하지 못함(예외·시간초과). 거절과 구분한다 — 접수됐을 수 있다. */
+  indeterminate?: boolean;
+}
 
 /**
  * 전송 직전에 보는 "지금의" 상태 — 마스터 스위치와 이 행의 선점 소유권.
@@ -830,27 +860,62 @@ async function liveSendState(sendId: string, runId: string):
 async function transmit(channel: SeminarChannel, to: string, msg: ComposedMessage): Promise<Outcome> {
   if (channel === "sms") {
     const { sendSms } = await import("./sms");
-    const out = await sendSms({ receiver: to, msg: msg.body, title: "GloveK 세미나" })
-      .catch((e) => ({ ok: false, message: (e as Error).message } as { ok: boolean; message: string; msgId?: string }));
-    return { ok: out.ok, provider: "aligo", providerId: out.msgId, error: out.ok ? undefined : out.message };
+    try {
+      const out = await sendSms({ receiver: to, msg: msg.body, title: "GloveK 세미나" });
+      // 제공자가 응답했다 — 성공이든 거절이든 결과가 확정이다.
+      return { ok: out.ok, provider: "aligo", providerId: out.msgId, error: out.ok ? undefined : out.message };
+    } catch (e) {
+      // 응답을 못 받았다 — 접수됐을 수도 있으므로 거절로 적지 않는다.
+      return { ok: false, provider: "aligo", error: (e as Error).message.slice(0, 200), indeterminate: true };
+    }
   }
   const { sendEmail } = await import("./mailer");
-  const out = await sendEmail({ to, subject: msg.subject, text: msg.body })
-    .catch((e) => ({ ok: false, error: (e as Error).message } as { ok: boolean; error?: string; id?: string; via?: string }));
-  return { ok: out.ok, provider: out.via ?? "mail", providerId: out.id, error: out.ok ? undefined : (out.error ?? "발송 실패") };
+  try {
+    const out = await sendEmail({ to, subject: msg.subject, text: msg.body });
+    return {
+      ok: out.ok, provider: out.via ?? "mail", providerId: out.id,
+      error: out.ok ? undefined : (out.error ?? "발송 실패"),
+    };
+  } catch (e) {
+    return { ok: false, provider: "mail", error: (e as Error).message.slice(0, 200), indeterminate: true };
+  }
 }
 
-/** 멈춘 선점·실행 잠금을 되돌린다(프로세스가 중간에 죽어도 다음 실행이 이어받게). */
-export async function releaseStale(now = new Date()): Promise<{ sends: number; runs: number }> {
+/**
+ * 멈춘 선점·실행 잠금을 되돌린다(프로세스가 중간에 죽어도 다음 실행이 이어받게).
+ *
+ *   선점 회수는 "기록"을 보고 둘로 나눈다 — 예약 상태만 보고 되돌리면
+ *   이미 제공자에 넘어간 건을 다시 보낼 수 있다.
+ *     · 기록이 없거나 전부 전송 안 함(aborted)·거절(failed) → 보낸 적이 없다 → 예약으로 되돌린다
+ *     · 접수(sent)·결과불명(unknown)·결과미기록(attempted) 이 하나라도 있음 → 확인 필요로 뺀다
+ *   기록 표를 읽을 수 없으면 아무것도 되돌리지 않는다(fail closed).
+ */
+export async function releaseStale(now = new Date()): Promise<{ sends: number; review: number; runs: number }> {
+  const cut = new Date(now.getTime() - SEND_CLAIM_STALE_MIN * 60_000).toISOString();
+  const BLOCKING = "a.result IN ('sent','unknown','attempted')";
+
+  // ① 명백히 보내지 않은 건만 예약으로. 선점 표시도 지운다(옛 실행이 다시 자기 것이라 여기지 않게).
   const sends = await query<{ id: string }>(
-    `UPDATE seminar_sends SET status='queued', updated_at=now()
-      WHERE status='sending' AND claimed_at < $1 RETURNING id`,
-    [new Date(now.getTime() - SEND_CLAIM_STALE_MIN * 60_000).toISOString()]).catch(() => []);
+    `UPDATE seminar_sends s SET status='queued', claimed_by=NULL, updated_at=now()
+      WHERE s.status='sending' AND s.claimed_at < $1
+        AND NOT EXISTS (SELECT 1 FROM seminar_send_attempts a WHERE a.send_id = s.id AND ${BLOCKING})
+      RETURNING s.id`, [cut]).catch(() => []);
+
+  // ② 접수됐거나 결과를 모르는 기록이 있는 건은 사람이 대조해야 한다.
+  const review = await query<{ id: string }>(
+    `UPDATE seminar_sends s
+        SET status='needs_review',
+            error='선점이 회수됐으나 접수 여부가 확인되지 않은 시도 기록이 있습니다 — 제공자 로그와 대조하세요',
+            updated_at=now()
+      WHERE s.status='sending' AND s.claimed_at < $1
+        AND EXISTS (SELECT 1 FROM seminar_send_attempts a WHERE a.send_id = s.id AND ${BLOCKING})
+      RETURNING s.id`, [cut]).catch(() => []);
+
   const runs = await query<{ id: string }>(
     `UPDATE seminar_runs SET status='error', finished_at=now(), error='실행이 끝나지 않아 회수됨'
       WHERE status='running' AND started_at < $1 RETURNING id`,
     [new Date(now.getTime() - RUN_STALE_MIN * 60_000).toISOString()]).catch(() => []);
-  return { sends: sends.length, runs: runs.length };
+  return { sends: sends.length, review: review.length, runs: runs.length };
 }
 
 async function startRun(kind: "build" | "dispatch", by: string): Promise<string | null> {

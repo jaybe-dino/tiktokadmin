@@ -174,6 +174,37 @@ describe("배선 감사", () => {
     expect(sets.length).toBeGreaterThanOrEqual(4);
     for (const m of sets) expect(m[2], m[1]).toMatch(/claimed_by=\$\d/);
   });
+  it("재전송 판단 근거는 예약 상태가 아니라 시도 기록이다", () => {
+    const att = code("../lib/seminar-attempts.ts");
+    expect(att).toMatch(/BLOCKING_RESULTS = \["sent", "unknown", "attempted"\]/);
+    expect(att).toContain("export async function priorAttemptState");
+    // 전송 전에 이전 기록을 확인하고, 조회 실패도 중단 사유다.
+    const i = lib.indexOf("const prior = await priorAttemptState(r.id)");
+    const j = lib.indexOf("const outcome = await transmit(");
+    expect(i).toBeGreaterThan(0);
+    expect(j).toBeGreaterThan(i);
+    expect(lib).toMatch(/if \(!prior\.ok\)/);
+    expect(lib).toMatch(/if \(prior\.blocking > 0\)/);
+  });
+  it("stale 회수가 기록 있는 선점을 예약으로 되돌리지 않는다", () => {
+    const fn = lib.slice(lib.indexOf("export async function releaseStale"));
+    expect(fn).toMatch(/status='queued'[\s\S]{0,400}NOT EXISTS[\s\S]{0,120}seminar_send_attempts/);
+    expect(fn).toMatch(/status='needs_review'[\s\S]{0,400}EXISTS[\s\S]{0,120}seminar_send_attempts/);
+    expect(fn).toMatch(/claimed_by=NULL/);
+  });
+  it("제공자 예외는 거절과 구분해 기록한다", () => {
+    const fn = lib.slice(lib.indexOf("async function transmit("));
+    expect((fn.match(/indeterminate: true/g) ?? []).length).toBe(2);   // 문자·메일 양쪽
+    const att = code("../lib/seminar-attempts.ts");
+    expect(att).toMatch(/o\.ok \? "sent" : o\.indeterminate \? "unknown" : "failed"/);
+  });
+  it("모든 상태 변경에 자기 선점 조건이 붙어 있다", () => {
+    const loop = lib.slice(lib.indexOf("for (const r of rows) {"), lib.indexOf("if (abort) {"));
+    const updates = [...loop.matchAll(/UPDATE seminar_sends SET [\s\S]{0,300}?WHERE id=\$1([\s\S]{0,80}?)(?:`|RETURNING)/g)];
+    expect(updates.length).toBeGreaterThanOrEqual(6);
+    for (const m of updates) expect(m[1]).toMatch(/claimed_by=\$\d/);
+  });
+
   it("UI 는 제공자 접수와 수신 완료를 구분해 적는다", () => {
     const panel = read("../components/SeminarPanel.tsx");
     expect(panel).toContain("제공자 접수");

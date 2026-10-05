@@ -72,7 +72,15 @@ export async function beginAttempt(i: BeginAttemptInput): Promise<BeginAttemptRe
 
 export interface AttemptOutcome {
   ok: boolean; provider?: string; providerId?: string; error?: string;
+  /**
+   * 제공자 응답을 확인하지 못했다(예외·시간초과·연결 끊김).
+   *   접수됐을 수도 있으므로 "거절"과 구분한다 — 자동 재전송 대상이 아니다.
+   */
+  indeterminate?: boolean;
 }
+
+/** 자동 재전송을 막아야 하는 결과들. 접수됐거나 접수 여부를 모르는 상태다. */
+export const BLOCKING_RESULTS = ["sent", "unknown", "attempted"] as const;
 
 /**
  * 전송이 끝난 뒤 결과 칸만 채운다. 내용 칸은 건드리지 않는다.
@@ -86,7 +94,7 @@ export async function finishAttempt(id: string, o: AttemptOutcome): Promise<bool
           SET result=$2, provider=$3, provider_id=$4, error=$5, finished_at=now()
         WHERE id=$1::uuid AND result = 'attempted'
         RETURNING id::text AS id`,
-      [id, o.ok ? "sent" : "failed", (o.provider ?? "").slice(0, 40),
+      [id, o.ok ? "sent" : o.indeterminate ? "unknown" : "failed", (o.provider ?? "").slice(0, 40),
         (o.providerId ?? "").slice(0, 200), (o.error ?? "").slice(0, 300)]);
     return r.length > 0;
   } catch {
@@ -136,4 +144,39 @@ export async function sendsWithAttempts(sessionId: string): Promise<Record<strin
   const out: Record<string, number> = {};
   for (const r of rows) out[r.send_id] = Number(r.n);
   return out;
+}
+
+export interface PriorAttempts {
+  /** 조회 자체가 됐는지. false 면 호출부는 보내지 않는다(fail closed). */
+  ok: boolean;
+  total: number;
+  /** 접수됐거나 접수 여부를 모르는 기록 수. 1 이상이면 자동 재전송하면 안 된다. */
+  blocking: number;
+  /** 사람이 읽는 요약(결과별 개수). */
+  summary: string;
+  error?: string;
+}
+
+/**
+ * 이 예약에 이미 남아 있는 시도 기록.
+ *   예약 행의 status 가 아니라 "기록"이 재전송 가능 여부의 근거다 —
+ *   결과 저장이 실패해 예약 행이 되돌아와도, 기록이 남아 있으면 다시 보내지 않는다.
+ */
+export async function priorAttemptState(sendId: string): Promise<PriorAttempts> {
+  try {
+    const rows = await query<{ result: string; n: string }>(
+      `SELECT result, count(*)::text AS n FROM seminar_send_attempts
+        WHERE send_id=$1::uuid GROUP BY result`, [sendId]);
+    let total = 0, blocking = 0;
+    const parts: string[] = [];
+    for (const r of rows) {
+      const n = Number(r.n);
+      total += n;
+      if ((BLOCKING_RESULTS as readonly string[]).includes(r.result)) blocking += n;
+      parts.push(`${r.result} ${n}`);
+    }
+    return { ok: true, total, blocking, summary: parts.join(" · ") };
+  } catch (e) {
+    return { ok: false, total: 0, blocking: 0, summary: "", error: (e as Error).message.slice(0, 160) };
+  }
 }
