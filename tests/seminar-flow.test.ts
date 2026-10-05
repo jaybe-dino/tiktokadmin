@@ -48,6 +48,10 @@ const db = {
   onSend: null as null | (() => void),
   /** seminar_config 조회를 실패시켜 fail closed 를 확인한다. */
   configReadFails: false,
+  /** finishAttempt/markAttempt 를 실패시켜 "결과 기록 실패"를 흉내 낸다. */
+  attemptFinishFails: false,
+  /** 기록을 남기는 "도중"에 일어나는 일을 흉내 낸다(그 사이 OFF 등). */
+  onBeginAttempt: null as null | (() => void),
   seq: 0,
   // 발송 계층 관찰용
   smsSent: [] as { to: string; msg: string }[],
@@ -66,6 +70,12 @@ vi.mock("../lib/db", () => {
         ? ["seminar_config", "seminar_templates", "seminar_sessions", "seminar_targets", "seminar_sends", "seminar_runs"].map((t) => ({ table_name: t }))
         : [];
     }
+    if (sql.includes("FROM seminar_sends s WHERE s.id=$1") && sql.includes("SELECT enabled FROM seminar_config")) {
+      if (db.configReadFails) throw new Error("설정 조회 실패(검수용)");
+      const snd = db.sends.find((x) => x.id === String(a[0]));
+      if (!snd) return [];
+      return [{ enabled: db.cfg.enabled, status: snd.status, claimed_by: snd.claimed_by }];
+    }
     if (sql.includes("to_regclass('public.seminar_send_attempts')")) {
       return db.attemptsSchema ? [{ reg: "seminar_send_attempts" }] : [{ reg: null }];
     }
@@ -74,6 +84,7 @@ vi.mock("../lib/db", () => {
     }
     if (sql.includes("INSERT INTO seminar_send_attempts")) {
       if (db.attemptsWriteFails) throw new Error("기록 저장 실패(검수용)");
+      if (db.onBeginAttempt) db.onBeginAttempt();
       const [send_id, , , , stage, channel, attempt_no, to_masked, subject, body, purpose] = a as never[] as string[];
       if (db.attempts.some((x) => x.send_id === send_id && x.attempt_no === Number(attempt_no))) return [];
       const row = {
@@ -89,10 +100,16 @@ vi.mock("../lib/db", () => {
       return hit ? [{ id: hit.id }] : [];
     }
     if (sql.includes("UPDATE seminar_send_attempts")) {
-      const [attId, result, provider, providerId, error] = a as never[] as string[];
-      const hit = db.attempts.find((x) => x.id === attId);
-      if (hit) { hit.result = result; hit.provider = provider; hit.provider_id = providerId; hit.error = error; }
-      return [];
+      if (db.attemptFinishFails) return [];                 // 결과 기록 실패를 흉내 낸다
+      const hit = db.attempts.find((x) => x.id === String(a[0]));
+      if (!hit || hit.result !== "attempted") return [];     // 이미 결과가 있으면 덮어쓰지 않는다
+      if (sql.includes("SET result=$2, error=$3")) {         // markAttempt
+        hit.result = String(a[1]); hit.error = String(a[2]);
+      } else {                                              // finishAttempt
+        hit.result = String(a[1]); hit.provider = String(a[2]);
+        hit.provider_id = String(a[3]); hit.error = String(a[4]);
+      }
+      return [{ id: hit.id }];
     }
     if (sql.includes("FROM seminar_config")) {
       if (db.configReadFails) throw new Error("설정 조회 실패(검수용)");
@@ -261,17 +278,31 @@ vi.mock("../lib/db", () => {
       return [];
     }
     if (sql.includes("UPDATE seminar_sends SET status='sent'")) {
-      const s = db.sends.find((x) => x.id === a[0]);
+      const s = db.sends.find((x) => x.id === a[0] && x.claimed_by === String(a[3]));
       if (s) { s.status = "sent"; s.sent_at = "now"; s.provider = String(a[1]); s.provider_id = String(a[2]); s.error = ""; }
+      return s ? [{ id: s.id }] : [];
+    }
+    if (sql.includes("UPDATE seminar_sends SET status='needs_review'")) {
+      const s = db.sends.find((x) => x.id === a[0] && x.claimed_by === String(a[2]));
+      if (s) { s.status = "needs_review"; s.error = String(a[1]); }
+      return [];
+    }
+    if (sql.includes("UPDATE seminar_sends SET skip_reason=")) {
+      const s = db.sends.find((x) => x.id === a[0] && x.claimed_by === String(a[2]));
+      if (s) s.skip_reason = String(a[1]);
       return [];
     }
     if (sql.includes("UPDATE seminar_sends SET status='failed'")) {
-      const s = db.sends.find((x) => x.id === a[0]); if (s) { s.status = "failed"; s.error = String(a[1]); }
-      return [];
+      const owner = sql.includes("claimed_by=$3") ? String(a[2]) : null;
+      const s = db.sends.find((x) => x.id === a[0] && (owner === null || x.claimed_by === owner));
+      if (s) { s.status = "failed"; s.error = String(a[1]); }
+      return s ? [{ id: s.id }] : [];
     }
     if (sql.includes("UPDATE seminar_sends SET status='queued'") && sql.includes("due_at=$3")) {
-      const s = db.sends.find((x) => x.id === a[0]); if (s) { s.status = "queued"; s.error = String(a[1]); s.due_at = String(a[2]); }
-      return [];
+      const owner = sql.includes("claimed_by=$4") ? String(a[3]) : null;
+      const s = db.sends.find((x) => x.id === a[0] && (owner === null || x.claimed_by === owner));
+      if (s) { s.status = "queued"; s.error = String(a[1]); s.due_at = String(a[2]); }
+      return s ? [{ id: s.id }] : [];
     }
     if (sql.includes("UPDATE seminar_sends SET status='queued'") && sql.includes("claimed_by = $2")) {
       // 중단 시 "내가 잡은 미처리분"만 되돌린다.
@@ -362,7 +393,8 @@ function reset() {
   db.brands = []; db.leads = []; db.sessions = []; db.targets = []; db.sends = []; db.runs = [];
   db.smsSent = []; db.mailSent = []; db.smsOk = true; db.mailOk = true;
   db.attemptsSchema = true; db.attempts = []; db.attemptsWriteFails = false;
-  db.onSend = null; db.configReadFails = false;
+  db.onSend = null; db.configReadFails = false; db.attemptFinishFails = false;
+  db.onBeginAttempt = null;
   db.adBlocked = false; db.adError = "";
   db.templates = [
     { stage: "notice", enabled: true, purpose: "service", send_email: true, send_sms: true,
@@ -624,6 +656,55 @@ describe("발송", () => {
     expect(db.mailSent).toHaveLength(0);
     expect(r.blocked?.join(" ")).toContain("기록을 남길 수 없어");
     expect(db.sends.every((x) => x.status === "queued" && x.attempts === 0)).toBe(true);
+  });
+
+  it("기록을 남기는 사이에 OFF 되면 전송하지 않고 그 기록을 전송 안 함으로 남긴다", async () => {
+    await seedOne();
+    db.onBeginAttempt = () => { db.cfg.enabled = false; };
+    const r = await S.dispatchDue(50, new Date(kstIso("2026-10-05", 9, 1)));
+    expect(db.mailSent).toHaveLength(0);
+    expect(db.smsSent).toHaveLength(0);
+    expect(r.sent).toBe(0);
+    expect(r.blocked?.join(" ")).toContain("기록 직후");
+    // 기록은 남되 "전송 안 함"으로 구분된다.
+    expect(db.attempts).toHaveLength(1);
+    expect(db.attempts[0].result).toBe("aborted");
+    expect(db.attempts[0].error).toContain("전송 직전 중단");
+  });
+
+  it("같은 시도 번호 기록이 이미 있으면 보내지 않고 확인 필요로 남긴다", async () => {
+    await seedOne();
+    const mail = db.sends.find((x) => x.stage === "notice" && x.channel === "email")!;
+    // 앞선 시도가 이미 성공해 기록이 있는 상황.
+    db.attempts.push({
+      id: "pre1", send_id: mail.id, attempt_no: 1, channel: "email", stage: "notice",
+      to_masked: "aa***@x.kr", subject: "이전 제목", body: "이전 본문", purpose: "service",
+      result: "sent", provider: "gmail", provider_id: "prev-1", error: "",
+    });
+    await S.dispatchDue(50, new Date(kstIso("2026-10-05", 9, 1)));
+
+    expect(db.mailSent).toHaveLength(0);                      // 중복 전송 안 함
+    const after = db.sends.find((x) => x.id === mail.id)!;
+    expect(after.status).toBe("needs_review");
+    // 기존 기록은 내용도 결과도 그대로다.
+    const kept = db.attempts.find((x) => x.id === "pre1")!;
+    expect(kept).toMatchObject({
+      subject: "이전 제목", body: "이전 본문", result: "sent", provider_id: "prev-1",
+    });
+    expect(db.attempts.filter((x) => x.send_id === mail.id)).toHaveLength(1);
+  });
+
+  it("제공자 접수 뒤 결과를 기록 못 하면 확인 필요로 남기고 자동 재전송하지 않는다", async () => {
+    await seedOne();
+    db.attemptFinishFails = true;
+    const r = await S.dispatchDue(50, new Date(kstIso("2026-10-05", 9, 1)));
+    expect(db.mailSent.length + db.smsSent.length).toBeGreaterThan(0);   // 제공자는 받아 갔다
+    expect(r.sent).toBe(0);                                              // 성공으로 세지 않는다
+    expect(r.review).toBeGreaterThan(0);
+    const notice = db.sends.filter((x) => x.stage === "notice");
+    expect(notice.every((x) => x.status === "needs_review")).toBe(true);
+    // queued 로 돌려놓지 않는다 = 다음 크론이 다시 보내지 않는다.
+    expect(notice.some((x) => x.status === "queued")).toBe(false);
   });
 
   it("1차 안내가 예정 시각에 나가고 provider 와 메시지 id 가 남는다", async () => {

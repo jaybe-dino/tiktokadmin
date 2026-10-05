@@ -44,9 +44,11 @@ const str = (r: React.RefObject<HTMLInputElement | HTMLTextAreaElement | HTMLSel
 };
 const kst = (iso: string | null) => (iso ? new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false }) : "—");
 
+// "접수"는 제공자(메일·문자 서비스)가 요청을 받아들였다는 뜻이다.
+//   수신자에게 실제로 도착했는지는 이 화면이 알지 못한다 — 제공자 로그로 확인해야 한다.
 const STATUS_KO: Record<string, string> = {
-  queued: "발송 예정", sending: "발송 중", sent: "발송 완료", failed: "실패",
-  skipped: "제외", canceled: "취소",
+  queued: "발송 예정", sending: "발송 중", sent: "제공자 접수", failed: "실패",
+  skipped: "제외", canceled: "취소", needs_review: "확인 필요",
 };
 const TSTATUS_KO: Record<string, string> = {
   eligible: "대상", duplicate: "중복", excluded: "제외", deferred: "다음 회차 이월",
@@ -128,7 +130,7 @@ function StatusCard({ ov, onDone }: { ov: SeminarOverview; onDone: () => void })
           )}
           {ov.canWrite && (
             <button className="btn sm" disabled={a.busy}
-              onClick={() => { if (confirm("예정 시각이 지난 예약을 지금 처리합니다. 진행할까요?")) void a.run(async () => { const r = await seminarDispatchAction(); return { ...r, note: `대상 ${r.due} · 발송 ${r.sent} · 실패 ${r.failed} · 제외 ${r.skipped} · 재시도 ${r.retry}${r.blocked?.length ? ` · ${r.blocked.join(" · ")}` : ""}` }; }, onDone); }}>
+              onClick={() => { if (confirm("예정 시각이 지난 예약을 지금 처리합니다. 진행할까요?")) void a.run(async () => { const r = await seminarDispatchAction(); return { ...r, note: `대상 ${r.due} · 접수 ${r.sent} · 실패 ${r.failed} · 제외 ${r.skipped} · 재시도 ${r.retry}${r.review ? ` · 확인필요 ${r.review}` : ""}${r.blocked?.length ? ` · ${r.blocked.join(" · ")}` : ""}` }; }, onDone); }}>
               지금 처리
             </button>
           )}
@@ -583,7 +585,9 @@ function SessionsCard({ ov }: { ov: SeminarOverview }) {
 
   return (
     <div className="card" data-testid="seminar-sessions">
-      <div className="hd"><b>📆 회차 · 발송 내역</b><span style={{ color: "var(--ink3)", fontSize: 11 }}>발송예정 · 완료 · 실패 · 제외 사유 · 메시지 id</span></div>
+      <div className="hd"><b>📆 회차 · 발송 내역</b><span style={{ color: "var(--ink3)", fontSize: 11 }}>
+        발송예정 · 제공자 접수 · 실패 · 제외 사유 · 메시지 id — <b>접수</b>는 메일·문자 제공자가 요청을 받아들였다는 뜻이고 수신 완료가 아닙니다
+      </span></div>
       <div className="bd" style={{ display: "grid", gap: 8 }}>
         {ov.sessions.length === 0 && <div className="note">아직 만든 회차가 없습니다 — 위에서 “대상 확정”을 누르면 생깁니다.</div>}
         {ov.sessions.map((s) => (
@@ -680,6 +684,12 @@ function Msg({ m }: { m: { ok: boolean; text: string } }) {
   return <div style={{ marginTop: 6, fontSize: 12, whiteSpace: "pre-wrap", color: m.ok ? "#0b7a52" : "#c92a2a" }}>{m.text}</div>;
 }
 
+/** 시도 결과 표기. sent 는 "제공자가 받아들였다"는 뜻이지 수신 완료가 아니다. */
+const ATTEMPT_KO: Record<string, string> = {
+  attempted: "시도(결과 미확인)", sent: "제공자 접수", failed: "제공자 거절",
+  aborted: "전송 안 함", unknown: "결과 불명(수동 대조)",
+};
+
 // ── 보낸 내용(시도별 불변 기록) ─────────────────────────────
 //   기록이 없는 건은 "기록 없음"으로 둔다 — 지난 발송을 소급 생성하지 않는다.
 function SendContent({ sendId, logCount }: { sendId: string; logCount: number }) {
@@ -714,7 +724,7 @@ function SendContent({ sendId, logCount }: { sendId: string; logCount: number })
             <div key={at.id} style={{ border: "1px solid var(--line)", borderRadius: 7, padding: 7, marginTop: 5 }}>
               <div style={{ fontSize: 10.5, color: "var(--ink3)" }}>
                 {at.attempt_no}번째 시도 · {at.channel === "email" ? "메일" : "문자"} · {at.to_masked || "—"}
-                {" · "}{at.result === "sent" ? "발송" : at.result === "failed" ? "실패" : "시도"}
+                {" · "}{ATTEMPT_KO[at.result] ?? at.result}
                 {at.provider_id ? ` · ${at.provider}:${at.provider_id}` : ""}
               </div>
               <div style={{ fontSize: 10.5, color: "var(--ink3)" }}>

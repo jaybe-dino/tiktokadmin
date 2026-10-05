@@ -132,11 +132,53 @@ describe("배선 감사", () => {
     expect(lib).toMatch(/transmit\(r\.channel, to, msg\)/);
   });
   it("기록 → 전송 순서이고, 기록 실패면 보내지 않는다", () => {
-    const i = lib.indexOf("const logId = await beginAttempt(");
+    const i = lib.indexOf("const began = await beginAttempt(");
     const j = lib.indexOf("const outcome = await transmit(");
     expect(i).toBeGreaterThan(0);
     expect(j).toBeGreaterThan(i);                       // 기록이 먼저
-    expect(lib).toMatch(/if \(!logId\) \{ await noSend\(/);
+    expect(lib).toMatch(/if \(!began\.ok\)/);
+    expect(lib).toMatch(/noSend\("발송 기록을 남기지 못해 보내지 않았습니다"\)/);
+  });
+  it("기록 직후에도 한 번 더 확인하고 전송한다(그 사이 OFF 대비)", () => {
+    const begin = lib.indexOf("const began = await beginAttempt(");
+    const go = lib.indexOf("const go = await liveSendState(");
+    const send = lib.indexOf("const outcome = await transmit(");
+    expect(begin).toBeGreaterThan(0);
+    expect(go).toBeGreaterThan(begin);                  // 기록 뒤
+    expect(send).toBeGreaterThan(go);                   // 전송 앞
+    expect(lib).toMatch(/markAttempt\(logId, "aborted"/);
+  });
+  it("기존 시도 기록을 전송 근거로 재사용하지 않는다", () => {
+    const att = code("../lib/seminar-attempts.ts");
+    // ON CONFLICT 로 못 넣었으면 기존 행 id 를 돌려주지 않는다.
+    expect(att).toMatch(/return \{ ok: false, reason: "duplicate" \}/);
+    expect(att).not.toMatch(/SELECT id::text AS id FROM seminar_send_attempts WHERE send_id/);
+    expect(lib).toMatch(/began\.reason === "duplicate"/);
+  });
+  it("제목을 잘라서 기록하지 않는다", () => {
+    const att = code("../lib/seminar-attempts.ts");
+    expect(att).not.toMatch(/subject\.slice\(/);
+    expect(att).not.toMatch(/i\.body\.slice\(/);
+  });
+  it("결과 기록 실패를 조용히 넘기지 않는다", () => {
+    const att = code("../lib/seminar-attempts.ts");
+    const fin = att.slice(att.indexOf("export async function finishAttempt"));
+    expect(fin).toMatch(/return r\.length > 0/);        // 성공 여부를 돌려준다
+    expect(fin.slice(0, 700)).not.toMatch(/\.catch\(\(\) => \{\}\)/);
+    expect(lib).toMatch(/if \(!logged\)/);
+    expect(lib).toMatch(/markAttempt\(logId, "unknown"/);
+  });
+  it("전송·완료 갱신 모두 선점 소유권을 확인한다", () => {
+    expect(lib).toMatch(/liveSendState\(r\.id, run\)/);
+    const sets = [...lib.matchAll(/UPDATE seminar_sends SET status='(sent|failed|queued|needs_review)'[\s\S]{0,260}?WHERE id=\$1([\s\S]{0,60}?)(?:RETURNING|`)/g)];
+    expect(sets.length).toBeGreaterThanOrEqual(4);
+    for (const m of sets) expect(m[2], m[1]).toMatch(/claimed_by=\$\d/);
+  });
+  it("UI 는 제공자 접수와 수신 완료를 구분해 적는다", () => {
+    const panel = read("../components/SeminarPanel.tsx");
+    expect(panel).toContain("제공자 접수");
+    expect(panel).not.toMatch(/sent: "발송 완료"/);
+    expect(panel).toContain("수신 완료가 아닙니다");
   });
   it("본문·제목을 콘솔로 내보내지 않는다", () => {
     for (const f of ["../lib/seminar.ts", "../lib/seminar-message.ts", "../lib/seminar-attempts.ts"]) {

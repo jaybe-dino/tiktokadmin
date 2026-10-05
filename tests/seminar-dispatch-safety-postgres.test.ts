@@ -309,11 +309,110 @@ describe.skipIf(!process.env.SEMINAR_TEST_DB_URL)("세미나 발송 안전장치
     expect(n.rows[0].n).toBe(1);                         // 소급 생성 없음
   });
 
+  it("긴 제목도 자르지 않고 그대로 기록한다(500자 초과)", async () => {
+    const long = "가".repeat(400) + "-" + "A".repeat(400);     // 800자 이상
+    await ctx.pool.query(
+      "UPDATE seminar_templates SET email_subject=$1 WHERE stage='notice'", [`[GloveK] ${long} {{세미나명}}`]);
+    try {
+      await seedTarget(1);
+      await S.dispatchDue(100, NOW, "test");
+      expect(ctx.sent).toHaveLength(1);
+      expect(ctx.sent[0].subject.length).toBeGreaterThan(500);
+      const a = await ctx.pool.query("SELECT subject, length(subject)::int AS n FROM seminar_send_attempts");
+      expect(a.rows[0].subject).toBe(ctx.sent[0].subject);     // 글자까지 같다
+      expect(a.rows[0].n).toBe(ctx.sent[0].subject.length);
+    } finally {
+      await ctx.pool.query(
+        "UPDATE seminar_templates SET email_subject='[GloveK] {{세미나명}} 참가 안내 ({{일시}})' WHERE stage='notice'");
+    }
+  });
+
+  it("기록 직후 전송 전에 OFF 되면 보내지 않고 그 기록을 전송 안 함으로 남긴다", async () => {
+    const t = await seedTarget(1);
+    // beginAttempt 가 행을 넣는 순간(= 트리거)에 스위치를 끈다.
+    await ctx.pool.query(`
+      CREATE OR REPLACE FUNCTION tmp_off() RETURNS trigger AS $fn$
+      BEGIN UPDATE seminar_config SET enabled=false WHERE id=1; RETURN NEW; END;
+      $fn$ LANGUAGE plpgsql;
+      CREATE TRIGGER tmp_off_trg AFTER INSERT ON seminar_send_attempts
+        FOR EACH ROW EXECUTE FUNCTION tmp_off();
+    `);
+    try {
+      const r = await S.dispatchDue(100, NOW, "test");
+      expect(ctx.sent).toHaveLength(0);                        // 전송 자체가 없다
+      expect(r.sent).toBe(0);
+      expect(r.blocked?.join(" ")).toContain("기록 직후");
+      const a = await ctx.pool.query("SELECT result, error FROM seminar_send_attempts WHERE send_id=$1::uuid", [t.sendId]);
+      expect(a.rows[0].result).toBe("aborted");
+      expect(String(a.rows[0].error)).toContain("전송 직전 중단");
+    } finally {
+      await ctx.pool.query("DROP TRIGGER IF EXISTS tmp_off_trg ON seminar_send_attempts; DROP FUNCTION IF EXISTS tmp_off();");
+    }
+  });
+
+  it("회수된 옛 실행은 남이 가져간 행을 전송하지 않는다", async () => {
+    await seedTarget(1);
+    await seedTarget(2);
+    const foreignRun = "22222222-2222-2222-2222-222222222222";
+    // 첫 건을 보내는 사이, 아직 처리하지 않은 행의 소유권을 다른 실행이 가져간다.
+    ctx.onFirstSend = async () => {
+      await ctx.pool.query(
+        `UPDATE seminar_sends SET claimed_by=$1::uuid
+          WHERE status='sending'
+            AND NOT EXISTS (SELECT 1 FROM seminar_send_attempts a WHERE a.send_id = seminar_sends.id)`,
+        [foreignRun]);
+    };
+    const r = await S.dispatchDue(100, NOW, "test");
+    expect(ctx.sent).toHaveLength(1);                          // 남의 행은 보내지 않았다
+    expect(r.skipped).toBeGreaterThanOrEqual(1);
+    const stolen = await ctx.pool.query(
+      "SELECT status, claimed_by::text AS claimed_by FROM seminar_sends WHERE claimed_by=$1::uuid", [foreignRun]);
+    expect(stolen.rows).toHaveLength(1);
+    expect(stolen.rows[0].status).toBe("sending");             // 상태도 바꾸지 않았다
+    const att = await ctx.pool.query("SELECT count(*)::int AS n FROM seminar_send_attempts");
+    expect(att.rows[0].n).toBe(1);                             // 남의 행에는 기록도 만들지 않았다
+  });
+
+  it("전송 뒤 완료 기록 시점에 선점이 사라지면 성공으로 적지 않고 중단한다", async () => {
+    const t = await seedTarget(1);
+    const foreignRun = "33333333-3333-3333-3333-333333333333";
+    ctx.onFirstSend = async () => {
+      // 전송이 나간 직후(완료 갱신 전) 소유권이 넘어간 상황.
+      await ctx.pool.query("UPDATE seminar_sends SET claimed_by=$2::uuid WHERE id=$1::uuid", [t.sendId, foreignRun]);
+    };
+    const r = await S.dispatchDue(100, NOW, "test");
+    expect(ctx.sent).toHaveLength(1);
+    expect(r.sent).toBe(0);                                    // 성공으로 세지 않는다
+    expect(r.blocked?.join(" ")).toContain("완료 기록 시점에 선점이 사라졌습니다");
+    const row = await ctx.pool.query("SELECT status FROM seminar_sends WHERE id=$1::uuid", [t.sendId]);
+    expect(row.rows[0].status).toBe("sending");                // 남의 행을 sent 로 덮지 않았다
+    // 보낸 내용 기록은 남아 있어 수동 대조가 가능하다.
+    const a = await ctx.pool.query("SELECT result, provider_id FROM seminar_send_attempts WHERE send_id=$1::uuid", [t.sendId]);
+    expect(a.rows[0].result).toBe("sent");
+  });
+
+  it("같은 시도 번호 기록이 있으면 보내지 않고 기존 기록을 그대로 둔다", async () => {
+    const t = await seedTarget(1);
+    await ctx.pool.query(
+      `INSERT INTO seminar_send_attempts
+         (send_id, session_id, target_id, stage, channel, attempt_no, to_masked, subject, body, purpose, result, provider, provider_id)
+       VALUES ($1::uuid,$2::uuid,$3::uuid,'notice','email',1,'aa***@x.kr','이전 제목','이전 본문','service','sent','resend','prev-1')`,
+      [t.sendId, sessionId, t.targetId]);
+    const r = await S.dispatchDue(100, NOW, "test");
+    expect(ctx.sent).toHaveLength(0);                          // 중복 전송 없음
+    expect(r.review).toBeGreaterThan(0);
+    const row = await ctx.pool.query("SELECT status, error FROM seminar_sends WHERE id=$1::uuid", [t.sendId]);
+    expect(row.rows[0].status).toBe("needs_review");
+    const a = await ctx.pool.query("SELECT subject, body, result, provider_id FROM seminar_send_attempts WHERE send_id=$1::uuid", [t.sendId]);
+    expect(a.rows).toHaveLength(1);
+    expect(a.rows[0]).toMatchObject({ subject: "이전 제목", body: "이전 본문", result: "sent", provider_id: "prev-1" });
+  });
+
   it("정상 실행은 실행 이력을 done 으로 닫는다", async () => {
     await seedTarget(1);
     await S.dispatchDue(100, NOW, "test");
     const runs = await ctx.pool.query("SELECT status, summary FROM seminar_runs ORDER BY started_at DESC");
     expect(runs.rows[0].status).toBe("done");
-    expect(String(runs.rows[0].summary)).toContain("발송 1");
+    expect(String(runs.rows[0].summary)).toContain("접수 1");
   });
 });

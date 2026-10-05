@@ -19,7 +19,7 @@ import {
   type ComposedMessage,
 } from "./seminar-message";
 import {
-  attemptsSchemaState, beginAttempt, finishAttempt,
+  attemptsSchemaState, beginAttempt, finishAttempt, markAttempt,
   SEMINAR_ATTEMPTS_MIGRATION,
 } from "./seminar-attempts";
 
@@ -509,6 +509,8 @@ export async function sessionBlockers(row: SessionRow): Promise<string[]> {
 export interface DispatchResult {
   ok: boolean; error?: string;
   due: number; sent: number; failed: number; skipped: number; retry: number;
+  /** 제공자 접수 후 결과를 남기지 못한 건 — 사람이 제공자 로그와 대조해야 한다. */
+  review?: number;
   blocked?: string[];
 }
 
@@ -597,6 +599,27 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
         handled.add(r.id);
         res.skipped += 1;
       };
+      /** 소유권까지 확인하는 갱신. 내 선점이 아니면 아무것도 바꾸지 않고 false 를 돌려준다. */
+      const own = async (sql: string, args: unknown[]) => {
+        const rows = await query<{ id: string }>(sql, args).catch(() => []);
+        return rows.length > 0;
+      };
+      /** 전송하지 않고 넘어간 사유만 남긴다(상태는 건드리지 않는다 — 남의 행일 수 있다). */
+      const skipNote = async (reason: string) => {
+        await query(
+          "UPDATE seminar_sends SET skip_reason=$2, updated_at=now() WHERE id=$1 AND claimed_by=$3::uuid",
+          [r.id, reason.slice(0, 300), run]).catch(() => {});
+        res.skipped += 1;
+      };
+      /** 사람이 제공자 로그와 대조해야 하는 상태. 자동 재시도 대상에서 뺀다. */
+      const review = async (reason: string) => {
+        await query(
+          `UPDATE seminar_sends SET status='needs_review', error=$2, updated_at=now()
+            WHERE id=$1 AND claimed_by=$3::uuid`,
+          [r.id, reason.slice(0, 300), run]).catch(() => {});
+        handled.add(r.id);
+        res.review = (res.review ?? 0) + 1;
+      };
       /** 보내지 않고 결과만 남긴다(전송 시도 없음). 재시도 여지가 있으면 예약으로 되돌린다. */
       const noSend = async (reason: string) => {
         if (r.attempts >= cfg.maxAttempts) {
@@ -666,42 +689,81 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
       // 예약을 만든 뒤에 연락처가 지워졌을 수 있다 — 빈 주소로는 보내지 않는다.
       if (!to) { await skip("수신 연락처가 없습니다"); continue; }
 
-      // ── 전송 직전 마스터 스위치 재확인 ──
+      // ── 1차 확인: 보낼 수 있는 상태인가 ──
       //   실행 시작 때 읽어 둔 값이 아니라 DB 를 다시 본다. 조회가 안 되면 보내지 않는다(fail closed).
-      //   이미 외부 provider 로 넘어간 요청은 여기서 취소할 수 없다 — 다음 건부터 멈춘다.
-      const live = await liveSendEnabled();
-      if (!live.ok) { abort = `마스터 스위치 확인 실패 — 보내지 않고 중단했습니다(${(live.error ?? "").slice(0, 80)})`; break; }
-      if (!live.enabled) { abort = "실행 중 자동발송 마스터 스위치가 꺼져 중단했습니다"; break; }
+      //   선점 소유권도 함께 본다 — 멈춰 있던 옛 실행이 남의 행을 보내지 않게 한다.
+      const pre = await liveSendState(r.id, run);
+      if (!pre.ok) { abort = `발송 가능 여부 확인 실패 — 보내지 않고 중단했습니다(${(pre.error ?? "").slice(0, 80)})`; break; }
+      if (!pre.enabled) { abort = "실행 중 자동발송 마스터 스위치가 꺼져 중단했습니다"; break; }
+      if (!pre.owned) {
+        // 이 행은 더 이상 내 것이 아니다(회수 후 다른 실행이 가져감). 손대지 않고 넘어간다.
+        handled.add(r.id);
+        await skipNote(`선점이 회수되어 이 실행에서는 보내지 않았습니다(${pre.reason})`);
+        continue;
+      }
 
       // ── 보낼 내용을 먼저 남긴다 ──
       //   기록을 남기지 못하면 전송하지 않는다(기록 없는 발송을 만들지 않는다).
-      const logId = await beginAttempt({
+      //   같은 시도 번호 기록이 이미 있으면 그 기록을 전송 근거로 쓰지 않는다(중복 전송 방지).
+      const began = await beginAttempt({
         sendId: r.id, sessionId: r.session_id, targetId: r.target_id, runId: run,
         stage: r.stage, channel: r.channel, attemptNo: r.attempts,
         toMasked: maskTo(r.channel, to), subject: msg.subject, body: msg.body, purpose: tpl.purpose,
       });
-      if (!logId) { await noSend("발송 기록을 남기지 못해 보내지 않았습니다"); continue; }
+      if (!began.ok) {
+        if (began.reason === "duplicate") {
+          // 이미 같은 시도 기록이 있다 = 앞선 시도가 있었다는 뜻. 자동으로 또 보내지 않는다.
+          await review("같은 시도 번호의 기록이 이미 있어 보내지 않았습니다 — 제공자 로그와 대조가 필요합니다");
+        } else {
+          await noSend("발송 기록을 남기지 못해 보내지 않았습니다");
+        }
+        continue;
+      }
+      const logId = began.id;
+
+      // ── 2차 확인: 기록을 남기는 사이에 꺼졌을 수 있다 ──
+      //   여기를 지나면 외부 provider 로 요청이 나가고, 그 뒤로는 취소를 보장할 수 없다.
+      const go = await liveSendState(r.id, run);
+      if (!go.ok || !go.enabled || !go.owned) {
+        const why = !go.ok ? `확인 실패(${(go.error ?? "").slice(0, 60)})`
+          : !go.enabled ? "마스터 스위치 꺼짐" : `선점 회수(${go.reason})`;
+        await markAttempt(logId, "aborted", `전송 직전 중단 — ${why}`);
+        if (!go.ok || !go.enabled) { abort = `기록 직후 ${why} — 보내지 않고 중단했습니다`; break; }
+        handled.add(r.id);
+        await skipNote(`선점이 회수되어 이 실행에서는 보내지 않았습니다(${go.reason})`);
+        continue;
+      }
 
       const outcome = await transmit(r.channel, to, msg);
-      await finishAttempt(logId, outcome);
       handled.add(r.id);
+      const logged = await finishAttempt(logId, outcome);
+      if (!logged) {
+        // provider 는 이미 받아 갔는데 결과를 남기지 못했다.
+        //   성공으로도 실패로도 적지 않고, 자동 재전송도 하지 않는다 — 사람이 대조해야 한다.
+        await markAttempt(logId, "unknown", "제공자 응답 후 결과 기록 실패 — 수동 대조 필요");
+        await review("제공자 접수 후 결과를 기록하지 못했습니다 — 중복 발송 위험이 있어 자동 재전송하지 않습니다");
+        continue;
+      }
+
       if (outcome.ok) {
-        await query(
+        const done = await own(
           `UPDATE seminar_sends SET status='sent', sent_at=now(), provider=$2, provider_id=$3,
-                  error='', updated_at=now() WHERE id=$1`,
-          [r.id, outcome.provider.slice(0, 40), (outcome.providerId ?? "").slice(0, 200)]);
+                  error='', updated_at=now() WHERE id=$1 AND claimed_by=$4::uuid RETURNING id`,
+          [r.id, outcome.provider.slice(0, 40), (outcome.providerId ?? "").slice(0, 200), run]);
+        if (!done) { abort = "전송 후 완료 기록 시점에 선점이 사라졌습니다 — 중복 발송 여부를 수동 확인하세요"; break; }
         res.sent += 1;
       } else if (r.attempts >= cfg.maxAttempts) {
-        await query(
-          "UPDATE seminar_sends SET status='failed', error=$2, updated_at=now() WHERE id=$1",
-          [r.id, (outcome.error ?? "발송 실패").slice(0, 300)]);
+        await own(
+          "UPDATE seminar_sends SET status='failed', error=$2, updated_at=now() WHERE id=$1 AND claimed_by=$3::uuid RETURNING id",
+          [r.id, (outcome.error ?? "발송 실패").slice(0, 300), run]);
         res.failed += 1;
       } else {
         // 재시도 — 다음 시도까지 시도 횟수만큼 뒤로 민다(5·10·15분).
         const backoff = Math.min(r.attempts, 6) * 5 * 60_000;
-        await query(
-          `UPDATE seminar_sends SET status='queued', error=$2, due_at=$3, updated_at=now() WHERE id=$1`,
-          [r.id, (outcome.error ?? "발송 실패").slice(0, 300), new Date(now.getTime() + backoff).toISOString()]);
+        await own(
+          `UPDATE seminar_sends SET status='queued', error=$2, due_at=$3, updated_at=now()
+            WHERE id=$1 AND claimed_by=$4::uuid RETURNING id`,
+          [r.id, (outcome.error ?? "발송 실패").slice(0, 300), new Date(now.getTime() + backoff).toISOString(), run]);
         res.retry += 1;
       }
     }
@@ -718,13 +780,15 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
             RETURNING id`, [pending, run]).catch(() => []);
         released = back.length;
       }
-      const summary = `${abort} · 발송 ${res.sent} · 실패 ${res.failed} · 제외 ${res.skipped} · 재시도 ${res.retry} · 미처리 반환 ${released}`;
+      const summary = `${abort} · 접수 ${res.sent} · 실패 ${res.failed} · 제외 ${res.skipped} · 재시도 ${res.retry}`
+        + (res.review ? ` · 확인필요 ${res.review}` : "") + ` · 미처리 반환 ${released}`;
       await finishRun(run, "done", summary);
       return { ...res, blocked: [abort] };
     }
 
     await finishRun(run, "done",
-      `대상 ${res.due} · 발송 ${res.sent} · 실패 ${res.failed} · 제외 ${res.skipped} · 재시도 ${res.retry}`);
+      `대상 ${res.due} · 접수 ${res.sent} · 실패 ${res.failed} · 제외 ${res.skipped} · 재시도 ${res.retry}`
+      + (res.review ? ` · 확인필요 ${res.review}` : ""));
     return res;
   } catch (e) {
     await finishRun(run, "error", "", (e as Error).message.slice(0, 300));
@@ -735,17 +799,27 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
 interface Outcome { ok: boolean; provider: string; providerId?: string; error?: string }
 
 /**
- * 전송 직전에 보는 "지금의" 마스터 스위치.
- *   실행 시작 때 읽어 둔 설정이 아니라 DB 를 다시 읽는다.
- *   조회가 실패하면 켜져 있다고 보지 않는다(fail closed) — 호출부가 중단한다.
+ * 전송 직전에 보는 "지금의" 상태 — 마스터 스위치와 이 행의 선점 소유권.
+ *   · 실행 시작 때 읽어 둔 설정이 아니라 DB 를 다시 읽는다.
+ *   · 조회가 실패하면 보낼 수 있다고 보지 않는다(fail closed) — 호출부가 중단한다.
+ *   · 멈춰 있다가 깨어난 옛 실행이 남이 가져간 행을 보내지 않도록 claimed_by 와 status 를 함께 본다.
  */
-async function liveSendEnabled(): Promise<{ ok: boolean; enabled: boolean; error?: string }> {
+async function liveSendState(sendId: string, runId: string):
+  Promise<{ ok: boolean; enabled: boolean; owned: boolean; reason: string; error?: string }> {
   try {
-    const r = await queryOne<{ enabled: boolean }>("SELECT enabled FROM seminar_config WHERE id=1");
-    if (!r) return { ok: false, enabled: false, error: "설정 행이 없습니다" };
-    return { ok: true, enabled: Boolean(r.enabled) };
+    const r = await queryOne<{ enabled: boolean | null; status: string | null; claimed_by: string | null }>(
+      `SELECT (SELECT enabled FROM seminar_config WHERE id=1) AS enabled,
+              s.status, s.claimed_by::text AS claimed_by
+         FROM seminar_sends s WHERE s.id=$1`, [sendId]);
+    if (!r) return { ok: false, enabled: false, owned: false, reason: "예약을 찾지 못했습니다", error: "예약 행 없음" };
+    if (r.enabled === null || r.enabled === undefined) {
+      return { ok: false, enabled: false, owned: false, reason: "설정 없음", error: "설정 행이 없습니다" };
+    }
+    const owned = r.status === "sending" && r.claimed_by === runId;
+    const reason = owned ? "" : `상태 ${r.status ?? "?"}`;
+    return { ok: true, enabled: Boolean(r.enabled), owned, reason };
   } catch (e) {
-    return { ok: false, enabled: false, error: (e as Error).message.slice(0, 160) };
+    return { ok: false, enabled: false, owned: false, reason: "조회 실패", error: (e as Error).message.slice(0, 160) };
   }
 }
 

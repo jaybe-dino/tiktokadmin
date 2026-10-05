@@ -37,12 +37,20 @@ export interface BeginAttemptInput {
   toMasked: string; subject: string; body: string; purpose: string;
 }
 
+export type BeginAttemptResult =
+  | { ok: true; id: string }
+  /** duplicate = 같은 시도 번호 기록이 이미 있다(이전 시도가 이미 있었다는 뜻). */
+  | { ok: false; reason: "duplicate" | "error" };
+
 /**
- * 전송 "직전"에 보낼 내용을 남긴다. 성공하면 기록 id, 실패하면 null.
- *   null 이면 호출부는 전송하지 않아야 한다(기록 없는 발송을 만들지 않는다).
- *   같은 시도 번호가 이미 있으면 그 행을 그대로 쓴다(재실행에도 이력이 부풀지 않는다).
+ * 전송 "직전"에 보낼 내용을 남긴다. 성공해야만 전송한다.
+ *
+ *   · 제목·본문을 자르지 않는다 — 기록이 실제 전송 내용과 글자까지 같아야 하기 때문이다.
+ *   · 같은 시도 번호 기록이 이미 있으면 그 행을 재사용하지 않고 duplicate 로 돌려준다.
+ *     기존 기록을 전송 근거로 쓰면 이미 성공한 건을 또 보내거나 결과를 덮어쓸 수 있다(fail closed).
  */
-export async function beginAttempt(i: BeginAttemptInput): Promise<string | null> {
+export async function beginAttempt(i: BeginAttemptInput): Promise<BeginAttemptResult> {
+  const attemptNo = Math.max(1, Math.floor(i.attemptNo));
   try {
     const r = await queryOne<{ id: string }>(
       `INSERT INTO seminar_send_attempts
@@ -51,18 +59,14 @@ export async function beginAttempt(i: BeginAttemptInput): Promise<string | null>
        VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6,$7,$8,$9,$10,$11)
        ON CONFLICT (send_id, attempt_no) DO NOTHING
        RETURNING id::text AS id`,
-      [i.sendId, i.sessionId, i.targetId, i.runId ?? null, i.stage, i.channel,
-        Math.max(1, Math.floor(i.attemptNo)),
-        i.toMasked.slice(0, 200), i.subject.slice(0, 500), i.body, i.purpose.slice(0, 20)]);
-    if (r?.id) return r.id;
-    // 같은 시도 번호가 이미 있으면 그 행에 결과를 채운다.
-    const dup = await queryOne<{ id: string }>(
-      "SELECT id::text AS id FROM seminar_send_attempts WHERE send_id=$1::uuid AND attempt_no=$2",
-      [i.sendId, Math.max(1, Math.floor(i.attemptNo))]);
-    return dup?.id ?? null;
+      [i.sendId, i.sessionId, i.targetId, i.runId ?? null, i.stage, i.channel, attemptNo,
+        i.toMasked.slice(0, 200), i.subject, i.body, i.purpose.slice(0, 20)]);
+    if (r?.id) return { ok: true, id: r.id };
+    // 새로 넣지 못했다 = 같은 시도 번호가 이미 있다. 그 행은 건드리지 않는다.
+    return { ok: false, reason: "duplicate" };
   } catch {
-    // 실패 사유에 본문이 섞일 수 있어 그대로 올리지 않는다. 호출부는 null 만 보고 멈춘다.
-    return null;
+    // 실패 사유에 본문이 섞일 수 있어 그대로 올리지 않는다. 호출부는 이유만 보고 멈춘다.
+    return { ok: false, reason: "error" };
   }
 }
 
@@ -70,14 +74,41 @@ export interface AttemptOutcome {
   ok: boolean; provider?: string; providerId?: string; error?: string;
 }
 
-/** 전송이 끝난 뒤 결과 칸만 채운다. 내용 칸은 건드리지 않는다. */
-export async function finishAttempt(id: string, o: AttemptOutcome): Promise<void> {
-  await query(
-    `UPDATE seminar_send_attempts
-        SET result=$2, provider=$3, provider_id=$4, error=$5, finished_at=now()
-      WHERE id=$1::uuid`,
-    [id, o.ok ? "sent" : "failed", (o.provider ?? "").slice(0, 40),
-      (o.providerId ?? "").slice(0, 200), (o.error ?? "").slice(0, 300)]).catch(() => {});
+/**
+ * 전송이 끝난 뒤 결과 칸만 채운다. 내용 칸은 건드리지 않는다.
+ *   기록에 실패하면 false 를 돌려준다 — 호출부가 "결과 불명"으로 남기고 자동 재전송하지 않는다.
+ *   아직 결과가 비어 있는 행(attempted)만 채운다. 이미 결과가 있는 행은 덮어쓰지 않는다.
+ */
+export async function finishAttempt(id: string, o: AttemptOutcome): Promise<boolean> {
+  try {
+    const r = await query<{ id: string }>(
+      `UPDATE seminar_send_attempts
+          SET result=$2, provider=$3, provider_id=$4, error=$5, finished_at=now()
+        WHERE id=$1::uuid AND result = 'attempted'
+        RETURNING id::text AS id`,
+      [id, o.ok ? "sent" : "failed", (o.provider ?? "").slice(0, 40),
+        (o.providerId ?? "").slice(0, 200), (o.error ?? "").slice(0, 300)]);
+    return r.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 전송하지 않고 끝난 시도를 표시한다(중단·중복 등).
+ *   aborted = 보내지 않음 · unknown = 제공자는 접수했는데 결과를 기록하지 못함(수동 대조).
+ */
+export async function markAttempt(id: string, result: "aborted" | "unknown", reason: string): Promise<boolean> {
+  try {
+    const r = await query<{ id: string }>(
+      `UPDATE seminar_send_attempts
+          SET result=$2, error=$3, finished_at=now()
+        WHERE id=$1::uuid AND result = 'attempted'
+        RETURNING id::text AS id`, [id, result, reason.slice(0, 300)]);
+    return r.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 export interface AttemptRow {

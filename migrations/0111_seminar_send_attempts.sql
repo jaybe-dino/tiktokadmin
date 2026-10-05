@@ -39,8 +39,9 @@ CREATE TABLE IF NOT EXISTS seminar_send_attempts (
   started_at timestamptz NOT NULL DEFAULT now(),
 
   -- ── 여기부터 "결과" — 전송이 끝난 뒤 한 번 채운다 ──
-  result text NOT NULL DEFAULT 'attempted'
-    CHECK (result IN ('attempted','sent','failed')),
+  -- attempted = 기록만 남고 결과 미확정 · sent = 제공자 접수 · failed = 제공자 거절
+  -- aborted   = 전송하지 않음(중단·중복 등) · unknown = 제공자 접수했으나 결과 기록 실패(수동 대조)
+  result text NOT NULL DEFAULT 'attempted',
   provider text NOT NULL DEFAULT '',
   provider_id text NOT NULL DEFAULT '',
   error text NOT NULL DEFAULT '',
@@ -53,3 +54,32 @@ CREATE INDEX IF NOT EXISTS seminar_send_attempts_session_idx
   ON seminar_send_attempts (session_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS seminar_send_attempts_send_idx
   ON seminar_send_attempts (send_id, attempt_no DESC);
+
+-- 결과 값 집합은 아래 DO 블록이 관리한다.
+--   이 파일을 다시 적용하면 이미 만들어진 표에도 넓힌 값이 반영된다(재적용 안전).
+DO $$
+BEGIN
+  ALTER TABLE seminar_send_attempts DROP CONSTRAINT IF EXISTS seminar_send_attempts_result_check;
+  ALTER TABLE seminar_send_attempts ADD CONSTRAINT seminar_send_attempts_result_check
+    CHECK (result IN ('attempted','sent','failed','aborted','unknown'));
+END $$;
+
+-- 예약 상태에 needs_review 를 더한다.
+--   제공자가 접수했는데 결과를 남기지 못한 건을 여기에 둔다.
+--   자동 재시도 대상(queued)이 아니고 실패(failed)도 아니다 — 사람이 제공자 로그와 대조해야 한다.
+DO $$
+DECLARE
+  c record;
+BEGIN
+  -- 이름이 무엇이든 status 값 집합을 제한하는 CHECK 를 모두 걷어낸 뒤 하나로 다시 건다.
+  FOR c IN
+    SELECT conname FROM pg_constraint
+     WHERE conrelid = 'seminar_sends'::regclass
+       AND contype = 'c'
+       AND pg_get_constraintdef(oid) ILIKE '%status%queued%'
+  LOOP
+    EXECUTE format('ALTER TABLE seminar_sends DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+  ALTER TABLE seminar_sends ADD CONSTRAINT seminar_sends_status_check
+    CHECK (status IN ('queued','sending','sent','failed','skipped','canceled','needs_review'));
+END $$;
