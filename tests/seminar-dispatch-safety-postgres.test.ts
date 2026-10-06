@@ -83,7 +83,8 @@ describe.skipIf(!process.env.SEMINAR_TEST_DB_URL)("세미나 발송 안전장치
   beforeAll(async () => {
     await ctx.pool.query(`
       DROP TABLE IF EXISTS seminar_send_attempts, seminar_sends, seminar_targets, seminar_sessions,
-        seminar_runs, seminar_templates, seminar_config, seminar_test_sends, brands CASCADE;
+        seminar_runs, seminar_templates, seminar_config, seminar_test_sends,
+        ad_optout_events, ad_optouts, ad_recipients, brands CASCADE;
       CREATE TABLE brands (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         brand_name text NOT NULL DEFAULT '', contact_name text NOT NULL DEFAULT '',
@@ -93,6 +94,8 @@ describe.skipIf(!process.env.SEMINAR_TEST_DB_URL)("세미나 발송 안전장치
     `);
     await ctx.pool.query(mig("0103_seminar_notify.sql"));
     await ctx.pool.query(mig("0105_seminar_test_send.sql"));
+    // 발송제외(수신거부) 명단 — 1차 안내도 보내기 직전에 이 표를 본다(없으면 fail closed).
+    await ctx.pool.query(mig("0098_ad_optout.sql"));
     await ctx.pool.query(mig("0111_seminar_send_attempts.sql"));
   });
   afterAll(async () => { await ctx.pool.end(); });
@@ -553,6 +556,70 @@ describe.skipIf(!process.env.SEMINAR_TEST_DB_URL)("세미나 발송 안전장치
     const d = rows.rows.find((x) => x.id === dirty.sendId)!;
     expect(c).toMatchObject({ status: "queued", claimed_by: null });
     expect(d.status).toBe("needs_review");
+  });
+
+  // ── 발송제외(수신거부) 명단 ───────────────────────────────
+  it("명단에 있으면 1차 참가 안내도 보내지 않고 사유를 남긴다", async () => {
+    const t = await seedTarget(1, { email: "blocked@example.invalid" });
+    await ctx.pool.query(
+      `INSERT INTO ad_optouts (purpose, kind, addr, addr_masked, source)
+       VALUES ('marketing','email','blocked@example.invalid','bl**@example.invalid','link')`);
+
+    const r = await S.dispatchDue(100, NOW, "test");
+    expect(r.sent).toBe(0);
+    expect(ctx.sent).toHaveLength(0);            // provider 호출 0
+    const rows = await ctx.pool.query(
+      "SELECT status, skip_reason FROM seminar_sends WHERE id=$1::uuid", [t.sendId]);
+    expect(rows.rows[0].status).toBe("skipped");
+    expect(String(rows.rows[0].skip_reason)).toContain("발송제외");
+    // 시도 이력도 만들지 않는다(보내기 전에 걸렀으므로).
+    const at = await ctx.pool.query("SELECT count(*)::int AS n FROM seminar_send_attempts");
+    expect(at.rows[0].n).toBe(0);
+  });
+
+  it("전화번호만 명단에 있어도 같은 사람의 메일 안내를 막는다", async () => {
+    const t = await seedTarget(2, { email: "pairmail@example.invalid", phone: "01000002002" });
+    await ctx.pool.query(
+      `INSERT INTO ad_optouts (purpose, kind, addr, addr_masked, source)
+       VALUES ('marketing','phone','01000002002','010****02','admin')`);
+
+    await S.dispatchDue(100, NOW, "test");
+    expect(ctx.sent).toHaveLength(0);
+    const rows = await ctx.pool.query(
+      "SELECT status, skip_reason FROM seminar_sends WHERE id=$1::uuid", [t.sendId]);
+    expect(rows.rows[0].status).toBe("skipped");
+    expect(String(rows.rows[0].skip_reason)).toContain("발송제외");
+  });
+
+  it("명단에 없으면 1차 안내는 평소처럼 나간다", async () => {
+    const t = await seedTarget(3);
+    await ctx.pool.query(
+      `INSERT INTO ad_optouts (purpose, kind, addr, addr_masked, source)
+       VALUES ('marketing','email','someone.else@example.invalid','so**@example.invalid','link')`);
+
+    const r = await S.dispatchDue(100, NOW, "test");
+    expect(r.sent).toBe(1);
+    expect(ctx.sent).toHaveLength(1);
+    const rows = await ctx.pool.query(
+      "SELECT status FROM seminar_sends WHERE id=$1::uuid", [t.sendId]);
+    expect(rows.rows[0].status).toBe("sent");
+  });
+
+  it("명단 표를 읽을 수 없으면 보내지 않는다(빈 명단으로 보지 않는다)", async () => {
+    const t = await seedTarget(4);
+    // 조회 자체가 실패하는 상황을 실제 DB 로 만든다.
+    await ctx.pool.query("ALTER TABLE ad_optouts RENAME TO ad_optouts_hidden");
+    try {
+      const r = await S.dispatchDue(100, NOW, "test");
+      expect(r.sent).toBe(0);
+      expect(ctx.sent).toHaveLength(0);
+      const rows = await ctx.pool.query(
+        "SELECT status, skip_reason FROM seminar_sends WHERE id=$1::uuid", [t.sendId]);
+      expect(rows.rows[0].status).toBe("skipped");
+      expect(String(rows.rows[0].skip_reason)).toContain("확인 실패");
+    } finally {
+      await ctx.pool.query("ALTER TABLE ad_optouts_hidden RENAME TO ad_optouts");
+    }
   });
 
   it("정상 실행은 실행 이력을 done 으로 닫는다", async () => {

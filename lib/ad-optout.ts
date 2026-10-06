@@ -4,7 +4,7 @@
 //   · 링크 토큰은 DB 에 저장한 난수다(ad_recipients.token).
 //     로그인 세션 비밀키와 무관하므로 인증 키를 바꿔도 고객의 수신거부 의사가 사라지지 않는다.
 //   · 토큰 → 수신자(이메일·전화 쌍)를 정확히 찾는다. 전수 조회·첫 매치 추정을 하지 않는다.
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { query, queryOne, tx } from "./db";
 import { adScopeNotice, adSeqSmsLabel } from "./ad-optout-copy";
 
@@ -321,4 +321,222 @@ export async function adOptOutMap(pairs: { key: string; email?: string | null; p
     if (hit.length) out.set(p.key, hit.map((h) => ({ kind: h.kind, at: h.opted_out_at })));
   }
   return out;
+}
+
+// ── 명단 관리(관리자) ────────────────────────────────────────
+//   담당자가 전화·메일로 받은 거부 요청을 직접 넣고, 잘못 넣은 건을 되돌릴 수 있게 한다.
+//   고객이 링크로 누른 기록과 섞이지 않게 source 로 구분하고, 바꾼 사람·사유를 이력에 남긴다.
+export const OPTOUT_ADMIN_MIGRATION = "0112_ad_optout_admin.sql";
+
+/** 이력에 남길 대조용 지문. 원문 주소를 다시 적지 않으면서 같은 주소인지 볼 수 있게 한다. */
+export function addrFingerprint(kind: AddrKind, addr: string): string {
+  const norm = normalizeAddr(kind, addr);
+  if (!norm) return "";
+  return createHash("sha256").update(`${kind}:${norm}`).digest("hex").slice(0, 32);
+}
+
+async function logOptOutEvent(
+  action: "add" | "remove", kind: AddrKind, addr: string, reason: string, actor: string,
+): Promise<void> {
+  await query(
+    `INSERT INTO ad_optout_events (action, kind, addr_masked, addr_fingerprint, reason, actor)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [action, kind, maskAddr(kind, addr), addrFingerprint(kind, addr),
+      reason.slice(0, 300), actor.slice(0, 120)]).catch(() => {});
+}
+
+export interface OptOutListRow {
+  id: string; kind: string; addr_masked: string; source: string; note: string;
+  brand_id: string | null; brand_name: string | null;
+  opted_out_at: string; last_confirm_at: string; confirm_count: number;
+}
+export interface OptOutList { rows: OptOutListRow[]; total: number; page: number; pageSize: number; pages: number }
+
+/**
+ * 거부 명단 조회(관리자). 원문 주소는 돌려주지 않는다 — 화면에는 마스킹 값만 쓴다.
+ *   검색은 원문 주소를 정규화해 정확히 일치하는 건만 찾는다(부분 검색으로 명단을 훑을 수 없게).
+ */
+export async function listOptOuts(
+  opts: { q?: string; kind?: string; page?: number; pageSize?: number } = {},
+): Promise<OptOutList> {
+  const pageSize = Math.min(200, Math.max(10, opts.pageSize ?? 50));
+  const page = Math.max(1, Math.floor(opts.page ?? 1));
+  const where: string[] = ["o.purpose = $1"];
+  const vals: unknown[] = [AD_PURPOSE];
+
+  if (opts.kind === "email" || opts.kind === "phone") {
+    where.push(`o.kind = $${vals.length + 1}`); vals.push(opts.kind);
+  }
+  const q = (opts.q ?? "").trim();
+  if (q) {
+    // 입력을 이메일·전화 양쪽으로 정규화해 "정확히 같은 주소"만 찾는다.
+    //   정규화 결과가 빈 쪽은 조건에서 빼고, 양쪽이 다 비면 아무것도 찾지 않는다.
+    //   (빈 문자열·NUL 같은 대체값을 넣으면 Postgres 가 거부하거나 엉뚱한 행이 걸린다)
+    const parts: string[] = [];
+    for (const [kind, addr] of [
+      ["email", normalizeAddr("email", q)],
+      ["phone", normalizeAddr("phone", q)],
+    ] as const) {
+      if (!addr) continue;
+      vals.push(addr);
+      parts.push(`(o.kind='${kind}' AND o.addr = $${vals.length})`);
+    }
+    where.push(parts.length ? `(${parts.join(" OR ")})` : "FALSE");
+  }
+  const cond = `WHERE ${where.join(" AND ")}`;
+  const cnt = await queryOne<{ n: string }>(`SELECT count(*)::text AS n FROM ad_optouts o ${cond}`, vals);
+  const total = Number(cnt?.n ?? "0");
+  const rows = await query<OptOutListRow>(
+    `SELECT o.id::text AS id, o.kind, o.addr_masked, o.source, o.note,
+            o.brand_id::text AS brand_id, b.brand_name,
+            o.opted_out_at::text AS opted_out_at, o.last_confirm_at::text AS last_confirm_at,
+            o.confirm_count
+       FROM ad_optouts o
+       LEFT JOIN brands b ON b.id = o.brand_id
+       ${cond}
+      ORDER BY o.last_confirm_at DESC
+      LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, vals);
+  return { rows, total, page, pageSize, pages: Math.max(1, Math.ceil(total / pageSize)) };
+}
+
+export interface OptOutCounts { total: number; email: number; phone: number; bySource: Record<string, number> }
+export async function optOutCounts(): Promise<OptOutCounts> {
+  const rows = await query<{ kind: string; source: string; n: string }>(
+    `SELECT kind, source, count(*)::text AS n FROM ad_optouts
+      WHERE purpose=$1 GROUP BY kind, source`, [AD_PURPOSE]);
+  const out: OptOutCounts = { total: 0, email: 0, phone: 0, bySource: {} };
+  for (const r of rows) {
+    const n = Number(r.n);
+    out.total += n;
+    if (r.kind === "email") out.email += n; else out.phone += n;
+    out.bySource[r.source] = (out.bySource[r.source] ?? 0) + n;
+  }
+  return out;
+}
+
+export interface OptOutAdminResult { ok: boolean; error?: string; note?: string; added?: number }
+
+/**
+ * 수동 등록 — 담당자가 전화·메일로 받은 거부 요청을 명단에 넣는다.
+ *   이미 있으면 새로 만들지 않고 "이미 등록됨"으로 알린다(상태는 그대로).
+ */
+export async function addOptOutManual(
+  input: { value: string; reason?: string }, actor: string,
+): Promise<OptOutAdminResult> {
+  const raw = (input.value ?? "").trim();
+  if (!raw) return { ok: false, error: "이메일 또는 휴대폰 번호를 입력하세요." };
+
+  // 입력 하나를 이메일인지 전화인지 판별한다. 둘 다 아니면 거절.
+  const looksEmail = raw.includes("@");
+  const kind: AddrKind = looksEmail ? "email" : "phone";
+  const addr = normalizeAddr(kind, raw);
+  if (!addr) return { ok: false, error: "형식을 확인하세요(이메일 또는 숫자 9자리 이상 휴대폰)." };
+  if (kind === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(addr)) {
+    return { ok: false, error: "이메일 형식을 확인하세요." };
+  }
+  if (kind === "phone" && addr.length < 9) return { ok: false, error: "휴대폰 번호를 확인하세요." };
+
+  const reason = (input.reason ?? "").trim();
+  try {
+    const r = await queryOne<{ inserted: boolean }>(
+      `INSERT INTO ad_optouts (purpose, kind, addr, addr_masked, source, note)
+       VALUES ($1,$2,$3,$4,'admin',$5)
+       ON CONFLICT ON CONSTRAINT ad_optouts_addr_uniq DO UPDATE
+         SET last_confirm_at = now(),
+             confirm_count = ad_optouts.confirm_count + 1,
+             note = CASE WHEN EXCLUDED.note <> '' THEN EXCLUDED.note ELSE ad_optouts.note END
+       RETURNING (xmax = 0) AS inserted`,
+      [AD_PURPOSE, kind, addr, maskAddr(kind, addr), reason.slice(0, 300)]);
+    if (!r) return { ok: false, error: "등록하지 못했습니다." };
+    await logOptOutEvent("add", kind, addr, reason || "관리자 수동 등록", actor);
+    return r.inserted
+      ? { ok: true, added: 1, note: `${maskAddr(kind, addr)} 를 거부 명단에 넣었습니다.` }
+      : { ok: true, added: 0, note: `${maskAddr(kind, addr)} 는 이미 거부 명단에 있습니다.` };
+  } catch (e) {
+    return { ok: false, error: `등록 실패 — ${(e as Error).message.slice(0, 160)}` };
+  }
+}
+
+/**
+ * 해제 — 잘못 넣은 건을 되돌린다.
+ *   고객이 직접 누른 기록(source='link')은 해제하지 않는다. 사람의 의사표시를 관리자가 뒤집지 않는다.
+ *   지우기 전에 이력을 남긴다.
+ */
+export async function removeOptOut(id: string, reason: string, actor: string): Promise<OptOutAdminResult> {
+  if (!reason.trim()) return { ok: false, error: "해제 사유를 적어주세요." };
+  try {
+    const row = await queryOne<{ kind: string; addr: string; source: string }>(
+      "SELECT kind, addr, source FROM ad_optouts WHERE id=$1::uuid", [id]);
+    if (!row) return { ok: false, error: "명단에서 찾지 못했습니다." };
+    if (row.source === "link") {
+      return { ok: false, error: "고객이 직접 수신거부한 건은 해제할 수 없습니다." };
+    }
+    await logOptOutEvent("remove", row.kind as AddrKind, row.addr, reason, actor);
+    await query("DELETE FROM ad_optouts WHERE id=$1::uuid", [id]);
+    return { ok: true, note: `${maskAddr(row.kind as AddrKind, row.addr)} 를 거부 명단에서 뺐습니다.` };
+  } catch (e) {
+    return { ok: false, error: `해제 실패 — ${(e as Error).message.slice(0, 160)}` };
+  }
+}
+
+export interface OptOutEventRow {
+  id: string; action: string; kind: string; addr_masked: string;
+  reason: string; actor: string; at: string;
+}
+export async function listOptOutEvents(limit = 50): Promise<OptOutEventRow[]> {
+  return query<OptOutEventRow>(
+    `SELECT id::text AS id, action, kind, addr_masked, reason, actor, at::text AS at
+       FROM ad_optout_events ORDER BY at DESC LIMIT $1`, [Math.min(200, Math.max(1, limit))]);
+}
+
+// ── 표 존재 확인 ─────────────────────────────────────────────
+//   마이그레이션이 아직 안 들어갔으면 화면에 빈 명단을 보여주지 않고 그대로 알린다.
+//   (명단이 비었다고 오해하면 보내지 말아야 할 사람에게 보내게 된다)
+export interface OptOutSchemaState { ready: boolean; missing: string[]; error?: string }
+export async function optOutSchemaState(): Promise<OptOutSchemaState> {
+  const need = ["ad_optouts", "ad_recipients", "ad_optout_events"];
+  try {
+    const rows = await query<{ t: string; ok: boolean }>(
+      `SELECT t, to_regclass('public.' || t) IS NOT NULL AS ok
+         FROM unnest($1::text[]) AS t`, [need]);
+    const missing = need.filter((t) => !rows.find((r) => r.t === t && r.ok));
+    return { ready: missing.length === 0, missing };
+  } catch (e) {
+    return { ready: false, missing: need, error: (e as Error).message.slice(0, 160) };
+  }
+}
+
+// ── 수동 일괄 등록 ───────────────────────────────────────────
+/** 한 줄에 하나씩(또는 쉼표로) 적은 주소를 차례로 넣는다. 한 건이 실패해도 나머지는 계속한다. */
+export interface BulkOptOutResult {
+  ok: boolean;
+  added: number; already: number;
+  failed: { input: string; error: string }[];
+  note: string;
+}
+export async function addOptOutsBulk(
+  raw: string, reason: string, actor: string,
+): Promise<BulkOptOutResult> {
+  const items = [...new Set(
+    (raw ?? "").split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean),
+  )].slice(0, 200);
+  if (items.length === 0) {
+    return { ok: false, added: 0, already: 0, failed: [], note: "", };
+  }
+  let added = 0, already = 0;
+  const failed: { input: string; error: string }[] = [];
+  for (const it of items) {
+    const r = await addOptOutManual({ value: it, reason }, actor);
+    if (!r.ok) {
+      // 입력 원문을 그대로 되돌려주지 않는다 — 어디가 틀렸는지만 보이게 가린다.
+      const looksEmail = it.includes("@");
+      failed.push({ input: maskAddr(looksEmail ? "email" : "phone", it) || "(형식 불명)", error: r.error ?? "실패" });
+    } else if (r.added) added += 1;
+    else already += 1;
+  }
+  return {
+    ok: failed.length < items.length,
+    added, already, failed,
+    note: `새로 등록 ${added}건 · 이미 있음 ${already}건 · 실패 ${failed.length}건`,
+  };
 }

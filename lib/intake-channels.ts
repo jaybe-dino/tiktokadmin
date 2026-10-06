@@ -137,17 +137,22 @@ export interface WelcomeResult {
   testMode: boolean;
   disabled: boolean;         // 채널 자동발송 미허용
   alreadySent: boolean;      // 이미 1회 발송됨(멱등 스킵)
+  optedOut?: boolean;        // 전체 수신거부(브랜드) — 자동 발송 안 함
 }
 const emptyWelcome = (over: Partial<WelcomeResult> = {}): WelcomeResult => ({
   sent: [], smsAttempted: false, emailAttempted: false, smsErr: "", emailErr: "",
-  testMode: false, disabled: false, alreadySent: false, ...over,
+  testMode: false, disabled: false, alreadySent: false, optedOut: false, ...over,
 });
 
 export async function sendChannelWelcome(brandId: string, channel: IntakeChannel): Promise<WelcomeResult> {
   if (!channel.enabled) return emptyWelcome({ disabled: true });
-  const b = await queryOne<{ brand_name: string; contact_name: string | null; email: string | null; phone: string | null; welcome_sent_at: string | null }>(
-    "SELECT brand_name, contact_name, email, phone, welcome_sent_at FROM brands WHERE id=$1", [brandId]);
+  const b = await queryOne<{ brand_name: string; contact_name: string | null; email: string | null; phone: string | null; welcome_sent_at: string | null; msg_opt_out: boolean }>(
+    `SELECT brand_name, contact_name, email, phone, welcome_sent_at,
+            COALESCE(msg_opt_out,false) AS msg_opt_out
+       FROM brands WHERE id=$1`, [brandId]);
   if (!b || b.welcome_sent_at) return emptyWelcome({ alreadySent: !!b?.welcome_sent_at });  // 이미 안내 발송됨(1회)
+  // 전체 수신거부는 거래성·광고성을 가리지 않는다 — 자동 발송을 하지 않는다.
+  if (b.msg_opt_out) return emptyWelcome({ optedOut: true });
 
   // 전역 자동안내 문구(폴백) — 채널이 자체 문구를 안 가지면 이걸 사용.
   const { getWelcomeConfig } = await import("./welcome");

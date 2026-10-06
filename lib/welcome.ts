@@ -35,9 +35,13 @@ export interface WelcomeResult { ok: boolean; sent: string[]; skipped?: string; 
 
 /** 브랜드 1건에 안내 발송. force=false 면 이미 보냈으면 스킵. */
 export async function sendWelcome(brandId: string, force = false): Promise<WelcomeResult> {
-  const b = await queryOne<{ brand_name: string; contact_name: string | null; email: string | null; phone: string | null; welcome_sent_at: string | null }>(
-    "SELECT brand_name, contact_name, email, phone, welcome_sent_at FROM brands WHERE id=$1", [brandId]);
+  const b = await queryOne<{ brand_name: string; contact_name: string | null; email: string | null; phone: string | null; welcome_sent_at: string | null; msg_opt_out: boolean }>(
+    `SELECT brand_name, contact_name, email, phone, welcome_sent_at,
+            COALESCE(msg_opt_out,false) AS msg_opt_out
+       FROM brands WHERE id=$1`, [brandId]);
   if (!b) return { ok: false, sent: [], error: "브랜드 없음" };
+  // 전체 수신거부는 거래성·광고성을 가리지 않는다 — 자동 발송을 하지 않는다.
+  if (b.msg_opt_out) return { ok: true, sent: [], skipped: "전체 수신거부(msg_opt_out)" };
   if (b.welcome_sent_at && !force) return { ok: true, sent: [], skipped: "이미 발송됨" };
 
   const cfg = await getWelcomeConfig();

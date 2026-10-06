@@ -772,25 +772,34 @@ describe("발송", () => {
     expect(notice?.body ?? "").not.toContain("수신거부");
   });
 
-  it("광고 수신거부 대상이면 2차만 막히고 1차 서비스 안내는 영향받지 않는다", async () => {
+  it("발송제외(수신거부) 명단이면 1차 참가 안내까지 모두 제외된다", async () => {
     await seedOne();
     db.adBlocked = true;
     const r = await S.dispatchDue(50, new Date(kstIso("2026-10-05", 11, 11)));
     const notice = db.sends.filter((s) => s.stage === "notice");
     const fu = db.sends.filter((s) => s.stage === "followup");
-    expect(notice.every((s) => s.status === "sent")).toBe(true);
-    expect(fu.every((s) => s.status === "skipped")).toBe(true);
-    expect(fu[0].skip_reason).toContain("광고 수신거부");
-    expect(r.skipped).toBe(2);
+    expect(notice.length).toBeGreaterThan(0);
+    expect(fu.length).toBeGreaterThan(0);
+    // 1차(서비스 안내)도 같은 명단을 본다 — 모든 안내가 막힌다.
+    expect(db.sends.every((s) => s.status === "skipped")).toBe(true);
+    // 제외 사유가 남아 담당자가 개별 연락할 수 있다.
+    expect(db.sends.every((s) => (s.skip_reason ?? "").includes("발송제외"))).toBe(true);
+    expect(notice[0].skip_reason).toContain("수신거부");
+    expect(db.mailSent).toHaveLength(0);
+    expect(db.smsSent).toHaveLength(0);
+    expect(r.sent).toBe(0);
+    expect(r.skipped).toBe(db.sends.length);
   });
 
-  it("광고 수신거부 조회가 실패하면 광고를 보내지 않는다(fail closed)", async () => {
+  it("발송제외 명단 조회가 실패하면 1차·2차 모두 보내지 않는다(fail closed)", async () => {
     await seedOne();
     db.adError = "조회 실패(모의)";
-    await S.dispatchDue(50, new Date(kstIso("2026-10-05", 11, 11)));
-    const fu = db.sends.filter((s) => s.stage === "followup");
-    expect(fu.every((s) => s.status === "skipped")).toBe(true);
-    expect(fu[0].skip_reason).toContain("확인 실패");
+    const r = await S.dispatchDue(50, new Date(kstIso("2026-10-05", 11, 11)));
+    expect(db.sends.every((s) => s.status === "skipped")).toBe(true);
+    expect(db.sends.every((s) => (s.skip_reason ?? "").includes("확인 실패"))).toBe(true);
+    expect(db.mailSent).toHaveLength(0);
+    expect(db.smsSent).toHaveLength(0);
+    expect(r.sent).toBe(0);
   });
 
   it("실패하면 재시도하고 한도를 넘으면 실패로 확정한다", async () => {

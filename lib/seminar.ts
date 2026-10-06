@@ -661,18 +661,18 @@ export async function dispatchDue(limit = 200, now = new Date(), triggeredBy = "
       });
       if (blockers.length) { await skip(blockers.join(" · ")); continue; }
 
-      // 광고성 단계면 기존 광고 수신거부 규칙을 그대로 적용한다.
-      //   세미나 참가 안내(service)는 신청한 사람에게 보내는 거래·서비스 안내이므로
-      //   광고 수신거부를 적용하지 않는다 — 대신 전체 수신거부(msg_opt_out)는 위에서 이미 막았다.
+      // ── 수신거부 명단 확인 ──
+      //   1차(참가 안내)·2차(광고) 모두 같은 명단을 본다. 확인이 안 되면 보내지 않는다(fail closed).
+      //   제외된 건은 발송 내역에 사유가 남아 담당자가 개별 연락할 수 있다.
+      const { adGate, ensureRecipient, optoutUrlFor } = await import("./ad-optout");
+      const gate = await adGate({ phone: r.phone, email: r.email, brandOptOut: r.msg_opt_out });
+      if (gate.error) { await skip(`발송제외 명단 확인 실패 — 보내지 않았습니다(${gate.error.slice(0, 80)})`); continue; }
+      const allowed = r.channel === "sms" ? gate.smsAllowed : gate.emailAllowed;
+      if (!allowed) { await skip(`발송제외(수신거부) 명단 — ${gate.reason ?? "대상"}`); continue; }
+
+      // 수신거부 수단 없는 광고를 만들지 않는다(광고성 단계만 꼬리말을 붙인다).
       let optoutUrl = "";
       if (tpl.purpose === "ad") {
-        const { adGate, ensureRecipient, optoutUrlFor } = await import("./ad-optout");
-        const gate = await adGate({ phone: r.phone, email: r.email, brandOptOut: r.msg_opt_out });
-        // 확인 실패면 광고를 내보내지 않는다(fail closed).
-        if (gate.error) { await skip(`광고 수신거부 확인 실패 — 보내지 않았습니다(${gate.error.slice(0, 80)})`); continue; }
-        const allowed = r.channel === "sms" ? gate.smsAllowed : gate.emailAllowed;
-        if (!allowed) { await skip(gate.reason ?? "광고 수신거부 대상"); continue; }
-        // 수신거부 수단 없는 광고를 만들지 않는다.
         const rcpt = await ensureRecipient({ email: r.email, phone: r.phone, brandId: r.brand_id }).catch(() => null);
         if (!rcpt) { await skip("수신거부 링크 발급 실패 — 광고 보류"); continue; }
         optoutUrl = optoutUrlFor(rcpt.token);
