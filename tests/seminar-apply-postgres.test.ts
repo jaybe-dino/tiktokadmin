@@ -102,6 +102,54 @@ describe.skipIf(!process.env.SAP_TEST_DB_URL)("세미나 공개 신청 (PostgreS
     expect(cfg.retention_ads_months).toBe(12);
   });
 
+  // ── 남은 자리 표시 ──
+  it("남은 자리는 설정 인원에서 실제 선정 수를 뺀 값이다", async () => {
+    const before = await S.listPublicSessions();
+    // 아무도 선정되지 않았으면 남은 자리 = 설정 인원이다.
+    expect(before.map((x) => S.seatsLeft(x))).toEqual([30, 30, 30, 30]);
+
+    for (let i = 1; i <= 3; i++) await S.submitApplication({ ...who(i), sessionNo: 1 });
+    // 접수만으로는 자리가 줄지 않는다 — 접수는 좌석을 점유하지 않는다.
+    expect(S.seatsLeft((await S.listPublicSessions())[0])).toBe(30);
+
+    const ids = (await ctx.pool.query("SELECT id::text AS id FROM sap_registrations ORDER BY created_at"))
+      .rows.map((r) => String(r.id));
+    await S.setRegStatus(ids[0], "selected", "적합", "TEST");
+    await S.setRegStatus(ids[1], "selected", "적합", "TEST");
+    await S.setRegStatus(ids[2], "waitlisted", "대기", "TEST");
+
+    const after = await S.listPublicSessions();
+    expect(after[0].selected).toBe(2);
+    expect(S.seatsLeft(after[0])).toBe(28);     // 선정 2건만 반영
+    expect(S.seatsLeft(after[1])).toBe(30);     // 다른 회차는 그대로
+  });
+
+  it("설정 인원을 바꾸면 남은 자리도 그 값으로 따라간다", async () => {
+    await ctx.pool.query("UPDATE sap_sessions SET select_cap=27 WHERE session_no=1");
+    await ctx.pool.query("UPDATE sap_sessions SET select_cap=8 WHERE session_no=4");
+    const rows = await S.listPublicSessions();
+    expect(S.seatsLeft(rows[0])).toBe(27);
+    expect(S.seatsLeft(rows[3])).toBe(8);
+    // 표시한 값이 실제 상한이다 — 그 수를 넘겨 선정할 수 없다.
+    for (let i = 1; i <= 9; i++) await S.submitApplication({ ...who(i), sessionNo: 4 });
+    const ids = (await ctx.pool.query(
+      `SELECT r.id::text AS id FROM sap_registrations r JOIN sap_sessions s ON s.id=r.session_id
+        WHERE s.session_no=4 ORDER BY r.created_at`)).rows.map((r) => String(r.id));
+    for (let i = 0; i < 8; i++) expect((await S.setRegStatus(ids[i], "selected", "", "T")).ok).toBe(true);
+    expect((await S.setRegStatus(ids[8], "selected", "", "T")).ok).toBe(false);
+    expect(S.seatsLeft((await S.listPublicSessions())[3])).toBe(0);
+  });
+
+  it("남은 자리는 음수가 되지 않는다", async () => {
+    await ctx.pool.query("UPDATE sap_sessions SET select_cap=2 WHERE session_no=1");
+    for (let i = 1; i <= 3; i++) await S.submitApplication({ ...who(i), sessionNo: 1 });
+    const ids = (await ctx.pool.query("SELECT id::text AS id FROM sap_registrations ORDER BY created_at"))
+      .rows.map((r) => String(r.id));
+    for (let i = 0; i < 2; i++) await S.setRegStatus(ids[i], "selected", "", "T");
+    await ctx.pool.query("UPDATE sap_sessions SET select_cap=1 WHERE session_no=1");   // 상한을 낮춰도
+    expect(S.seatsLeft((await S.listPublicSessions())[0])).toBe(0);
+  });
+
   // ── ① 4회차 선택 ──
   it("네 회차 모두 신청이 저장되고 고른 회차에 붙는다", async () => {
     for (const no of [1, 2, 3, 4]) {

@@ -4,7 +4,7 @@
 //   · 자동 문자·메일 캠페인에 등록하지 않고, 접수 메일도 보내지 않는다(기본 OFF).
 //   · 접수 자체로 선정을 판정하지 않는다(상태는 submitted 로 저장된다).
 import { headers } from "next/headers";
-import { submitApplication, listPublicSessions, getSapConfig } from "@/lib/seminar-apply";
+import { submitApplication, listPublicSessions, getSapConfig, seatsLeft } from "@/lib/seminar-apply";
 import type { SapFormInput } from "@/lib/seminar-apply-model";
 
 /** 프록시 뒤의 실제 접속 IP. 속도 제한에만 쓰고 저장하지 않는다. */
@@ -16,6 +16,8 @@ async function clientIp(): Promise<string> {
 
 export interface PublicSessionView {
   sessionNo: number; startsAt: string; endsAt: string;
+  /** 선정 인원과 남은 자리. 설정값과 실제 선정 수에서 계산한 값만 내보낸다. */
+  cap: number; seatsLeft: number;
 }
 export interface PublicIntro {
   ok: boolean; error?: string;
@@ -30,7 +32,10 @@ export async function publicSessionsAction(): Promise<PublicIntro> {
     return {
       ok: true,
       applyOpen: cfg.apply_open,
-      sessions: sessions.map((s) => ({ sessionNo: s.session_no, startsAt: s.starts_at, endsAt: s.ends_at })),
+      sessions: sessions.map((s) => ({
+        sessionNo: s.session_no, startsAt: s.starts_at, endsAt: s.ends_at,
+        cap: s.select_cap, seatsLeft: seatsLeft(s),
+      })),
     };
   } catch (e) {
     // 조회 실패를 빈 목록으로 숨기지 않는다.

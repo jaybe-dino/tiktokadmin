@@ -102,14 +102,6 @@ export const SUPPORT_AREAS = [
   "가격·정산 구조", "물류·통관", "인증·규제", "브랜드 실행 로드맵",
 ] as const;
 
-// ── 커리큘럼(공개 화면) ──────────────────────────────────────
-export const CURRICULUM: { title: string; detail: string }[] = [
-  { title: "시장 선정", detail: "브랜드 상품군·가격대에 맞는 진출 국가와 우선순위를 가르는 기준" },
-  { title: "유통·콘텐츠·TikTok Shop 진입", detail: "채널별 진입 경로와 콘텐츠·크리에이터 운영 방식" },
-  { title: "가격·정산·물류 준비", detail: "현지 판매가 설계, 정산 구조, 배송·통관에서 미리 잡아야 할 것" },
-  { title: "브랜드 실행 로드맵", detail: "다음 분기에 무엇을 어떤 순서로 실행할지 정리" },
-];
-
 // ── 상태 ─────────────────────────────────────────────────────
 export const STATUSES = ["submitted", "selected", "waitlisted", "not_selected", "cancelled"] as const;
 export type SapStatus = (typeof STATUSES)[number];
@@ -293,8 +285,17 @@ export function maskPhone(raw: string): string {
 // ── 공개 문구 ────────────────────────────────────────────────
 export const APPLY_DONE_NOTICE =
   "신청이 접수되었습니다. 참석은 아직 확정되지 않았으며, 선정 결과와 Zoom 접속 링크는 별도로 안내드립니다.";
+/** 회차별 선정 인원이 서로 다를 수 있으므로 숫자를 문장에 박아 두지 않는다. */
 export const NOT_CONFIRMED_NOTICE =
-  "접수는 참석 확정이 아닙니다 — 회차별 30명을 선정한 뒤, 선정되신 분께만 Zoom 접속 링크를 안내합니다.";
+  "접수는 참석 확정이 아닙니다 — 회차별로 정해진 인원을 선정한 뒤, 선정되신 분께만 Zoom 접속 링크를 안내합니다.";
+/** 공개 화면 소개 문단. 틱톡샵 온보딩에서 시작해 운영·마케팅까지 다룬다. */
+export const INTRO_PARAGRAPH =
+  "틱톡샵 온보딩부터 상품 등록과 운영, 콘텐츠·크리에이터를 활용한 마케팅까지 — 브랜드가 실제로 주문을 받기까지 무엇을 어떤 순서로 해야 하는지 한 시간에 정리해 드립니다.";
+
+/** 한정 참석 표기 — 실제 선정 인원에 근거한 문장만 쓴다. */
+export const LIMITED_SEATS_NOTE =
+  "한정 참석 — 회차별로 정해진 인원만 선정합니다.";
+
 export const SELECTION_CRITERIA =
   "적어 주신 질문·해결과제가 세미나 주제와 얼마나 맞는지, 현재 해외진출 단계, 그리고 회차별 참여 구성을 함께 보고 선정합니다. 광고성 정보 수신 동의 여부는 선정에 쓰지 않습니다.";
 

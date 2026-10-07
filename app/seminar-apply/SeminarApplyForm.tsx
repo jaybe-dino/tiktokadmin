@@ -6,7 +6,8 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { publicSessionsAction, submitSeminarApplyAction, type PublicSessionView } from "./actions";
 import {
   PROGRAM_TITLE, PROGRAM_TAGLINE, SESSION_TIME_NOTE, SAME_PROGRAM_NOTE,
-  CURRICULUM, JOB_ROLES, PRODUCT_CATEGORIES, OVERSEAS_STAGES, TARGET_COUNTRIES,
+  INTRO_PARAGRAPH, LIMITED_SEATS_NOTE,
+  JOB_ROLES, PRODUCT_CATEGORIES, OVERSEAS_STAGES, TARGET_COUNTRIES,
   SELLING_CHANNELS, REVENUE_BANDS, OVERSEAS_REVENUE_BANDS, EXPORT_TIMINGS, SUPPORT_AREAS,
   CONSENT_REQUIRED_LABEL, CONSENT_OPTIONAL_LABEL, CONSENT_ADS_LABEL, CONSULT_LABEL,
   COLLECT_REQUIRED, COLLECT_OPTIONAL, PURPOSE_REQUIRED, PURPOSE_OPTIONAL, PURPOSE_ADS,
@@ -99,41 +100,9 @@ export default function SeminarApplyForm() {
         <div style={{ display: "inline-block", background: C.accSoft, color: C.acc, fontWeight: 700,
           fontSize: 13, borderRadius: 999, padding: "6px 14px" }}>{PROGRAM_TAGLINE}</div>
         <p style={{ fontSize: 14, lineHeight: 1.85, color: C.ink2, margin: "14px 0 0" }}>
-          해외 매출을 어디서부터 어떻게 올릴지, 실행 순서를 한 시간에 정리해 드립니다.
-          시장 선정부터 TikTok Shop 진입, 가격·정산·물류 준비, 그리고 다음 분기 실행 로드맵까지 다룹니다.
+          {INTRO_PARAGRAPH}
         </p>
         <div style={{ marginTop: 14, fontSize: 13, color: C.ink3 }}>{SESSION_TIME_NOTE}</div>
-      </div>
-
-      {/* ── 커리큘럼 ── */}
-      <div style={card}>
-        <SecTitle>다루는 내용</SecTitle>
-        <div style={{ display: "grid", gap: 10 }}>
-          {CURRICULUM.map((c, i) => (
-            <div key={c.title} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-              <div style={{ flex: "0 0 26px", height: 26, borderRadius: 8, background: C.accSoft, color: C.acc,
-                fontWeight: 800, fontSize: 12, display: "grid", placeItems: "center" }}>{i + 1}</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>{c.title}</div>
-                <div style={{ fontSize: 13, color: C.ink3, lineHeight: 1.7 }}>{c.detail}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── 선정 안내 ── */}
-      <div style={{ ...card, background: "#fffdf5", borderColor: "#f0e2b6" }}>
-        <SecTitle>선정 안내</SecTitle>
-        <p style={{ fontSize: 13.5, lineHeight: 1.85, color: C.ink2, margin: 0 }}>
-          <b>{NOT_CONFIRMED_NOTICE}</b>
-        </p>
-        <p style={{ fontSize: 13, lineHeight: 1.85, color: C.ink3, margin: "10px 0 0" }}>
-          <b>선정 기준</b> · {SELECTION_CRITERIA}
-        </p>
-        <p style={{ fontSize: 13, lineHeight: 1.85, color: C.ink3, margin: "8px 0 0" }}>
-          신청은 인원 제한 없이 받습니다. 접수 순서로 자리가 정해지지 않습니다.
-        </p>
       </div>
 
       {/* ── 신청 폼 ── */}
@@ -164,6 +133,11 @@ export default function SeminarApplyForm() {
                       {fmtSessionShort(s.startsAt)}
                     </div>
                     <div style={{ fontSize: 12, color: C.ink3 }}>11:00~12:00</div>
+                    {/* 남은 자리는 설정된 선정 인원에서 실제 선정 수를 뺀 값이다. */}
+                    <div style={{ fontSize: 12, fontWeight: 700, marginTop: 6,
+                      color: s.seatsLeft === 0 ? "#c92a2a" : on ? C.acc : "#117a44" }}>
+                      {s.seatsLeft === 0 ? "선정 마감" : `남은 자리 ${s.seatsLeft}명`}
+                    </div>
                   </button>
                 );
               })}
@@ -301,6 +275,34 @@ export default function SeminarApplyForm() {
             </p>
           </>
         )}
+      </div>
+
+      {/* ── 선정 안내(폼 아래) ── */}
+      <div style={{ ...card, background: "#fffdf5", borderColor: "#f0e2b6" }}>
+        <SecTitle>선정 안내</SecTitle>
+        <p style={{ fontSize: 13.5, lineHeight: 1.85, color: C.ink2, margin: 0 }}>
+          <b>{NOT_CONFIRMED_NOTICE}</b>
+        </p>
+        <p style={{ fontSize: 13, lineHeight: 1.85, color: C.ink3, margin: "10px 0 0" }}>
+          <b>선정 기준</b> · {SELECTION_CRITERIA}
+        </p>
+        <p style={{ fontSize: 13, lineHeight: 1.85, color: C.ink3, margin: "8px 0 0" }}>
+          신청은 인원 제한 없이 받습니다. 접수 순서로 자리가 정해지지 않습니다.
+        </p>
+      </div>
+
+      {/* ── 한정 참석 ── */}
+      <div style={{ ...card, padding: "16px 18px" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <div style={{ fontSize: 18, lineHeight: 1.2 }}>🎟️</div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: C.ink }}>{LIMITED_SEATS_NOTE}</div>
+            <div style={{ fontSize: 12.5, lineHeight: 1.8, color: C.ink3, marginTop: 4 }}>
+              회차마다 선정 인원이 정해져 있어 모든 신청자가 참석하실 수는 없습니다.
+              날짜 카드의 남은 자리는 <b>실제 선정 현황</b>을 그대로 보여 드립니다.
+            </div>
+          </div>
+        </div>
       </div>
 
       <div style={{ textAlign: "center", fontSize: 11.5, color: C.ink3, padding: "4px 0 30px" }}>

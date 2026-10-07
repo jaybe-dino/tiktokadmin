@@ -68,12 +68,25 @@ function policyOf(c: SapConfig): RetentionPolicy {
 export interface PublicSession {
   id: string; session_no: number; starts_at: string; ends_at: string;
   active: boolean; select_cap: number;
+  /** 실제로 선정된 인원. 화면의 "남은 자리"는 이 값으로만 계산한다. */
+  selected: number;
 }
 export async function listPublicSessions(): Promise<PublicSession[]> {
+  // 남은 자리는 꾸며내지 않는다 — 설정된 선정 인원에서 실제 선정 수를 뺀 값이다.
   return query<PublicSession>(
-    `SELECT id::text AS id, session_no, starts_at::text AS starts_at, ends_at::text AS ends_at,
-            active, select_cap
-       FROM sap_sessions WHERE active = true ORDER BY starts_at`);
+    `SELECT s.id::text AS id, s.session_no, s.starts_at::text AS starts_at, s.ends_at::text AS ends_at,
+            s.active, s.select_cap,
+            count(r.id) FILTER (WHERE r.status = 'selected')::int AS selected
+       FROM sap_sessions s
+       LEFT JOIN sap_registrations r ON r.session_id = s.id
+      WHERE s.active = true
+      GROUP BY s.id
+      ORDER BY s.starts_at`);
+}
+
+/** 남은 선정 자리. 음수가 되지 않게 0 에서 멈춘다. */
+export function seatsLeft(s: { select_cap: number; selected: number }): number {
+  return Math.max(0, (s.select_cap ?? 0) - (s.selected ?? 0));
 }
 
 /** 관리자용 — Zoom 링크를 포함한다. 호출 전에 권한을 검사해야 한다. */
