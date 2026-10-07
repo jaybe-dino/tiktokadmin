@@ -31,6 +31,7 @@ export function middleware(req: NextRequest) {
       // 썸네일이 뜬다(각 라우트가 토큰→문서→브랜드 일치 + image/* MIME 만 자체 검증).
       pathname.startsWith("/api/proposal-asset/") || pathname.startsWith("/api/proposal-img/") ||
       pathname.startsWith("/weekly") || // 틱톡샵 주간 온보딩 신청(공개 폼)
+      (pathname.startsWith("/seminar-apply") && !pathname.startsWith("/seminar-apply-admin")) || // 해외매출 세미나 공개 신청
       pathname === "/events" || pathname.startsWith("/events/") || // 공개 세미나 모집 허브·신청(관리 화면 /seminar-events 는 제외)
       pathname.startsWith("/roster/") || // 행사별 외부 참석자 열람(비밀번호로 보호)
       pathname.startsWith("/api/events/") || pathname.startsWith("/api/roster/") || // 포스터 이미지·외부 명단 내려받기
@@ -58,6 +59,8 @@ export function middleware(req: NextRequest) {
     pathname.startsWith("/proposal/") || // 공개 제안서 열람(고객 링크, 로그인 불필요)
     pathname.startsWith("/mkt-proposal/") || // 공개 마케팅 제안서 열람(고객 링크, 로그인 불필요)
     pathname.startsWith("/weekly") ||   // 틱톡샵 주간 온보딩 신청(공개 폼, 로그인 불필요)
+    // 해외매출 세미나 공개 신청(로그인 불필요). 관리 화면 /seminar-apply-admin 은 제외한다.
+    (pathname.startsWith("/seminar-apply") && !pathname.startsWith("/seminar-apply-admin")) ||
     pathname === "/events" || pathname.startsWith("/events/") || // 공개 세미나 모집 허브·신청(로그인 불필요)
     pathname.startsWith("/roster/") ||  // 행사별 외부 참석자 열람(자체 비밀번호 세션, 로그인 불필요)
     pathname.startsWith("/intro/") ||   // 브랜드 해외 소개자료(유통사 열람 링크, 로그인 불필요)
