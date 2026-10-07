@@ -2,7 +2,7 @@
 // 일본 사전 신청 목록 — 검색·CSV 내려받기·잠그기.
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { lockJpListAction } from "./actions";
+import { lockJpListAction, exportJpRowsAction } from "./actions";
 import type { JpApplyRow } from "@/lib/jp-apply";
 
 const fmt = (iso: string) => {
@@ -23,10 +23,14 @@ export default function JpTable({ rows }: { rows: JpApplyRow[] }) {
       `${r.brand_name} ${r.company} ${r.contact_name} ${r.email} ${r.phone} ${r.jp_sales}`.toLowerCase().includes(kw));
   }, [rows, q]);
 
-  function downloadCsv() {
+  async function downloadCsv() {
+    const result = await exportJpRowsAction();
+    if (!result.ok) { window.alert(result.error); return; }
+    const kw = q.trim().toLowerCase();
+    const exportRows = result.rows.filter(r => !kw || `${r.brand_name} ${r.company} ${r.contact_name} ${r.email} ${r.phone} ${r.jp_sales}`.toLowerCase().includes(kw));
     const cell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     const head = ["신청일시", "브랜드명", "회사명", "담당자", "이메일", "연락처", "인증", "SKU", "일본 판매현황", "추가내용"];
-    const body = list.map((r) => [
+    const body = exportRows.map((r) => [
       fmt(r.applied_at), r.brand_name, r.company, r.contact_name, r.email, r.phone,
       r.cert_status, r.sku_count, r.jp_sales, r.note.replace(/\n/g, " / "),
     ].map(cell).join(","));

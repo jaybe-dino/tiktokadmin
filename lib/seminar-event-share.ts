@@ -6,6 +6,7 @@
 //     · 외부 요청이 보낸 행사 id · 공유 id 를 믿지 않는다. 세션이 가리키는 행사만 읽는다.
 //     · 외부 경로에서 수정·삭제를 하지 않는다(쓰기 쿼리는 세션 기록과 시도 기록뿐).
 //     · 접속자 IP 를 저장하지 않는다 — 시도 횟수만 센다.
+import { excludeOptedOut } from "@/lib/export-privacy";
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { query, queryOne, tx } from "./db";
@@ -288,7 +289,7 @@ export interface RosterData { headers: { key: string; label: string }[]; rows: R
  *   · 검수용 TEST 행과 취소 건은 내보내지 않는다.
  */
 export async function readRoster(view: ShareView, limit = 500): Promise<RosterData> {
-  const rows = await query<{
+  const fetched = await query<{
     company_name: string; brand_name: string; contact_name: string; contact_title: string;
     phone: string; email: string; site_url: string; countries: string;
     status: string; created_at: string;
@@ -300,6 +301,7 @@ export async function readRoster(view: ShareView, limit = 500): Promise<RosterDa
       ORDER BY created_at
       LIMIT $2`, [view.eventId, Math.min(2000, Math.max(1, limit))]);
 
+  const rows = await excludeOptedOut(fetched);
   const pick = (r: typeof rows[number], key: string): string => {
     switch (key) {
       case "company": return r.company_name;

@@ -1,6 +1,7 @@
 // 장기 보류 자동 드랍 목록 CSV (BUG-29) — 플로우링크 전달용.
 //   보류 재컨택 라인에서 14영업일이 지나 시스템이 자동 드랍한 건만 모아 내려준다
 //   (담당자가 직접 드랍한 건은 제외 — stage_history 사유로 구분).
+import { excludeOptedOut } from "@/lib/export-privacy";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { query } from "@/lib/db";
@@ -20,11 +21,11 @@ export async function GET(req: NextRequest) {
   // 최근 N일(기본 90일) 안에 자동 드랍된 건.
   const days = Math.min(365, Math.max(1, Number(req.nextUrl.searchParams.get("days") ?? 90) || 90));
 
-  const rows = await query<{
-    brand_name: string; contact_name: string | null; email: string | null; phone: string | null;
+  const fetched = await query<{
+    brand_id: string; brand_name: string; contact_name: string | null; email: string | null; phone: string | null;
     source: string | null; owner_sales: string | null; dropped_at: string; reason: string | null;
   }>(
-    `SELECT b.brand_name, b.contact_name, b.email, b.phone, b.source, b.owner_sales,
+    `SELECT b.id::text AS brand_id, b.brand_name, b.contact_name, b.email, b.phone, b.source, b.owner_sales,
             sh.at AS dropped_at, sh.reason
        FROM stage_history sh
        JOIN brands b ON b.id = sh.brand_id
@@ -34,6 +35,8 @@ export async function GET(req: NextRequest) {
       ORDER BY sh.at DESC`,
     [`%${HOLD_DROP_REASON}%`, days],
   ).catch(() => []);
+
+  const rows = await excludeOptedOut(fetched);
 
   const header = ["브랜드명", "담당자", "이메일", "연락처", "유입경로", "영업담당", "드랍일시", "사유"];
   const body = rows.map((r) => [

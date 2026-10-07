@@ -12,7 +12,7 @@ export default async function OptOutsPage() {
     <div className="max-w-6xl">
       <ScreenHeader
         title="발송제외 명단"
-        desc="세미나 1~4회차 안내·광고·유입 즉시 안내가 보내기 직전에 보는 수신거부 명단입니다 — 이 화면은 발송하지 않습니다."
+        desc="자동 안내·광고 발송을 차단하는 명단입니다. 고객 DB 내보내기와 외부 신청자 목록에서도 제외하며, 명단 확인에 실패하면 내보내기를 중단합니다."
       />
       <OptOutListPanel />
     </div>

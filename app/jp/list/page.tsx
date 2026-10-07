@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { JP_VIEW_COOKIE, verifyJpViewToken, listJpApplications } from "@/lib/jp-apply";
 import JpCodeGate from "./JpCodeGate";
+import { excludeOptedOut } from "@/lib/export-privacy";
 import JpTable from "./JpTable";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,6 @@ export const metadata = { title: "일본 사전 신청 현황", robots: { index:
 export default async function JpListPage() {
   const unlocked = verifyJpViewToken((await cookies()).get(JP_VIEW_COOKIE)?.value);
   if (!unlocked) return <JpCodeGate />;
-  const rows = await listJpApplications();
+  const rows = await excludeOptedOut(await listJpApplications());
   return <JpTable rows={rows} />;
 }

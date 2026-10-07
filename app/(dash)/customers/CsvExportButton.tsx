@@ -38,7 +38,7 @@ export default function CsvExportButton({ filter }: Props) {
   return (
     <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
       <button type="button" className="btn" onClick={onClick} disabled={pending}
-        title={filter.from || filter.to ? `유입일 ${filter.from || "처음"} ~ ${filter.to || "오늘"} 구간을 내보냅니다` : "현재 화면 필터 그대로 내보냅니다"}>
+        title="현재 필터에서 수신거부 고객을 제외합니다. 명단 확인에 실패하면 내려받기를 중단합니다.">
         {pending ? "내보내는 중…" : "CSV 내보내기"}
       </button>
       {error && <span style={{ color: "var(--danger)", fontSize: 11 }}>{error}</span>}

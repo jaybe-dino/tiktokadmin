@@ -1,7 +1,7 @@
 "use server";
 // 일본 사전 신청 열람 — 코드 입력 → 서명 쿠키 발급(코드 자체는 쿠키에 담지 않는다).
 import { cookies } from "next/headers";
-import { JP_VIEW_COOKIE, checkJpCode, jpViewToken } from "@/lib/jp-apply";
+import { JP_VIEW_COOKIE, checkJpCode, jpViewToken, verifyJpViewToken, listJpApplications } from "@/lib/jp-apply";
 
 export async function unlockJpListAction(code: string): Promise<{ ok: boolean; error?: string }> {
   if (!checkJpCode(code ?? "")) return { ok: false, error: "코드가 올바르지 않습니다." };
@@ -15,4 +15,12 @@ export async function unlockJpListAction(code: string): Promise<{ ok: boolean; e
 export async function lockJpListAction(): Promise<{ ok: boolean }> {
   (await cookies()).delete({ name: JP_VIEW_COOKIE, path: "/jp" });
   return { ok: true };
+}
+
+export async function exportJpRowsAction() {
+  if (!verifyJpViewToken((await cookies()).get(JP_VIEW_COOKIE)?.value)) return { ok: false as const, error: "열람 인증이 필요합니다." };
+  try {
+    const { excludeOptedOut } = await import("@/lib/export-privacy");
+    return { ok: true as const, rows: await excludeOptedOut(await listJpApplications()) };
+  } catch { return { ok: false as const, error: "수신거부 명단 확인 실패 — 내보내기를 중단했습니다." }; }
 }

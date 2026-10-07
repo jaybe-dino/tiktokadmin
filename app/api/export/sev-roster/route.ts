@@ -1,6 +1,7 @@
 // 행사별 신청자 CSV(관리자 전용). 내부용이므로 연락처·메모까지 담는다.
 //   외부 공유 링크의 CSV(/api/roster/<token>/export)와는 다른 경로다 —
 //   그쪽은 기본 OFF 이고 노출 항목도 관리자가 고른 것만 나간다.
+import { excludeOptedOut } from "@/lib/export-privacy";
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { getEvent, listRegistrations } from "@/lib/seminar-events";
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
 
   const includeTest = req.nextUrl.searchParams.get("test") === "1";
   // 페이지네이션은 화면용이고, 내려받기는 전체를 담는다.
-  const rows = await collectAll(eventId, includeTest);
+  const rows = await excludeOptedOut(await collectAll(eventId, includeTest));
 
   const csv = csvDoc(
     ["신청일시(KST)", "회사명", "브랜드명", "담당자", "직함", "연락처", "이메일",

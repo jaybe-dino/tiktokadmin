@@ -1,5 +1,6 @@
 "use server";
 
+import { excludeOptedOut } from "@/lib/export-privacy";
 import { query } from "@/lib/db";
 import { customerDateWhere } from "@/lib/repo/queries";
 import { currentUser } from "@/lib/auth";
@@ -79,15 +80,15 @@ export async function exportCustomersCsvAction(f: CsvFilter): Promise<CsvExportR
   // 상태 미지정이면 종료(드랍·이탈) 제외 — 목록 화면과 같은 행이 나오게.
   if (!f.state) where.push(`b.state NOT IN ('dropped','churned')`);
 
-  const rows = await query<{
-    brand_name: string; brand_name_en: string | null; state: State;
+  const fetched = await query<{
+    brand_id: string; brand_name: string; brand_name_en: string | null; state: State;
     grade: string | null; plan: Plan | null; pay_status: PayStatus;
     source: string; countries: string[] | null; email: string | null; phone: string | null;
     category: string | null; brand_url: string | null;
     owner_sales: string | null; owner_onboard: string | null;
     last_contact_at: string | null; next_action: string | null; created_at: string;
   }>(
-    `SELECT b.brand_name, b.brand_name_en, b.state, b.grade, b.plan, b.pay_status,
+    `SELECT b.id::text AS brand_id, b.brand_name, b.brand_name_en, b.state, b.grade, b.plan, b.pay_status,
             b.source, b.countries, b.email, b.phone, b.category, b.brand_url,
             b.owner_sales, b.owner_onboard, b.last_contact_at, b.next_action, b.created_at
        FROM brands b
@@ -95,6 +96,8 @@ export async function exportCustomersCsvAction(f: CsvFilter): Promise<CsvExportR
       ORDER BY b.updated_at DESC`,
     p,
   );
+
+  const rows = await excludeOptedOut(fetched);
 
   const header = [
     "브랜드", "영문명", "상태", "등급", "플랜", "결제상태", "유입", "국가",

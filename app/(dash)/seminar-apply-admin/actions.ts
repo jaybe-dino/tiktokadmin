@@ -6,6 +6,7 @@
 //     · 선착순 자동선정·자동마감을 만들지 않는다 — 선정은 사람이 한 건씩 누른다.
 //     · 브랜드 원장(brands)의 값을 고치지 않는다. 연결은 이 표의 brand_id 만 채운다.
 //     · ad_optouts(수신거부 명단)를 고치지 않는다.
+import { excludeOptedOut } from "@/lib/export-privacy";
 import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import {
@@ -182,7 +183,7 @@ export async function sapCsvAction(
     const stamp = new Date().toISOString().slice(0, 10);
     return {
       ok: true, masked,
-      csv: csvOfRegs(all, { masked }),
+      csv: csvOfRegs(await excludeOptedOut(all), { masked }),
       filename: `세미나신청_${opts.sessionNo ? `${opts.sessionNo}회차_` : ""}${stamp}.csv`,
     };
   } catch (e) {
