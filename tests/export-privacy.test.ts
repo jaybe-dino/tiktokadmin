@@ -20,4 +20,9 @@ describe("export suppression", () => {
     expect(await excludeOptedOut(rows)).toEqual([]);
     expect(db.query).toHaveBeenCalledTimes(2);
   });
+  it("does not leak suppressed contacts through notes or alternate values", async () => {
+    db.query.mockResolvedValue([{kind:'email',addr:'stop@example.com',brand_id:null},{kind:'phone',addr:'01012345678',brand_id:null}]);
+    const rows = [{email:'other@example.com',note:'담당자(stop@example.com)'}, {email:'other@example.com',alternates:{phone:'+82 10-1234-5678'}}, {email:'allowed@example.com',note:'승인 완료'}];
+    expect(await excludeOptedOut(rows)).toEqual([rows[2]]);
+  });
 });
