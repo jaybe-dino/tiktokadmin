@@ -104,21 +104,18 @@ CREATE TABLE IF NOT EXISTS sap_registrations (
   target_countries text NOT NULL,                -- "아직 미정" 포함
   question text NOT NULL,                        -- 세미나 질문 또는 해결과제
 
+  phone text NOT NULL,                           -- 필수
+
   -- 선택
-  phone text NOT NULL DEFAULT '',
   site_url text NOT NULL DEFAULT '',
-  selling_countries text NOT NULL DEFAULT '',
-  selling_channels text NOT NULL DEFAULT '',
   revenue_band text NOT NULL DEFAULT '',         -- '' = 미기입, 'undisclosed' = 미공개 선택
-  overseas_revenue_band text NOT NULL DEFAULT '',
-  export_timing text NOT NULL DEFAULT '',
-  support_areas text NOT NULL DEFAULT '',
   wants_consult boolean NOT NULL DEFAULT false,  -- 1:1 상담 희망(별도 명시 항목)
-  biz_no text NOT NULL DEFAULT '',               -- 사업자번호(선택)
 
   -- 동의 — 셋을 따로 기록한다. 광고 미동의가 신청·선정에 불이익이 되지 않는다.
   consent_required boolean NOT NULL DEFAULT false,
   consent_required_at timestamptz,
+  -- 선택 정보 동의 — 화면에서 따로 받지 않는다(선택 항목이 공식 URL·매출 구간뿐이라
+  --   필수 동의 안내에 함께 적는다). 칼럼은 과거 기록을 위해 남겨 둔다.
   consent_optional boolean NOT NULL DEFAULT false,
   consent_optional_at timestamptz,
   consent_ads boolean NOT NULL DEFAULT false,

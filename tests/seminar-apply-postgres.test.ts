@@ -46,6 +46,7 @@ const BASE: import("../lib/seminar-apply-model").SapFormInput = {
   productCategory: "뷰티·화장품",
   overseasStage: "준비 중(상품·인증 점검)",
   targetCountries: ["일본"],
+  phone: "010-0000-0000",
   question: "일본 TikTok Shop 진입 시 가격 구조가 궁금합니다.",
   consentRequired: true,
 };
@@ -381,6 +382,13 @@ describe.skipIf(!process.env.SAP_TEST_DB_URL)("세미나 공개 신청 (PostgreS
 
     // http(s) 가 아닌 값은 저장하지 않는다.
     expect((await S.setSessionZoom(ses.id, "javascript:alert(1)", "", "TEST")).ok).toBe(false);
+  });
+
+  it("연락처가 없으면 저장하지 않는다", async () => {
+    const r = await S.submitApplication({ ...BASE, phone: "" });
+    expect(r.ok).toBe(false);
+    expect(r.error ?? "").toContain("연락처");
+    expect((await ctx.pool.query("SELECT count(*)::int AS n FROM sap_registrations")).rows[0].n).toBe(0);
   });
 
   it("CSV 가림 모드는 이메일·연락처를 가린다", async () => {

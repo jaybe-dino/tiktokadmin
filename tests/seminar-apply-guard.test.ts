@@ -237,7 +237,7 @@ describe("개인정보", () => {
   it("동의 체크는 모두 꺼진 상태로 시작한다", () => {
     const f = code(PUBLIC_FORM);
     // 초기 상태에 어떤 동의도 true 로 두지 않는다.
-    expect(f).toContain("useState<SapFormInput>({ targetCountries: [], sellingChannels: [], supportAreas: [] })");
+    expect(f).toContain("useState<SapFormInput>({ targetCountries: [] })");
     expect(f).not.toMatch(/consent\w*:\s*true/);
     expect(f).not.toMatch(/wantsConsult:\s*true/);
     expect(f).toContain("Boolean(v.consentRequired)");
@@ -272,6 +272,32 @@ describe("개인정보", () => {
     }
     for (const bad of ["email", "phone", "name"]) {
       expect(body.includes(`q.get("${bad}`), bad).toBe(false);
+    }
+  });
+});
+
+describe("한 페이지 신청", () => {
+  it("단계 이동(스텝) 없이 한 화면에서 끝낸다", () => {
+    const f = code(PUBLIC_FORM);
+    expect(f).not.toContain("setStep");
+    expect(f).not.toContain("StepBar");
+    // 제출 버튼은 본문과 고정 바 두 곳이고, 둘 다 같은 submit 을 부른다.
+    expect((f.match(/onClick=\{submit\}/g) ?? []).length).toBe(2);
+  });
+
+  it("필수 항목이 모두 한 화면에 있다", () => {
+    const f = code(PUBLIC_FORM);
+    for (const label of ["희망 회차", "회사명", "브랜드명", "담당자명", "직무",
+      "업무 이메일", "연락처", "상품 카테고리", "현재 해외진출 단계", "희망 국가"]) {
+      expect(f.includes(label), label).toBe(true);
+    }
+  });
+
+  it("빠진 항목은 화면에서도 사라졌다", () => {
+    const f = code(PUBLIC_FORM);
+    for (const gone of ["해외 매출 구간", "수출 시작 예정", "희망 지원 분야",
+      "현재 판매 채널", "현재 판매 국가", "사업자번호"]) {
+      expect(f.includes(gone), gone).toBe(false);
     }
   });
 });

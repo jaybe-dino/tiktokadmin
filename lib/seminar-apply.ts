@@ -206,26 +206,23 @@ export async function submitApplication(input: SapFormInput, meta: SubmitMeta = 
         `INSERT INTO sap_registrations (
            session_id, company_name, brand_name, no_brand, contact_name, job_role, job_role_etc,
            email, email_norm, product_category, overseas_stage, target_countries, question,
-           phone, site_url, selling_countries, selling_channels, revenue_band, overseas_revenue_band,
-           export_timing, support_areas, wants_consult, biz_no,
+           phone, site_url, revenue_band, wants_consult,
            consent_required, consent_required_at, consent_optional, consent_optional_at,
            consent_ads, consent_ads_at, consent_version,
            consent_required_expires_at, consent_ads_expires_at,
            source, utm_source, utm_medium, utm_campaign, campaign_id, is_test)
          VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,
                  $8,$9,$10,$11,$12,$13,
-                 $14,$15,$16,$17,$18,$19,
-                 $20,$21,$22,$23,
-                 true,$24::timestamptz,$25,CASE WHEN $25 THEN $24::timestamptz END,
-                 $26,CASE WHEN $26 THEN $24::timestamptz END,$27,
-                 $28::timestamptz,$29::timestamptz,
-                 $30,$31,$32,$33,$34,$35)
+                 $14,$15,$16,$17,
+                 true,$18::timestamptz,$19,CASE WHEN $19 THEN $18::timestamptz END,
+                 $20,CASE WHEN $20 THEN $18::timestamptz END,$21,
+                 $22::timestamptz,$23::timestamptz,
+                 $24,$25,$26,$27,$28,$29)
          ON CONFLICT (session_id, email_norm) DO NOTHING
          RETURNING id::text AS id`,
         [sessionId, row.companyName, row.brandName, row.noBrand, row.contactName, row.jobRole, row.jobRoleEtc,
           row.email, row.emailNorm, row.productCategory, row.overseasStage, row.targetCountries, row.question,
-          row.phone, row.siteUrl, row.sellingCountries, row.sellingChannels, row.revenueBand, row.overseasRevenueBand,
-          row.exportTiming, row.supportAreas, row.wantsConsult, row.bizNo,
+          row.phone, row.siteUrl, row.revenueBand, row.wantsConsult,
           now.toISOString(), row.consentOptional, row.consentAds, version,
           reqExpiry, adsExpiry,
           clean(meta.source, 60) || "seminar_apply", clean(meta.utmSource, 80), clean(meta.utmMedium, 80),
@@ -339,9 +336,7 @@ export interface RegRow {
   contact_name: string; job_role: string; job_role_etc: string;
   email: string; phone: string; site_url: string;
   product_category: string; overseas_stage: string; target_countries: string; question: string;
-  selling_countries: string; selling_channels: string;
-  revenue_band: string; overseas_revenue_band: string; export_timing: string; support_areas: string;
-  wants_consult: boolean; biz_no: string;
+  revenue_band: string; wants_consult: boolean;
   consent_optional: boolean; consent_ads: boolean; consent_version: string;
   consent_required_expires_at: string | null; consent_ads_expires_at: string | null;
   consent_ads_withdrawn_at: string | null;
@@ -354,8 +349,7 @@ export interface RegList { rows: RegRow[]; total: number; page: number; pageSize
 const REG_COLS = `r.id::text AS id, s.session_no, s.starts_at::text AS session_starts_at,
   r.company_name, r.brand_name, r.no_brand, r.contact_name, r.job_role, r.job_role_etc,
   r.email, r.phone, r.site_url, r.product_category, r.overseas_stage, r.target_countries, r.question,
-  r.selling_countries, r.selling_channels, r.revenue_band, r.overseas_revenue_band,
-  r.export_timing, r.support_areas, r.wants_consult, r.biz_no,
+  r.revenue_band, r.wants_consult,
   r.consent_optional, r.consent_ads, r.consent_version,
   r.consent_required_expires_at::text AS consent_required_expires_at,
   r.consent_ads_expires_at::text AS consent_ads_expires_at,
@@ -478,6 +472,7 @@ export async function addTestRegistration(sessionNo: number, actor: string): Pro
     productCategory: "뷰티·화장품",
     overseasStage: "준비 중(상품·인증 점검)",
     targetCountries: ["일본"],
+    phone: "01000000000",
     question: `검수용 합성 데이터 — ${clean(actor, 60)}`,
     consentRequired: true,
   }, { isTest: true, source: "qa_admin" });

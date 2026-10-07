@@ -13,7 +13,7 @@ import type { RegList, RegRow, RegEventRow } from "@/lib/seminar-apply";
 import type { MatchCandidate } from "@/lib/seminar-apply";
 import {
   STATUS_KO, STATUSES, fmtSessionWhen, fmtSessionShort, maskEmail, maskPhone,
-  REVENUE_BANDS, OVERSEAS_REVENUE_BANDS, APPLY_PATH,
+  REVENUE_BANDS, APPLY_PATH,
 } from "@/lib/seminar-apply-model";
 
 const band = (k: string, l: { key: string; label: string }[]) => k ? (l.find((b) => b.key === k)?.label ?? k) : "—";
@@ -304,15 +304,8 @@ function RegRowView({ r, canEdit, pending, open, onOpen, act }: {
                 <KV k="연락처">{r.phone ? maskPhone(r.phone) : "—"}</KV>
                 <KV k="공식 URL">{r.site_url || "—"}</KV>
                 <KV k="상품 카테고리">{r.product_category}</KV>
-                <KV k="판매 국가">{r.selling_countries || "—"}</KV>
-                <KV k="판매 채널">{r.selling_channels || "—"}</KV>
                 <KV k="매출 구간">{band(r.revenue_band, REVENUE_BANDS)}</KV>
-                <KV k="해외 매출 구간">{band(r.overseas_revenue_band, OVERSEAS_REVENUE_BANDS)}</KV>
-                <KV k="수출 예정">{r.export_timing || "—"}</KV>
-                <KV k="희망 지원">{r.support_areas || "—"}</KV>
-                <KV k="사업자번호">{r.biz_no || "—"}</KV>
                 <KV k="출처">{[r.source, r.utm_source, r.utm_campaign, r.campaign_id].filter(Boolean).join(" · ") || "—"}</KV>
-                <KV k="선택정보 동의">{r.consent_optional ? "동의" : "미동의"}</KV>
                 <KV k="광고 동의">
                   {r.consent_ads ? "동의" : "미동의"}
                   {r.consent_ads_withdrawn_at && " (철회됨)"}

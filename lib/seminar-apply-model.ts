@@ -72,10 +72,6 @@ export const TARGET_COUNTRIES = [
   "중국", "대만", "유럽", "중동", "기타",
 ] as const;
 
-export const SELLING_CHANNELS = [
-  "자사몰", "국내 오픈마켓", "아마존", "TikTok Shop", "쇼피·라자다", "큐텐", "오프라인 유통", "기타",
-] as const;
-
 /** 매출 구간 — 미공개를 명시적으로 고를 수 있게 둔다(빈값 = 미기입과 구분). */
 export const REVENUE_BANDS: { key: string; label: string }[] = [
   { key: "pre", label: "매출 발생 전" },
@@ -86,22 +82,6 @@ export const REVENUE_BANDS: { key: string; label: string }[] = [
   { key: "b200_", label: "200억원 이상" },
   { key: "undisclosed", label: "미공개" },
 ];
-export const OVERSEAS_REVENUE_BANDS: { key: string; label: string }[] = [
-  { key: "none", label: "해외 매출 없음" },
-  { key: "b_1", label: "1억원 미만" },
-  { key: "b1_10", label: "1억원 이상 ~ 10억원 미만" },
-  { key: "b10_50", label: "10억원 이상 ~ 50억원 미만" },
-  { key: "b50_", label: "50억원 이상" },
-  { key: "undisclosed", label: "미공개" },
-];
-export const EXPORT_TIMINGS = [
-  "이미 수출 중", "3개월 내", "6개월 내", "1년 내", "시기 미정",
-] as const;
-export const SUPPORT_AREAS = [
-  "시장·국가 선정", "유통 채널 연결", "콘텐츠·광고", "TikTok Shop 입점·운영",
-  "가격·정산 구조", "물류·통관", "인증·규제", "브랜드 실행 로드맵",
-] as const;
-
 // ── 상태 ─────────────────────────────────────────────────────
 export const STATUSES = ["submitted", "selected", "waitlisted", "not_selected", "cancelled"] as const;
 export type SapStatus = (typeof STATUSES)[number];
@@ -149,11 +129,10 @@ export interface SapFormInput {
   contactName?: string; jobRole?: string; jobRoleEtc?: string;
   email?: string; productCategory?: string; overseasStage?: string;
   targetCountries?: string[] | string; question?: string;
-  phone?: string; siteUrl?: string;
-  sellingCountries?: string; sellingChannels?: string[] | string;
-  revenueBand?: string; overseasRevenueBand?: string;
-  exportTiming?: string; supportAreas?: string[] | string;
-  wantsConsult?: boolean; bizNo?: string;
+  /** 연락처는 필수다(선정 결과를 메일과 함께 전화로도 안내한다). */
+  phone?: string;
+  siteUrl?: string; revenueBand?: string;
+  wantsConsult?: boolean;
   consentRequired?: boolean; consentOptional?: boolean; consentAds?: boolean;
   /** 사람이 채우지 않는 미끼 입력. 값이 있으면 봇으로 본다. */
   trap?: string;
@@ -196,17 +175,13 @@ export function formBlockers(i: SapFormInput): string[] {
   }
   if (!cleanMulti(i.question, 2000)) out.push("세미나에서 듣고 싶은 질문 또는 해결하고 싶은 과제를 적어 주세요.");
 
+  const phone = normalizePhone(i.phone);
+  if (!phone) out.push("연락처를 입력해 주세요.");
+  else if (phone.length < 9) out.push("연락처를 확인해 주세요.");
+
   // 선택 항목도 목록에 없는 값은 받지 않는다(저장값이 섞이지 않게).
-  const inOpt = (v: string, ks: string[]) => !v || ks.includes(v);
-  if (!inOpt(clean(i.revenueBand, 20), REVENUE_BANDS.map((b) => b.key))) out.push("매출 구간 선택값을 확인해 주세요.");
-  if (!inOpt(clean(i.overseasRevenueBand, 20), OVERSEAS_REVENUE_BANDS.map((b) => b.key))) out.push("해외 매출 구간 선택값을 확인해 주세요.");
-  if (!inOpt(clean(i.exportTiming, 40), [...EXPORT_TIMINGS])) out.push("수출 시작 예정 시기 선택값을 확인해 주세요.");
-  if (list(i.sellingChannels).some((c) => !(SELLING_CHANNELS as readonly string[]).includes(c))) {
-    out.push("판매 채널 선택값을 확인해 주세요.");
-  }
-  if (list(i.supportAreas).some((c) => !(SUPPORT_AREAS as readonly string[]).includes(c))) {
-    out.push("희망 지원 분야 선택값을 확인해 주세요.");
-  }
+  const revenue = clean(i.revenueBand, 20);
+  if (revenue && !REVENUE_BANDS.some((b) => b.key === revenue)) out.push("매출 구간 선택값을 확인해 주세요.");
 
   // 필수 동의가 없으면 저장하지 않는다. 광고 동의는 신청·선정 조건이 아니다.
   if (!i.consentRequired) out.push("개인정보 수집·이용(필수)에 동의해 주세요.");
@@ -220,9 +195,7 @@ export interface SapRow {
   contactName: string; jobRole: string; jobRoleEtc: string;
   email: string; emailNorm: string;
   productCategory: string; overseasStage: string; targetCountries: string; question: string;
-  phone: string; siteUrl: string; sellingCountries: string; sellingChannels: string;
-  revenueBand: string; overseasRevenueBand: string; exportTiming: string; supportAreas: string;
-  wantsConsult: boolean; bizNo: string;
+  phone: string; siteUrl: string; revenueBand: string; wantsConsult: boolean;
   consentRequired: boolean; consentOptional: boolean; consentAds: boolean;
 }
 export function toRow(i: SapFormInput): SapRow {
@@ -244,14 +217,8 @@ export function toRow(i: SapFormInput): SapRow {
     question: cleanMulti(i.question, 2000),
     phone: normalizePhone(i.phone),
     siteUrl: normalizeUrl(i.siteUrl),
-    sellingCountries: clean(i.sellingCountries, 200),
-    sellingChannels: keep(i.sellingChannels, SELLING_CHANNELS),
     revenueBand: clean(i.revenueBand, 20),
-    overseasRevenueBand: clean(i.overseasRevenueBand, 20),
-    exportTiming: clean(i.exportTiming, 40),
-    supportAreas: keep(i.supportAreas, SUPPORT_AREAS),
     wantsConsult: Boolean(i.wantsConsult),
-    bizNo: clean(i.bizNo, 40),
     consentRequired: Boolean(i.consentRequired),
     consentOptional: Boolean(i.consentOptional),
     consentAds: Boolean(i.consentAds),
@@ -308,9 +275,8 @@ export const CONSULT_LABEL =
 
 /** 수집 항목 안내 — 필수/선택을 나눠 적는다. */
 export const COLLECT_REQUIRED =
-  "희망 회차, 회사명, 브랜드명(미보유 여부), 담당자명, 직무, 업무 이메일, 상품 카테고리, 현재 해외진출 단계, 희망 국가, 세미나 질문·해결과제";
-export const COLLECT_OPTIONAL =
-  "연락처, 공식 URL, 현재 판매 국가·채널, 매출 구간, 해외 매출 구간, 수출 시작 예정 시기, 희망 지원 분야, 1:1 상담 희망, 사업자번호";
+  "희망 회차, 회사명, 브랜드명(미보유 여부), 담당자명, 직무, 업무 이메일, 연락처, 상품 카테고리, 현재 해외진출 단계, 희망 국가, 세미나 질문·해결과제";
+export const COLLECT_OPTIONAL = "공식 URL, 매출 구간, 1:1 상담 희망";
 export const PURPOSE_REQUIRED = "세미나 회차 배정, 선정 심사, 선정 결과·접속 링크 안내";
 export const PURPOSE_OPTIONAL = "세미나 내용 구성과 상담 준비를 위한 참고";
 export const PURPOSE_ADS = "이후 세미나·프로그램 등 광고성 정보 이메일 발송";

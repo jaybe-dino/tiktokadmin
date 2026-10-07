@@ -19,6 +19,7 @@ const OK: SapFormInput = {
   productCategory: "뷰티·화장품",
   overseasStage: "준비 중(상품·인증 점검)",
   targetCountries: ["일본"],
+  phone: "010-0000-0000",
   question: "일본 TikTok Shop 가격 구조가 궁금합니다.",
   consentRequired: true,
 };
@@ -101,6 +102,7 @@ describe("필수 항목 검증", () => {
       ["productCategory", "상품 카테고리"],
       ["overseasStage", "해외진출 단계"],
       ["question", "질문"],
+      ["phone", "연락처"],
     ];
     for (const [k, word] of cases) {
       const b = formBlockers({ ...OK, [k]: "" });
@@ -117,6 +119,24 @@ describe("필수 항목 검증", () => {
     expect(formBlockers({ ...OK, jobRole: "CTO" })[0]).toContain("직무");
     expect(formBlockers({ ...OK, targetCountries: ["화성"] })[0]).toContain("희망 국가");
     expect(formBlockers({ ...OK, revenueBand: "아무값" })[0]).toContain("매출 구간");
+  });
+
+  it("연락처는 필수이고 너무 짧으면 막는다", () => {
+    expect(formBlockers({ ...OK, phone: "" })[0]).toContain("연락처");
+    expect(formBlockers({ ...OK, phone: "010-12" })[0]).toContain("연락처");
+    expect(formBlockers({ ...OK, phone: "+82 10 1234 5678" })).toEqual([]);
+  });
+
+  it("빠진 항목은 더 이상 받지 않는다", () => {
+    const keys = Object.keys(toRow(OK));
+    for (const gone of ["overseasRevenueBand", "exportTiming", "supportAreas",
+      "sellingChannels", "sellingCountries", "bizNo"]) {
+      expect(keys.includes(gone), gone).toBe(false);
+    }
+    // 남아 있어야 하는 선택 항목
+    for (const kept of ["siteUrl", "revenueBand", "wantsConsult"]) {
+      expect(keys.includes(kept), kept).toBe(true);
+    }
   });
 
   it("이메일 형식을 확인한다", () => {
@@ -161,9 +181,19 @@ describe("정규화", () => {
   });
 
   it("복수 선택은 목록에 있는 값만 남긴다", () => {
-    const r = toRow({ ...OK, targetCountries: ["일본", "화성", "미국"], supportAreas: ["물류·통관", "없는항목"] });
+    const r = toRow({ ...OK, targetCountries: ["일본", "화성", "미국"] });
     expect(r.targetCountries).toBe("일본, 미국");
-    expect(r.supportAreas).toBe("물류·통관");
+  });
+});
+
+describe("수집 항목 안내", () => {
+  it("연락처는 필수 목록에, 빠진 항목은 어디에도 없다", async () => {
+    const { COLLECT_REQUIRED, COLLECT_OPTIONAL } = await import("../lib/seminar-apply-model");
+    expect(COLLECT_REQUIRED).toContain("연락처");
+    expect(COLLECT_OPTIONAL).not.toContain("연락처");
+    for (const gone of ["해외 매출", "수출", "희망 지원", "판매 채널", "판매 국가", "사업자번호"]) {
+      expect(`${COLLECT_REQUIRED} ${COLLECT_OPTIONAL}`.includes(gone), gone).toBe(false);
+    }
   });
 });
 

@@ -2,7 +2,7 @@
 //   초안은 만들기만 한다. 이 모듈은 어디에도 보내지 않는다.
 import {
   STATUS_KO, maskEmail, maskPhone, fmtSessionWhen,
-  REVENUE_BANDS, OVERSEAS_REVENUE_BANDS, PROGRAM_TITLE,
+  REVENUE_BANDS, PROGRAM_TITLE,
   type SapStatus,
 } from "./seminar-apply-model";
 
@@ -12,9 +12,7 @@ export interface CsvReg {
   contact_name: string; job_role: string; job_role_etc: string;
   email: string; phone: string; site_url: string;
   product_category: string; overseas_stage: string; target_countries: string; question: string;
-  selling_countries: string; selling_channels: string;
-  revenue_band: string; overseas_revenue_band: string; export_timing: string; support_areas: string;
-  wants_consult: boolean; biz_no: string;
+  revenue_band: string; wants_consult: boolean;
   consent_optional: boolean; consent_ads: boolean; consent_version: string;
   consent_required_expires_at: string | null; consent_ads_expires_at: string | null;
   status: SapStatus; status_reason: string; admin_note: string;
@@ -32,8 +30,7 @@ const bandLabel = (key: string, list: { key: string; label: string }[]) =>
 export const CSV_HEADER = [
   "회차", "회차일시", "상태", "상태사유", "회사명", "브랜드명", "담당자명", "직무",
   "업무이메일", "연락처", "공식URL", "상품카테고리", "해외진출단계", "희망국가",
-  "질문·해결과제", "판매국가", "판매채널", "매출구간", "해외매출구간", "수출예정시기",
-  "희망지원분야", "1:1상담", "사업자번호", "선택정보동의", "광고동의", "동의버전",
+  "질문·해결과제", "매출구간", "1:1상담", "광고동의", "동의버전",
   "필수정보 만료", "광고동의 만료", "출처", "utm_source", "utm_campaign", "campaign_id",
   "테스트", "접수시각", "관리메모",
 ];
@@ -59,15 +56,8 @@ export function csvOfRegs(rows: CsvReg[], opts: { masked?: boolean } = {}): stri
     r.overseas_stage,
     r.target_countries,
     r.question,
-    r.selling_countries,
-    r.selling_channels,
     bandLabel(r.revenue_band, REVENUE_BANDS),
-    bandLabel(r.overseas_revenue_band, OVERSEAS_REVENUE_BANDS),
-    r.export_timing,
-    r.support_areas,
     r.wants_consult ? "희망" : "",
-    r.biz_no,
-    r.consent_optional ? "동의" : "미동의",
     r.consent_ads ? "동의" : "미동의",
     r.consent_version,
     (r.consent_required_expires_at ?? "").slice(0, 10),
