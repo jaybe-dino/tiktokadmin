@@ -29,7 +29,7 @@ export default function SeminarApplyForm() {
   const [loadErr, setLoadErr] = useState("");
   const [applyOpen, setApplyOpen] = useState(true);
 
-  const [v, setV] = useState<SapFormInput>({ targetCountries: [] });
+  const [v, setV] = useState<SapFormInput>({ targetCountries: [], consentRequired: true });
   const [err, setErr] = useState("");
   const [done, setDone] = useState<null | { already: boolean }>(null);
   const [showPolicy, setShowPolicy] = useState(false);

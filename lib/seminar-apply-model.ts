@@ -3,7 +3,7 @@
 //   접수(submitted)와 선정(selected)을 끝까지 분리한다 — 선착순 자동선정은 만들지 않는다.
 
 export const PROGRAM_TITLE = "브랜드 해외매출 실행전략 세미나";
-export const PROGRAM_TAGLINE = "회차별 30명 선정 · 무료 온라인 세미나";
+export const PROGRAM_TAGLINE = "회차별 20~30명 선정 · 무료 온라인 세미나";
 /** 공개 신청 경로. 한 번 공개한 뒤에는 바꾸지 않는 것을 전제로 한다. */
 export const APPLY_PATH = "/seminar-apply";
 export const ADMIN_PATH = "/seminar-apply-admin";
