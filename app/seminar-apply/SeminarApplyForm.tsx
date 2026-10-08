@@ -8,7 +8,7 @@ import {
   PROGRAM_TITLE, PROGRAM_TAGLINE, SESSION_TIME_NOTE, SAME_PROGRAM_NOTE, INTRO_PARAGRAPH,
   JOB_ROLES, PRODUCT_CATEGORIES, OVERSEAS_STAGES, TARGET_COUNTRIES,
   REVENUE_BANDS,
-  COLLECT_REQUIRED, COLLECT_OPTIONAL, PURPOSE_REQUIRED, PURPOSE_OPTIONAL, PURPOSE_ADS,
+  COLLECT_REQUIRED, COLLECT_OPTIONAL, PURPOSE_REQUIRED, PURPOSE_OPTIONAL,
   REFUSAL_NOTICE, SELECTION_CRITERIA, NOT_CONFIRMED_NOTICE, APPLY_DONE_NOTICE,
   ORG_DEFAULT, RETENTION_DEFAULT, retentionSentence, fmtSessionWhen, fmtSessionShort,
   formBlockers, type SapFormInput,
@@ -130,7 +130,7 @@ export default function SeminarApplyForm() {
       </div>
 
       {/* ══ 본문 ══ */}
-      <div style={{ maxWidth: 640, margin: "-66px auto 0", padding: "0 16px 120px", display: "grid", gap: 14 }}>
+      <div style={{ maxWidth: 640, margin: "-66px auto 0", padding: "0 16px 120px", display: "grid", gap: 14, position: "relative", zIndex: 1 }}>
 
         {/* ── 신청(한 페이지) ── */}
         <div ref={formRef} style={{ ...card, padding: "22px 18px 24px" }}>
@@ -232,14 +232,6 @@ export default function SeminarApplyForm() {
 
           {/* ④ 동의 */}
           <Step n={4} title="동의" />
-          <Consent on={Boolean(v.consentRequired && v.consentAds && v.wantsConsult)}
-            mixed={Boolean(v.consentRequired || v.consentAds || v.wantsConsult) && !Boolean(v.consentRequired && v.consentAds && v.wantsConsult)}
-            onToggle={() => {
-              const all = !Boolean(v.consentRequired && v.consentAds && v.wantsConsult);
-              setV((p) => ({ ...p, consentRequired: all, consentAds: all, wantsConsult: all }));
-            }} strong>
-            전체 동의 <span style={{ fontWeight: 400, color: C.ink3 }}>(선택 항목·1:1 상담 포함)</span>
-          </Consent>
           <Consent on={Boolean(v.consentRequired)} onToggle={() => set("consentRequired")(!v.consentRequired)} strong>
             [필수] 개인정보 수집·이용
             <button type="button" onClick={(e) => { e.preventDefault(); setShowPolicy((x) => !x); }}
@@ -253,7 +245,6 @@ export default function SeminarApplyForm() {
               <Row k="선택 항목">{COLLECT_OPTIONAL} — {PURPOSE_OPTIONAL}</Row>
               <Row k="보유 기간">{retention.required}</Row>
               <Row k="거부 권리">{REFUSAL_NOTICE}</Row>
-              <Row k="광고 수신">{PURPOSE_ADS} · {retention.ads}</Row>
               <div style={{ height: 8 }} />
               <Row k="운영자">{ORG_DEFAULT.legalName}</Row>
               <Row k="보호책임자">{ORG_DEFAULT.repName}</Row>
@@ -262,16 +253,6 @@ export default function SeminarApplyForm() {
               <Row k="문의">{ORG_DEFAULT.contactEmail} · {ORG_DEFAULT.contactPhone}</Row>
             </div>
           )}
-          <Consent on={Boolean(v.consentAds)} onToggle={() => set("consentAds")(!v.consentAds)}>
-            [선택] 세미나·프로그램 광고 이메일 수신
-          </Consent>
-          <Consent on={Boolean(v.wantsConsult)} onToggle={() => set("wantsConsult")(!v.wantsConsult)}>
-            [선택] 별도 1:1 상담 요청 (담당자 연락)
-          </Consent>
-          <p style={{ fontSize: 11, lineHeight: 1.6, color: C.ink3, margin: "3px 0 0" }}>
-            선택 항목에 동의하지 않아도 신청·선정에 불이익이 없습니다.
-          </p>
-
           {/* 사람이 채우지 않는 미끼 입력 */}
           <input tabIndex={-1} autoComplete="off" aria-hidden="true" value={v.trap ?? ""}
             onChange={(e) => set("trap")(e.target.value)}

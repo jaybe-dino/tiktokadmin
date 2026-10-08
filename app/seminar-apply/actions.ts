@@ -50,7 +50,7 @@ export async function submitSeminarApplyAction(
   utm: { source?: string; medium?: string; campaign?: string; campaignId?: string } = {},
 ): Promise<SubmitPublicResult> {
   // 공개 경로에서는 is_test 를 받지 않는다 — 합성 표시는 관리자 쪽에서만 붙인다.
-  const r = await submitApplication(input, {
+  const r = await submitApplication({ ...input, consentAds: false, wantsConsult: false }, {
     ip: await clientIp(),
     utmSource: utm.source, utmMedium: utm.medium,
     utmCampaign: utm.campaign, campaignId: utm.campaignId,

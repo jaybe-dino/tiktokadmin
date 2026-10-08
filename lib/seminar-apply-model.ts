@@ -264,7 +264,7 @@ export const LIMITED_SEATS_NOTE =
   "한정 참석 — 회차별로 정해진 인원만 선정합니다.";
 
 export const SELECTION_CRITERIA =
-  "적어 주신 질문·해결과제가 세미나 주제와 얼마나 맞는지, 현재 해외진출 단계, 그리고 회차별 참여 구성을 함께 보고 선정합니다. 광고성 정보 수신 동의 여부는 선정에 쓰지 않습니다.";
+  "적어 주신 질문·해결과제가 세미나 주제와 얼마나 맞는지, 현재 해외진출 단계, 그리고 회차별 참여 구성을 함께 보고 선정합니다.";
 
 export const CONSENT_REQUIRED_LABEL = "개인정보 수집·이용에 동의합니다. (필수)";
 export const CONSENT_OPTIONAL_LABEL = "선택 정보 수집·이용에 동의합니다. (선택)";
@@ -276,12 +276,12 @@ export const CONSULT_LABEL =
 /** 수집 항목 안내 — 필수/선택을 나눠 적는다. */
 export const COLLECT_REQUIRED =
   "희망 회차, 회사명, 브랜드명(미보유 여부), 담당자명, 직무, 업무 이메일, 연락처, 상품 카테고리, 현재 해외진출 단계, 희망 국가, 세미나 질문·해결과제";
-export const COLLECT_OPTIONAL = "공식 URL, 매출 구간, 1:1 상담 희망";
+export const COLLECT_OPTIONAL = "공식 URL, 매출 구간";
 export const PURPOSE_REQUIRED = "세미나 회차 배정, 선정 심사, 선정 결과·접속 링크 안내";
-export const PURPOSE_OPTIONAL = "세미나 내용 구성과 상담 준비를 위한 참고";
+export const PURPOSE_OPTIONAL = "세미나 내용 구성을 위한 참고";
 export const PURPOSE_ADS = "이후 세미나·프로그램 등 광고성 정보 이메일 발송";
 export const REFUSAL_NOTICE =
-  "동의를 거부하실 수 있습니다. 필수 항목에 동의하지 않으시면 회차 배정과 선정 안내가 불가능해 신청을 받을 수 없습니다. 선택 항목과 광고성 정보 수신에 동의하지 않아도 신청과 선정에 불이익이 없습니다.";
+  "동의를 거부하실 수 있습니다. 필수 항목에 동의하지 않으시면 회차 배정과 선정 안내가 불가능해 신청을 받을 수 없습니다. 선택 항목을 입력하지 않아도 신청과 선정에 불이익이 없습니다.";
 
 // ── 보유기간 ─────────────────────────────────────────────────
 //   기존 처리방침(glovek.space/privacy)에는 세미나 전용 보유기간이 없다.
