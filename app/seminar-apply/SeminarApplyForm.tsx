@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { publicSessionsAction, submitSeminarApplyAction, type PublicSessionView } from "./actions";
 import {
   PROGRAM_TITLE, PROGRAM_TAGLINE, SESSION_TIME_NOTE, SAME_PROGRAM_NOTE, INTRO_PARAGRAPH,
-  LIMITED_SEATS_NOTE, JOB_ROLES, PRODUCT_CATEGORIES, OVERSEAS_STAGES, TARGET_COUNTRIES,
+  JOB_ROLES, PRODUCT_CATEGORIES, OVERSEAS_STAGES, TARGET_COUNTRIES,
   REVENUE_BANDS, CONSENT_REQUIRED_LABEL, CONSENT_ADS_LABEL, CONSULT_LABEL,
   COLLECT_REQUIRED, COLLECT_OPTIONAL, PURPOSE_REQUIRED, PURPOSE_OPTIONAL, PURPOSE_ADS,
   REFUSAL_NOTICE, SELECTION_CRITERIA, NOT_CONFIRMED_NOTICE, APPLY_DONE_NOTICE,
@@ -294,20 +294,9 @@ export default function SeminarApplyForm() {
             <b>선정 기준</b> · {SELECTION_CRITERIA}
           </p>
           <p style={{ fontSize: 12.5, lineHeight: 1.85, color: C.ink3, margin: "8px 0 0" }}>
-            신청은 인원 제한 없이 받습니다. 접수 순서로 자리가 정해지지 않습니다.
+            신청은 인원 제한 없이 받으며, 선착순이 아닌 선정 방식으로 진행합니다.
+            날짜 카드의 남은 자리는 <b>실제 선정 현황</b>을 기준으로 표시됩니다.
           </p>
-        </div>
-
-        {/* ── 한정 참석 ── */}
-        <div style={{ ...card, display: "flex", gap: 12, alignItems: "flex-start", padding: "17px 18px" }}>
-          <div style={{ fontSize: 20, lineHeight: 1.1 }}>🎟️</div>
-          <div>
-            <div style={{ fontWeight: 900, fontSize: 14.5, color: C.ink, letterSpacing: "-.02em" }}>{LIMITED_SEATS_NOTE}</div>
-            <div style={{ fontSize: 12.5, lineHeight: 1.8, color: C.ink3, marginTop: 4 }}>
-              회차마다 선정 인원이 정해져 있어 모든 신청자가 참석하실 수는 없습니다.
-              날짜 카드의 남은 자리는 <b>실제 선정 현황</b>을 그대로 보여 드립니다.
-            </div>
-          </div>
         </div>
 
         <div style={{ textAlign: "center", fontSize: 11.5, color: C.ink3, paddingTop: 6 }}>
