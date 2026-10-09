@@ -6,7 +6,7 @@
 //     · 외부 요청이 보낸 행사 id · 공유 id 를 믿지 않는다. 세션이 가리키는 행사만 읽는다.
 //     · 외부 경로에서 수정·삭제를 하지 않는다(쓰기 쿼리는 세션 기록과 시도 기록뿐).
 //     · 접속자 IP 를 저장하지 않는다 — 시도 횟수만 센다.
-import { excludeOptedOut } from "@/lib/export-privacy";
+import { excludeOptedOut } from "./export-privacy";
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { query, queryOne, tx } from "./db";

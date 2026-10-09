@@ -60,12 +60,25 @@ describe.skipIf(!process.env.SEV_TEST_DB_URL)("세미나 모집 허브 (PostgreS
   beforeAll(async () => {
     await ctx.pool.query(`
       DROP TABLE IF EXISTS sev_share_attempts, sev_share_sessions, sev_shares,
-        sev_reg_events, sev_registrations, sev_events, sev_files, admin_users, brands CASCADE;
+        sev_reg_events, sev_registrations, sev_events, sev_files,
+        ad_optouts, ad_recipients, admin_users, brands CASCADE;
       CREATE TABLE admin_users(id text PRIMARY KEY, name text, active boolean);
       INSERT INTO admin_users VALUES ('${ACTOR}','TEST 직원', true);
       -- 브랜드 원장이 건드려지지 않는지 보기 위한 합성 표.
-      CREATE TABLE brands(id serial PRIMARY KEY, brand_name text, updated_at timestamptz DEFAULT now());
+      --   내보내기가 전체 수신거부를 다시 확인하므로 그 칼럼들도 함께 둔다.
+      CREATE TABLE brands(id serial PRIMARY KEY, brand_name text,
+        email text NOT NULL DEFAULT '', phone text NOT NULL DEFAULT '',
+        msg_opt_out boolean NOT NULL DEFAULT false,
+        updated_at timestamptz DEFAULT now());
       INSERT INTO brands (brand_name) VALUES ('TEST 기존브랜드');
+      -- 발송제외 명단 — 내보내기는 이 표를 반드시 읽는다(없으면 fail closed 로 중단된다).
+      --   0098 원본은 brands.id 가 uuid 인 운영 스키마를 전제하므로, 여기서는
+      --   같은 칼럼 구성의 최소 표만 만든다(이 테스트의 brands.id 는 serial 이다).
+      CREATE TABLE ad_recipients(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        email text NOT NULL DEFAULT '', phone text NOT NULL DEFAULT '', brand_id int);
+      CREATE TABLE ad_optouts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        purpose text NOT NULL DEFAULT 'marketing', kind text NOT NULL, addr text NOT NULL,
+        brand_id int, recipient_id uuid REFERENCES ad_recipients(id));
     `);
     // 실제 마이그레이션 파일을 그대로 적용한다(파일과 코드가 어긋나면 여기서 터진다).
     await ctx.pool.query(readFileSync(new URL("../migrations/0109_seminar_events.sql", import.meta.url), "utf8"));

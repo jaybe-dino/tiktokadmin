@@ -234,13 +234,27 @@ describe("개인정보", () => {
     expect(s).toContain("org_biz_no text NOT NULL DEFAULT ''");
   });
 
-  it("동의 체크는 모두 꺼진 상태로 시작한다", () => {
+  it("광고성 정보 수신 동의를 임의로 켜지 않는다", () => {
     const f = code(PUBLIC_FORM);
-    // 초기 상태에 어떤 동의도 true 로 두지 않는다.
-    expect(f).toContain("useState<SapFormInput>({ targetCountries: [] })");
-    expect(f).not.toMatch(/consent\w*:\s*true/);
+    // 공개 폼은 현재 광고 수신 동의를 받지 않는다 — 체크칸이 없다.
+    //   받지 않는 동의를 코드가 대신 true 로 세우면 받은 적 없는 동의가 저장된다.
+    //   광고 수신 동의를 미리 켜 두는 것은 정보통신망법 제50조 위반이기도 하다.
+    expect(f).not.toMatch(/consentAds:\s*true/);
     expect(f).not.toMatch(/wantsConsult:\s*true/);
-    expect(f).toContain("Boolean(v.consentRequired)");
+    // 체크칸을 다시 넣을 때는 반드시 꺼진 상태로 시작해야 한다.
+    if (f.includes("v.consentAds")) {
+      expect(f).not.toMatch(/useState<SapFormInput>\([^)]*consentAds:\s*true/);
+    }
+  });
+
+  it("동의 상태는 신청자가 끌 수 있다(읽기 전용으로 고정하지 않는다)", () => {
+    const f = code(PUBLIC_FORM);
+    // 미리 켜 두더라도 해제할 수 있어야 한다 — disabled/readOnly 로 잠그지 않는다.
+    const i = f.indexOf("function Consent");
+    const body = f.slice(i, i + 900);
+    expect(body).toContain("onChange={onToggle}");
+    expect(body).not.toContain("disabled");
+    expect(body).not.toContain("readOnly");
   });
 
   it("중복 응답에 기존 신청자 정보를 담지 않는다", () => {
