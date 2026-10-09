@@ -95,7 +95,15 @@ export async function notifyNewLead(brandId: string, opts: NotifyLeadOpts = {}):
   if (b.category) detail.push(`🏷️ ${b.category}`);
   if (b.brand_url) detail.push(`🔗 ${b.brand_url}`);
 
-  const srcBits = [opts.channelName, b.source].filter(Boolean).join(" · ") || "직접 유입";
+  // 유입 루트 이름과 source 키를 섞지 않고 따로 적는다 — 어느 쪽이 키인지 보이게.
+  //   leadhook 의 채널 인증키(intake_channels.key)는 넣지 않는다. 그 값을 알면
+  //   누구나 리드를 밀어 넣을 수 있어 Slack 에 남길 값이 아니다.
+  const routeName = (opts.channelName ?? "").trim();
+  const sourceKey = (b.source ?? "").trim();
+  const srcBits = [
+    routeName || (sourceKey ? "" : "직접 유입"),
+    `source: ${sourceKey ? `\`${sourceKey}\`` : "_미지정_"}`,
+  ].filter(Boolean).join(" · ");
   const headline = opts.created === false ? "♻️ 리드 갱신(기존 브랜드)" : "🆕 신규 리드 유입";
 
   const blocks: Block[] = [
