@@ -26,6 +26,28 @@ async function call(method: string, payload: Record<string, unknown>): Promise<R
   return json;
 }
 
+// ── 채널 일시 중지 ───────────────────────────────────────────
+//   SLACK_MUTED_CHANNELS 에 적은 채널로는 보내지 않는다. 쉼표로 여러 개.
+//   채널 키(daily, sla …)와 실제 채널 값(#glovek-daily, C01234…) 둘 다 쓸 수 있다.
+//
+//   "해결한 채널"로도 검사하는 이유: sla·forms 는 전용 채널이 없으면 daily 로 흘러간다.
+//   키만 보고 막으면 그 우회 경로가 그대로 남아 멈춘 채널에 계속 글이 올라간다.
+//
+//   멈춘 동안 알림은 버려진다 — 쌓아 뒀다 나중에 몰아 보내지 않는다.
+function normChannel(v: string): string {
+  return v.trim().toLowerCase().replace(/^#/, "");
+}
+function mutedList(): string[] {
+  return (process.env.SLACK_MUTED_CHANNELS ?? "")
+    .split(",").map(normChannel).filter(Boolean);
+}
+/** 이 채널(또는 채널 키)로 보내는 것이 멈춰 있는지. */
+export function isChannelMuted(channelOrKey: string): boolean {
+  const v = normChannel(channelOrKey ?? "");
+  if (!v) return false;
+  return mutedList().includes(v);
+}
+
 export interface PostArgs {
   channelKey?: string; // intake|onboard|ads|pay|leads|daily
   channelId?: string;
@@ -34,9 +56,17 @@ export interface PostArgs {
   threadTs?: string;
 }
 
-export async function slackPost(args: PostArgs): Promise<{ ok: boolean; ts?: string; channel?: string }> {
+export interface PostResult { ok: boolean; ts?: string; channel?: string; muted?: boolean }
+
+export async function slackPost(args: PostArgs): Promise<PostResult> {
   const channel = args.channelId ?? slackChannel(args.channelKey ?? "");
   if (!channel) return { ok: false };
+  // 키와 해결된 채널 양쪽으로 확인한다(폴백으로 들어오는 경로까지 막기 위해).
+  if (isChannelMuted(args.channelKey ?? "") || isChannelMuted(channel)) {
+    // 본문은 남기지 않는다 — 어느 채널이 멈춰 있는지만.
+    console.warn(`[slack] 채널 일시 중지 → 보내지 않음 (${channel})`);
+    return { ok: false, muted: true, channel };
+  }
   const r = await call("chat.postMessage", {
     channel,
     text: args.text ?? "",
@@ -47,6 +77,10 @@ export async function slackPost(args: PostArgs): Promise<{ ok: boolean; ts?: str
 }
 
 export async function slackUpdate(channel: string, ts: string, args: { text?: string; blocks?: Block[] }): Promise<void> {
+  if (isChannelMuted(channel)) {
+    console.warn(`[slack] 채널 일시 중지 → 수정하지 않음 (${channel})`);
+    return;
+  }
   await call("chat.update", { channel, ts, text: args.text ?? "", blocks: args.blocks });
 }
 
