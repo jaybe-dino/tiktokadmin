@@ -58,6 +58,7 @@ interface LeadBrandRow {
   brand_name: string; contact_name: string | null;
   email: string | null; phone: string | null;
   category: string | null; brand_url: string | null; source: string | null;
+  memo: string | null;
 }
 
 export interface NotifyLeadOpts {
@@ -80,10 +81,32 @@ function autoSendLines(w: NotifyLeadOpts["welcome"], reason?: string): string {
   return `⚙️ 자동안내: ${parts.join(" · ")}`;
 }
 
+/** Slack 메모 본문 길이 상한 — 섹션 블록은 3000자까지라 그 안에서 넉넉히 끊는다. */
+const MEMO_MAX = 700;
+
+/**
+ * 고객이 직접 쓴 문장을 Slack 서식으로 해석되지 않게 막는다.
+ *   `<!channel>` `<@U123>` 같은 멘션은 꺾쇠가 있어야 동작하므로 & < > 만 막으면 된다.
+ *   메모에 적힌 글자 때문에 채널 전체가 호출되는 일을 막기 위함이다.
+ */
+export function slackSafeText(raw: string): string {
+  return raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** 메모를 인용 블록으로. 비어 있으면 빈 문자열(블록을 아예 넣지 않는다). */
+export function memoBlockText(raw: string | null | undefined): string {
+  const v = (raw ?? "").trim();
+  if (!v) return "";
+  const cut = v.length > MEMO_MAX ? `${v.slice(0, MEMO_MAX)}…(생략)` : v;
+  // 줄마다 > 를 붙여 인용으로 보여준다. 빈 줄이 인용을 끊지 않게 한 줄로 이어 붙인다.
+  const quoted = slackSafeText(cut).split("\n").map((l) => `>${l}`).join("\n");
+  return `📝 *메모*\n${quoted}`;
+}
+
 /** 신규 리드 유입 알림 발송. brandId 로 상세를 조회해 leads 채널에 포스트. */
 export async function notifyNewLead(brandId: string, opts: NotifyLeadOpts = {}): Promise<void> {
   const b = await queryOne<LeadBrandRow>(
-    `SELECT brand_name, contact_name, email, phone, category, brand_url, source
+    `SELECT brand_name, contact_name, email, phone, category, brand_url, source, memo
        FROM brands WHERE id=$1`, [brandId]).catch(() => null);
   if (!b) return;
 
@@ -106,10 +129,14 @@ export async function notifyNewLead(brandId: string, opts: NotifyLeadOpts = {}):
   ].filter(Boolean).join(" · ");
   const headline = opts.created === false ? "♻️ 리드 갱신(기존 브랜드)" : "🆕 신규 리드 유입";
 
+  const memo = memoBlockText(b.memo);
+
   const blocks: Block[] = [
     { type: "header", text: { type: "plain_text", text: `${headline} — ${b.brand_name}`, emoji: true } },
     { type: "section", text: { type: "mrkdwn", text: detail.length ? detail.join("\n") : "_상세 연락처 없음_" } },
     { type: "context", elements: [{ type: "mrkdwn", text: `📥 소스: ${srcBits}` }] },
+    // 고객이 남긴 메모 — 있을 때만 넣는다(빈 블록을 만들지 않는다).
+    ...(memo ? [{ type: "section", text: { type: "mrkdwn", text: memo } } as Block] : []),
     { type: "section", text: { type: "mrkdwn", text: autoSendLines(opts.welcome, opts.autoSendReason) } },
     { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "브랜드 카드 열기", emoji: true }, url: link, style: "primary" }] },
   ];
