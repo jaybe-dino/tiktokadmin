@@ -11,10 +11,10 @@ import ImageTranslate from "@/components/ImageTranslate";
 import { fileDownloadHref } from "@/lib/onb-file-link";
 
 // ── 상수(tpartners 정합) ──
-const COUNTRIES: [string, string][] = [["US", "미국"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"]];
+const COUNTRIES: [string, string][] = [["US", "미국"], ["JP", "일본"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"]];
 const COUNTRY_NAME = Object.fromEntries(COUNTRIES);
 const READINESS: [string, string][] = [["none", "없음"], ["preparing", "준비중"], ["ready", "완료"]];
-const CURRENCIES = ["USD", "KRW", "SGD", "THB", "VND", "MYR", "PHP"];
+const CURRENCIES = ["USD", "KRW", "JPY", "SGD", "THB", "VND", "MYR", "PHP"];
 const LOGISTICS_OPTIONS: [string, string][] = [["", "선택 안 함"], ["fba", "FBA (아마존 물류)"], ["local_warehouse", "현지 물류창고 계약"], ["cross_border", "한국에서 크로스보더 배송 (동남아시아만 해당)"]];
 const COMPANY_COUNTRIES: [string, string][] = [["KR", "대한민국"], ["US", "미국"], ["SG", "싱가포르"], ["JP", "일본"], ["CN", "중국"], ["HK", "홍콩"]];
 const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", "제품 등록", "물류 계약서"];

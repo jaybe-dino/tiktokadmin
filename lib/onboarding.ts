@@ -435,10 +435,10 @@ export async function deleteProductCountry(id: string): Promise<{ ok: boolean }>
 
 // ── 입점 희망 국가(Step1 매트릭스) + 물류계약서(Step5) — onb_countries ──
 export const TIKTOK_COUNTRIES: [string, string][] = [
-  ["US", "미국"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"],
+  ["US", "미국"], ["JP", "일본"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"],
 ];
 export const READINESS: [string, string][] = [["none", "없음"], ["preparing", "준비중"], ["ready", "완료"]];
-export const CURRENCIES = ["USD", "KRW", "SGD", "THB", "VND", "MYR", "PHP"];
+export const CURRENCIES = ["USD", "KRW", "JPY", "SGD", "THB", "VND", "MYR", "PHP"];
 export const COMPANY_COUNTRIES: [string, string][] = [
   ["KR", "대한민국"], ["US", "미국"], ["SG", "싱가포르"], ["JP", "일본"], ["CN", "중국"], ["HK", "홍콩"],
 ];
