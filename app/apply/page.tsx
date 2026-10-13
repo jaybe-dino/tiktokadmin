@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import {
   currentOnbCustomer, getOrCreateApplication, getApplicationById, getSteps,
-  listOnbFiles, COMPANY_DOCS_FIELD,
+  listOnbFiles, COMPANY_DOCS_FIELD, JP_LABEL_FIELD,
   getCountries, getProducts, getProductCountries,
 } from "@/lib/onboarding";
 import ApplyForm from "./ApplyForm";
@@ -23,12 +23,15 @@ export default async function ApplyPage() {
   for (const p of products) productCountries[p.id] = await getProductCountries(p.id);
   // 회사자료(브랜드 소개서 등) 다중 첨부 — 0101 미적용이면 빈 목록으로 두고 화면에서 안내한다.
   const companyDocs = await listOnbFiles(appId, COMPANY_DOCS_FIELD).catch(() => []);
+  // 일본어 라벨 사진(BUG-50) — 일본 입점 심사용. 같은 다중 첨부 구조를 쓴다.
+  const jpLabelPhotos = await listOnbFiles(appId, JP_LABEL_FIELD).catch(() => []);
 
   return (
     <ApplyForm
       email={customer.email}
       agencyName={customer.agency_name ?? ""}
       companyDocs={companyDocs}
+      jpLabelPhotos={jpLabelPhotos}
       app={app ?? {}}
       steps={steps}
       countries={countries}

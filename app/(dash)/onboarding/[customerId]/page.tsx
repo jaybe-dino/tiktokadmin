@@ -6,7 +6,7 @@ import { queryOne } from "@/lib/db";
 import {
   getApplicationByCustomer, getApplicationById, getSteps,
   getCountries, getProducts, getProductCountries,
-  listOnbFiles, COMPANY_DOCS_FIELD,
+  listOnbFiles, COMPANY_DOCS_FIELD, JP_LABEL_FIELD,
 } from "@/lib/onboarding";
 import ReviewClient from "./ReviewClient";
 import NoAppActions from "./NoAppActions";
@@ -43,6 +43,7 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
   for (const p of products) productCountries[p.id] = await getProductCountries(p.id);
   // 회사자료(브랜드 소개서 등) 첨부 — 0101 미적용이면 빈 목록.
   const companyDocs = await listOnbFiles(appId, COMPANY_DOCS_FIELD).catch(() => []);
+  const jpLabelPhotos = await listOnbFiles(appId, JP_LABEL_FIELD).catch(() => []);
 
   return (
     <div style={{ background: "#fff", margin: "-20px -22px -64px", padding: "20px 22px 64px", minHeight: "calc(100vh - 52px)" }}>
@@ -64,6 +65,7 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
         productCountries={productCountries}
         agencyName={customer.agency_name}
         companyDocs={companyDocs}
+        jpLabelPhotos={jpLabelPhotos}
       />
     </div>
     </div>

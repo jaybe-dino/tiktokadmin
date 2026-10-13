@@ -111,10 +111,12 @@ describe("② 회사자료 다중 첨부", () => {
   const upload = read("../app/api/apply/upload/route.ts");
   const applyForm = read("../app/apply/ApplyForm.tsx");
 
-  it("회사자료 슬롯만 50MB, 다른 슬롯은 기존 10MB 를 지킨다", () => {
+  it("회사자료 슬롯은 50MB, 규격을 따로 두지 않은 슬롯은 기존 10MB 를 지킨다", () => {
     expect(COMPANY_DOCS_MAX_BYTES).toBe(50 * 1024 * 1024);
     expect(upload).toContain("const MAX = 10 * 1024 * 1024");
-    expect(upload).toContain("isCompanyDocs ? COMPANY_DOCS_MAX_BYTES : MAX");
+    // 회사자료는 전용 상한을, 규격이 따로 없는 슬롯은 MAX 를 쓴다.
+    //   (슬롯이 늘어도 이 두 갈래는 유지된다 — 문장 전체를 박아 두지 않는다)
+    expect(upload).toMatch(/const limit = isCompanyDocs \? COMPANY_DOCS_MAX_BYTES[^;]*: MAX;/);
   });
 
   it("개수 상한이 있고 그 사유를 고객에게 알려준다", () => {

@@ -9,6 +9,9 @@ import {
 import FdaListingExample from "@/components/FdaListingExample";
 import ImageTranslate from "@/components/ImageTranslate";
 import { fileDownloadHref } from "@/lib/onb-file-link";
+import {
+  JP_LABEL_FIELD, JP_LABEL_MAX_COUNT, JP_LABEL_MIN_PX, JP_LABEL_ITEMS, JP_LABEL_FORMATS,
+} from "@/lib/onb-constants";
 
 // ── 상수(tpartners 정합) ──
 const COUNTRIES: [string, string][] = [["US", "미국"], ["JP", "일본"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"]];
@@ -30,6 +33,7 @@ interface Props {
   /** 앞단 에이전시명(없으면 빈 값 = 직접 유입). 담당자가 계정 발급 때 적는다. */
   agencyName?: string;
   companyDocs?: OnbFile[];
+  jpLabelPhotos?: OnbFile[];
 }
 
 const sv = (app: Record<string, unknown>, k: string): string => (app[k] == null ? "" : String(app[k]));
@@ -125,7 +129,7 @@ export default function ApplyForm(props: Props) {
           </>}
           {active === 1 && <Step2 v={v} set={set} app={props.app} disabled={!editable} />}
           {active === 2 && <Step3 v={v} set={set} disabled={!editable} />}
-          {active === 3 && <Step4 disabled={!editable} countries={props.countries} products={props.products} productCountries={props.productCountries} onChange={() => router.refresh()} flash={flash} />}
+          {active === 3 && <Step4 disabled={!editable} countries={props.countries} products={props.products} productCountries={props.productCountries} onChange={() => router.refresh()} flash={flash} jpLabelPhotos={props.jpLabelPhotos ?? []} />}
           {active === 4 && <Step5 disabled={!editable} countries={props.countries} onChange={() => router.refresh()} flash={flash} />}
 
           {/* 누락 필수 항목 — 제출이 막힌 이유를 화면에 그대로 남긴다. */}
@@ -302,7 +306,6 @@ function Step1({ v, set, disabled, countries }: { v: Record<string, string>; set
       <Card title="⑤ 증빙 서류">
         <div style={{ display: "grid", gap: 10 }}>
           <FileField label="사업자등록증 (영문)" req field="doc_biz_reg_en" k="doc_biz_reg_en_url" {...{ v, set, disabled }} />
-          <FileField label="사업자등록증 (한글)" req field="doc_biz_reg_kr" k="doc_biz_reg_kr_url" {...{ v, set, disabled }} />
           <FileField label="법인등기부등본 (한글)" req field="doc_corp_reg_kr" k="doc_corp_reg_kr_url" {...{ v, set, disabled }} />
         </div>
       </Card>
@@ -441,8 +444,86 @@ function Step3({ v, set, disabled }: { v: Record<string, string>; set: (k: strin
 }
 
 // ══════════ Step 4 — 제품 등록 ══════════
-function Step4({ disabled, countries, products, productCountries, onChange, flash }:
-  { disabled: boolean; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]>; onChange: () => void; flash: (m: string) => void }) {
+// ── 일본어 라벨 사진(BUG-50) ────────────────────────────────
+//   일본 입점 심사용. 회사자료와 같은 다중 첨부 구조이고 규격만 다르다.
+function JpLabelPhotos({ initial, disabled }: { initial: OnbFile[]; disabled: boolean }) {
+  const [files, setFiles] = useState<OnbFile[]>(initial);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = Array.from(e.target.files ?? []);
+    if (list.length === 0) return;
+    const room = JP_LABEL_MAX_COUNT - files.length;
+    if (room <= 0) { setMsg(`최대 ${JP_LABEL_MAX_COUNT}장까지 올릴 수 있습니다.`); e.target.value = ""; return; }
+    setBusy(true); setMsg("");
+    const added: OnbFile[] = [];
+    const fails: string[] = [];
+    for (const f of list.slice(0, room)) {
+      const r = await uploadFile(JP_LABEL_FIELD, f);
+      if (r.ok && r.url) added.push({
+        id: r.url.split("/").pop() ?? "", field: JP_LABEL_FIELD, filename: f.name,
+        mime: f.type || "", size: f.size, created_by: "", created_at: new Date().toISOString(), url: r.url,
+      });
+      else fails.push(`${f.name}: ${r.error ?? "실패"}`);
+    }
+    setBusy(false);
+    e.target.value = "";
+    if (added.length) setFiles((prev) => [...added, ...prev]);
+    setMsg([
+      added.length ? `${added.length}장 업로드됨` : "",
+      list.length > room ? `${list.length - room}장은 개수 제한으로 건너뜀` : "",
+      fails.length ? `실패 ${fails.length}장 — ${fails.join(" / ")}` : "",
+    ].filter(Boolean).join(" · "));
+  };
+
+  const drop = async (id: string) => {
+    setBusy(true); setMsg("");
+    const r = await removeCompanyDocAction(id);   // 같은 신청서의 첨부만 지운다(파일 id 기준)
+    setBusy(false);
+    if (r.ok) { setFiles((prev) => prev.filter((f) => f.id !== id)); setMsg("삭제되었습니다."); }
+    else setMsg(r.error ?? "삭제하지 못했습니다.");
+  };
+
+  const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`);
+
+  return (
+    <Card title="🇯🇵 제품 및 포장에 일본어로 표시된 라벨 사진"
+      desc="일본 입점 심사에 필요합니다. 아래 항목이 사진에서 읽히도록 찍어 올려주세요.">
+      <ul style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 12.5, color: "#4b5563", lineHeight: 1.9 }}>
+        {JP_LABEL_ITEMS.map((t) => <li key={t}>{t}</li>)}
+      </ul>
+      {!disabled && (
+        <div style={{ display: "grid", gap: 6 }}>
+          <input data-testid="jp-label-input" type="file" multiple disabled={busy}
+            accept=".pdf,.jpg,.jpeg,.png" onChange={pick} style={{ fontSize: 13 }} />
+          <div style={{ fontSize: 11.5, color: "#8b93a1" }}>
+            {JP_LABEL_FORMATS} · 1~<b>{JP_LABEL_MAX_COUNT}</b>장 · 파일당 <b>5MB</b> 이하 ·
+            최소 <b>{JP_LABEL_MIN_PX} × {JP_LABEL_MIN_PX}px</b>
+          </div>
+        </div>
+      )}
+      {busy && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>업로드 중…</div>}
+      {msg && <div data-testid="jp-label-msg" style={{ fontSize: 12, color: msg.includes("실패") || msg.includes("못") || msg.includes("제한") ? "#e03131" : "#0b7a52", marginTop: 6 }}>{msg}</div>}
+
+      <div data-testid="jp-label-list" style={{ marginTop: 10, display: "grid", gap: 6 }}>
+        {files.length === 0 && <div style={{ fontSize: 12.5, color: "#9ca3af" }}>올린 사진이 없습니다.</div>}
+        {files.map((f) => (
+          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #e2e6eb", borderRadius: 10, padding: "7px 10px" }}>
+            <span style={{ fontSize: 13, color: "#111", wordBreak: "break-all" }}>{f.filename}</span>
+            <span style={{ fontSize: 11.5, color: "#8b93a1" }}>{kb(f.size)}</span>
+            <a href={fileDownloadHref(f.url)} download={f.filename} style={{ marginLeft: "auto", fontSize: 12, color: ACC, fontWeight: 600 }}>내려받기</a>
+            {!disabled && <button type="button" disabled={busy} onClick={() => drop(f.id)}
+              style={{ fontSize: 11.5, border: "1px solid #e2e6eb", background: "#fff", borderRadius: 7, padding: "2px 8px", cursor: "pointer", color: "#e03131" }}>삭제</button>}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function Step4({ disabled, countries, products, productCountries, onChange, flash, jpLabelPhotos }:
+  { disabled: boolean; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]>; onChange: () => void; flash: (m: string) => void; jpLabelPhotos: OnbFile[] }) {
   const [draft, setDraft] = useState<Partial<Product>>({});
   if (countries.length === 0) return <Banner tone="warn">Step 1에서 입점 희망 국가를 먼저 선택해주세요. 국가별 단가/인증/상세페이지를 국가 단위로 구성합니다.</Banner>;
   async function add() {
@@ -450,8 +531,11 @@ function Step4({ disabled, countries, products, productCountries, onChange, flas
     const r = await addProductAction(draft); if (r.ok) { setDraft({}); onChange(); flash("제품이 추가되었습니다."); } else flash(r.error ?? "추가 실패");
   }
   async function del(id: string) { if (!confirm("이 제품을 삭제할까요?")) return; const r = await deleteProductAction(id); if (r.ok) { onChange(); flash("삭제되었습니다."); } }
+  const wantsJp = countries.some((c) => c.country_code === "JP");
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      {/* 일본 입점을 고른 경우에만 — 일본어 라벨은 일본 심사에서만 쓴다(BUG-50). */}
+      {wantsJp && <JpLabelPhotos initial={jpLabelPhotos} disabled={disabled} />}
       {!disabled && (
         <Card title="➕ 제품 추가">
           <Grid cols={4}>
@@ -649,7 +733,13 @@ function FileField({ label, req, field, k, v, set, disabled }: { label: string; 
       {label} {req && <span style={{ color: "#e03131" }}>*</span>} <span style={{ color: "#9ca3af", fontWeight: 400 }}>PDF/JPG/PNG · 10MB</span>
       <input type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={disabled || busy} onChange={onPick} style={{ display: "block", marginTop: 5, fontSize: 13 }} />
       {busy && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>업로드 중…</div>}
-      {url && !busy && <div style={{ fontSize: 12, color: "#0b7a52", marginTop: 3 }}>✓ 업로드됨 · <a href={url} target="_blank" rel="noreferrer" style={{ color: ACC }}>보기</a></div>}
+      {url && !busy && (
+        <div style={{ fontSize: 12, color: "#0b7a52", marginTop: 3 }}>
+          ✓ 업로드됨 · <a href={url} target="_blank" rel="noreferrer" style={{ color: ACC }}>보기</a>
+          {" · "}
+          <a href={fileDownloadHref(url)} download style={{ color: ACC }}>내려받기</a>
+        </div>
+      )}
       {err && <div style={{ fontSize: 12, color: "#e03131", marginTop: 3 }}>{err}</div>}
     </label>
   );

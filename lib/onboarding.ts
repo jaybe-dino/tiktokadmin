@@ -196,7 +196,8 @@ const STEP_REQUIRED: Record<number, { col: string; label: string }[]> = {
     { col: "ubo_full_name", label: "대표자 성명(영문)" },
     { col: "ubo_title", label: "대표자 직책" },
     { col: "doc_biz_reg_en_url", label: "사업자등록증(영문)" },
-    { col: "doc_biz_reg_kr_url", label: "사업자등록증(한글)" },
+    // 사업자등록증(한글)은 받지 않는다(BUG-47). 칼럼과 과거 제출분은 그대로 두고
+    //   제출 조건에서만 뺀다 — 이미 올린 신청서가 미제출로 되돌아가지 않게.
     { col: "doc_corp_reg_kr_url", label: "법인등기부등본(한글)" },
   ],
   2: [{ col: "ubo_signature_data", label: "수권서(LOA) 서명" }],
@@ -207,6 +208,11 @@ const STEP_REQUIRED: Record<number, { col: string; label: string }[]> = {
   4: [], // 제품은 별도 테이블 — 아래에서 건수로 확인
   5: [], // 물류 계약서는 국가·시점에 따라 달라 제출 조건으로 두지 않는다
 };
+
+/** 그 단계의 필수 항목 라벨(화면 안내·검수용). 조건이 바뀌면 여기로 드러난다. */
+export function STEP_REQUIRED_LABELS(stepNo: number): string[] {
+  return (STEP_REQUIRED[stepNo] ?? []).map((r) => r.label);
+}
 
 /** 해당 단계에서 아직 비어 있는 필수 항목 라벨 목록. 빈 배열이면 제출 가능. */
 export async function missingRequired(applicationId: string, stepNo: number): Promise<string[]> {
@@ -530,11 +536,12 @@ export async function saveOnbFile(applicationId: string, field: string, filename
     return { ok: true, id: r!.id, url: `/api/apply/file/${r!.id}` };
   } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "업로드 실패" }; }
 }
-/** 회사자료(브랜드 소개서 등) 다중 첨부용 필드 키 — 이 키만 여러 개를 담는다. */
-export const COMPANY_DOCS_FIELD = "company_docs";
-/** 회사자료 1개 최대 용량(50MB). 다른 슬롯(신분증·등기부 등)은 기존 10MB 를 유지한다. */
-export const COMPANY_DOCS_MAX_BYTES = 50 * 1024 * 1024;
-export const COMPANY_DOCS_MAX_COUNT = 20;
+// 첨부 슬롯 규격은 공개 신청서(클라이언트)와 함께 쓰므로 DB 없는 모듈에 두고 여기서 다시 내보낸다.
+export {
+  COMPANY_DOCS_FIELD, COMPANY_DOCS_MAX_BYTES, COMPANY_DOCS_MAX_COUNT,
+  JP_LABEL_FIELD, JP_LABEL_MAX_BYTES, JP_LABEL_MAX_COUNT, JP_LABEL_MIN_PX,
+  JP_LABEL_ITEMS, JP_LABEL_FORMATS,
+} from "./onb-constants";
 
 export interface OnbFileRow { id: string; field: string; filename: string; mime: string; size: number; created_by: string; created_at: string; url: string }
 

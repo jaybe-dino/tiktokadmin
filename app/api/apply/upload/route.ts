@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   currentOnbCustomer, getOrCreateApplication, saveOnbFile, listOnbFiles,
   COMPANY_DOCS_FIELD, COMPANY_DOCS_MAX_BYTES, COMPANY_DOCS_MAX_COUNT,
+  JP_LABEL_FIELD, JP_LABEL_MAX_BYTES, JP_LABEL_MAX_COUNT,
 } from "@/lib/onboarding";
 
 export const runtime = "nodejs";
@@ -28,16 +29,21 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) return NextResponse.json({ ok: false, error: "파일이 없습니다." }, { status: 400 });
 
   const isCompanyDocs = field === COMPANY_DOCS_FIELD;
-  const limit = isCompanyDocs ? COMPANY_DOCS_MAX_BYTES : MAX;
+  // 일본어 라벨 사진 — 여러 장을 담되 규격(5MB·10장)이 회사자료와 다르다.
+  const isJpLabel = field === JP_LABEL_FIELD;
+  const limit = isCompanyDocs ? COMPANY_DOCS_MAX_BYTES : isJpLabel ? JP_LABEL_MAX_BYTES : MAX;
   if (file.size > limit) {
     return NextResponse.json({ ok: false, error: `${mb(limit)} 이하만 가능합니다(올린 파일 ${mb(file.size)}).` }, { status: 400 });
   }
-  if (isCompanyDocs) {
-    // 무한정 쌓이지 않게 개수만 제한한다(지운 파일은 세지 않는다).
-    const have = await listOnbFiles(appId, COMPANY_DOCS_FIELD).catch(() => []);
-    if (have.length >= COMPANY_DOCS_MAX_COUNT) {
+  // 여러 장을 담는 슬롯은 무한정 쌓이지 않게 개수를 제한한다(지운 파일은 세지 않는다).
+  const multi = isCompanyDocs ? { field: COMPANY_DOCS_FIELD, max: COMPANY_DOCS_MAX_COUNT }
+    : isJpLabel ? { field: JP_LABEL_FIELD, max: JP_LABEL_MAX_COUNT }
+    : null;
+  if (multi) {
+    const have = await listOnbFiles(appId, multi.field).catch(() => []);
+    if (have.length >= multi.max) {
       return NextResponse.json(
-        { ok: false, error: `최대 ${COMPANY_DOCS_MAX_COUNT}개까지 올릴 수 있습니다 — 기존 파일을 지운 뒤 다시 시도해주세요.` },
+        { ok: false, error: `최대 ${multi.max}개까지 올릴 수 있습니다 — 기존 파일을 지운 뒤 다시 시도해주세요.` },
         { status: 400 });
     }
   }

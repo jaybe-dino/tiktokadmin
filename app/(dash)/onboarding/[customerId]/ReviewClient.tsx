@@ -15,6 +15,7 @@ interface Props {
   steps: Step[]; countries: Country[]; products: Product[]; productCountries: Record<string, ProductCountry[]>;
   agencyName?: string;
   companyDocs?: CompanyDoc[];
+  jpLabelPhotos?: CompanyDoc[];
 }
 
 const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", "제품 등록", "물류 계약서"];
@@ -201,6 +202,23 @@ export default function ReviewClient(props: Props) {
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {/* 일본어 라벨 사진(BUG-50) — 올라온 것이 있을 때만 보여준다. */}
+      {(props.jpLabelPhotos?.length ?? 0) > 0 && (
+        <div className="card" style={{ padding: 14, marginTop: 12 }}>
+          <div style={{ color: "var(--ink2)", fontSize: 11, marginBottom: 4 }}>
+            🇯🇵 일본어 라벨 사진 {props.jpLabelPhotos!.length}장 (클릭하면 바로 다운로드)
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.8 }}>
+            {props.jpLabelPhotos!.map((d) => (
+              <li key={d.id}>
+                <FileLink url={d.url} name={d.filename} label={d.filename} />
+                <span style={{ color: "var(--ink2)", fontSize: 11, marginLeft: 6 }}>{kb(d.size)} · {d.created_at.slice(0, 16).replace("T", " ")}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
