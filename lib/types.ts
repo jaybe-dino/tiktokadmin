@@ -104,6 +104,7 @@ export type OwnerField = "owner_intake" | "owner_sales" | "owner_onboard" | "own
 
 /** brands 행 (읽기 모델). DB 컬럼과 1:1. */
 export interface Brand {
+  revenue_estimate?: unknown; // AI estimate; never a verified financial figure.
   id: string;
   brand_name: string;
   brand_name_en: string;

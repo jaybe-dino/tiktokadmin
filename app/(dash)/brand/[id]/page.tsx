@@ -23,6 +23,7 @@ import CustomerEmails from "@/components/CustomerEmails";
 import { listBrandComms } from "@/lib/email-link";
 import Brand360Tabs, { type Brand360Tab } from "@/components/Brand360Tabs";
 import BrandIntroPanel from "@/components/BrandIntroPanel";
+import BrandRevenueCard from "@/components/BrandRevenueCard";
 import BrandPmHeader from "@/components/BrandPmHeader";
 import BrandPmV2Panel from "@/components/BrandPmV2Panel";
 import TabJumpButton from "@/components/TabJumpButton";
@@ -545,6 +546,8 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
       </div>
+
+      <BrandRevenueCard value={brand.revenue_estimate} />
 
       {/* ===== 상단 PM 요약 ===== */}
       <BrandPmHeader summary={pmHeader} />
