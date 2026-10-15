@@ -1,7 +1,7 @@
 import { beforeEach,describe,expect,it,vi } from "vitest";
 const mocks=vi.hoisted(()=>({query:vi.fn(),queryOne:vi.fn(),client:vi.fn(),estimate:vi.fn()}));
 vi.mock("../lib/db",()=>({query:mocks.query,queryOne:mocks.queryOne,tx:async(fn:any)=>fn({query:mocks.client})}));
-vi.mock("../lib/brand-revenue-ai",()=>({estimateBrandRevenue:mocks.estimate}));
+vi.mock("../lib/brand-revenue-ai",()=>({estimateBrandRevenue:mocks.estimate,revenueErrorCode:()=>"AI_RESEARCH_FAILED"}));
 import {requestBrandRevenue,runRevenueJobs} from "../lib/brand-revenue-jobs";
 beforeEach(()=>{vi.clearAllMocks();mocks.query.mockResolvedValue([]);mocks.queryOne.mockResolvedValue({brand_name:"예시",brand_url:"",company_name:null});mocks.estimate.mockResolvedValue({status:"insufficient",reason:"근거 부족"});});
 describe("durable research job ownership",()=>{

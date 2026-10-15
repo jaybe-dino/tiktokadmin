@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query, queryOne, tx } from "./db";
-import { estimateBrandRevenue, type RevenueIdentity } from "./brand-revenue-ai";
+import { estimateBrandRevenue, revenueErrorCode, type RevenueIdentity } from "./brand-revenue-ai";
 
 /** Idempotent first-arrival scheduling. Never resets completed research on duplicate leads. */
 export async function enqueueBrandRevenue(brandId: string): Promise<void> {
@@ -54,7 +54,7 @@ export async function runRevenueJobs(): Promise<{ processed: number; completed: 
       });
       return saved ? "completed" : "superseded";
     } catch (err) {
-      const code = ["AI_NOT_CONFIGURED","INVALID_REVENUE_RESULT","UNVERIFIED_REVENUE_SOURCE","INCOMPLETE_REVENUE_YEAR"].includes((err as Error)?.message) ? (err as Error).message : "AI_RESEARCH_FAILED";
+      const code = revenueErrorCode(err);
       // Provider errors may contain prompts or secrets; store a fixed diagnostic only.
       await tx(async c => {
         const failed = await c.query(`UPDATE brand_revenue_jobs SET status=$3,due_at=now()+interval '5 minutes',

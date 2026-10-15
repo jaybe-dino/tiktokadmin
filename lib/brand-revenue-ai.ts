@@ -46,15 +46,34 @@ export async function estimateBrandRevenue(identity: RevenueIdentity): Promise<R
   }
   // The existing SDK predates server-side search types; wire format is documented by Anthropic.
   const args = {
-    model: AI_MODEL, max_tokens: 1800, system: REVENUE_SYSTEM,
+    model: AI_MODEL, max_tokens: 2500, system: REVENUE_SYSTEM,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
     messages: [{ role: "user", content: JSON.stringify({ ...identity, current_year: new Date().getFullYear(), fetched_urls: fetched, untrusted_site_text: website }) }],
   } as unknown as Anthropic.MessageCreateParamsNonStreaming;
   const response = await aiClient().messages.create(args, { timeout: 42000, maxRetries: 0 });
+  if (String(response.stop_reason) === "max_tokens") throw new Error("AI_OUTPUT_TRUNCATED");
+  if (String(response.stop_reason) === "pause_turn") throw new Error("AI_SEARCH_INCOMPLETE");
   const content = response.content as unknown as Block[];
   const urls = [...fetched, ...content.flatMap(b => b.type === "web_search_tool_result" && Array.isArray(b.content)
     ? b.content.filter(s => s.type === "web_search_result" && s.url).map(s => s.url!) : [])];
   const text = content.filter(b => b.type === "text").map(b => b.text ?? "").join("\n");
   const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
-  return checkedRevenue(JSON.parse(json), urls);
+  let parsed: unknown;
+  try { parsed = JSON.parse(json); } catch { throw new Error("AI_JSON_INVALID"); }
+  return checkedRevenue(parsed, urls);
+}
+
+/** Safe diagnostic categories only; never persist provider messages/keys/prompts. */
+export function revenueErrorCode(error: unknown): string {
+  const e = error as {message?:string;status?:number;name?:string};
+  const known=["AI_NOT_CONFIGURED","INVALID_REVENUE_RESULT","UNVERIFIED_REVENUE_SOURCE","INCOMPLETE_REVENUE_YEAR","AI_OUTPUT_TRUNCATED","AI_SEARCH_INCOMPLETE","AI_JSON_INVALID"];
+  if(known.includes(e?.message??""))return e.message!;
+  if(e?.status===401)return "AI_AUTHENTICATION_FAILED";
+  if(e?.status===403)return "AI_PERMISSION_DENIED";
+  if(e?.status===429)return "AI_RATE_LIMIT";
+  if(e?.status===404&&/model/i.test(e.message??""))return "AI_MODEL_UNAVAILABLE";
+  if(e?.status===400&&/web.?search|tool/i.test(e.message??""))return "AI_WEB_SEARCH_UNAVAILABLE";
+  if(e?.status===400)return "AI_REQUEST_UNSUPPORTED";
+  if(/timeout|abort/i.test(e?.name??""))return "AI_TIMEOUT";
+  return "AI_RESEARCH_FAILED";
 }
