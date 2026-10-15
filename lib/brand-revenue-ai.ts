@@ -68,6 +68,7 @@ export function revenueErrorCode(error: unknown): string {
   const e = error as {message?:string;status?:number;name?:string};
   const known=["AI_NOT_CONFIGURED","INVALID_REVENUE_RESULT","UNVERIFIED_REVENUE_SOURCE","INCOMPLETE_REVENUE_YEAR","AI_OUTPUT_TRUNCATED","AI_SEARCH_INCOMPLETE","AI_JSON_INVALID"];
   if(known.includes(e?.message??""))return e.message!;
+  if(/credit balance|insufficient.{0,30}credit|credit.{0,30}(?:balance|exhaust|low)|billing.{0,20}(?:required|payment)/i.test(e?.message??""))return "AI_CREDIT_EXHAUSTED";
   if(e?.status===401)return "AI_AUTHENTICATION_FAILED";
   if(e?.status===403)return "AI_PERMISSION_DENIED";
   if(e?.status===429)return "AI_RATE_LIMIT";

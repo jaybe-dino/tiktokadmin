@@ -55,14 +55,15 @@ export async function runRevenueJobs(): Promise<{ processed: number; completed: 
       return saved ? "completed" : "superseded";
     } catch (err) {
       const code = revenueErrorCode(err);
+      const terminal = j.attempts>=3 || ["AI_NOT_CONFIGURED","AI_CREDIT_EXHAUSTED","AI_AUTHENTICATION_FAILED","AI_PERMISSION_DENIED","AI_MODEL_UNAVAILABLE"].includes(code);
       // Provider errors may contain prompts or secrets; store a fixed diagnostic only.
       await tx(async c => {
         const failed = await c.query(`UPDATE brand_revenue_jobs SET status=$3,due_at=now()+interval '5 minutes',
           claim_token=NULL,lease_until=NULL,last_error=$4
           WHERE brand_id=$1 AND claim_token=$2 AND status='running' RETURNING brand_id`,
-          [j.brand_id,j.claim_token,j.attempts>=3?'failed':'pending',code]);
+          [j.brand_id,j.claim_token,terminal?'failed':'pending',code]);
         if (failed.rowCount) await c.query("UPDATE brands SET revenue_estimate=$2::jsonb WHERE id=$1",
-          [j.brand_id,JSON.stringify({status:j.attempts>=3?'failed':'pending',reason:`AI 조회 실패 (${code}). 재시도 또는 설정 확인 필요`})]);
+          [j.brand_id,JSON.stringify({status:terminal?'failed':'pending',reason:`AI 조회 실패 (${code}). 재시도 또는 설정 확인 필요`})]);
       });
       return "failed";
     }
