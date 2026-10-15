@@ -1,3 +1,4 @@
+import {billingStartErrorCode} from '../../../../lib/danal/start-error';
 import {NextRequest} from 'next/server';
 import {startBrandCardRegistration} from '../../../../lib/danal/brand-billing';
 import {isAllowedDanalStartUrl} from '../../../../lib/danal/danal-start-url';
@@ -20,6 +21,6 @@ export async function POST(req:NextRequest){
  }catch(e){
   const code=e instanceof Error?e.message:'';
   const message=code==='FIRST_BILLING_DATE_PASSED'?'최초 결제 예정일이 지났습니다. 담당자에게 계약 일정 확인을 요청해 주세요.':code==='SUBSCRIPTION_ALREADY_REGISTERED_OR_HELD'?'이미 카드 등록이 진행되었거나 확인이 필요한 계약입니다. 중복 시도하지 말고 담당자에게 확인해 주세요.':'카드 등록창을 열지 못했습니다. 결제 관리 화면의 최근 시도를 확인해 주세요. 실제 승인 여부가 확인되기 전에는 반복 결제하지 마세요.';
-  return html('<h1>카드 등록 요청을 완료하지 못했습니다.</h1><p>'+message+'</p><a href="/billing-contract/'+token+'">계약 확인 화면으로 돌아가기</a>',409);
+  return html('<h1>카드 등록 요청을 완료하지 못했습니다.</h1><p>'+message+'</p><p>확인코드: '+billingStartErrorCode(e)+'</p><a href="/billing-contract/'+token+'">계약 확인 화면으로 돌아가기</a>',409);
  }
 }
