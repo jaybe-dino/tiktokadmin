@@ -35,7 +35,7 @@ export async function operatorValidationAction(input:{op:'enable'|'disable'|'con
    const {batchCall,registrationAuthFields,verifyAuth}=await import('@/lib/danal/danal-batch');
    const {randomUUID}=await import('node:crypto');const id='GKCHECK'+randomUUID().replace(/-/g,'');
    const common={orderId:id,itemName:'GloveK connection check',userId:'gk_check_'+randomUUID(),userAgent:'PC' as const,returnUrl:cfg.config.origin+'/contracts/recurring',cancelUrl:cfg.config.origin+'/contracts/recurring'};
-   const result=await batchCall(cfg.config.keys,cfg.config.relay,(url,init)=>fetch(url,{...init,redirect:'error'}),{operation:'AUTH',idempotencyKey:'glovek:connection:'+id,fields:registrationAuthFields(common)});
+   const result=await batchCall(cfg.config.keys,cfg.config.relay,(url,init)=>fetch(url,{...init,redirect:'error'}),{operation:'AUTH',idempotencyKey:'auth:glovek:connection:'+id,fields:registrationAuthFields(common)});
    const proof='unknown' in result?{kind:'unknown' as const}:verifyAuth(result.fields,{orderId:id,amount:100});
    if(proof.kind!=='success'){const code=('unknown' in result?result.unknown:proof.kind==='failed'?proof.code:'UNVERIFIED').replace(/[^A-Za-z0-9_]/g,'').slice(0,64);return {ok:false,error:'AUTH 연결 확인 실패 ('+code+'). 중계·가맹점 키를 확인해 주세요. 카드 승인 요청은 하지 않았습니다.'};}
    await query('INSERT INTO brand_billing_events(event,actor) VALUES($1,$2)',['operator_connection_auth_verified',u.id]);

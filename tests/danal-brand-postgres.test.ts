@@ -22,6 +22,9 @@ function harness(now=new Date('2027-01-31T01:00:00Z')) {
  const config={keys:parseBatchKeys('TESTCPID',KEY.toString('hex'),IV.toString('hex'))!,relay:{url:'https://relay.invalid',secret:SECRET},encryptionKey:new Uint8Array(32).fill(5),origin:'https://admin.example.test'};
  const deps:BillingDependencies={now,config,transport:async(_url,init)=>{
   const body=JSON.parse(String(init.body)),outer=new URLSearchParams(body.body),f=dec(outer.get('DATA')!);calls.push(f);
+  // Match the deployed relay's operation-scoped idempotency contract.
+  expect(body.idempotencyKey).toMatch(/^(auth|issuebillkey|otbill|delbillkey|cancel):[A-Za-z0-9:_-]{8,200}$/);
+  expect(body.idempotencyKey.startsWith(body.operation.toLowerCase()+':')).toBe(true);
   let result:Record<string,string>;
   if(f.TXTYPE==='AUTH'){
    tid='T'+randomUUID().replace(/-/g,'');state=new URL(f.RETURNURL).searchParams.get('s')!;auths.set(tid,f);

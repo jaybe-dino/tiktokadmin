@@ -91,7 +91,7 @@ export async function startBrandCardRegistration(token:string,consent:boolean,de
  let result;
  try{
   await checkScope(prepared.a.id,prepared.sub.is_operator_test,deps);
-  const call=await batchCall(deps.config.keys,deps.config.relay,deps.transport,{operation:'AUTH',idempotencyKey:`glovek:auth:${p.order_id}`,fields:p.is_bill?authFields({...common,amount:Number(p.amount),notiUrl:null}):registrationAuthFields(common)});
+  const call=await batchCall(deps.config.keys,deps.config.relay,deps.transport,{operation:'AUTH',idempotencyKey:`auth:glovek:${p.order_id}`,fields:p.is_bill?authFields({...common,amount:Number(p.amount),notiUrl:null}):registrationAuthFields(common)});
   result='unknown' in call?{kind:'unknown' as const,reason:call.unknown}:verifyAuth(call.fields,{orderId:p.order_id,amount:Number(p.amount)});
  }catch{result={kind:'unknown' as const,reason:'AUTH_UNAVAILABLE'};}
  if(result.kind!=='success'){
@@ -133,7 +133,7 @@ export async function completeBrandCardRegistration(state:string,returnParams:st
  }
  let outcome;
  try{
-  const call=await batchCall(deps.config.keys,deps.config.relay,deps.transport,{operation:'ISSUEBILLKEY',idempotencyKey:`glovek:issuebillkey:${a.order_id}`,fields:a.is_bill?issueBillKeyFields({tid:a.auth_tid,amount:Number(a.amount)}):registrationIssueBillKeyFields({tid:a.auth_tid})});
+  const call=await batchCall(deps.config.keys,deps.config.relay,deps.transport,{operation:'ISSUEBILLKEY',idempotencyKey:`issuebillkey:glovek:${a.order_id}`,fields:a.is_bill?issueBillKeyFields({tid:a.auth_tid,amount:Number(a.amount)}):registrationIssueBillKeyFields({tid:a.auth_tid})});
   outcome='unknown' in call?{kind:'unknown' as const,reason:call.unknown}:a.is_bill?verifyIssueBillKey(call.fields,{tid:a.auth_tid,orderId:a.order_id,amount:Number(a.amount)}):verifyRegistrationIssueBillKey(call.fields,{tid:a.auth_tid,orderId:a.order_id});
  }catch{outcome={kind:'unknown' as const,reason:'APPROVAL_UNAVAILABLE'};}
  if(outcome.kind!=='success'){await outcomeFailure(a,outcome.kind==='failed'?outcome.code:outcome.reason,outcome.kind==='unknown');return;}
@@ -172,7 +172,7 @@ export async function runBrandRenewals(deps=billingDependencies()) {
   let result;
   try{
    const key=await decryptSecret(deps.config.encryptionKey,p.sub.billing_key_ciphertext!,`glovek:${p.sub.id}`);
-   const call=await batchCall(deps.config.keys,deps.config.relay,deps.transport,{operation:'OTBILL',idempotencyKey:`glovek:otbill:${p.attempt.order_id}`,fields:otbillFields({orderId:p.attempt.order_id,itemName,amount:Number(p.attempt.amount),userId:p.sub.billing_user_key,billKey:key})});
+   const call=await batchCall(deps.config.keys,deps.config.relay,deps.transport,{operation:'OTBILL',idempotencyKey:`otbill:glovek:${p.attempt.order_id}`,fields:otbillFields({orderId:p.attempt.order_id,itemName,amount:Number(p.attempt.amount),userId:p.sub.billing_user_key,billKey:key})});
    result='unknown' in call?{kind:'unknown' as const,reason:call.unknown}:verifyOtbill(call.fields,{orderId:p.attempt.order_id,amount:Number(p.attempt.amount)});
   }catch{result={kind:'unknown' as const,reason:'RENEWAL_UNAVAILABLE'};}
   if(result.kind!=='success'){await outcomeFailure(p.attempt,result.kind==='failed'?result.code:result.reason,result.kind==='unknown');continue;}
