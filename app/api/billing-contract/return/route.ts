@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { completeBrandCardRegistration } from '@/lib/danal/brand-billing';
-import { brandBillingConfig } from '@/lib/danal/config';
+import { brandBillingConfig,operatorBillingConfig } from '@/lib/danal/config';
 export const runtime='nodejs';export const dynamic='force-dynamic';export const maxDuration=60;
 export async function POST(req:Request) {
- const config=brandBillingConfig();if(!config.ok)return new NextResponse('Payment unavailable',{status:503});
+ const normal=brandBillingConfig(),operator=operatorBillingConfig();const config=normal.ok?normal:operator;if(!config.ok)return new NextResponse('Payment unavailable',{status:503});
  const state=new URL(req.url).searchParams.get('s')||'';
  if(!/^[a-f0-9]{64}$/.test(state))return new NextResponse('Invalid reference',{status:400});
  // Bound both advertised and actual body size. Never log provider payloads.

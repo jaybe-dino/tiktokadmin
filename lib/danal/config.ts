@@ -19,3 +19,13 @@ export function brandBillingConfig(env:Record<string,string|undefined> = process
  if(missing.length||!keys||!encryptionKey)return {ok:false,missing};
  return {ok:true,config:{keys,relay:{url:relay,secret},encryptionKey,origin}};
 }
+/** Same merchant/relay checks, but a distinct operator gate never enables public billing. */
+export function operatorBillingConfig(env:Record<string,string|undefined> = process.env) {
+ const checked=brandBillingConfig({...env,DANAL_ENABLED:'true'});
+ if(env.DANAL_OPERATOR_TEST_ENABLED!=='true')return {ok:false as const,missing:['DANAL_OPERATOR_TEST_ENABLED',...(!checked.ok?checked.missing:[])]};
+ return checked;
+}
+/** AUTH-only diagnosis can validate encryption/relay without opening any charging path. */
+export function billingConnectionConfig(env:Record<string,string|undefined> = process.env) {
+ return brandBillingConfig({...env,DANAL_ENABLED:'true',DANAL_BILLING_CONTRACT_CONFIRMED:'true',DANAL_BATCH_STATIC_EGRESS_CONFIRMED:'true'});
+}

@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {brandBillingConfig} from '../lib/danal/config';
+import {brandBillingConfig,operatorBillingConfig,billingConnectionConfig} from '../lib/danal/config';
 import {nextBillingDate,kstDate} from '../lib/danal/schedule';
 import {authFields,otbillFields,registrationAuthFields,registrationIssueBillKeyFields,verifyIssueBillKey,verifyOtbill,verifyRegistrationIssueBillKey,parseBatchKeys,encodeRequest,decodeEncrypted} from '../lib/danal/danal-batch';
 import {encryptSecret,decryptSecret} from '../lib/danal/crypto';
@@ -8,6 +8,16 @@ const env={DANAL_ENABLED:'true',DANAL_BILLING_CONTRACT_CONFIRMED:'true',DANAL_BA
 describe('GloveK recurring configuration',()=>{
  it('does not infer recurring readiness from general card or EscapeMate flags',()=>{expect(brandBillingConfig({}).ok).toBe(false);expect(brandBillingConfig({...env,DANAL_SERVICE_CONFIRMED:'escapemate'}).ok).toBe(false);expect(brandBillingConfig({...env,DANAL_BATCH_CPID:'A010015124'}).ok).toBe(false);expect(brandBillingConfig(env).ok).toBe(true);});
  it('fails closed for every missing secret and approval',()=>{for(const key of Object.keys(env))expect(brandBillingConfig({...env,[key]:''}).ok,key).toBe(false);});
+ it('operator readiness never opens ordinary billing',()=>{
+  const test={...env,DANAL_ENABLED:'false',DANAL_OPERATOR_TEST_ENABLED:'true'};
+  expect(operatorBillingConfig(test).ok).toBe(true);expect(brandBillingConfig(test).ok).toBe(false);
+  expect(operatorBillingConfig({...test,DANAL_OPERATOR_TEST_ENABLED:'false'}).ok).toBe(false);
+ });
+ it('AUTH-only diagnosis requires real crypto and relay configuration even with billing gates closed',()=>{
+  const closed={...env,DANAL_ENABLED:'false',DANAL_BILLING_CONTRACT_CONFIRMED:'false',DANAL_BATCH_STATIC_EGRESS_CONFIRMED:'false'};
+  expect(billingConnectionConfig(closed).ok).toBe(true);expect(brandBillingConfig(closed).ok).toBe(false);
+  expect(billingConnectionConfig({...closed,DANAL_RELAY_SECRET:''}).ok).toBe(false);
+ });
  it('rejects unverified relay origins and malformed origin',()=>{for(const url of ['https://relay.escapemate.games.evil.test','https://user@relay.escapemate.games','http://relay.escapemate.games','https://relay.escapemate.games/path'])expect(brandBillingConfig({...env,DANAL_RELAY_URL:url}).ok).toBe(false);});
 });
 describe('Calendar and amount integrity',()=>{

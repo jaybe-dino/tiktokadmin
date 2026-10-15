@@ -51,13 +51,14 @@ suite('Danal GloveK isolated PostgreSQL + mock relay',()=>{
   process.env.DATABASE_URL=`postgresql://postgres@localhost:56448/postgres?host=${socket}`;
   await query('CREATE TABLE brands(id uuid PRIMARY KEY,brand_name text); CREATE TABLE contracts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),brand_id uuid REFERENCES brands(id),kind text,start_date date,end_date date,status text DEFAULT \'draft\',terms jsonb,note text);');
   await query(readFileSync('migrations/0116_recurring_contracts.sql','utf8'));await query(readFileSync('migrations/0117_danal_brand_billing.sql','utf8'));
-  await query(readFileSync('migrations/0117_danal_brand_billing.sql','utf8'));
+  await query(readFileSync('migrations/0118_danal_operator_validation.sql','utf8'));
+  await query(readFileSync('migrations/0118_danal_operator_validation.sql','utf8'));
  },30000);
  afterAll(async()=>{if(globalThis.__glovekPool){await getPool().end();globalThis.__glovekPool=undefined;}if(data)execFileSync('pg_ctl',['-D',data,'-m','fast','-w','stop'],{stdio:'ignore'});});
  beforeEach(async()=>{
   await query('DROP TRIGGER IF EXISTS test_off ON brand_billing_attempts; DROP TRIGGER IF EXISTS test_fail ON brand_billing_attempts;');
   await query('TRUNCATE brand_billing_events,brand_billing_attempts,brand_billing_subscriptions,recurring_contracts,contracts,brands CASCADE');
-  await query('UPDATE brand_billing_control SET enabled=true,renewals_enabled=true');
+  await query('INSERT INTO brand_billing_control(id,enabled,renewals_enabled) VALUES(true,true,true) ON CONFLICT(id) DO UPDATE SET enabled=true,renewals_enabled=true,operator_test_enabled=false,operator_test_contract_id=NULL');
  });
  async function agreement(first='2027-01-31'){
   const bid=randomUUID(),cid=randomUUID(),rid=randomUUID(),token=randomBytes(32).toString('hex');
@@ -127,6 +128,29 @@ suite('Danal GloveK isolated PostgreSQL + mock relay',()=>{
   await query(`CREATE OR REPLACE FUNCTION test_off_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='approving' THEN UPDATE brand_billing_subscriptions SET status='paused' WHERE id=NEW.subscription_id; END IF; RETURN NEW; END $$;
    CREATE TRIGGER test_off BEFORE UPDATE ON brand_billing_attempts FOR EACH ROW EXECUTE FUNCTION test_off_fn();`);
   await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);expect(count(h,'ISSUEBILLKEY')).toBe(0);expect((await query('SELECT status FROM brand_billing_attempts'))[0].status).toBe('blocked');
+ });
+ it('operator 301 verification works with public billing OFF and remains forever excluded from renewals',async()=>{
+  const a=await agreement(),h=harness();h.deps.operatorOnly=true;h.deps.operatorReady=true;
+  await query("UPDATE recurring_contracts SET title='[운영자검증] synthetic',monthly_amount=301,vat_mode='included' WHERE id=$1",[a.rid]);
+  await query('UPDATE brand_billing_control SET enabled=false,renewals_enabled=false,operator_test_enabled=true,operator_test_contract_id=$1',[a.rid]);
+  await startBrandCardRegistration(a.token,true,h.deps);expect(h.calls[0].AMOUNT).toBe('301');await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);
+  const [sub]=await query('SELECT * FROM brand_billing_subscriptions');expect(sub.is_operator_test).toBe(true);expect(sub.status).toBe('active');
+  expect((await query('SELECT event FROM brand_billing_events ORDER BY id DESC LIMIT 1'))[0].event).toBe('operator_301_charge_verified');
+  await query('UPDATE brand_billing_control SET enabled=true,renewals_enabled=true,operator_test_enabled=false');h.deps.operatorOnly=false;h.deps.operatorReady=false;h.deps.now=new Date('2027-02-28T01:00:00Z');
+  await runBrandRenewals(h.deps);expect(count(h,'OTBILL')).toBe(0);
+ });
+ it('operator verification cannot start a different contract or approve after being disabled',async()=>{
+  const a=await agreement(),b=await agreement(),h=harness();h.deps.operatorOnly=true;h.deps.operatorReady=true;
+  await query("UPDATE recurring_contracts SET monthly_amount=301,vat_mode='included'");
+  await query('UPDATE brand_billing_control SET enabled=false,operator_test_enabled=true,operator_test_contract_id=$1',[a.rid]);
+  await expect(startBrandCardRegistration(b.token,true,h.deps)).rejects.toThrow('REGULAR_BILLING_DISABLED');expect(h.calls).toHaveLength(0);
+  await startBrandCardRegistration(a.token,true,h.deps);await query('UPDATE brand_billing_control SET operator_test_enabled=false');
+  await expect(completeBrandCardRegistration(h.state,h.returnParams(),h.deps)).rejects.toThrow('OPERATOR_TEST_DISABLED');expect(count(h,'ISSUEBILLKEY')).toBe(0);
+ });
+ it('operator scope rejects a real monthly amount above 301 KRW before AUTH',async()=>{
+  const a=await agreement(),h=harness();h.deps.operatorOnly=true;h.deps.operatorReady=true;
+  await query('UPDATE brand_billing_control SET enabled=false,operator_test_enabled=true,operator_test_contract_id=$1',[a.rid]);
+  await expect(startBrandCardRegistration(a.token,true,h.deps)).rejects.toThrow('OPERATOR_CONTRACT_MUST_BE_301_TODAY');expect(h.calls).toHaveLength(0);
  });
  it('duplicate BILLKEY across contracts is held without deleting or charging the key again',async()=>{
   const a=await agreement(),h=harness();h.behavior.fixedKey='synthetic-shared-key';await startBrandCardRegistration(a.token,true,h.deps);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);
