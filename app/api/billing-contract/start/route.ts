@@ -1,3 +1,4 @@
+import {verifyBillingFormProof} from '../../../../lib/danal/form-proof';
 import {billingStartErrorCode} from '../../../../lib/danal/start-error';
 import {NextRequest} from 'next/server';
 import {startBrandCardRegistration} from '../../../../lib/danal/brand-billing';
@@ -9,11 +10,13 @@ const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function html(body:string,status=200){return new Response('<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GloveK 카드 등록</title><body style="font-family:sans-serif;max-width:720px;margin:48px auto;padding:20px">'+body+'</body></html>',{status,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY'}});}
 export async function POST(req:NextRequest){
  const origin=process.env.DANAL_SITE_ORIGIN;
- if(!origin||req.headers.get('origin')!==origin)return html('<h1>요청 출처를 확인하지 못했습니다.</h1><p>계약 확인 페이지를 새로 열어 진행해 주세요.</p>',403);
+ const requestOrigin=req.headers.get('origin');
+ if(!origin||(requestOrigin&&requestOrigin!=='null'&&requestOrigin!==origin))return html('<h1>요청 출처를 확인하지 못했습니다.</h1><p>계약 확인 페이지를 새로 열어 진행해 주세요.</p>',403);
  if(!req.headers.get('content-type')?.startsWith('application/x-www-form-urlencoded'))return html('<h1>지원하지 않는 요청입니다.</h1>',415);
  let text='';try{const reader=req.body?.getReader();if(!reader)return html('<h1>신청 내용이 없습니다.</h1>',400);const chunks:Uint8Array[]=[];let bytes=0;while(true){const r=await reader.read();if(r.done)break;bytes+=r.value.length;if(bytes>4096){await reader.cancel();return html('<h1>요청이 너무 큽니다.</h1>',413);}chunks.push(r.value);}text=Buffer.concat(chunks).toString('utf8');}catch{return html('<h1>요청을 읽지 못했습니다.</h1>',400);}
  const data=new URLSearchParams(text),token=data.get('token')||'';
  if(data.getAll('token').length!==1||data.getAll('consent').length!==1||!/^[a-f0-9]{64}$/.test(token)||data.get('consent')!=='yes')return html('<h1>동의 항목을 확인해 주세요.</h1><p>계약 내용 확인과 동의 체크 후 다시 진행해 주세요.</p>',400);
+ if(data.getAll('form_proof').length!==1||!verifyBillingFormProof(token,data.get('form_proof')||''))return html('<h1>계약 확인 요청이 만료되었거나 올바르지 않습니다.</h1><p>계약 확인 페이지를 새로고침한 뒤 동의하고 진행해 주세요.</p><a href="/billing-contract/'+token+'">계약 확인 화면으로 돌아가기</a>',403);
  try{
   const result=await startBrandCardRegistration(token,true);
   if(!result.url||!result.params||!isAllowedDanalStartUrl(result.url))throw new Error('CARD_WINDOW_UNAVAILABLE');

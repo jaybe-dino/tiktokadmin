@@ -1,3 +1,4 @@
+import {createBillingFormProof} from '@/lib/danal/form-proof';
 export default function CardRegistration({token,ready,chargeToday,amount,date,status,operatorTest=false}:{token:string;ready:boolean;chargeToday:boolean;amount:number;date:string;status?:string;operatorTest?:boolean}) {
  return <section style={{padding:20,background:'#f3f5ff',borderRadius:14}}><h2>{operatorTest?'운영자 301원 1회 결제 검증':'카드 등록 · 월 자동결제'}</h2>
  <p>{operatorTest?'카드 인증 완료 후 운영자 검증 금액 301원이 1회 실제 결제됩니다.':chargeToday?`카드 인증 완료 후 첫 월 이용료 ${amount.toLocaleString('ko-KR')}원이 결제됩니다.`:`카드 등록 시 임시 100원 승인이 발생하며 다날 자동취소 대상입니다. 실제 취소 확인은 카드사 내역을 확인해 주세요. 월 이용료 ${amount.toLocaleString('ko-KR')}원의 최초 청구 예정일은 ${date}입니다.`}</p>
@@ -5,6 +6,7 @@ export default function CardRegistration({token,ready,chargeToday,amount,date,st
  {status&&<p>등록 상태: {status}</p>}
  <form method="POST" action="/api/billing-contract/start">
  <input type="hidden" name="token" value={token}/>
+ <input type="hidden" name="form_proof" value={ready?createBillingFormProof(token):''}/>
  <label style={{display:'flex',gap:8,alignItems:'flex-start'}}><input type="checkbox" name="consent" value="yes" required disabled={!ready}/><span>{operatorTest?'운영자 테스트 카드의 사용 권한이 있으며, 301원 1회 실제 결제와 자동갱신 제외 조건을 확인하고 동의합니다.':'계약 내용·금액·결제 주기·해지 조건을 확인했으며, 이 브랜드의 권한 있는 담당자로서 카드 등록과 위 월 자동결제에 동의합니다.'}</span></label>
  <button type="submit" className="btn pri" style={{marginTop:14}} disabled={!ready}>{ready?(operatorTest?'301원 1회 결제 검증 진행':'동의하고 다날 카드 등록'):'카드 등록 준비 중'}</button>
  </form>
