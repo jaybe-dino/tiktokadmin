@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {billingMonthBounds,buildBillingCalendar,type CalendarContract,type CalendarAttempt} from '../lib/danal/billing-calendar';
+import {billingMonthBounds,buildBillingCalendar,buildBillingRange,validBillingDate,type CalendarContract,type CalendarAttempt} from '../lib/danal/billing-calendar';
 const contract:CalendarContract={id:'c',brand_id:'b',brand_name:'브랜드',title:'월 계약',start_date:'2026-01-01',end_date:'2027-12-31',status:'active',first_billing_date:'2026-01-31',monthly_amount:'1000',vat_mode:'excluded',subscription_id:'s',billing_status:'active',next_billing_date:'2026-02-28',is_operator_test:false,has_billing_key:true,terms_match:true};
 const control={enabled:true,renewals:true,today:'2026-02-01'};
 const attempt:CalendarAttempt={id:'a',recurring_contract_id:'c',due_date:'2026-02-28',event_date:'2026-02-28',kind:'renewal',amount:'1100',status:'paid',provider_tid:'tid',failure_code:null,completed_at:'2026-02-28 10:00:00+09'};
@@ -35,4 +35,26 @@ describe('billing calendar read model',()=>{
   expect(buildBillingCalendar([contract],[{...attempt,kind:'initial',status:'registered',amount:100}],'2026-02',control).entries.find(e=>e.source==='ledger')?.group).toBe('history');
  });
  it('rejects malformed months',()=>{for(const month of ['2026-13','2026-00','x','1999-12'])expect(()=>billingMonthBounds(month)).toThrow('INVALID_MONTH');});
+});
+
+describe('period aggregation',()=>{
+ it('aggregates partial multi-month ranges without duplicating actual payments',()=>{
+  const r=buildBillingRange([contract],[attempt],'2026-02-15','2026-04-01',control);
+  expect(r.entries).toHaveLength(2);
+  expect(r.entries.filter(e=>e.group==='paid').reduce((n,e)=>n+e.amount,0)).toBe(1100);
+  expect(r.entries.filter(e=>e.group==='scheduled').map(e=>e.day)).toEqual(['2026-03-31']);
+ });
+ it('includes approved payments on processing date rather than original due date',()=>{
+  const r=buildBillingRange([{...contract,billing_status:'paused'}],[{...attempt,event_date:'2026-03-01'}],'2026-03-01','2026-03-01',control);
+  expect(r.entries).toHaveLength(1);expect(r.entries[0].label).toBe('결제완료');expect(r.excluded).toHaveLength(1);
+ });
+ it('preserves each completed payment once over a year and excludes pending attempts',()=>{
+  const r=buildBillingRange([{...contract,billing_status:'paused'}],[attempt,{...attempt,id:'b',status:'unknown',amount:2000,event_date:'2026-03-01'}],'2026-01-01','2026-12-31',control);
+  expect(r.entries).toHaveLength(2);expect(r.entries.filter(e=>e.group==='paid').reduce((n,e)=>n+e.amount,0)).toBe(1100);expect(r.excluded).toHaveLength(1);
+ });
+ it('rejects invalid and reversed dates',()=>{
+  for(const date of ['2026-02-30','2026-10-00','2026-13-01','bad'])expect(validBillingDate(date)).toBe(false);
+  expect(validBillingDate('2028-02-29')).toBe(true);
+  expect(()=>buildBillingRange([],[],'2026-03-02','2026-03-01',control)).toThrow('INVALID_RANGE');
+ });
 });

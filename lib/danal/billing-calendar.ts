@@ -10,7 +10,7 @@ export function billingMonthBounds(month:string){
  const last=new Date(Date.UTC(y,m,0)).getUTCDate();return {from:month+'-01',to:month+'-'+last};
 }
 export function shiftBillingMonth(month:string,offset:number){billingMonthBounds(month);const [y,m]=month.split('-').map(Number);return new Date(Date.UTC(y,m-1+offset,1)).toISOString().slice(0,7);}
-const labels:Record<string,string>={paid:'결제 승인',registered:'카드 등록 · 임시 인증',ready:'카드 인증 대기',preparing:'결제창 준비',approving:'승인 확인 중',failed:'결제 실패',unknown:'승인 미확정 · 재청구 금지',expired:'인증창 만료',blocked:'청구 보류'};
+const labels:Record<string,string>={paid:'결제완료',registered:'카드 등록 · 임시 인증',ready:'카드 인증 대기',preparing:'결제창 준비',approving:'승인 확인 중',failed:'결제 실패',unknown:'승인 미확정 · 재청구 금지',expired:'인증창 만료',blocked:'청구 보류'};
 export function buildBillingCalendar(contracts:CalendarContract[],attempts:CalendarAttempt[],month:string,control:{enabled:boolean;renewals:boolean;today:string}){
  const {from,to}=billingMonthBounds(month),byId=new Map(contracts.map(c=>[c.id,c]));const entries:BillingCalendarEntry[]=[],excluded:{contract:CalendarContract;reason:string}[]=[];
  for(const a of attempts){
@@ -33,8 +33,24 @@ export function buildBillingCalendar(contracts:CalendarContract[],attempts:Calen
   if(day<c.next_billing_date||day<c.first_billing_date||day<c.start_date||day>c.end_date)continue;
   if(attempts.some(a=>a.recurring_contract_id===c.id&&a.due_date===day&&((a.kind==='renewal')||(a.kind==='initial'&&a.status==='paid'))))continue;
   const hold=!c.has_billing_key?'등록 카드 확인 필요':!c.terms_match?'계약 조건 변경 · 재확인 필요':c.next_billing_date<control.today?'지난 청구일 미처리 · 확인 필요':!control.enabled?'전체 결제 OFF':!control.renewals?'월 자동청구 OFF':'';
-  entries.push({...base,id:'cycle:'+c.id+':'+day,day,due_date:day,label:hold||'자동청구 예정',group:hold?'attention':'scheduled',type:'월 자동청구',detail:hold?'자동청구 대상으로 집계하지 않습니다.':'현재 계약과 청구일 기준 계산 일정 · 다날에 미리 예약된 거래가 아닙니다.'});
+  entries.push({...base,id:'cycle:'+c.id+':'+day,day,due_date:day,label:hold||'예정',group:hold?'attention':'scheduled',type:'월 자동청구',detail:hold?'자동청구 대상으로 집계하지 않습니다.':'현재 계약과 청구일 기준 계산 일정 · 다날에 미리 예약된 거래가 아닙니다.'});
  }
  entries.sort((a,b)=>a.day.localeCompare(b.day)||a.brand_name.localeCompare(b.brand_name)||a.id.localeCompare(b.id));
  return {entries,excluded};
+}
+
+export function validBillingDate(value:string){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;
+ try{const {from,to}=billingMonthBounds(value.slice(0,7));return value>=from&&value<=to;}catch{return false;}
+}
+/** Range totals include each real attempt once and only eligible projected cycles. */
+export function buildBillingRange(contracts:CalendarContract[],attempts:CalendarAttempt[],from:string,to:string,control:{enabled:boolean;renewals:boolean;today:string}){
+ if(!validBillingDate(from)||!validBillingDate(to)||from>to)throw new Error('INVALID_RANGE');
+ const entries:BillingCalendarEntry[]=[],excluded=new Map<string,{contract:CalendarContract;reason:string}>();
+ for(let month=from.slice(0,7);month<=to.slice(0,7);month=shiftBillingMonth(month,1)){
+  const result=buildBillingCalendar(contracts,attempts,month,control);
+  entries.push(...result.entries.filter(e=>e.day>=from&&e.day<=to));
+  for(const item of result.excluded)excluded.set(item.contract.id,item);
+ }
+ return {entries,excluded:[...excluded.values()]};
 }
