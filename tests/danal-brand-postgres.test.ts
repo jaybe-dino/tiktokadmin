@@ -72,6 +72,7 @@ suite('Danal GloveK isolated PostgreSQL + mock relay',()=>{
   return {rid,cid,token};
  }
  const count=(h:ReturnType<typeof harness>,op:string)=>h.calls.filter(f=>f.TXTYPE===op).length;
+ it('first card approval succeeds with renewal egress still unconfirmed',async()=>{const a=await agreement(),h=harness();h.deps.renewalsReady=false;await startBrandCardRegistration(a.token,true,h.deps);expect(count(h,'AUTH')).toBe(1);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);expect(count(h,'ISSUEBILLKEY')).toBe(1);expect((await query("SELECT id FROM brand_billing_attempts WHERE status='paid'")).length).toBe(1);await expect(runBrandRenewals(h.deps)).rejects.toThrow('RENEWAL_EGRESS_NOT_CONFIRMED');expect(count(h,'OTBILL')).toBe(0);});
  it('unconfirmed renewal egress never contacts the provider even when DB renewal is ON',async()=>{const h=harness();h.deps.renewalsReady=false;await expect(runBrandRenewals(h.deps)).rejects.toThrow('RENEWAL_EGRESS_NOT_CONFIRMED');expect(h.calls).toHaveLength(0);});
  it('only one of concurrent start/callback clicks can charge the first month',async()=>{
   const a=await agreement(),h=harness();const starts=await Promise.allSettled([startBrandCardRegistration(a.token,true,h.deps),startBrandCardRegistration(a.token,true,h.deps)]);

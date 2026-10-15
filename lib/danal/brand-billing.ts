@@ -36,8 +36,7 @@ async function checkScope(contractId:string,isOperator:boolean,deps:BillingDepen
  if(isOperator){
   if(!deps.operatorReady||renewal||!c.operator_test_enabled||c.operator_test_contract_id!==contractId)throw new Error('OPERATOR_TEST_DISABLED');
  }else{
-  if(deps.renewalsReady===false)throw new Error('RENEWAL_EGRESS_NOT_CONFIRMED');
- if(deps.operatorOnly)throw new Error('REGULAR_BILLING_DISABLED');
+  if(deps.operatorOnly)throw new Error('REGULAR_BILLING_DISABLED');
   if(!c.enabled||(renewal&&!c.renewals_enabled))throw new Error('BILLING_DISABLED');
  }
 }
