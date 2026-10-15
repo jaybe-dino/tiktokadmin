@@ -11,7 +11,7 @@ import { kstDate, nextBillingDate } from './schedule';
 export const BILLING_CONSENT_VERSION='glovek-monthly-2026-10-15-v1';
 const digest=(v:string)=>createHash('sha256').update(v).digest('hex');
 const itemName='GloveK Brand Contract Monthly';
-type Attempt={id:string;subscription_id:string;order_id:string;due_date:string;amount:string;is_bill:boolean;status:string;card_window_ciphertext:string|null;auth_tid:string|null;kind:'initial'|'renewal';auth_expires_at:string|null;contract_link_hash:string|null};
+type Attempt={id:string;subscription_id:string;order_id:string;due_date:string;amount:string;is_bill:boolean;status:string;card_window_ciphertext:string|null;auth_tid:string|null;kind:'initial'|'renewal'|'operator_test';auth_expires_at:string|null;contract_link_hash:string|null};
 type Sub={id:string;recurring_contract_id:string;billing_user_key:string;status:string;billing_key_ciphertext:string|null;next_billing_date:string|null;consent_snapshot_hash:string;is_operator_test:boolean};
 type Agreement={id:string;monthly_amount:string;vat_mode:string;first_billing_date:string;end_date:string;start_date:string;details:string;fee_details:string;cancellation_terms:string;file_sha256:string;status:string};
 function agreementHash(a:Agreement) { return digest(JSON.stringify([a.id,a.monthly_amount,a.vat_mode,a.first_billing_date,a.start_date,a.end_date,a.details,a.fee_details,a.cancellation_terms,a.file_sha256])); }
@@ -232,4 +232,52 @@ export async function resumeBrandBilling(id:string,actor:string) {
   await c.query("UPDATE brand_billing_subscriptions SET status='active',paused_by=NULL,paused_at=NULL,updated_at=now() WHERE id=$1",[id]);
   await c.query('INSERT INTO brand_billing_events(subscription_id,event,actor) VALUES($1,$2,$3)',[id,'subscription_resumed',actor]);
  });
+}
+
+/** Explicit exec-only UI action: exactly one extra 301-KRW OTBILL on a paid test contract. */
+export async function testSavedBrandCard(id:string,actor:string,approvedAmount:number,deps=billingDependencies()) {
+ if(approvedAmount!==301||deps.operatorOnly)throw new Error('OPERATOR_TEST_SCOPE_INVALID');
+ await checkEnabled();const today=kstDate(deps.now);
+ const p=await tx(async c=>{
+  const s=await c.query<Sub>("SELECT * FROM brand_billing_subscriptions WHERE id=$1 AND status='active' FOR UPDATE",[id]);const sub=s.rows[0];
+  if(!sub?.billing_key_ciphertext)throw new Error('REGISTERED_TEST_CARD_REQUIRED');
+  const r=await c.query<Agreement>(`SELECT r.*,c.start_date,c.end_date,c.status FROM recurring_contracts r JOIN contracts c ON c.id=r.contract_id
+   WHERE r.id=$1 AND (r.title='테스트' OR r.title LIKE '[운영자검증]%') AND r.monthly_amount=301 AND r.vat_mode='included'
+   AND c.status NOT IN ('terminated','expired') AND c.start_date<=$2::date AND c.end_date>=$2::date`,[sub.recurring_contract_id,today]);
+  const agreement=r.rows[0];if(!agreement||agreementHash(agreement)!==sub.consent_snapshot_hash)throw new Error('OPERATOR_TEST_SCOPE_INVALID');
+  const paid=await c.query("SELECT id FROM brand_billing_attempts WHERE subscription_id=$1 AND kind='initial' AND status='paid' AND amount=301",[id]);if(!paid.rowCount)throw new Error('FIRST_301_APPROVAL_REQUIRED');
+  const existing=await c.query<Attempt>("SELECT * FROM brand_billing_attempts WHERE subscription_id=$1 AND kind='operator_test'",[id]);
+  if(existing.rows[0])return {sub,agreement,attempt:existing.rows[0],claimed:false};
+  const unresolved=await c.query("SELECT id FROM brand_billing_attempts WHERE subscription_id=$1 AND status IN ('approving','unknown')",[id]);if(unresolved.rowCount)throw new Error('UNRESOLVED_PAYMENT');
+  const a=await c.query<Attempt>(`INSERT INTO brand_billing_attempts(subscription_id,kind,order_id,due_date,amount,is_bill,status)
+   VALUES($1,'operator_test',$2,$3,301,true,'approving') RETURNING *`,[id,'GKT'+randomUUID().replace(/-/g,''),today]);
+  await c.query('INSERT INTO brand_billing_events(subscription_id,attempt_id,event,actor) VALUES($1,$2,$3,$4)',[id,a.rows[0].id,'operator_otbill_301_explicitly_requested',actor]);
+  return {sub,agreement,attempt:a.rows[0],claimed:true};
+ });
+ const report=(a:{status:string;provider_tid?:string|null;provider_code?:string|null;failure_code?:string|null})=>({status:a.status,tid:a.provider_tid||null,code:a.provider_code||a.failure_code||null});
+ if(!p.claimed)return report(p.attempt);
+ try{
+  await checkEnabled();
+  const current=await queryOne<Sub>('SELECT * FROM brand_billing_subscriptions WHERE id=$1',[id]);
+  if(!current||current.status!=='active'||!current.billing_key_ciphertext)throw new Error('STATE_CHANGED');
+  const live=await queryOne<Agreement>(`SELECT r.*,c.start_date,c.end_date,c.status FROM recurring_contracts r JOIN contracts c ON c.id=r.contract_id WHERE r.id=$1`,[current.recurring_contract_id]);
+  if(!live||['terminated','expired'].includes(live.status)||live.end_date<kstDate(deps.clock?.()||deps.now)||agreementHash(live)!==current.consent_snapshot_hash)throw new Error('STATE_CHANGED');
+ }catch{await query("UPDATE brand_billing_attempts SET status='blocked',failure_code='PRE_PROVIDER_HOLD' WHERE id=$1 AND status='approving'",[p.attempt.id]);return {status:'blocked',tid:null,code:'PRE_PROVIDER_HOLD'};}
+ let result;
+ try{
+  const key=await decryptSecret(deps.config.encryptionKey,p.sub.billing_key_ciphertext!,`glovek:${id}`);
+  const call=await batchCall(deps.config.keys,deps.config.relay,deps.transport,{operation:'OTBILL',idempotencyKey:`otbill:glovek:${p.attempt.order_id}`,fields:otbillFields({orderId:p.attempt.order_id,itemName:'GloveK operator test',amount:301,userId:p.sub.billing_user_key,billKey:key})});
+  result='unknown' in call?{kind:'unknown' as const,reason:call.unknown}:verifyOtbill(call.fields,{orderId:p.attempt.order_id,amount:301});
+ }catch{result={kind:'unknown' as const,reason:'OPERATOR_OTBILL_UNAVAILABLE'};}
+ if(result.kind!=='success'){
+  const code=result.kind==='failed'?result.code:result.reason;
+  await outcomeFailure(p.attempt,code,result.kind==='unknown');return {status:result.kind==='failed'?'failed':'unknown',tid:null,code};
+ }
+ try{
+  await tx(async c=>{
+   await c.query("UPDATE brand_billing_attempts SET status='paid',provider_tid=$2,provider_code='0000',completed_at=now(),updated_at=now() WHERE id=$1 AND status='approving'",[p.attempt.id,result.data.tid]);
+   await c.query('INSERT INTO brand_billing_events(subscription_id,attempt_id,event,actor) VALUES($1,$2,$3,$4)',[id,p.attempt.id,'operator_otbill_301_verified','provider']);
+  });
+  return {status:'paid',tid:result.data.tid,code:'0000'};
+ }catch{await outcomeFailure(p.attempt,'OPERATOR_TEST_LEDGER_FAILED',true);return {status:'unknown',tid:null,code:'OPERATOR_TEST_LEDGER_FAILED'};}
 }

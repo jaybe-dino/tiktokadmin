@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createCipheriv,createDecipheriv,createHmac,createHash,randomUUID,randomBytes} from 'node:crypto';
 import {query,getPool} from '../lib/db';
-import {startBrandCardRegistration,completeBrandCardRegistration,runBrandRenewals,pauseBrandBilling} from '../lib/danal/brand-billing';
+import {startBrandCardRegistration,completeBrandCardRegistration,runBrandRenewals,pauseBrandBilling,testSavedBrandCard} from '../lib/danal/brand-billing';
 import {type BillingDependencies} from '../lib/danal/brand-billing';
 import {parseBatchKeys,relayResponseCanonical} from '../lib/danal/danal-batch';
 const enabled=process.env.GLOVEK_BILLING_PG_TEST==='1';
@@ -56,6 +56,7 @@ suite('Danal GloveK isolated PostgreSQL + mock relay',()=>{
   await query(readFileSync('migrations/0116_recurring_contracts.sql','utf8'));await query(readFileSync('migrations/0117_danal_brand_billing.sql','utf8'));
   await query(readFileSync('migrations/0118_danal_operator_validation.sql','utf8'));
   await query(readFileSync('migrations/0119_danal_card_window_resume.sql','utf8'));
+  await query(readFileSync('migrations/0120_danal_saved_card_test.sql','utf8'));
   await query(readFileSync('migrations/0118_danal_operator_validation.sql','utf8'));
  },30000);
  afterAll(async()=>{if(globalThis.__glovekPool){await getPool().end();globalThis.__glovekPool=undefined;}if(data)execFileSync('pg_ctl',['-D',data,'-m','fast','-w','stop'],{stdio:'ignore'});});
@@ -73,6 +74,8 @@ suite('Danal GloveK isolated PostgreSQL + mock relay',()=>{
   return {rid,cid,token};
  }
  const count=(h:ReturnType<typeof harness>,op:string)=>h.calls.filter(f=>f.TXTYPE===op).length;
+ it('one explicit 301 OTBILL test charges once without advancing the next renewal date',async()=>{const a=await agreement(),h=harness();await query("UPDATE recurring_contracts SET title='테스트',monthly_amount=301,vat_mode='included' WHERE id=$1",[a.rid]);await startBrandCardRegistration(a.token,true,h.deps);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);const [sub]=await query('SELECT id,next_billing_date FROM brand_billing_subscriptions');h.deps.renewalsReady=false;await query('UPDATE brand_billing_control SET renewals_enabled=false');const results=await Promise.all([testSavedBrandCard(sub.id,'exec',301,h.deps),testSavedBrandCard(sub.id,'exec',301,h.deps)]);expect(results.some(r=>r.status==='paid')).toBe(true);expect(count(h,'OTBILL')).toBe(1);await testSavedBrandCard(sub.id,'exec',301,h.deps);expect(count(h,'OTBILL')).toBe(1);expect((await query('SELECT next_billing_date FROM brand_billing_subscriptions'))[0].next_billing_date).toBe(sub.next_billing_date);await expect(testSavedBrandCard(sub.id,'exec',302,h.deps)).rejects.toThrow('SCOPE');});
+ it('ambiguous one-off OTBILL is never retried',async()=>{const a=await agreement(),h=harness();await query("UPDATE recurring_contracts SET title='테스트',monthly_amount=301,vat_mode='included' WHERE id=$1",[a.rid]);await startBrandCardRegistration(a.token,true,h.deps);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);const [sub]=await query('SELECT id FROM brand_billing_subscriptions');h.behavior.otbill='timeout';expect((await testSavedBrandCard(sub.id,'exec',301,h.deps)).status).toBe('unknown');await expect(testSavedBrandCard(sub.id,'exec',301,h.deps)).rejects.toThrow();expect(count(h,'OTBILL')).toBe(1);});
  it('resumes an existing ready window without another AUTH or attempt',async()=>{const a=await agreement(),h=harness();const first=await startBrandCardRegistration(a.token,true,h.deps);const again=await startBrandCardRegistration(a.token,true,h.deps);expect(again).toEqual(first);expect(count(h,'AUTH')).toBe(1);expect((await query('SELECT id FROM brand_billing_attempts')).length).toBe(1);const [row]=await query('SELECT card_window_ciphertext FROM brand_billing_attempts');expect(row.card_window_ciphertext).not.toContain('synthetic-opaque-start');await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);expect(count(h,'ISSUEBILLKEY')).toBe(1);});
  it('rotated links expire only pending AUTH and prevent the old callback approving',async()=>{const a=await agreement(),h=harness();await startBrandCardRegistration(a.token,true,h.deps);const oldState=h.state,oldReturn=h.returnParams(),next=randomBytes(32).toString('hex');await query('UPDATE recurring_contracts SET token_hash=$1 WHERE id=$2',[hash(next),a.rid]);await startBrandCardRegistration(next,true,h.deps);expect(count(h,'AUTH')).toBe(2);await completeBrandCardRegistration(oldState,oldReturn,h.deps);expect(count(h,'ISSUEBILLKEY')).toBe(0);expect((await query("SELECT id FROM brand_billing_attempts WHERE status='expired'")).length).toBe(1);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);expect(count(h,'ISSUEBILLKEY')).toBe(1);});
  it('replaces legacy ready AUTH without stored window but never clears an ambiguous approval',async()=>{const a=await agreement(),h=harness();await startBrandCardRegistration(a.token,true,h.deps);await query('UPDATE brand_billing_attempts SET card_window_ciphertext=NULL');await startBrandCardRegistration(a.token,true,h.deps);expect(count(h,'AUTH')).toBe(2);await query("UPDATE brand_billing_attempts SET status='unknown' WHERE status='ready'");await expect(startBrandCardRegistration(a.token,true,h.deps)).rejects.toThrow('HELD');expect(count(h,'AUTH')).toBe(2);});
@@ -80,7 +83,7 @@ suite('Danal GloveK isolated PostgreSQL + mock relay',()=>{
  it('unconfirmed renewal egress never contacts the provider even when DB renewal is ON',async()=>{const h=harness();h.deps.renewalsReady=false;await expect(runBrandRenewals(h.deps)).rejects.toThrow('RENEWAL_EGRESS_NOT_CONFIRMED');expect(h.calls).toHaveLength(0);});
  it('only one of concurrent start/callback clicks can charge the first month',async()=>{
   const a=await agreement(),h=harness();const starts=await Promise.allSettled([startBrandCardRegistration(a.token,true,h.deps),startBrandCardRegistration(a.token,true,h.deps)]);
-  expect(starts.filter(v=>v.status==='fulfilled')).toHaveLength(1);expect(count(h,'AUTH')).toBe(1);
+  const fulfilled=starts.filter((v):v is PromiseFulfilledResult<{url:string;params:string}>=>v.status==='fulfilled');expect(fulfilled.length).toBeGreaterThanOrEqual(1);if(fulfilled.length===2)expect(fulfilled[0].value).toEqual(fulfilled[1].value);expect(count(h,'AUTH')).toBe(1);
   await Promise.all([completeBrandCardRegistration(h.state,h.returnParams(),h.deps),completeBrandCardRegistration(h.state,h.returnParams(),h.deps)]);
   await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);expect(count(h,'ISSUEBILLKEY')).toBe(1);
   const [s]=await query('SELECT * FROM brand_billing_subscriptions');expect(s.status).toBe('active');expect(s.next_billing_date).toBe('2027-02-28');expect(s.billing_key_ciphertext).not.toContain('BK'+h.tid);expect(s.consent_snapshot_hash).toMatch(/^[a-f0-9]{64}$/);

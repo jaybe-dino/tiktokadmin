@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import {query} from '@/lib/db';
 import ContractForm,{LinkButtons} from './ContractForm';
-import BillingControls,{SubscriptionControls} from './BillingControls';
+import BillingControls,{SubscriptionControls,SavedCardTest} from './BillingControls';
 import {recurringTotal} from '@/lib/recurring-contract-policy';
 import OperatorValidation from './OperatorValidation';
 import {kstDate} from '@/lib/danal/schedule';
@@ -29,8 +29,9 @@ export default async function Page({searchParams}:{searchParams:Promise<{brand?:
  {!config.ok&&<p>누락된 연결 설정: {config.missing.join(', ')}. 설정값은 화면에 표시하지 않습니다.</p>}
  {control&&<OperatorValidation ready={operatorConfig.ok} connectionReady={connection.ok} enabled={control.operator_test_enabled} contractId={control.operator_test_contract_id} contracts={rows.filter(r=>r.title.startsWith('[운영자검증]')&&Number(r.monthly_amount)===301&&r.vat_mode==='included'&&r.first_billing_date===kstDate())} missing={operatorConfig.ok?[]:operatorConfig.missing}/>}
  {ready?<ContractForm brands={brands} brandId={brand||undefined}/>:<p role="alert">결제 저장소에 연결하지 못했습니다. 마이그레이션 0116·0117 적용 상태를 확인해 주세요.</p>}
- <h2>등록된 계약</h2>{rows.map(r=><article className="card" style={{padding:20,marginTop:12}} key={r.id}><h3>{r.brand_name} · {r.title}</h3><p>{r.start_date} ~ {r.end_date} · 월 {recurringTotal(Number(r.monthly_amount),r.vat_mode).toLocaleString('ko-KR')}원(부가세 포함)</p>{r.is_operator_test&&<p><b>운영자 검증 · 자동갱신 영구 제외</b></p>}<p>상태: {labels[r.billing_status||'awaiting_card']||r.billing_status} · 다음 청구일: {r.next_billing_date||'카드 등록 후 확정'}</p><p>{r.link_revoked_at?'링크 차단됨':r.link_expires_at?`링크 만료: ${r.link_expires_at}`:'링크 미발급'} · 재발급 시 이전 링크는 즉시 무효화됩니다.</p><LinkButtons id={r.id}/>{r.subscription_id&&<SubscriptionControls id={r.subscription_id} status={r.billing_status||''}/>}</article>)}
+ <h2>등록된 계약</h2>{rows.map(r=><article className="card" style={{padding:20,marginTop:12}} key={r.id}><h3>{r.brand_name} · {r.title}</h3><p>{r.start_date} ~ {r.end_date} · 월 {recurringTotal(Number(r.monthly_amount),r.vat_mode).toLocaleString('ko-KR')}원(부가세 포함)</p>{r.is_operator_test&&<p><b>운영자 검증 · 자동갱신 영구 제외</b></p>}<p>상태: {labels[r.billing_status||'awaiting_card']||r.billing_status} · 다음 청구일: {r.next_billing_date||'카드 등록 후 확정'}</p><p>{r.link_revoked_at?'링크 차단됨':r.link_expires_at?`링크 만료: ${r.link_expires_at}`:'링크 미발급'} · 재발급 시 이전 링크는 즉시 무효화됩니다.</p><LinkButtons id={r.id}/>{r.subscription_id&&r.billing_status==='active'&&Number(r.monthly_amount)===301&&(r.title==='테스트'||r.title.startsWith('[운영자검증]'))&&<SavedCardTest id={r.subscription_id}/>}
+ {r.subscription_id&&<SubscriptionControls id={r.subscription_id} status={r.billing_status||''}/>}</article>)}
  <h2>최근 결제 시도 200건</h2><p>임시 100원 인증은 월 이용료 수납으로 집계하지 않습니다. 카드번호·빌링키·제공자 응답 원문은 표시하지 않습니다.</p>
- <table className="t"><thead><tr><th>브랜드·계약</th><th>주문번호</th><th>예정일</th><th>유형·금액</th><th>결과</th><th>거래번호·확인코드</th></tr></thead><tbody>{attempts.map(a=><tr key={a.id}><td>{a.brand_name} · {a.title}</td><td>{a.order_id}</td><td>{a.due_date}</td><td>{a.kind==='initial'?'최초 등록':'월 청구'} · {Number(a.amount).toLocaleString('ko-KR')}원</td><td>{labels[a.status]||a.status}</td><td>{a.provider_tid||'—'} {a.failure_code||''}</td></tr>)}</tbody></table>
+ <table className="t"><thead><tr><th>브랜드·계약</th><th>주문번호</th><th>예정일</th><th>유형·금액</th><th>결과</th><th>거래번호·확인코드</th></tr></thead><tbody>{attempts.map(a=><tr key={a.id}><td>{a.brand_name} · {a.title}</td><td>{a.order_id}</td><td>{a.due_date}</td><td>{a.kind==='initial'?'최초 등록':a.kind==='operator_test'?'호출결제 테스트':'월 청구'} · {Number(a.amount).toLocaleString('ko-KR')}원</td><td>{labels[a.status]||a.status}</td><td>{a.provider_tid||'—'} {a.failure_code||''}</td></tr>)}</tbody></table>
  </main>;
 }

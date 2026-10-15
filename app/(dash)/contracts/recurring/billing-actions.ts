@@ -3,8 +3,8 @@ import { currentUser } from '@/lib/auth';
 import { query,tx } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { brandBillingConfig,renewalBillingConfig } from '@/lib/danal/config';
-import { pauseBrandBilling,resumeBrandBilling } from '@/lib/danal/brand-billing';
-export async function billingAdminAction(input:{op:string;id?:string;enabled?:boolean;renewals?:boolean}) {
+import { pauseBrandBilling,resumeBrandBilling,testSavedBrandCard } from '@/lib/danal/brand-billing';
+export async function billingAdminAction(input:{op:string;id?:string;enabled?:boolean;renewals?:boolean;amount?:number}) {
  const u=await currentUser();if(!u||!['exec','lead','settle'].includes(u.role))return {ok:false,error:'결제 관리 권한이 필요합니다.'};
  try{
   if(input.op==='control'){
@@ -20,6 +20,11 @@ export async function billingAdminAction(input:{op:string;id?:string;enabled?:bo
    });
   }else{
    if(!/^[0-9a-f-]{36}$/i.test(input.id||''))throw new Error('INVALID_ID');
+   if(input.op==='test_saved_card'){
+    if(u.role!=='exec'||input.amount!==301)throw new Error('OPERATOR_TEST_SCOPE_INVALID');
+    const result=await testSavedBrandCard(input.id!,u.id,301);revalidatePath('/contracts/recurring');
+    return {ok:result.status==='paid',message:result.status==='paid'?'추가 301원 OTBILL 승인 확인 · 거래번호 '+result.tid:'호출결제 결과: '+result.status+' · '+result.code+' · 자동 재시도하지 않습니다.'};
+   }
    if(input.op==='pause')await pauseBrandBilling(input.id!,u.id);
    else if(input.op==='resume')await resumeBrandBilling(input.id!,u.id);
    else throw new Error('INVALID_OP');

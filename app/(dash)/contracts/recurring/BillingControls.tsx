@@ -18,3 +18,10 @@ export function SubscriptionControls({id,status}:{id:string;status:string}) {
  function run(op:string){start(async()=>{const r=await billingAdminAction({op,id});setMessage(r.ok?'변경 완료':r.error||'실패');router.refresh();});}
  return <div>{['active','awaiting_card'].includes(status)&&<button className="btn" disabled={pending} onClick={()=>run('pause')}>이 계약 정기결제 중지</button>}{status==='paused'&&<button className="btn" disabled={pending} onClick={()=>run('resume')}>예정된 결제 재개</button>}<p role="status">{message}</p></div>;
 }
+
+export function SavedCardTest({id}:{id:string}) {
+ const [approved,setApproved]=useState(false),[pending,start]=useTransition(),[message,setMessage]=useState('');const router=useRouter();
+ return <section style={{border:'1px solid #e8c56c',padding:14,marginTop:10}}><b>운영자 호출결제 1회 검증</b><p>등록한 카드에 301원이 추가로 실제 청구됩니다. 다음 월 청구일과 월 자동청구 설정은 바뀌지 않습니다. 이 계약에서 한 번만 요청할 수 있으며 자동 환불되지 않습니다.</p>
+ <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)} disabled={pending}/> 등록된 테스트 카드의 추가 301원 1회 청구를 승인합니다.</label>
+ <button className="btn" disabled={!approved||pending} onClick={()=>start(async()=>{const r=await billingAdminAction({op:'test_saved_card',id,amount:301});setMessage(r.message||r.error||'결과 확인 필요');router.refresh();})}>{pending?'승인 결과 확인 중…':'등록 카드에 301원 호출결제'}</button><p role="status">{message}</p></section>;
+}
