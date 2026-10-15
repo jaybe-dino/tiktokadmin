@@ -14,7 +14,7 @@ const itemName='GloveK Brand Contract Monthly';
 type Attempt={id:string;subscription_id:string;order_id:string;due_date:string;amount:string;is_bill:boolean;status:string;card_window_ciphertext:string|null;auth_tid:string|null;kind:'initial'|'renewal'|'operator_test';auth_expires_at:string|null;contract_link_hash:string|null};
 type Sub={id:string;recurring_contract_id:string;billing_user_key:string;status:string;billing_key_ciphertext:string|null;next_billing_date:string|null;consent_snapshot_hash:string;is_operator_test:boolean};
 type Agreement={id:string;monthly_amount:string;vat_mode:string;first_billing_date:string;end_date:string;start_date:string;details:string;fee_details:string;cancellation_terms:string;file_sha256:string;status:string};
-function agreementHash(a:Agreement) { return digest(JSON.stringify([a.id,a.monthly_amount,a.vat_mode,a.first_billing_date,a.start_date,a.end_date,a.details,a.fee_details,a.cancellation_terms,a.file_sha256])); }
+export function agreementHash(a:Agreement) { return digest(JSON.stringify([a.id,a.monthly_amount,a.vat_mode,a.first_billing_date,a.start_date,a.end_date,a.details,a.fee_details,a.cancellation_terms,a.file_sha256])); }
 export type BillingDependencies={config:BrandBillingConfig;transport:RelayTransport;now:Date;clock?:()=>Date;operatorOnly?:boolean;operatorReady?:boolean;renewalsReady?:boolean};
 export function billingDependencies():BillingDependencies {
  const normal=brandBillingConfig(),operator=operatorBillingConfig();
