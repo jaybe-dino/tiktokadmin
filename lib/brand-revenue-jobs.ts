@@ -12,9 +12,9 @@ export async function enqueueBrandRevenue(brandId: string): Promise<void> {
 export async function requestBrandRevenue(brandId: string): Promise<void> {
   await tx(async c => {
     const requested = await c.query(`INSERT INTO brand_revenue_jobs(brand_id) VALUES($1)
-      ON CONFLICT(brand_id) DO UPDATE SET status='pending',due_at=now()+interval '60 seconds',attempts=0,
+      ON CONFLICT(brand_id) DO UPDATE SET status='pending',due_at=now()+interval '60 seconds',attempts=CASE WHEN brand_revenue_jobs.status='pending' THEN brand_revenue_jobs.attempts ELSE 0 END,
         claim_token=NULL,lease_until=NULL,last_error=NULL,finished_at=NULL
-      WHERE brand_revenue_jobs.status IN ('done','failed') RETURNING brand_id`, [brandId]);
+      WHERE brand_revenue_jobs.status IN ('done','failed') OR (brand_revenue_jobs.status='pending' AND brand_revenue_jobs.last_error IS NOT NULL) RETURNING brand_id`, [brandId]);
     if (requested.rowCount) await c.query(`UPDATE brands SET revenue_estimate='{"status":"pending"}'::jsonb WHERE id=$1`, [brandId]);
   });
 }

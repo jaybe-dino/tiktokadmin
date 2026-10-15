@@ -21,7 +21,7 @@ export default function BrandRevenueCard({ value, brandId }: { value?: unknown; 
       </div>
       {e && <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 6 }}>{e.year}년 · {e.entity} · {SCOPE[e.scope]} · 신뢰도 {CONFIDENCE[e.confidence]}</div>}
       <p style={{ fontSize: 12, lineHeight: 1.7, margin: 0, color: "#4c4676" }}>{view.detail}</p>
-      {brandId && <BrandRevenueControls brandId={brandId} busy={view.label === "추정 대기" || view.label === "추정 중"} />}
+      {brandId && <BrandRevenueControls brandId={brandId} busy={view.label === "추정 대기" || view.label === "추정 중"} canRetry={view.label === "추정 대기" && !!(value && typeof value === "object" && "reason" in value)} />}
       {e && <details style={{ marginTop: 12, fontSize: 12, lineHeight: 1.8 }}>
         <summary style={{ cursor: "pointer", fontWeight: 700 }}>추정 근거·출처 보기</summary>
         <p style={{ whiteSpace: "pre-wrap" }}>{e.rationale}</p>
