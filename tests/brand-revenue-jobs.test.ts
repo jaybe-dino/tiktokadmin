@@ -1,4 +1,5 @@
 import { beforeEach,describe,expect,it,vi } from "vitest";
+vi.mock("../lib/brand-revenue-policy",()=>({REVENUE_API_ENABLED:true}));
 const mocks=vi.hoisted(()=>({query:vi.fn(),queryOne:vi.fn(),client:vi.fn(),estimate:vi.fn()}));
 vi.mock("../lib/db",()=>({query:mocks.query,queryOne:mocks.queryOne,tx:async(fn:any)=>fn({query:mocks.client})}));
 vi.mock("../lib/brand-revenue-ai",()=>({estimateBrandRevenue:mocks.estimate,revenueErrorCode:()=>"AI_RESEARCH_FAILED"}));

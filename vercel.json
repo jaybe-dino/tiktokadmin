@@ -60,10 +60,6 @@
     {
       "path": "/api/cron/pm-notify",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/brand-revenue",
-      "schedule": "* * * * *"
     }
   ],
   "functions": {

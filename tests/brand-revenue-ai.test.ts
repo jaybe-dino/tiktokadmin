@@ -1,3 +1,4 @@
+vi.mock("../lib/brand-revenue-policy",()=>({REVENUE_API_ENABLED:true}));
 import { describe, expect, it, vi } from "vitest";
 const create = vi.hoisted(() => vi.fn());
 vi.mock("../lib/ai", () => ({ AI_MODEL: "existing-configured-model", aiEnabled: () => true, aiClient: () => ({ messages: { create } }) }));

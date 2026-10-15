@@ -1,3 +1,4 @@
+import { REVENUE_API_ENABLED } from "./brand-revenue-policy";
 import type Anthropic from "@anthropic-ai/sdk";
 import { aiClient, aiEnabled, AI_MODEL } from "./ai";
 import { safeFetchText } from "./safe-fetch";
@@ -28,6 +29,7 @@ export function checkedRevenue(raw: unknown, evidenceUrls: string[], now = new D
 }
 
 export async function estimateBrandRevenue(identity: RevenueIdentity): Promise<Record<string, unknown>> {
+  if (!REVENUE_API_ENABLED) throw new Error("REVENUE_API_PAUSED");
   if (!aiEnabled()) throw new Error("AI_NOT_CONFIGURED");
   // Do not transmit URL credentials, query tokens or fragments to the model/search.
   let publicUrl = "";

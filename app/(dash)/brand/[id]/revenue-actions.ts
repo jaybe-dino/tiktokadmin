@@ -1,9 +1,11 @@
 "use server";
+import { REVENUE_API_ENABLED, REVENUE_API_PAUSED_MESSAGE } from "@/lib/brand-revenue-policy";
 import { currentUser } from "@/lib/auth";
 import { queryOne } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { requestBrandRevenue } from "@/lib/brand-revenue-jobs";
 export async function requestRevenueAction(brandId: string): Promise<{ok:boolean;error?:string}> {
+  if (!REVENUE_API_ENABLED) return {ok:false,error:REVENUE_API_PAUSED_MESSAGE};
   if (!await currentUser()) return {ok:false,error:"로그인이 필요합니다."};
   if (!/^[a-f0-9-]{36}$/i.test(brandId)) return {ok:false,error:"브랜드 ID 오류"};
   if (!await queryOne("SELECT id FROM brands WHERE id=$1",[brandId])) return {ok:false,error:"브랜드를 찾을 수 없습니다."};
@@ -12,6 +14,7 @@ export async function requestRevenueAction(brandId: string): Promise<{ok:boolean
 }
 
 export async function checkRevenueAiAction(): Promise<{ok:boolean;error?:string;model?:string}> {
+  if (!REVENUE_API_ENABLED) return {ok:false,error:REVENUE_API_PAUSED_MESSAGE};
   if (!await currentUser()) return {ok:false,error:"로그인이 필요합니다."};
   const {aiClient,aiEnabled,AI_MODEL}=await import("@/lib/ai");
   const {revenueErrorCode}=await import("@/lib/brand-revenue-ai");

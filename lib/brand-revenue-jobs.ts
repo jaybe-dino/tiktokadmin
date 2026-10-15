@@ -1,15 +1,18 @@
+import { REVENUE_API_ENABLED } from "./brand-revenue-policy";
 import { randomUUID } from "node:crypto";
 import { query, queryOne, tx } from "./db";
 import { estimateBrandRevenue, revenueErrorCode, type RevenueIdentity } from "./brand-revenue-ai";
 
 /** Idempotent first-arrival scheduling. Never resets completed research on duplicate leads. */
 export async function enqueueBrandRevenue(brandId: string): Promise<void> {
+  if (!REVENUE_API_ENABLED) return;
   await query(`WITH added AS (
     INSERT INTO brand_revenue_jobs(brand_id) SELECT id FROM brands WHERE id=$1 AND revenue_estimate IS NULL
     ON CONFLICT DO NOTHING RETURNING brand_id)
     UPDATE brands SET revenue_estimate='{"status":"pending"}'::jsonb WHERE id IN(SELECT brand_id FROM added)`, [brandId]);
 }
 export async function requestBrandRevenue(brandId: string): Promise<void> {
+  if (!REVENUE_API_ENABLED) throw new Error("REVENUE_API_PAUSED");
   await tx(async c => {
     const requested = await c.query(`INSERT INTO brand_revenue_jobs(brand_id) VALUES($1)
       ON CONFLICT(brand_id) DO UPDATE SET status='pending',due_at=now()+interval '60 seconds',attempts=CASE WHEN brand_revenue_jobs.status='pending' THEN brand_revenue_jobs.attempts ELSE 0 END,
@@ -20,6 +23,7 @@ export async function requestBrandRevenue(brandId: string): Promise<void> {
 }
 interface Job { brand_id: string; claim_token: string; attempts: number }
 export async function runRevenueJobs(): Promise<{ processed: number; completed: number; failed: number; superseded: number }> {
+  if (!REVENUE_API_ENABLED) return { processed:0, completed:0, failed:0, superseded:0 };
   // Repair missed enqueue calls only for leads created after feature activation, not old customer DB.
   await query(`WITH added AS (
     INSERT INTO brand_revenue_jobs(brand_id,due_at)
