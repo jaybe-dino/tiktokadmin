@@ -9,7 +9,7 @@ export const recurringContractInput = z.object({
   title: z.string().trim().min(1).max(200),
   details: z.string().trim().min(1).max(20000),
   start_date: date, end_date: date, first_billing_date: date,
-  monthly_amount: z.coerce.number().int().positive().max(1000000000),
+  monthly_amount: z.coerce.number().int().min(301,"정기결제 최소 금액은 301원입니다.").max(1000000000),
   vat_mode: z.enum(["included", "excluded"]),
   fee_details: z.string().trim().max(10000),
   cancellation_terms: z.string().trim().min(1).max(5000),
@@ -21,5 +21,3 @@ export const recurringContractInput = z.object({
 export function recurringTotal(amount: number, vatMode: string) {
   return vatMode === "excluded" ? amount + Math.round(amount * 0.1) : amount;
 }
-// Remains closed until the dedicated Danal recurring skill and merchant configuration are verified.
-export const DANAL_RECURRING_READY = false;

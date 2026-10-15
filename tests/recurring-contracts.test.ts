@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const db=vi.hoisted(()=>({query:vi.fn(),queryOne:vi.fn(),tx:vi.fn(),client:{query:vi.fn()}}));
 vi.mock('../lib/db',()=>db);
 import { hashContractToken, issueContractLink, publicRecurringContract, registerRecurringContract, revokeContractLink } from '../lib/recurring-contracts';
-import { recurringContractInput, recurringTotal, DANAL_RECURRING_READY } from '../lib/recurring-contract-policy';
+import { recurringContractInput, recurringTotal } from '../lib/recurring-contract-policy';
 const input={brand_id:'12345678-1234-4234-8234-123456789012',kind:'marketing_retainer',title:'운영대행',details:'계약 상세',start_date:'2026-10-15',end_date:'2027-10-14',first_billing_date:'2026-10-31',monthly_amount:3000000,vat_mode:'excluded',fee_details:'매출 10% 별도 정산',cancellation_terms:'해지 30일 전 통보'};
 function form(bytes='%PDF-1.7\n test'){const f=new FormData();Object.entries(input).forEach(([k,v])=>f.set(k,String(v)));f.set('contract_file',new File([bytes],'contract.pdf',{type:'application/pdf'}));return f;}
 beforeEach(()=>{vi.clearAllMocks();db.tx.mockImplementation(fn=>fn(db.client));});
@@ -10,7 +10,6 @@ describe('계약 조건과 금액',()=>{
  it('잘못된 날짜·기간·최초 결제일을 거절한다',()=>{for(const patch of [{end_date:'2026-10-14'},{start_date:'2026-02-30'},{first_billing_date:'2027-10-15'}])expect(recurringContractInput.safeParse({...input,...patch}).success).toBe(false);});
  it('소수·음수·비정상 금액은 거절한다',()=>{for(const monthly_amount of [-1,0,1.1,NaN,Infinity,1000000001])expect(recurringContractInput.safeParse({...input,monthly_amount}).success).toBe(false);});
  it('부가세를 한 번 적용하며 별도 수수료를 합산하지 않는다',()=>{expect(recurringTotal(3000000,'included')).toBe(3000000);expect(recurringTotal(3000000,'excluded')).toBe(3300000);});
- it('다날 검증 전 자동청구는 비활성이다',()=>expect(DANAL_RECURRING_READY).toBe(false));
 });
 describe('파일·원자적 등록',()=>{
  it('MIME을 위조한 파일을 DB 쓰기 전 거절한다',async()=>{await expect(registerRecurringContract(form('<html>bad</html>'),'tester')).rejects.toThrow('PDF');expect(db.tx).not.toHaveBeenCalled();});

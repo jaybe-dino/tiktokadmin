@@ -15,9 +15,9 @@ export default function ContractForm({brands,brandId}:{brands:{id:string;brand_n
  <label>계약서 PDF · 최대 2MB<input className="f" type="file" name="contract_file" accept="application/pdf" required/></label>
  <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>{[["시작일","start_date"],["종료일","end_date"],["최초 결제 예정일","first_billing_date"]].map(([label,name])=><label key={name}>{label}<input className="f" type="date" name={name} required/></label>)}</div>
  <label>계약 상세<textarea className="f" name="details" required rows={5} maxLength={20000}/></label>
- <label>월 정기결제 금액(원)<input className="f" type="number" name="monthly_amount" min="1" max="1000000000" step="1" required/></label>
+ <label>월 정기결제 금액(원)<input className="f" type="number" name="monthly_amount" min="301" max="1000000000" step="1" required/></label>
  <label>부가세<select className="f" name="vat_mode" required defaultValue=""><option value="" disabled>선택</option><option value="included">입력 금액에 포함</option><option value="excluded">입력 금액에 별도 10% 추가</option></select></label>
- <p>결제 주기: 매월. 최초 결제 예정일과 같은 일자이며, 해당 일이 없는 달은 말일 기준입니다. 실제 카드 등록·자동청구 연결은 아직 비활성 상태입니다.</p>
+ <p>결제 주기: 매월. 최초 결제 예정일과 같은 일자이며, 해당 일이 없는 달은 말일 기준입니다. 실제 청구는 카드 등록 동의와 관리자의 카드 등록·청구 활성 설정을 모두 확인한 뒤 진행됩니다.</p>
  <label>기타 수수료·별도 정산 조건<textarea className="f" name="fee_details" rows={3} maxLength={10000} placeholder="예: 매출 수수료 10%, 별도 합의 후 정산. 이 금액은 월 자동결제에 합산되지 않습니다."/></label>
  <label>중도 해지·환불 조건<textarea className="f" name="cancellation_terms" required rows={3} maxLength={5000}/></label>
  <button className="btn pri" disabled={pending}>{pending?"저장 중…":"계약 등록"}</button><p role="status">{message}</p>
