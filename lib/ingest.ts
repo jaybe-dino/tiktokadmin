@@ -277,6 +277,9 @@ async function handleEvent(
       // 채널 수신 칼럼(memo 등) — 값이 오고 비어있으면 채운다.
       if (p.memo && !brand.memo) await setFields(brand.id, { memo: String(p.memo) }).catch(() => {});
       await recordSource(brand.id, d.site, "lead", d.source_ref ?? null, d.source_url ?? null, p, d.occurred_at);
+      // Durable research scheduling, independent of customer messaging.
+      try { const { enqueueBrandRevenue } = await import("./brand-revenue-jobs"); await enqueueBrandRevenue(brand.id); }
+      catch { console.warn("[revenue] enqueue unavailable; cron repairs new leads after activation"); }
       // 신규 리드 자동 안내(문자·메일) — 안내 대상 소스일 때만, 1회. (추후 메타/페북 광고 리드 확장)
       //   + 신규 리드마다 Slack #glovek-lead 알림(자동안내 발송여부 포함).
       //   leadhook/meta 는 자체 알림(채널 상세 포함)하므로 skipLeadNotify 로 중복 방지.

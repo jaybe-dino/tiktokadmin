@@ -22,11 +22,12 @@ export function revenueView(raw: unknown): RevenueView {
   const parsed = Estimated.safeParse(raw);
   if (parsed.success) return { estimate: parsed.data, label: "AI 추정 · 미확정", detail: "실제 매출·고객이 제출한 매출과 구분되는 추정 범위입니다." };
   const status = raw && typeof raw === "object" ? (raw as { status?: unknown }).status : null;
-  if (status === "pending") return { estimate: null, label: "추정 대기", detail: "추정 결과가 저장되면 여기에 표시됩니다." };
+  const reason = raw && typeof raw === "object" && typeof (raw as {reason?:unknown}).reason === "string" ? String((raw as {reason:string}).reason).slice(0,200) : "";
+  if (status === "pending") return { estimate: null, label: "추정 대기", detail: reason || "리드 접수 1분 후부터 다음 처리 주기에 AI가 조사합니다. 완료되면 자동으로 표시됩니다." };
   if (status === "running") return { estimate: null, label: "추정 중", detail: "브랜드와 운영법인의 공개 근거를 확인하고 있습니다." };
-  if (status === "insufficient") return { estimate: null, label: "추정 불가", detail: "매출을 추정할 근거가 부족합니다." };
-  if (status === "failed" || status === "estimated") return { estimate: null, label: "확인 필요", detail: "유효한 추정 결과와 출처가 확인되지 않았습니다." };
-  return { estimate: null, label: "추정 전", detail: "아직 저장된 AI 추정 결과가 없습니다. 자동 추정 연결 대기 상태입니다." };
+  if (status === "insufficient") return { estimate: null, label: "추정 불가", detail: reason || "매출을 추정할 근거가 부족합니다." };
+  if (status === "failed" || status === "estimated") return { estimate: null, label: "확인 필요", detail: reason || "유효한 추정 결과와 출처가 확인되지 않았습니다." };
+  return { estimate: null, label: "추정 전", detail: "아직 저장된 AI 추정 결과가 없습니다. 신규 리드는 자동 처리되며, 기존 브랜드는 AI 매출 추정으로 요청할 수 있습니다." };
 }
 export function revenueAmount(value: number, currency: RevenueEstimate["currency"]): string {
   if (currency === "KRW") {

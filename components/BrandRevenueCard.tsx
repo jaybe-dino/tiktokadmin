@@ -1,8 +1,10 @@
 import { revenueAmount, revenueView } from "@/lib/brand-revenue-view";
 
+import BrandRevenueControls from "./BrandRevenueControls";
+
 const SCOPE = { brand: "브랜드 기준", company_separate: "운영법인 별도 기준", company_consolidated: "운영법인 연결 기준" };
 const CONFIDENCE = { high: "높음", medium: "보통", low: "낮음" };
-export default function BrandRevenueCard({ value }: { value?: unknown }) {
+export default function BrandRevenueCard({ value, brandId }: { value?: unknown; brandId?: string }) {
   const view = revenueView(value), e = view.estimate;
   return (
     <section aria-labelledby="estimated-revenue-title" data-testid="brand-revenue-card" style={{
@@ -19,6 +21,7 @@ export default function BrandRevenueCard({ value }: { value?: unknown }) {
       </div>
       {e && <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 6 }}>{e.year}년 · {e.entity} · {SCOPE[e.scope]} · 신뢰도 {CONFIDENCE[e.confidence]}</div>}
       <p style={{ fontSize: 12, lineHeight: 1.7, margin: 0, color: "#4c4676" }}>{view.detail}</p>
+      {brandId && <BrandRevenueControls brandId={brandId} busy={view.label === "추정 대기" || view.label === "추정 중"} />}
       {e && <details style={{ marginTop: 12, fontSize: 12, lineHeight: 1.8 }}>
         <summary style={{ cursor: "pointer", fontWeight: 700 }}>추정 근거·출처 보기</summary>
         <p style={{ whiteSpace: "pre-wrap" }}>{e.rationale}</p>

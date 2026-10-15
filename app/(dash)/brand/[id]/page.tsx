@@ -547,7 +547,7 @@ export default async function BrandPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
 
-      <BrandRevenueCard value={brand.revenue_estimate} />
+      <BrandRevenueCard value={brand.revenue_estimate} brandId={brand.id} />
 
       {/* ===== 상단 PM 요약 ===== */}
       <BrandPmHeader summary={pmHeader} />
