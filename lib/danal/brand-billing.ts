@@ -11,7 +11,7 @@ import { kstDate, nextBillingDate } from './schedule';
 export const BILLING_CONSENT_VERSION='glovek-monthly-2026-10-15-v1';
 const digest=(v:string)=>createHash('sha256').update(v).digest('hex');
 const itemName='GloveK Brand Contract Monthly';
-type Attempt={id:string;subscription_id:string;order_id:string;due_date:string;amount:string;is_bill:boolean;status:string;auth_tid:string|null;kind:'initial'|'renewal';auth_expires_at:string|null;contract_link_hash:string|null};
+type Attempt={id:string;subscription_id:string;order_id:string;due_date:string;amount:string;is_bill:boolean;status:string;card_window_ciphertext:string|null;auth_tid:string|null;kind:'initial'|'renewal';auth_expires_at:string|null;contract_link_hash:string|null};
 type Sub={id:string;recurring_contract_id:string;billing_user_key:string;status:string;billing_key_ciphertext:string|null;next_billing_date:string|null;consent_snapshot_hash:string;is_operator_test:boolean};
 type Agreement={id:string;monthly_amount:string;vat_mode:string;first_billing_date:string;end_date:string;start_date:string;details:string;fee_details:string;cancellation_terms:string;file_sha256:string;status:string};
 function agreementHash(a:Agreement) { return digest(JSON.stringify([a.id,a.monthly_amount,a.vat_mode,a.first_billing_date,a.start_date,a.end_date,a.details,a.fee_details,a.cancellation_terms,a.file_sha256])); }
@@ -81,12 +81,32 @@ export async function startBrandCardRegistration(token:string,consent:boolean,de
     VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(recurring_contract_id) DO UPDATE SET updated_at=brand_billing_subscriptions.updated_at RETURNING *`,[a.id,'gk_'+randomUUID(),deps.now.toISOString(),BILLING_CONSENT_VERSION,snapshot,isOperator]);
   const sub=s.rows[0];if(sub.is_operator_test!==isOperator)throw new Error('BILLING_MODE_MISMATCH');if(sub.status!=='awaiting_card')throw new Error('SUBSCRIPTION_ALREADY_REGISTERED_OR_HELD');
   await c.query("UPDATE brand_billing_attempts SET status='expired' WHERE subscription_id=$1 AND kind='initial' AND status IN ('preparing','ready') AND auth_expires_at < $2",[sub.id,deps.now.toISOString()]);
+  const open=await c.query<Attempt>("SELECT * FROM brand_billing_attempts WHERE subscription_id=$1 AND kind='initial' AND status IN ('preparing','ready','approving','paid','registered','unknown') FOR UPDATE",[sub.id]);
+  const prior=open.rows[0];
+  if(prior){
+   if(!['preparing','ready'].includes(prior.status))throw new Error('SUBSCRIPTION_ALREADY_REGISTERED_OR_HELD');
+   const stale=prior.contract_link_hash!==hashContractToken(token)||!prior.auth_expires_at||new Date(prior.auth_expires_at).getTime()<=deps.now.getTime();
+   if(prior.status==='ready'&&!stale&&prior.card_window_ciphertext){
+    if(sub.consent_snapshot_hash!==snapshot)throw new Error('CONTRACT_TERMS_CHANGED');
+    return {a,sub,attempt:prior,resume:true};
+   }
+   if(prior.status==='preparing'&&!stale)throw new Error('CARD_WINDOW_PREPARING');
+   // Only AUTH-only states may be replaced. Approval/paid/unknown are never reset.
+   await c.query("UPDATE brand_billing_attempts SET status='expired',card_window_ciphertext=NULL,failure_code='WINDOW_REPLACED',updated_at=now() WHERE id=$1 AND status IN ('preparing','ready')",[prior.id]);
+  }
+  await c.query("UPDATE brand_billing_subscriptions SET consent_at=$2,consent_version=$3,consent_snapshot_hash=$4,updated_at=now() WHERE id=$1 AND status='awaiting_card'",[sub.id,deps.now.toISOString(),BILLING_CONSENT_VERSION,snapshot]);
   const p=await c.query<Attempt>(`INSERT INTO brand_billing_attempts(subscription_id,kind,order_id,due_date,amount,is_bill,status,callback_state_hash,auth_expires_at,contract_link_hash)
    VALUES($1,'initial',$2,$3,$4,$5,'preparing',$6,$7,$8) RETURNING *`,[sub.id,'GKB'+randomUUID().replace(/-/g,''),a.first_billing_date,a.first_billing_date===today?amount:100,a.first_billing_date===today,digest(state),new Date(deps.now.getTime()+30*60000).toISOString(),hashContractToken(token)]);
   await c.query('INSERT INTO brand_billing_events(subscription_id,attempt_id,event,actor) VALUES($1,$2,$3,$4)',[sub.id,p.rows[0].id,'card_registration_consented','client']);
-  return {a,sub,attempt:p.rows[0]};
+  return {a,sub,attempt:p.rows[0],resume:false};
  });
  const p=prepared.attempt;
+ if(prepared.resume){
+  await preProvider(p,deps.clock?.()||deps.now,deps);
+  const window=JSON.parse(await decryptSecret(deps.config.encryptionKey,p.card_window_ciphertext!,`glovek:window:${p.id}`)) as {url:string;params:string};
+  if(!window.url||!window.params)throw new Error('CARD_WINDOW_UNAVAILABLE');
+  return window;
+ }
  const urls={returnUrl:`${deps.config.origin}/api/billing-contract/return?s=${state}`,cancelUrl:`${deps.config.origin}/billing-result/${state}`};
  const common={orderId:p.order_id,itemName,userId:prepared.sub.billing_user_key,userAgent:'PC' as const,...urls};
  let result;
@@ -99,7 +119,8 @@ export async function startBrandCardRegistration(token:string,consent:boolean,de
   await query("UPDATE brand_billing_attempts SET status='failed',failure_code='AUTH_UNAVAILABLE',updated_at=now() WHERE id=$1 AND status='preparing'",[p.id]);
   throw new Error('CARD_WINDOW_UNAVAILABLE'); // AUTH did not charge; a new attempt is allowed.
  }
- const updated=await queryOne<{id:string}>("UPDATE brand_billing_attempts SET auth_tid=$2,status='ready',updated_at=now() WHERE id=$1 AND status='preparing' RETURNING id",[p.id,result.data.tid]);
+ const windowCipher=await encryptSecret(deps.config.encryptionKey,JSON.stringify({url:result.data.startUrl,params:result.data.startParams}),`glovek:window:${p.id}`);
+ const updated=await queryOne<{id:string}>("UPDATE brand_billing_attempts SET auth_tid=$2,status='ready',card_window_ciphertext=$3,updated_at=now() WHERE id=$1 AND status='preparing' RETURNING id",[p.id,result.data.tid,windowCipher]);
  if(!updated)throw new Error('CARD_WINDOW_STATE_CHANGED');
  return {url:result.data.startUrl,params:result.data.startParams};
 }

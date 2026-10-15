@@ -23,7 +23,7 @@ export async function POST(req:NextRequest){
   return html('<h1>다날 카드 등록창으로 이동합니다.</h1><p>자동으로 이동하지 않으면 아래 버튼을 눌러 주세요. 카드 입력 후 승인 시 계약에 안내된 금액이 실제 결제됩니다.</p><form id="danal" method="POST" accept-charset="EUC-KR" action="'+escape(result.url)+'"><input type="hidden" name="STARTPARAMS" value="'+escape(result.params)+'"><button type="submit" style="padding:14px">다날 결제창 열기</button></form><script>document.getElementById("danal").submit()</script>');
  }catch(e){
   const code=e instanceof Error?e.message:'';
-  const message=code==='FIRST_BILLING_DATE_PASSED'?'최초 결제 예정일이 지났습니다. 담당자에게 계약 일정 확인을 요청해 주세요.':code==='SUBSCRIPTION_ALREADY_REGISTERED_OR_HELD'?'이미 카드 등록이 진행되었거나 확인이 필요한 계약입니다. 중복 시도하지 말고 담당자에게 확인해 주세요.':'카드 등록창을 열지 못했습니다. 결제 관리 화면의 최근 시도를 확인해 주세요. 실제 승인 여부가 확인되기 전에는 반복 결제하지 마세요.';
+  const message=code==='CARD_WINDOW_PREPARING'?'이미 카드 등록창을 준비하고 있습니다. 잠시 후 계약 화면에서 진행하면 기존 요청을 이어서 엽니다.':code==='CONTRACT_TERMS_CHANGED'?'계약 조건이 변경되어 확인이 필요합니다. 담당자에게 문의해 주세요.':code==='FIRST_BILLING_DATE_PASSED'?'최초 결제 예정일이 지났습니다. 담당자에게 계약 일정 확인을 요청해 주세요.':code==='SUBSCRIPTION_ALREADY_REGISTERED_OR_HELD'?'이미 카드 등록이 진행되었거나 확인이 필요한 계약입니다. 중복 시도하지 말고 담당자에게 확인해 주세요.':'카드 등록창을 열지 못했습니다. 결제 관리 화면의 최근 시도를 확인해 주세요. 실제 승인 여부가 확인되기 전에는 반복 결제하지 마세요.';
   return html('<h1>카드 등록 요청을 완료하지 못했습니다.</h1><p>'+message+'</p><p>확인코드: '+billingStartErrorCode(e)+'</p><a href="/billing-contract/'+token+'">계약 확인 화면으로 돌아가기</a>',409);
  }
 }
