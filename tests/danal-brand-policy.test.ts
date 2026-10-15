@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {brandBillingConfig,operatorBillingConfig,billingConnectionConfig} from '../lib/danal/config';
+import {brandBillingConfig,operatorBillingConfig,billingConnectionConfig,renewalBillingConfig} from '../lib/danal/config';
 import {nextBillingDate,kstDate} from '../lib/danal/schedule';
 import {authFields,otbillFields,registrationAuthFields,registrationIssueBillKeyFields,verifyIssueBillKey,verifyOtbill,verifyRegistrationIssueBillKey,parseBatchKeys,encodeRequest,decodeEncrypted} from '../lib/danal/danal-batch';
 import {encryptSecret,decryptSecret} from '../lib/danal/crypto';
@@ -7,7 +7,8 @@ import {createDecipheriv} from 'node:crypto';
 const env={DANAL_ENABLED:'true',DANAL_BILLING_CONTRACT_CONFIRMED:'true',DANAL_BATCH_STATIC_EGRESS_CONFIRMED:'true',DANAL_SERVICE_CONFIRMED:'glovek_brand_contracts',DANAL_API_MODE:'legacy_cpid_batch',DANAL_BATCH_CPID:'A010015125',DANAL_BATCH_CRYPTOKEY:'11'.repeat(32),DANAL_BATCH_IVKEY:'22'.repeat(16),BILLING_KEY_ENCRYPTION_KEY:Buffer.alloc(32,3).toString('base64'),DANAL_RELAY_SECRET:'test-secret'.repeat(5),DANAL_RELAY_URL:'https://relay.escapemate.games',DANAL_SITE_ORIGIN:'https://admin.glovek.space'};
 describe('GloveK recurring configuration',()=>{
  it('does not infer recurring readiness from general card or EscapeMate flags',()=>{expect(brandBillingConfig({}).ok).toBe(false);expect(brandBillingConfig({...env,DANAL_SERVICE_CONFIRMED:'escapemate'}).ok).toBe(false);expect(brandBillingConfig({...env,DANAL_BATCH_CPID:'A010015124'}).ok).toBe(false);expect(brandBillingConfig(env).ok).toBe(true);});
- it('fails closed for every missing secret and approval',()=>{for(const key of Object.keys(env))expect(brandBillingConfig({...env,[key]:''}).ok,key).toBe(false);});
+ it('fails closed for every missing secret and approval',()=>{for(const key of Object.keys(env).filter(k=>k!=='DANAL_BATCH_STATIC_EGRESS_CONFIRMED'))expect(brandBillingConfig({...env,[key]:''}).ok,key).toBe(false);});
+ it('first approval can open while unverified OTBILL stays blocked',()=>{const first={...env,DANAL_BATCH_STATIC_EGRESS_CONFIRMED:'false'};expect(brandBillingConfig(first).ok).toBe(true);expect(renewalBillingConfig(first).ok).toBe(false);expect(renewalBillingConfig(env).ok).toBe(true);});
  it('operator readiness never opens ordinary billing',()=>{
   const test={...env,DANAL_ENABLED:'false',DANAL_OPERATOR_TEST_ENABLED:'true'};
   expect(operatorBillingConfig(test).ok).toBe(true);expect(brandBillingConfig(test).ok).toBe(false);

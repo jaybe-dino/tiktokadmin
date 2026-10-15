@@ -3,7 +3,7 @@ import { parseEncryptionKey } from './crypto';
 export type BrandBillingConfig = { keys:BatchKeys; relay:RelayConfig; encryptionKey:Uint8Array; origin:string };
 export function brandBillingConfig(env:Record<string,string|undefined> = process.env): {ok:true;config:BrandBillingConfig}|{ok:false;missing:string[]} {
  const missing:string[]=[];
- for(const flag of ['DANAL_ENABLED','DANAL_BILLING_CONTRACT_CONFIRMED','DANAL_BATCH_STATIC_EGRESS_CONFIRMED']) if(env[flag]!=='true')missing.push(flag);
+ for(const flag of ['DANAL_ENABLED','DANAL_BILLING_CONTRACT_CONFIRMED']) if(env[flag]!=='true')missing.push(flag);
  if(env.DANAL_API_MODE!=='legacy_cpid_batch')missing.push('DANAL_API_MODE');
  // This is a separate application, not permission to reuse EscapeMate's live customer keys.
  if(env.DANAL_SERVICE_CONFIRMED!=='glovek_brand_contracts')missing.push('DANAL_SERVICE_CONFIRMED');
@@ -28,4 +28,11 @@ export function operatorBillingConfig(env:Record<string,string|undefined> = proc
 /** AUTH-only diagnosis can validate encryption/relay without opening any charging path. */
 export function billingConnectionConfig(env:Record<string,string|undefined> = process.env) {
  return brandBillingConfig({...env,DANAL_ENABLED:'true',DANAL_BILLING_CONTRACT_CONFIRMED:'true',DANAL_BATCH_STATIC_EGRESS_CONFIRMED:'true'});
+}
+
+/** OTBILL has a separate registered fixed-egress gate; first card approval does not prove it. */
+export function renewalBillingConfig(env:Record<string,string|undefined> = process.env) {
+ const base=brandBillingConfig(env);
+ if(env.DANAL_BATCH_STATIC_EGRESS_CONFIRMED!=='true')return {ok:false as const,missing:['DANAL_BATCH_STATIC_EGRESS_CONFIRMED',...(!base.ok?base.missing:[])]};
+ return base;
 }

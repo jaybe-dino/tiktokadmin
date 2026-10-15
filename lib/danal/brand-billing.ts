@@ -3,7 +3,7 @@ import type { PoolClient } from 'pg';
 import { query, queryOne, tx } from '../db';
 import { hashContractToken } from '../recurring-contracts';
 import { recurringTotal } from '../recurring-contract-policy';
-import { brandBillingConfig, operatorBillingConfig, type BrandBillingConfig } from './config';
+import { brandBillingConfig, operatorBillingConfig, renewalBillingConfig, type BrandBillingConfig } from './config';
 import { encryptSecret, decryptSecret } from './crypto';
 import { authFields, registrationAuthFields, registrationIssueBillKeyFields, issueBillKeyFields, otbillFields,
  batchCall, decodeEncrypted, readReturnParams, verifyAuth, verifyIssueBillKey, verifyRegistrationIssueBillKey, verifyOtbill, type RelayTransport } from './danal-batch';
@@ -15,11 +15,11 @@ type Attempt={id:string;subscription_id:string;order_id:string;due_date:string;a
 type Sub={id:string;recurring_contract_id:string;billing_user_key:string;status:string;billing_key_ciphertext:string|null;next_billing_date:string|null;consent_snapshot_hash:string;is_operator_test:boolean};
 type Agreement={id:string;monthly_amount:string;vat_mode:string;first_billing_date:string;end_date:string;start_date:string;details:string;fee_details:string;cancellation_terms:string;file_sha256:string;status:string};
 function agreementHash(a:Agreement) { return digest(JSON.stringify([a.id,a.monthly_amount,a.vat_mode,a.first_billing_date,a.start_date,a.end_date,a.details,a.fee_details,a.cancellation_terms,a.file_sha256])); }
-export type BillingDependencies={config:BrandBillingConfig;transport:RelayTransport;now:Date;clock?:()=>Date;operatorOnly?:boolean;operatorReady?:boolean};
+export type BillingDependencies={config:BrandBillingConfig;transport:RelayTransport;now:Date;clock?:()=>Date;operatorOnly?:boolean;operatorReady?:boolean;renewalsReady?:boolean};
 export function billingDependencies():BillingDependencies {
  const normal=brandBillingConfig(),operator=operatorBillingConfig();
  const c=normal.ok?normal:operator;if(!c.ok)throw new Error('BILLING_NOT_CONFIGURED');
- return {operatorOnly:!normal.ok,operatorReady:operator.ok,config:c.config,transport:(url,init)=>fetch(url,{...init,redirect:'error'}),now:new Date(),clock:()=>new Date()};
+ return {renewalsReady:renewalBillingConfig().ok,operatorOnly:!normal.ok,operatorReady:operator.ok,config:c.config,transport:(url,init)=>fetch(url,{...init,redirect:'error'}),now:new Date(),clock:()=>new Date()};
 }
 export async function billingControl(client?:PoolClient) {
  type Control={enabled:boolean;renewals_enabled:boolean;operator_test_enabled:boolean;operator_test_contract_id:string|null};
@@ -32,10 +32,12 @@ async function checkEnabled(renewal=false) {
 }
 async function checkScope(contractId:string,isOperator:boolean,deps:BillingDependencies,renewal=false,client?:PoolClient) {
  const c=await billingControl(client);
+ if(renewal&&deps.renewalsReady===false)throw new Error('RENEWAL_EGRESS_NOT_CONFIRMED');
  if(isOperator){
   if(!deps.operatorReady||renewal||!c.operator_test_enabled||c.operator_test_contract_id!==contractId)throw new Error('OPERATOR_TEST_DISABLED');
  }else{
-  if(deps.operatorOnly)throw new Error('REGULAR_BILLING_DISABLED');
+  if(deps.renewalsReady===false)throw new Error('RENEWAL_EGRESS_NOT_CONFIRMED');
+ if(deps.operatorOnly)throw new Error('REGULAR_BILLING_DISABLED');
   if(!c.enabled||(renewal&&!c.renewals_enabled))throw new Error('BILLING_DISABLED');
  }
 }
@@ -149,6 +151,7 @@ export async function completeBrandCardRegistration(state:string,returnParams:st
  }catch{await outcomeFailure(a,'LEDGER_OR_KEY_COLLISION',true);}
 }
 export async function runBrandRenewals(deps=billingDependencies()) {
+ if(deps.renewalsReady===false)throw new Error('RENEWAL_EGRESS_NOT_CONFIRMED');
  if(deps.operatorOnly)throw new Error('REGULAR_BILLING_DISABLED');
  await checkEnabled(true);const today=kstDate(deps.now);
  // Missed dates require a review; never silently charge multiple accumulated months.

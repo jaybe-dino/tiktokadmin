@@ -2,13 +2,14 @@
 import { currentUser } from '@/lib/auth';
 import { query,tx } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
-import { brandBillingConfig } from '@/lib/danal/config';
+import { brandBillingConfig,renewalBillingConfig } from '@/lib/danal/config';
 import { pauseBrandBilling,resumeBrandBilling } from '@/lib/danal/brand-billing';
 export async function billingAdminAction(input:{op:string;id?:string;enabled?:boolean;renewals?:boolean}) {
  const u=await currentUser();if(!u||!['exec','lead','settle'].includes(u.role))return {ok:false,error:'결제 관리 권한이 필요합니다.'};
  try{
   if(input.op==='control'){
    if((input.enabled||input.renewals)&&!brandBillingConfig().ok)throw new Error('CONFIG_MISSING');
+   if(input.renewals&&!renewalBillingConfig().ok)throw new Error('RENEWAL_NOT_CONFIGURED');
    if(input.renewals&&!input.enabled)throw new Error('CONTROL_INVALID');
    await tx(async c=>{
     const control=await c.query<{operator_test_enabled:boolean}>('SELECT operator_test_enabled FROM brand_billing_control WHERE id=true FOR UPDATE');

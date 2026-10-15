@@ -5,7 +5,7 @@ import BillingControls,{SubscriptionControls} from './BillingControls';
 import {recurringTotal} from '@/lib/recurring-contract-policy';
 import OperatorValidation from './OperatorValidation';
 import {kstDate} from '@/lib/danal/schedule';
-import {brandBillingConfig,operatorBillingConfig,billingConnectionConfig} from '@/lib/danal/config';
+import {brandBillingConfig,operatorBillingConfig,billingConnectionConfig,renewalBillingConfig} from '@/lib/danal/config';
 import {billingControl} from '@/lib/danal/brand-billing';
 export const dynamic='force-dynamic';
 type Row={id:string;brand_name:string;title:string;monthly_amount:string;vat_mode:string;start_date:string;end_date:string;link_expires_at:string|null;link_revoked_at:string|null;subscription_id:string|null;billing_status:string|null;next_billing_date:string|null;first_billing_date:string;is_operator_test:boolean|null};
@@ -25,7 +25,7 @@ export default async function Page({searchParams}:{searchParams:Promise<{brand?:
  }catch{ready=false;}
  const labels:Record<string,string>={active:'정기결제 등록',awaiting_card:'카드 등록 대기',paused:'결제 중지',needs_review:'담당자 확인 필요',ended:'계약 종료',preparing:'창 준비 중',ready:'인증 대기',approving:'승인 확인 중',paid:'결제 승인 확인',registered:'카드 등록 확인 · 임시 100원 인증',failed:'실패',unknown:'승인 여부 미확정 · 재청구 금지',expired:'창 만료',blocked:'OFF로 차단'};
  return <main><Link href="/contracts">← 계약·결제</Link><h1>브랜드 정기결제 계약</h1><p>계약 등록 → 고객 확인 링크 생성 → 고객의 카드 등록 동의 → 월별 자동결제. 링크 생성은 고객 발송이나 계약 서명으로 처리하지 않습니다.</p>
- {control&&<BillingControls configured={config.ok} enabled={control.enabled} renewals={control.renewals_enabled}/>}
+ {control&&<BillingControls renewalsConfigured={renewalBillingConfig().ok} configured={config.ok} enabled={control.enabled} renewals={control.renewals_enabled}/>}
  {!config.ok&&<p>누락된 연결 설정: {config.missing.join(', ')}. 설정값은 화면에 표시하지 않습니다.</p>}
  {control&&<OperatorValidation ready={operatorConfig.ok} connectionReady={connection.ok} enabled={control.operator_test_enabled} contractId={control.operator_test_contract_id} contracts={rows.filter(r=>r.title.startsWith('[운영자검증]')&&Number(r.monthly_amount)===301&&r.vat_mode==='included'&&r.first_billing_date===kstDate())} missing={operatorConfig.ok?[]:operatorConfig.missing}/>}
  {ready?<ContractForm brands={brands} brandId={brand||undefined}/>:<p role="alert">결제 저장소에 연결하지 못했습니다. 마이그레이션 0116·0117 적용 상태를 확인해 주세요.</p>}

@@ -72,6 +72,7 @@ suite('Danal GloveK isolated PostgreSQL + mock relay',()=>{
   return {rid,cid,token};
  }
  const count=(h:ReturnType<typeof harness>,op:string)=>h.calls.filter(f=>f.TXTYPE===op).length;
+ it('unconfirmed renewal egress never contacts the provider even when DB renewal is ON',async()=>{const h=harness();h.deps.renewalsReady=false;await expect(runBrandRenewals(h.deps)).rejects.toThrow('RENEWAL_EGRESS_NOT_CONFIRMED');expect(h.calls).toHaveLength(0);});
  it('only one of concurrent start/callback clicks can charge the first month',async()=>{
   const a=await agreement(),h=harness();const starts=await Promise.allSettled([startBrandCardRegistration(a.token,true,h.deps),startBrandCardRegistration(a.token,true,h.deps)]);
   expect(starts.filter(v=>v.status==='fulfilled')).toHaveLength(1);expect(count(h,'AUTH')).toBe(1);
