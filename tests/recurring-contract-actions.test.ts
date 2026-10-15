@@ -1,0 +1,11 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const mocks=vi.hoisted(()=>({currentUser:vi.fn(),registerRecurringContract:vi.fn(),issueContractLink:vi.fn(),revokeContractLink:vi.fn()}));
+vi.mock('@/lib/auth',()=>({currentUser:mocks.currentUser}));
+vi.mock('@/lib/recurring-contracts',()=>mocks);
+vi.mock('next/cache',()=>({revalidatePath:vi.fn()}));
+import {recurringAction} from '../app/(dash)/contracts/recurring/actions';
+beforeEach(()=>vi.clearAllMocks());
+it('로그아웃 사용자는 계약 등록/링크 발급을 할 수 없다',async()=>{mocks.currentUser.mockResolvedValue(null);const f=new FormData();f.set('op','issue');const r=await recurringAction(f);expect(r.ok).toBe(false);expect(mocks.issueContractLink).not.toHaveBeenCalled();expect(mocks.registerRecurringContract).not.toHaveBeenCalled();});
+it('계약 권한이 없는 담당자의 직접 액션 요청을 차단한다',async()=>{mocks.currentUser.mockResolvedValue({id:'x',role:'ads'});const r=await recurringAction(new FormData());expect(r.ok).toBe(false);expect(mocks.registerRecurringContract).not.toHaveBeenCalled();});
+it('계약 담당자는 계약을 생성하되 고객 발송을 수행하지 않는다',async()=>{mocks.currentUser.mockResolvedValue({id:'sales@example.test',role:'sales'});mocks.registerRecurringContract.mockResolvedValue('id');const f=new FormData();expect((await recurringAction(f)).ok).toBe(true);expect(mocks.registerRecurringContract).toHaveBeenCalledWith(f,'sales@example.test');expect(mocks.issueContractLink).not.toHaveBeenCalled();});
+it('허용하지 않은 작업은 실행하지 않는다',async()=>{mocks.currentUser.mockResolvedValue({id:'x',role:'exec'});const f=new FormData();f.set('op','charge');f.set('id','12345678-1234-4234-8234-123456789012');expect((await recurringAction(f)).ok).toBe(false);expect(mocks.issueContractLink).not.toHaveBeenCalled();expect(mocks.revokeContractLink).not.toHaveBeenCalled();});

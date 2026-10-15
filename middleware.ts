@@ -13,7 +13,7 @@ export function middleware(req: NextRequest) {
 
   // 외부 참석자 열람 화면·내려받기는 캐시와 검색엔진 수집을 모두 막는다.
   //   페이지 쪽 metadata 만으로는 중간 캐시를 막지 못하므로 응답 헤더로도 못을 박는다.
-  if (pathname.startsWith("/roster/") || pathname.startsWith("/api/roster/")) {
+  if (pathname.startsWith("/roster/") || pathname.startsWith("/api/roster/") || pathname.startsWith("/billing-contract/") || pathname.startsWith("/api/billing-contract/")) {
     const res = NextResponse.next();
     res.headers.set("Cache-Control", "no-store, max-age=0, must-revalidate");
     res.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");

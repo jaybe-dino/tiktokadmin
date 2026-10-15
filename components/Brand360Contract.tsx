@@ -3,6 +3,8 @@
 // v3.1 계약·결제 탭 — 계약(+계약 등록·상태 변경) + 결제 이력(결제 안내 발송 · 수기 확인 입력).
 // contracts · payments_manual · mall_subscriptions(읽기전용) 실데이터.
 import { useState, useTransition } from "react";
+import Link from "next/link";
+import { recurringTotal } from "@/lib/recurring-contract-policy";
 import { useRouter } from "next/navigation";
 import { addContractAction, composeEmailAction, manualPaymentAction, setContractStatusAction, listBrandOpsQuotesForContractAction, registerContractFromQuoteAction, updateManualPaymentAction, deleteManualPaymentAction, type OpsQuoteForContract } from "@/app/actions";
 import { PLANS, PLAN_LABELS } from "@/lib/types";
@@ -77,6 +79,7 @@ export default function Brand360Contract({ brandId, contracts, paymentsManual, g
       <div className="card">
         <div className="hd">
           <b>계약</b>
+          <Link className="btn sm" href={`/contracts/recurring?brand=${brandId}`}>정기결제 계약·고객 링크</Link>
           <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => { setOpenQ((o) => !o); if (!openQ && !quotes) loadQuotes(); }}>
             {openQ ? "닫기" : "📄 견적으로 등록"}
           </button>
@@ -209,7 +212,7 @@ export default function Brand360Contract({ brandId, contracts, paymentsManual, g
                         </select>
                         <span className={`cellchip ${st.cls}`} style={{ marginLeft: 4 }}>{st.label}</span>
                       </td>
-                      <td>{(c.terms as { term_months?: number })?.term_months ? `${(c.terms as { term_months?: number }).term_months}개월` : "—"}</td>
+                      <td>{typeof c.terms.monthly_amount === "number" && <div style={{fontWeight:700}}>월 {won(recurringTotal(c.terms.monthly_amount, String(c.terms.vat_mode)))} (VAT 포함)</div>}{(c.terms as { term_months?: number })?.term_months ? `${(c.terms as { term_months?: number }).term_months}개월` : "—"}</td>
                       <td>{c.end_date?.slice(0, 10) ?? "—"}</td>
                     </tr>
                   );

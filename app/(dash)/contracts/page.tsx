@@ -53,6 +53,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
         desc="계약 조건은 구조화 저장 · 카드결제(온보딩·개런티·구독)는 glovek 수납 → 웹훅 자동 확인 · 계약서·이체는 수기 확인"
         right={<RegisterContractButton brands={registerBrands} />}
       />
+      <p><Link className="btn pri" href="/contracts/recurring">브랜드 정기결제 계약 등록·고객 링크</Link></p>
       <div className="grid g31">
         {/* 좌측: 계약 목록 */}
         <div className="card overflow-x-auto">
