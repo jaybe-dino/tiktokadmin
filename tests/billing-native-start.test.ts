@@ -22,8 +22,8 @@ describe('Native card registration submission',()=>{
   start.mockResolvedValue({url:'https://checkout.teledit.com/start',params:'a"<&value'});
   const r=await POST(req('token='+token+'&consent=yes&form_proof='+createBillingFormProof(token))),s=await r.text();
   expect(r.status).toBe(200);expect(start).toHaveBeenCalledWith(token,true);
-  expect(s).toContain('method="POST"');expect(s).toContain('name="STARTPARAMS" value="a&quot;&lt;&amp;value"');expect(s).toContain('다날 결제창 열기');expect(r.headers.get('cache-control')).toBe('no-store');
+  expect(s).toContain('method="POST"');expect(s).toContain('name="STARTPARAMS" value="a&quot;&lt;&amp;value"');expect(s).toContain('카드 입력창 열기');expect(r.headers.get('cache-control')).toBe('no-store');
  });
  it('rejects oversized requests without entering card registration',async()=>{expect((await POST(req('token='+token+'&consent=yes&x='+'x'.repeat(5000)))).status).toBe(413);expect(start).not.toHaveBeenCalled();});
- it('renders a visible error instead of a silent click and never echoes a raw failure',async()=>{start.mockRejectedValue(new Error('private provider error'));const r=await POST(req('token='+token+'&consent=yes&form_proof='+createBillingFormProof(token))),s=await r.text();expect(r.status).toBe(409);expect(s).toContain('카드 등록 요청을 완료하지 못했습니다');expect(s).not.toContain('private provider error');});
+ it('renders a visible error instead of a silent click and never echoes a raw failure',async()=>{start.mockRejectedValue(new Error('private provider error'));const r=await POST(req('token='+token+'&consent=yes&form_proof='+createBillingFormProof(token))),s=await r.text();expect(r.status).toBe(409);expect(s).toContain('잠시 확인이 필요합니다');expect(s).not.toContain('private provider error');});
 });
