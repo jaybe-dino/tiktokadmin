@@ -1,0 +1,98 @@
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:24px 0 18px}
+.viewSwitch{display:inline-flex;gap:4px;padding:5px;background:#e8edf5;border-radius:12px}
+.viewSwitch a{border:0;box-shadow:none;min-height:42px}
+.viewSwitch .selected{background:white;color:#1e4fac;box-shadow:0 1px 4px #17345617}
+.filterGrid{display:grid;grid-template-columns:1fr 1fr 1.5fr auto;gap:14px;align-items:end}
+.quickDates{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.quickDates a{font-size:13px;color:#405875;padding:5px 12px;border:1px solid #e0e6ef;background:white;border-radius:20px;text-decoration:none}
+.summaryLink{display:block;text-decoration:none!important;color:inherit!important;transition:border-color .15s,transform .15s;min-width:0}
+.summaryLink:hover{border-color:#8eafe8;transform:translateY(-1px)}
+.summaryLink strong{font-size:clamp(20px,2.2vw,29px);overflow-wrap:anywhere;word-break:normal}
+.summaryLink small{display:block;font-size:12px;color:#617289;margin-top:6px}
+.paidValue{color:#087447}
+.scheduledValue{color:#2458c5}
+.attentionValue{color:#965c08}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}
+.tab{display:inline-flex;align-items:center;gap:7px;min-height:42px;padding:8px 13px;border:1px solid #dce4ee;border-radius:24px;background:white;color:#53667d;text-decoration:none;font-size:14px;font-weight:650}
+.tabSelected{border-color:#2d64ce;color:#2458c5;background:#edf3ff}
+.tab small{font-size:12px;background:#eef2f7;color:#53667d;border-radius:15px;padding:1px 7px}
+.dot{width:7px;height:7px;display:inline-block;flex-shrink:0;border-radius:50%;background:var(--event-color,#8795a8)}
+.monthBar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.monthBar h2{margin:0!important;font-size:24px}
+.monthBar a{font-size:13px;padding:8px 12px}
+.calendarGrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid #e0e6ef;border-left:1px solid #e0e6ef;border-radius:12px;overflow:hidden}
+.weekday{padding:12px 4px;text-align:center;background:#f5f7fb;border-right:1px solid #e0e6ef;font-size:13px;font-weight:700;color:#67788e}
+.sunday{color:#b05055}
+.day{min-height:148px;background:white;border-right:1px solid #e0e6ef;border-bottom:1px solid #e0e6ef;padding:9px;min-width:0}
+.outside{background:#f7f9fc}
+.dateLink{display:flex;align-items:center;justify-content:space-between;min-height:28px;color:#31445d;text-decoration:none;font-size:14px;font-weight:700;margin-bottom:6px}
+.today .dateNumber{display:inline-flex;align-items:center;justify-content:center;min-width:27px;min-height:27px;border-radius:50%;background:#2563eb;color:white}
+.selectedDay{background:#f0f5ff;box-shadow:inset 0 0 0 2px #83a7ee}
+.dayCount{font-size:11px;color:#6b7e96;font-weight:500}
+.event{display:block;text-decoration:none!important;background:var(--event-bg,#eef3fa);border-left:3px solid var(--event-color,#7d8da3);border-radius:6px;padding:6px;margin-top:6px;color:#2b405a;font-size:11px;line-height:1.55;min-width:0}
+.event strong{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.event span{display:block;color:var(--event-color,#52657d)}
+.more{display:block;font-size:11px;color:#285fc4;padding-top:5px}
+.mobileDots{display:none}
+.legend{display:flex;flex-wrap:wrap;gap:13px;color:#5d6d82;font-size:12px;margin:15px 0 0}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.desktopList{display:block}
+.mobileList{display:none}
+.mobileItem{background:white;border:1px solid #e1e7ef;border-radius:14px;padding:18px;margin:12px 0}
+.mobileItem h3{margin:10px 0 2px!important}
+.itemTop{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.itemAmount{font-size:22px;font-weight:800;margin:12px 0!important}
+.itemDate{font-size:13px;color:#5d7087}
+.emptyCalendar{text-align:center;padding:20px 12px;color:#60718a;font-size:14px;background:#f8fafc;border-radius:10px;margin-top:16px}
+.sectionAnchor{scroll-margin-top:80px}
+.referenceDetails{margin-top:8px;font-size:12px;color:#64748b}
+.referenceDetails summary{cursor:pointer}
+.referenceDetails p{overflow-wrap:anywhere;word-break:break-all}
+.excludedCards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.excludedCard{padding:18px;border:1px solid #e0e6ef;border-radius:12px}
+.excludedCard strong{display:block}
+.excludedCard a{font-size:14px;display:inline-flex;align-items:center;min-height:42px}
+.periodHint{font-size:13px;color:#64748b}
+.noticeLink{display:inline-block;margin-top:4px;color:inherit;font-weight:700}
+.calendarPanel{padding:22px!important}
+.legendText{font-size:12px;color:#60718a}
+.countLabel{font-size:14px;font-weight:500;color:#64748b}
+.statusCell{min-width:145px}
+.tableName{min-width:150px}
+.listMeta{font-size:12px;color:#60718a}
+.jump{display:inline-flex;gap:5px;align-items:center;min-height:42px;color:#285fc4;font-weight:650;font-size:14px}
+.srOnly{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:900px){.filterGrid{grid-template-columns:1fr 1fr}
+.filterGrid .searchLabel{grid-column:1/-1}
+.event strong{font-size:11px}
+.day{padding:6px}
+.summaryLink strong{font-size:23px}
+.excludedCards{grid-template-columns:1fr}
+}
+@media(max-width:700px){.calendarPanel{padding:14px!important}
+.monthBar h2{font-size:20px}
+.monthBar a{font-size:12px;min-height:42px;padding:8px}
+.day{min-height:75px;padding:5px}
+.weekday{font-size:12px;padding:9px 0}
+.dateLink{display:block;text-align:center;margin:0;min-height:44px}
+.dateNumber{display:inline-flex;align-items:center;justify-content:center;min-height:26px}
+.dayCount{display:block;white-space:nowrap;font-size:10px}
+.event,.more{display:none}
+.mobileDots{display:flex;justify-content:center;gap:3px;margin-top:3px;flex-wrap:wrap}
+.mobileDots .dot{width:5px;height:5px}
+.desktopList{display:none}
+.mobileList{display:block}
+.toolbar{align-items:flex-start}
+.summaryLink strong{font-size:21px}
+.legend{gap:10px;font-size:11px}
+.tab{padding:7px 10px;font-size:12px}
+.monthBar{gap:5px}
+.countLabel{font-size:13px}
+.filterGrid{gap:12px}
+.filterGrid button{grid-column:1/-1}
+.viewSwitch{width:100%}
+.viewSwitch a{flex:1}
+.excludedCard{padding:15px}
+.dateLink .dateNumber{font-size:13px}
+}
+

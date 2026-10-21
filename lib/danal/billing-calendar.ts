@@ -1,9 +1,9 @@
 import {nextBillingDate} from './schedule';
 import {recurringTotal} from '../recurring-contract-policy';
 export type CalendarContract={id:string;brand_id:string;brand_name:string;title:string;start_date:string;end_date:string;status:string;first_billing_date:string;monthly_amount:string|number;vat_mode:string;subscription_id:string|null;billing_status:string|null;next_billing_date:string|null;is_operator_test:boolean|null;has_billing_key:boolean;terms_match:boolean};
-export type CalendarAttempt={id:string;recurring_contract_id:string;due_date:string;event_date:string;kind:string;amount:string|number;status:string;provider_tid:string|null;failure_code:string|null;completed_at:string|null};
+export type CalendarAttempt={id:string;recurring_contract_id:string;due_date:string;event_date:string;kind:string;amount:string|number;status:string;provider_tid:string|null;provider_code?:string|null;failure_code:string|null;completed_at:string|null};
 export type CalendarGroup='scheduled'|'paid'|'attention'|'pending'|'history';
-export type BillingCalendarEntry={id:string;day:string;due_date:string;contract_id:string;brand_id:string;brand_name:string;title:string;amount:number;label:string;group:CalendarGroup;type:string;source:'projection'|'ledger';tid:string|null;completed_at:string|null;detail:string};
+export type BillingCalendarEntry={id:string;day:string;due_date:string;contract_id:string;brand_id:string;brand_name:string;title:string;amount:number;label:string;group:CalendarGroup;type:string;source:'projection'|'ledger';tid:string|null;provider_code?:string|null;completed_at:string|null;detail:string};
 export function billingMonthBounds(month:string){
  if(!/^\d{4}-\d{2}$/.test(month))throw new Error('INVALID_MONTH');
  const [y,m]=month.split('-').map(Number);if(y<2000||y>2199||m<1||m>12)throw new Error('INVALID_MONTH');
@@ -16,7 +16,7 @@ export function buildBillingCalendar(contracts:CalendarContract[],attempts:Calen
  for(const a of attempts){
   const c=byId.get(a.recurring_contract_id);if(!c||a.event_date<from||a.event_date>to)continue;
   const group:CalendarGroup=a.status==='paid'?'paid':['failed','unknown','approving','blocked'].includes(a.status)?'attention':['ready','preparing'].includes(a.status)?'pending':'history';
-  entries.push({id:'attempt:'+a.id,day:a.event_date,due_date:a.due_date,contract_id:c.id,brand_id:c.brand_id,brand_name:c.brand_name,title:c.title,amount:Number(a.amount),label:labels[a.status]||a.status,group,type:a.kind==='initial'?'첫 결제·카드 등록':a.kind==='operator_test'?'호출결제 테스트':'월 자동청구',source:'ledger',tid:a.provider_tid,completed_at:a.completed_at,detail:a.failure_code||''});
+  entries.push({id:'attempt:'+a.id,day:a.event_date,due_date:a.due_date,contract_id:c.id,brand_id:c.brand_id,brand_name:c.brand_name,title:c.title,amount:Number(a.amount),label:labels[a.status]||a.status,group,type:a.kind==='initial'?'첫 결제·카드 등록':a.kind==='operator_test'?'호출결제 테스트':'월 자동청구',source:'ledger',tid:a.provider_tid,provider_code:a.provider_code||null,completed_at:a.completed_at,detail:a.failure_code||''});
  }
  for(const c of contracts){
   let reason='';
