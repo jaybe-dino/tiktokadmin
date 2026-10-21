@@ -1,27 +1,20 @@
-"use client";
-import {useState,useTransition} from 'react';
-import {useRouter} from 'next/navigation';
-import {billingAdminAction} from './billing-actions';
-export default function BillingControls({configured,enabled,renewals,renewalsConfigured}:{configured:boolean;enabled:boolean;renewals:boolean;renewalsConfigured:boolean}) {
- const [pending,start]=useTransition();const [message,setMessage]=useState('');const router=useRouter();
- function set(e:boolean,r:boolean){start(async()=>{const out=await billingAdminAction({op:'control',enabled:e,renewals:r});setMessage(out.ok?'설정 저장 완료':out.error||'실패');router.refresh();});}
- return <section className="card" style={{padding:20,marginBottom:16}}><h2>다날 연결·청구 설정</h2>
-  <p>연결 설정: {configured?'준비됨 · 실거래 검증 여부는 별도 확인':'미설정'} · 카드 등록·결제: {enabled?'ON':'OFF'} · 월별 자동청구: {renewals?'ON':'OFF'}</p>
-  <p>ON 전환 후 고객의 카드 등록 완료 시 승인 또는 임시 100원 인증이 발생할 수 있습니다. 월별 자동청구는 결제 예정일에 실행합니다. 지난 예정일은 담당자 확인 대상으로 보류합니다.</p>
-  <button className="btn" disabled={pending} onClick={()=>set(false,false)}>전체 결제 OFF</button>{' '}
-  <button className="btn" disabled={pending||!configured} onClick={()=>set(true,false)}>카드 등록·첫 결제만 ON</button>{' '}
-  <button className="btn" disabled={pending||!configured||!renewalsConfigured} onClick={()=>set(true,true)}>카드 등록·월별 자동청구 ON</button>{!renewalsConfigured&&<p>월별 자동청구는 다날 OTBILL 요청 IP 등록 확인 후 활성화할 수 있습니다. 카드 등록·첫 결제와 별도로 관리합니다.</p>}<p role="status">{message}</p>
- </section>;
+'use client';
+import {useState,useTransition}from'react';import{useRouter}from'next/navigation';import{billingAdminAction}from'./billing-actions';import s from '@/app/billing.module.css';
+export default function BillingControls({configured,enabled,renewals,renewalsConfigured}:{configured:boolean;enabled:boolean;renewals:boolean;renewalsConfigured:boolean}){
+ const[pending,start]=useTransition(),[message,setMessage]=useState('');const router=useRouter();
+ function set(e:boolean,r:boolean){if(r&&!renewals&&!window.confirm('등록된 카드에 계약별 예정일마다 월 이용료가 자동 청구됩니다. 매월 자동청구를 켤까요?'))return;if(!e&&!window.confirm('모든 계약의 신규 카드 등록·첫 결제와 매월 자동청구를 중지할까요?'))return;start(async()=>{const out=await billingAdminAction({op:'control',enabled:e,renewals:r});setMessage(out.ok?'설정이 저장됐습니다.':out.error||'저장하지 못했습니다.');router.refresh();});}
+ return <section className={s.panel}><h2>고객이 결제할 수 있는 상태인가요?</h2><div className={s.controlgrid}>
+ <div className={s.controlitem}><div className={s.rowhead}><h3>카드 등록·첫 결제</h3><span className={`${s.badge} ${enabled?s.good:s.warn}`}>{enabled?'이용 가능':'중지됨'}</span></div><p className={s.muted}>{enabled?'고객이 계약 링크에서 카드를 등록할 수 있습니다.':'고객의 카드 등록 버튼이 열리지 않습니다.'}</p>{!enabled&&<button className={`${s.button} ${s.primary}`} disabled={pending||!configured} onClick={()=>set(true,renewals)}>카드 등록 열기</button>}</div>
+ <div className={s.controlitem}><div className={s.rowhead}><h3>매월 자동청구</h3><span className={`${s.badge} ${enabled&&renewals?s.good:s.warn}`}>{enabled&&renewals?'사용 중':'중지됨'}</span></div><p className={s.muted}>{enabled&&renewals?'등록된 카드에 계약별 청구일마다 이용료를 청구합니다.':'카드를 등록해도 이후의 월 이용료는 자동 청구되지 않습니다.'}</p><button className={s.button} disabled={pending||!configured||(!renewals&&!renewalsConfigured)} onClick={()=>set(true,!renewals)}>{renewals?'매월 자동청구 중지':'매월 자동청구 켜기'}</button></div>
+ </div>{!configured&&<p className={`${s.notice} ${s.warn}`}>결제 서비스 연결을 확인해야 합니다. 아래 고급 설정의 연결 상태를 확인해 주세요.</p>}{!renewalsConfigured&&<p className={s.help}>월 자동청구 연결 확인이 필요합니다. 카드 등록 설정과 별도로 관리됩니다.</p>}
+ <details className={`${s.details} ${s.operationHelp}`}><summary>전체 결제를 중지해야 하나요?</summary><p className={s.help}>전체 계약의 신규 카드 등록·첫 결제·매월 자동청구를 함께 중지합니다. 이미 승인된 결제를 취소하는 기능은 아닙니다.</p><button className={`${s.button} ${s.danger}`} disabled={pending||!enabled&&!renewals} onClick={()=>set(false,false)}>전체 결제 중지</button></details>{message&&<p role="status" className={s.notice}>{message}</p>}</section>;
 }
-export function SubscriptionControls({id,status}:{id:string;status:string}) {
- const [pending,start]=useTransition();const [message,setMessage]=useState('');const router=useRouter();
- function run(op:string){start(async()=>{const r=await billingAdminAction({op,id});setMessage(r.ok?'변경 완료':r.error||'실패');router.refresh();});}
- return <div>{['active','awaiting_card'].includes(status)&&<button className="btn" disabled={pending} onClick={()=>run('pause')}>이 계약 정기결제 중지</button>}{status==='paused'&&<button className="btn" disabled={pending} onClick={()=>run('resume')}>예정된 결제 재개</button>}<p role="status">{message}</p></div>;
+export function SubscriptionControls({id,status}:{id:string;status:string}){
+ const[pending,start]=useTransition(),[message,setMessage]=useState('');const router=useRouter();
+ function run(op:string){if(!window.confirm(op==='pause'?'이 계약의 이후 자동결제를 중지할까요? 이미 승인된 결제는 취소되지 않습니다.':'이 계약의 예정된 자동결제를 재개할까요?'))return;start(async()=>{const r=await billingAdminAction({op,id});setMessage(r.ok?'변경됐습니다.':r.error||'처리하지 못했습니다.');router.refresh();});}
+ return <div className={s.actions}>{['active','awaiting_card'].includes(status)&&<button className={`${s.button} ${s.danger}`} disabled={pending} onClick={()=>run('pause')}>이 계약 자동결제 중지</button>}{status==='paused'&&<button className={s.button} disabled={pending} onClick={()=>run('resume')}>이 계약 자동결제 재개</button>}{message&&<p role="status" className={s.help}>{message}</p>}</div>;
 }
-
-export function SavedCardTest({id}:{id:string}) {
- const [approved,setApproved]=useState(false),[pending,start]=useTransition(),[message,setMessage]=useState('');const router=useRouter();
- return <section style={{border:'1px solid #e8c56c',padding:14,marginTop:10}}><b>운영자 호출결제 1회 검증</b><p>등록한 카드에 301원이 추가로 실제 청구됩니다. 다음 월 청구일과 월 자동청구 설정은 바뀌지 않습니다. 이 계약에서 한 번만 요청할 수 있으며 자동 환불되지 않습니다.</p>
- <label><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)} disabled={pending}/> 등록된 테스트 카드의 추가 301원 1회 청구를 승인합니다.</label>
- <button className="btn" disabled={!approved||pending} onClick={()=>start(async()=>{const r=await billingAdminAction({op:'test_saved_card',id,amount:301});setMessage(r.message||r.error||'결과 확인 필요');router.refresh();})}>{pending?'승인 결과 확인 중…':'등록 카드에 301원 호출결제'}</button><p role="status">{message}</p></section>;
+export function SavedCardTest({id}:{id:string}){
+ const[approved,setApproved]=useState(false),[pending,start]=useTransition(),[message,setMessage]=useState('');const router=useRouter();
+ return <details className={`${s.details} ${s.notice}`}><summary>운영자 전용 · 추가 301원 테스트</summary><p>이 버튼을 누르면 등록된 카드에 301원이 실제로 추가 청구됩니다. 계약당 1회만 가능하며 자동 환불되지 않습니다.</p><label className={s.consent}><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)} disabled={pending}/><span>테스트 카드에 301원 추가 결제하는 것에 동의합니다.</span></label><button className={`${s.button} ${s.danger}`} style={{marginTop:12}} disabled={!approved||pending} onClick={()=>start(async()=>{const r=await billingAdminAction({op:'test_saved_card',id,amount:301});setMessage(r.message||r.error||'결과 확인 필요');router.refresh();})}>{pending?'결제 결과 확인 중…':'추가 301원 테스트 결제'}</button><p role="status">{message}</p></details>;
 }
