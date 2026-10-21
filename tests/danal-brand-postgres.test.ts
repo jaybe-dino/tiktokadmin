@@ -164,8 +164,13 @@ suite('Danal GloveK isolated PostgreSQL + mock relay',()=>{
   await query('UPDATE brand_billing_control SET enabled=false,operator_test_enabled=true,operator_test_contract_id=$1',[a.rid]);
   await expect(startBrandCardRegistration(a.token,true,h.deps)).rejects.toThrow('OPERATOR_CONTRACT_MUST_BE_301_TODAY');expect(h.calls).toHaveLength(0);
  });
- it('duplicate BILLKEY across contracts is held without deleting or charging the key again',async()=>{
+ it('duplicate registration-only key retains registration proof without counting revenue',async()=>{
+  const a=await agreement('2027-02-28'),h=harness();h.behavior.fixedKey='shared-registration-key';await startBrandCardRegistration(a.token,true,h.deps);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);
+  const b=await agreement('2027-02-28');await startBrandCardRegistration(b.token,true,h.deps);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);
+  const attempts=await query('SELECT status,provider_tid,provider_code,failure_code FROM brand_billing_attempts ORDER BY created_at');expect(attempts.every(a=>a.status==='registered'&&a.provider_tid&&a.provider_code==='0000')).toBe(true);expect(attempts[1].failure_code).toBe('BILLING_KEY_ALREADY_REGISTERED');expect((await query("SELECT id FROM brand_billing_attempts WHERE status='paid'")).length).toBe(0);expect((await query("SELECT id FROM brand_billing_subscriptions WHERE status='needs_review'")).length).toBe(1);expect(count(h,'OTBILL')).toBe(0);
+ });
+ it('duplicate BILLKEY preserves verified approval and TID while holding card linkage',async()=>{
   const a=await agreement(),h=harness();h.behavior.fixedKey='synthetic-shared-key';await startBrandCardRegistration(a.token,true,h.deps);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);
-  const b=await agreement();await startBrandCardRegistration(b.token,true,h.deps);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);const all=await query('SELECT status FROM brand_billing_subscriptions');expect(all.map(s=>s.status).sort()).toEqual(['active','needs_review']);expect(count(h,'OTBILL')).toBe(0);expect(h.calls.some(f=>f.TXTYPE==='DELBILLKEY')).toBe(false);
+  const b=await agreement();await startBrandCardRegistration(b.token,true,h.deps);await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);const all=await query('SELECT status FROM brand_billing_subscriptions');expect(all.map(s=>s.status).sort()).toEqual(['active','needs_review']);expect(count(h,'OTBILL')).toBe(0);expect(h.calls.some(f=>f.TXTYPE==='DELBILLKEY')).toBe(false);const attempts=await query('SELECT status,provider_tid,provider_code,failure_code FROM brand_billing_attempts ORDER BY created_at');expect(attempts).toHaveLength(2);expect(attempts.every(a=>a.status==='paid'&&a.provider_tid&&a.provider_code==='0000')).toBe(true);expect(attempts[1].failure_code).toBe('BILLING_KEY_ALREADY_REGISTERED');await completeBrandCardRegistration(h.state,h.returnParams(),h.deps);expect(count(h,'ISSUEBILLKEY')).toBe(2);
  });
 });

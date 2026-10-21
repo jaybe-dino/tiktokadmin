@@ -163,9 +163,22 @@ export async function completeBrandCardRegistration(state:string,returnParams:st
  try{
   const cipher=await encryptSecret(deps.config.encryptionKey,key,`glovek:${claim.sub.id}`);
   await tx(async c=>{
-   // A duplicate BILLKEY is held for review. Never delete or re-charge a shared key.
-   await c.query("UPDATE brand_billing_subscriptions SET billing_key_ciphertext=$2,billing_key_hash=$3,status=CASE WHEN status='awaiting_card' THEN 'active' ELSE status END,next_billing_date=$4,updated_at=now() WHERE id=$1",[claim.sub.id,cipher,digest(key),a.is_bill?nextBillingDate(claim.agreement.first_billing_date,a.due_date):claim.agreement.first_billing_date]);
-   await c.query("UPDATE brand_billing_attempts SET status=$2,provider_tid=$3,provider_code='0000',completed_at=now(),updated_at=now() WHERE id=$1 AND status='approving'",[a.id,a.is_bill?'paid':'registered',a.auth_tid]);
+   // Preserve the verified provider outcome even if storing the reusable card fails.
+   const saved=await c.query("UPDATE brand_billing_attempts SET status=$2,provider_tid=$3,provider_code='0000',failure_code=NULL,completed_at=now(),updated_at=now() WHERE id=$1 AND status='approving' RETURNING id",[a.id,a.is_bill?'paid':'registered',a.auth_tid]);
+   if(!saved.rowCount)throw new Error('APPROVAL_STATE_CHANGED');
+   await c.query('SAVEPOINT card_link');
+   try{
+    // Keep the global duplicate-key guard; never delete, reuse or re-charge a shared key.
+    await c.query("UPDATE brand_billing_subscriptions SET billing_key_ciphertext=$2,billing_key_hash=$3,status=CASE WHEN status='awaiting_card' THEN 'active' ELSE status END,next_billing_date=$4,updated_at=now() WHERE id=$1",[claim.sub.id,cipher,digest(key),a.is_bill?nextBillingDate(claim.agreement.first_billing_date,a.due_date):claim.agreement.first_billing_date]);
+    await c.query('RELEASE SAVEPOINT card_link');
+   }catch(error){
+    await c.query('ROLLBACK TO SAVEPOINT card_link');
+    await c.query('RELEASE SAVEPOINT card_link');
+    const code=(error as {code?:string}).code==='23505'?'BILLING_KEY_ALREADY_REGISTERED':'BILLING_KEY_STORAGE_FAILED';
+    await c.query("UPDATE brand_billing_subscriptions SET status='needs_review',updated_at=now() WHERE id=$1",[claim.sub.id]);
+    await c.query('UPDATE brand_billing_attempts SET failure_code=$2 WHERE id=$1',[a.id,code]);
+    await c.query('INSERT INTO brand_billing_events(subscription_id,attempt_id,event,actor) VALUES($1,$2,$3,$4)',[claim.sub.id,a.id,'verified_approval_card_link_held','system']);
+   }
    await c.query('INSERT INTO brand_billing_events(subscription_id,attempt_id,event,actor) VALUES($1,$2,$3,$4)',[claim.sub.id,a.id,claim.sub.is_operator_test?'operator_301_charge_verified':a.is_bill?'first_charge_verified':'temporary_registration_verified','provider']);
   });
  }catch{await outcomeFailure(a,'LEDGER_OR_KEY_COLLISION',true);}
@@ -219,7 +232,7 @@ export async function pauseBrandBilling(id:string,actor:string) {
 }
 export async function billingResult(state:string) {
  if(!/^[a-f0-9]{64}$/.test(state))return null;
- return queryOne<{status:string;is_bill:boolean;amount:string;is_operator_test:boolean}>("SELECT a.status,a.is_bill,a.amount,s.is_operator_test FROM brand_billing_attempts a JOIN brand_billing_subscriptions s ON s.id=a.subscription_id WHERE a.callback_state_hash=$1",[digest(state)]);
+ return queryOne<{status:string;is_bill:boolean;amount:string;is_operator_test:boolean;provider_tid:string|null;provider_code:string|null;failure_code:string|null;order_id:string}>("SELECT a.status,a.is_bill,a.amount,s.is_operator_test,a.provider_tid,a.provider_code,a.failure_code,a.order_id FROM brand_billing_attempts a JOIN brand_billing_subscriptions s ON s.id=a.subscription_id WHERE a.callback_state_hash=$1",[digest(state)]);
 }
 export async function resumeBrandBilling(id:string,actor:string) {
  await tx(async c=>{
