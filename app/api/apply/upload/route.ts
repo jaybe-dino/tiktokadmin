@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   currentOnbCustomer, getOrCreateApplication, saveOnbFile, listOnbFiles,
   COMPANY_DOCS_FIELD, COMPANY_DOCS_MAX_BYTES, COMPANY_DOCS_MAX_COUNT,
-  JP_LABEL_FIELD, JP_LABEL_MAX_BYTES, JP_LABEL_MAX_COUNT,
+  JP_LABEL_FIELD, JP_LABEL_MAX_BYTES, JP_LABEL_MAX_COUNT, JP_LABEL_MIN_PX,
 } from "@/lib/onboarding";
 
 export const runtime = "nodejs";
@@ -75,6 +75,22 @@ export async function POST(req: NextRequest) {
   else if (isCompanyDocs && extOk) mime = browserMime || "application/octet-stream";
   else if (ALLOWED.has(browserMime)) mime = browserMime === "image/jpg" ? "image/jpeg" : browserMime;
   else return NextResponse.json({ ok: false, error: "파일 내용이 PDF/JPG/PNG 형식이 아닙니다 — 파일을 다시 확인해주세요." }, { status: 400 });
+
+  // 일본어 라벨 사진은 최소 해상도를 실제로 확인한다(BUG-50).
+  //   라벨 글자가 읽혀야 심사가 되므로 안내문만 띄우고 작은 사진을 받으면
+  //   제출은 끝났는데 다시 받아야 하는 상황이 된다.
+  //   PDF 는 픽셀 크기가 없어 검사 대상이 아니다 — 통과시킨다.
+  if (isJpLabel) {
+    const { checkMinPixels } = await import("@/lib/image-dims");
+    const dim = checkMinPixels(bytes, JP_LABEL_MIN_PX);
+    if (!dim.ok) {
+      return NextResponse.json({
+        ok: false,
+        error: `사진이 너무 작습니다(${dim.dims.width} × ${dim.dims.height}px). `
+          + `라벨 글자가 읽히도록 최소 ${JP_LABEL_MIN_PX} × ${JP_LABEL_MIN_PX}px 이상으로 다시 찍어 올려주세요.`,
+      }, { status: 400 });
+    }
+  }
 
   const r = await saveOnbFile(appId, field, file.name || "upload", mime, bytes, c.email);
   if (!r.ok) return NextResponse.json({ ok: false, error: r.error ?? "업로드 실패" }, { status: 500 });

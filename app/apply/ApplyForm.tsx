@@ -500,6 +500,7 @@ function JpLabelPhotos({ initial, disabled }: { initial: OnbFile[]; disabled: bo
           <div style={{ fontSize: 11.5, color: "#8b93a1" }}>
             {JP_LABEL_FORMATS} · 1~<b>{JP_LABEL_MAX_COUNT}</b>장 · 파일당 <b>5MB</b> 이하 ·
             최소 <b>{JP_LABEL_MIN_PX} × {JP_LABEL_MIN_PX}px</b>
+            <div style={{ marginTop: 2 }}>해상도가 작으면 업로드되지 않습니다 — 라벨 글자가 읽혀야 심사가 가능합니다.</div>
           </div>
         </div>
       )}
