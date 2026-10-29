@@ -132,6 +132,20 @@ export const env = {
     get saKeyJson() { return opt("GOOGLE_SA_KEY_JSON"); },
     get pubsubTopic() { return opt("GMAIL_PUBSUB_TOPIC"); },
   },
+  // 원장 → Google Sheets 자동 기록. 인증은 Gmail 과 같은 서비스계정을 재사용하고
+  //   시트 소유자를 impersonate 한다(비공개 시트의 공유 범위를 넓히지 않기 위해).
+  //   셋 중 하나라도 비면 동기화는 실행되지 않는다(fail closed).
+  sheets: {
+    get saKeyJson() { return opt("GOOGLE_SA_KEY_JSON"); },
+    /** 대행할 Workspace 계정 = 시트 소유자. */
+    get subject() { return opt("SHEETS_SYNC_SUBJECT"); },
+    /** 기록 대상 스프레드시트 ID. */
+    get ledgerSpreadsheetId() { return opt("SHEETS_LEDGER_SPREADSHEET_ID"); },
+    /** 유입·커뮤현황 탭 이름(기본 첫 탭). */
+    get ledgerTab() { return opt("SHEETS_LEDGER_TAB", "유입·커뮤현황"); },
+    /** 갱신기록 탭 이름. */
+    get logTab() { return opt("SHEETS_LEDGER_LOG_TAB", "갱신기록"); },
+  },
   meta: {
     // 메타(페이스북) Lead Ads 웹훅 — 리드 폼 제출 시 어드민으로 직접 유입
     get verifyToken() { return opt("META_VERIFY_TOKEN"); },          // 웹훅 구독 검증용(내가 정한 문자열)

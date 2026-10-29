@@ -64,6 +64,10 @@
     {
       "path": "/api/cron/brand-billing",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/sheets-ledger",
+      "schedule": "0 0 * * *"
     }
   ],
   "functions": {
