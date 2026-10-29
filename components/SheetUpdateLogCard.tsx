@@ -92,6 +92,11 @@ export default function SheetUpdateLogCard() {
     }
     setMsg(body.duplicate ? "같은 작업으로 이미 기록돼 있습니다." : "기록했습니다.");
     setRunId(crypto.randomUUID());        // 성공 후에만 새 작업 번호
+    setCollectedAt("");
+    setSourceCount("");
+    setUpdatedRows("");
+    setAppendedRows("");
+    setVerifiedRows("");
     await load();
   }
 
