@@ -38,7 +38,7 @@ export const HEADER_ROW = 5;
 export const FIRST_DATA_ROW = 6;
 
 /** 갱신기록 탭의 헤더 행. */
-export const LOG_HEADER_ROW = 1;
+export const LOG_HEADER_ROW = 5;
 
 /**
  * 'running' 으로 남은 실행을 죽은 것으로 보기까지의 시간.
