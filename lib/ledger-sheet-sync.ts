@@ -20,7 +20,7 @@
 //     /customers 화면의 기본 total 과는 기준이 다르다 — 그 화면은 is_test 를
 //     걸러내지 않고, 대신 dropped/churned 를 숨긴다. 두 숫자를 바로 비교하면
 //     어긋나므로 ledgerScope() 가 양쪽 기준의 건수를 함께 돌려준다.
-import { query, queryOne, queryRo } from "./db";
+import { query, queryOne } from "./db";
 import { env } from "./env";
 import { STATE_LABELS, SOURCE_LABELS, PLAN_LABELS } from "./types";
 import { connectSheets, sheetsAuthState, type SheetsClient } from "./google-sheets";
@@ -54,7 +54,10 @@ export async function sheetSyncSchemaReady(): Promise<boolean> {
   return Boolean(r?.ok);
 }
 
-// ── 원장 읽기(읽기 전용) ─────────────────────────────────────
+// ── CRM 원장 읽기(SELECT 전용) ───────────────────────────────
+// CRM 테이블은 관리자 앱 연결을 사용한다. queryRo/getRoPool은 Glovek 참조용
+// 계정이므로 운영에서 brands 접근이 거부된다. 권한을 확대하지 않고,
+// 기존 CRM 연결에서 아래 고정 SELECT만 실행한다.
 //   커뮤니케이션은 email_messages(Gmail 수집) 와 brand_emails(수기·연동 기록)를
 //   하나의 사건 목록(ev)으로 합쳐 본다. 그래야 "가장 최근 기록의 시각"과
 //   "그 기록의 제목·출처"가 같은 한 건에서 나온다 — 섞이지 않는다.
@@ -127,14 +130,14 @@ interface LedgerSqlRow {
 
 /** 담당자 id(=이메일) → 이름. 없으면 id 를 그대로 쓴다. */
 async function ownerNames(): Promise<Map<string, string>> {
-  const rows = await queryRo<{ id: string; name: string | null }>(
+  const rows = await query<{ id: string; name: string | null }>(
     "SELECT id, name FROM admin_users").catch(() => []);
   return new Map(rows.map((r) => [r.id, (r.name ?? "").trim() || r.id]));
 }
 
 export async function readLedger(): Promise<LedgerBrand[]> {
   const [rows, owners] = await Promise.all([
-    queryRo<LedgerSqlRow>(LEDGER_SQL),
+    query<LedgerSqlRow>(LEDGER_SQL),
     ownerNames(),
   ]);
   const { revenueLabel } = await import("./weekly-onboarding-model");
@@ -177,7 +180,7 @@ export interface LedgerScope {
 }
 
 export async function ledgerScope(): Promise<LedgerScope | null> {
-  return queryRo<LedgerScope>(
+  return query<LedgerScope>(
     `SELECT count(*)::int AS "brandsAll",
             count(*) FILTER (WHERE NOT coalesce(is_test,false))::int AS "ledger",
             count(*) FILTER (WHERE coalesce(is_test,false))::int AS "testExcluded",
