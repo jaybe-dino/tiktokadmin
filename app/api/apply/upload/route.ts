@@ -4,6 +4,7 @@ import {
   COMPANY_DOCS_FIELD, COMPANY_DOCS_MAX_BYTES, COMPANY_DOCS_MAX_COUNT,
   JP_LABEL_FIELD, JP_LABEL_MAX_BYTES, JP_LABEL_MAX_COUNT, JP_LABEL_MIN_PX,
 } from "@/lib/onboarding";
+import { uploadLimitBytes, mbLabel } from "@/lib/onb-constants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,9 +32,14 @@ export async function POST(req: NextRequest) {
   const isCompanyDocs = field === COMPANY_DOCS_FIELD;
   // 일본어 라벨 사진 — 여러 장을 담되 규격(5MB·10장)이 회사자료와 다르다.
   const isJpLabel = field === JP_LABEL_FIELD;
-  const limit = isCompanyDocs ? COMPANY_DOCS_MAX_BYTES : isJpLabel ? JP_LABEL_MAX_BYTES : MAX;
+  // 정책값이 아니라 "실제로 통과하는 크기"로 검사한다. 플랫폼이 본문을 먼저 끊으면
+  //   이 코드가 아예 실행되지 않으므로, 한도를 넘는 건 클라이언트가 보내기 전에 막는다.
+  //   여기 검사는 그 뒤를 받치는 서버측 방어다.
+  const limit = uploadLimitBytes(
+    isCompanyDocs ? COMPANY_DOCS_MAX_BYTES : isJpLabel ? JP_LABEL_MAX_BYTES : MAX,
+  );
   if (file.size > limit) {
-    return NextResponse.json({ ok: false, error: `${mb(limit)} 이하만 가능합니다(올린 파일 ${mb(file.size)}).` }, { status: 400 });
+    return NextResponse.json({ ok: false, error: `${mbLabel(limit)} 이하만 가능합니다(올린 파일 ${mbLabel(file.size)}).` }, { status: 400 });
   }
   // 여러 장을 담는 슬롯은 무한정 쌓이지 않게 개수를 제한한다(지운 파일은 세지 않는다).
   const multi = isCompanyDocs ? { field: COMPANY_DOCS_FIELD, max: COMPANY_DOCS_MAX_COUNT }

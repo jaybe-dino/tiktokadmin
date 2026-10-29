@@ -11,6 +11,8 @@ import ImageTranslate from "@/components/ImageTranslate";
 import { fileDownloadHref } from "@/lib/onb-file-link";
 import {
   JP_LABEL_FIELD, JP_LABEL_MAX_COUNT, JP_LABEL_MIN_PX, JP_LABEL_ITEMS, JP_LABEL_FORMATS,
+  JP_LABEL_MAX_BYTES, COMPANY_DOCS_FIELD, COMPANY_DOCS_MAX_BYTES,
+  ROUTE_BODY_LIMIT_BYTES, uploadLimitBytes, mbLabel,
 } from "@/lib/onb-constants";
 
 // ── 상수(tpartners 정합) ──
@@ -222,7 +224,7 @@ function CompanyDocs({ initial, disabled }: { initial: OnbFile[]; disabled: bool
             accept=".pdf,.jpg,.jpeg,.png,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.key,.zip,.hwp,.hwpx"
             onChange={pick} style={{ fontSize: 13 }} />
           <div style={{ fontSize: 11.5, color: "#8b93a1" }}>
-            여러 개 한 번에 선택할 수 있습니다 · 1개당 <b>50MB</b> 까지 · 최대 20개 ·
+            여러 개 한 번에 선택할 수 있습니다 · 1개당 <b>{mbLabel(uploadLimitBytes(COMPANY_DOCS_MAX_BYTES))}</b> 까지 · 최대 20개 ·
             PDF · 이미지 · PPT · 워드 · 엑셀 · 한글 · ZIP
           </div>
         </div>
@@ -498,7 +500,7 @@ function JpLabelPhotos({ initial, disabled }: { initial: OnbFile[]; disabled: bo
           <input data-testid="jp-label-input" type="file" multiple disabled={busy}
             accept=".pdf,.jpg,.jpeg,.png" onChange={pick} style={{ fontSize: 13 }} />
           <div style={{ fontSize: 11.5, color: "#8b93a1" }}>
-            {JP_LABEL_FORMATS} · 1~<b>{JP_LABEL_MAX_COUNT}</b>장 · 파일당 <b>5MB</b> 이하 ·
+            {JP_LABEL_FORMATS} · 1~<b>{JP_LABEL_MAX_COUNT}</b>장 · 파일당 <b>{mbLabel(uploadLimitBytes(JP_LABEL_MAX_BYTES))}</b> 이하 ·
             최소 <b>{JP_LABEL_MIN_PX} × {JP_LABEL_MIN_PX}px</b>
             <div style={{ marginTop: 2 }}>해상도가 작으면 업로드되지 않습니다 — 라벨 글자가 읽혀야 심사가 가능합니다.</div>
           </div>
@@ -715,10 +717,53 @@ function LDetailInput({ label, code, field, init, disabled, onSaved, textarea }:
 }
 
 // ══════════ 파일 업로드 ══════════
+/**
+ * 첨부 업로드. 실패하면 "왜" 안 됐는지까지 돌려준다.
+ *
+ *   예전에는 res.json() 만 했다. 플랫폼이 본문 크기로 요청을 끊으면(413) 응답이
+ *   우리 JSON 이 아니라 파싱이 터지고, 화면에는 사유 없는 "업로드 실패"만 떴다.
+ *   담당자가 보고도 무엇을 고쳐야 할지 알 수 없는 상태였다.
+ */
 async function uploadFile(field: string, file: File): Promise<{ ok: boolean; url?: string; error?: string }> {
+  // 보내기 전에 크기를 먼저 본다 — 한도를 넘으면 올려봐야 플랫폼이 끊는다.
+  const limit = uploadLimitBytes(
+    field === COMPANY_DOCS_FIELD ? COMPANY_DOCS_MAX_BYTES
+      : field === JP_LABEL_FIELD ? JP_LABEL_MAX_BYTES
+        : ROUTE_BODY_LIMIT_BYTES,
+  );
+  if (file.size > limit) {
+    return {
+      ok: false,
+      error: `파일이 큽니다 — ${mbLabel(limit)} 이하만 올릴 수 있습니다(고른 파일 ${mbLabel(file.size)}). `
+        + `PDF 는 화질을 낮춰 저장하거나 페이지를 나눠 올려주세요.`,
+    };
+  }
+
   const fd = new FormData(); fd.append("file", file); fd.append("field", field);
-  const res = await fetch("/api/apply/upload", { method: "POST", body: fd });
-  return res.json().catch(() => ({ ok: false, error: "업로드 실패" }));
+  let res: Response;
+  try {
+    res = await fetch("/api/apply/upload", { method: "POST", body: fd });
+  } catch {
+    return { ok: false, error: "서버에 보내지 못했습니다. 연결을 확인한 뒤 다시 시도해주세요." };
+  }
+
+  const body = await res.json().catch(() => null);
+  if (body && typeof body === "object") return body as { ok: boolean; url?: string; error?: string };
+
+  // 우리 JSON 이 아니다 = 라우트까지 닿지 못했다. 상태 코드로 사유를 말해준다.
+  if (res.status === 413) {
+    return {
+      ok: false,
+      error: `파일이 너무 커서 서버가 받지 않았습니다(${mbLabel(limit)} 이하). 용량을 줄여 다시 올려주세요.`,
+    };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return { ok: false, error: "로그인이 풀렸습니다. 새로고침 후 다시 시도해주세요." };
+  }
+  if (res.status === 504 || res.status === 408) {
+    return { ok: false, error: "업로드가 시간 안에 끝나지 않았습니다. 용량을 줄여 다시 시도해주세요." };
+  }
+  return { ok: false, error: `업로드 실패 (서버 응답 ${res.status})` };
 }
 function FileField({ label, req, field, k, v, set, disabled }: { label: string; req?: boolean; field: string; k: string; v: Record<string, string>; set: (k: string, x: string) => void; disabled: boolean }) {
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
@@ -731,7 +776,7 @@ function FileField({ label, req, field, k, v, set, disabled }: { label: string; 
   }
   return (
     <label style={{ fontSize: 12, color: "#4b5563", fontWeight: 600, display: "block" }}>
-      {label} {req && <span style={{ color: "#e03131" }}>*</span>} <span style={{ color: "#9ca3af", fontWeight: 400 }}>PDF/JPG/PNG · 10MB</span>
+      {label} {req && <span style={{ color: "#e03131" }}>*</span>} <span style={{ color: "#9ca3af", fontWeight: 400 }}>PDF/JPG/PNG · {mbLabel(uploadLimitBytes(ROUTE_BODY_LIMIT_BYTES))}</span>
       <input type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={disabled || busy} onChange={onPick} style={{ display: "block", marginTop: 5, fontSize: 13 }} />
       {busy && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>업로드 중…</div>}
       {url && !busy && (
