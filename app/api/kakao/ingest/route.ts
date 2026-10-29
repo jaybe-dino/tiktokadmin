@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import { KAKAO_SECRET_ENV, kakaoSchemaState, ingestKakaoMessages } from "@/lib/kakao-rooms";
+import { KAKAO_SECRET_ENV, kakaoSchemaState, ingestKakaoMessages, verifyKakaoMessages } from "@/lib/kakao-rooms";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,11 +46,34 @@ export async function POST(req: NextRequest) {
       { ok: false, error: "migration_pending", missing: schema.missing }, { status: 503 });
   }
 
-  const body = await req.json().catch(() => null) as {
+  const raw = await req.text();
+  if (Buffer.byteLength(raw, "utf8") > 2_000_000) {
+    return NextResponse.json({ ok: false, error: "payload_too_large" }, { status: 413 });
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { parsed = null; }
+  const body = parsed as {
+    operation?: string; external_ids?: string[];
     room_key?: string; room_name?: string; agent?: string;
     messages?: { external_id?: string; at?: string; author?: string; text?: string }[];
   } | null;
-  if (!body) return NextResponse.json({ ok: false, error: "bad_json" }, { status: 400 });
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ ok: false, error: "bad_json" }, { status: 400 });
+  }
+  if (body.operation === "verify") {
+    if (typeof body.room_key !== "string" || !body.room_key.trim() ||
+        !Array.isArray(body.external_ids) || body.external_ids.length > 500 ||
+        body.external_ids.some((id) => typeof id !== "string" || !id.trim())) {
+      return NextResponse.json({ ok: false, error: "bad_verification_request" }, { status: 400 });
+    }
+    return NextResponse.json(await verifyKakaoMessages(body.room_key.trim(), body.external_ids));
+  }
+  if (body.operation && body.operation !== "ingest") {
+    return NextResponse.json({ ok: false, error: "unknown_operation" }, { status: 400 });
+  }
+  if (!Array.isArray(body.messages) || body.messages.length > 500) {
+    return NextResponse.json({ ok: false, error: "invalid_batch_size" }, { status: 400 });
+  }
 
   const messages = (Array.isArray(body.messages) ? body.messages : []).slice(0, 500).map((m) => ({
     externalId: String(m?.external_id ?? ""),

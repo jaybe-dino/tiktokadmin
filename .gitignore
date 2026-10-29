@@ -36,3 +36,7 @@ yarn-error.log*
 
 # local data dumps (backfill inputs)
 /scripts/dumps/*.csv
+
+# Python collector caches; runtime secrets/evidence stay outside the repository
+__pycache__/
+*.pyc
