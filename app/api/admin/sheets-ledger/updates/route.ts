@@ -33,7 +33,7 @@ async function gate(): Promise<{ ok: true; id: string } | { ok: false; res: Next
 }
 
 /** 같은 출처에서 온 요청인가. 헤더가 아예 없으면(스크립트·curl) 통과시키지 않는다. */
-export function sameOrigin(req: Request): boolean {
+function sameOrigin(req: Request): boolean {
   const site = req.headers.get("sec-fetch-site");
   if (site && site !== "same-origin") return false;
   const origin = req.headers.get("origin");
