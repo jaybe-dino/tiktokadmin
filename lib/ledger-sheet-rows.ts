@@ -1,45 +1,103 @@
 // 원장 한 건 → 시트 한 행. 순수 변환(DB·네트워크 없음).
 //
 //   지키는 것
-//     · 빈값과 0 을 구분한다. 모르는 값은 빈칸이 아니라 "미확인" 으로 적는다
+//     · 빈값과 0 을 구분한다. 모르는 값은 빈칸이 아니라 "미기록" 으로 적는다
 //       (빈칸이면 "0 원"인지 "안 물어봤다"인지 시트에서 구분되지 않는다).
-//     · 전화번호는 문자열이다. 앞의 0 이 사라지면 다른 번호가 된다.
-//     · 수식 주입을 막는다. RAW 로 쓰므로 Sheets 안에서는 수식이 되지 않지만,
-//       이 시트를 CSV 로 내려받아 다른 프로그램에서 열면 거기서 수식이 된다.
+//     · 사람이 이미 적어 둔 값을 "미기록"으로 덮어쓰지 않는다 (keepExisting).
+//     · 전화번호는 원문 그대로다. 숫자만 남기면 +82 와 내선이 사라져 다른 번호가 된다.
+//     · 날짜는 숫자(시리얼)로 쓴다. 시트의 날짜 칸이 이미 시리얼이라 글자를 넣으면
+//       한 열에 두 종류가 섞인다.
 //     · 매출은 "얼마"보다 "무엇을 근거로"가 먼저다. 고객이 신고한 구간과
 //       AI 추정을 절대 같은 칸에 섞지 않는다.
+//     · 수신 기록을 "고객이 답했다"로 단정하지 않는다.
+//     · 열은 이름으로 찾는다. 사람이 쓴 헤더는 띄어쓰기가 흔들리므로 정규화한다.
 
 import { revenueView, type RevenueEstimate } from "./brand-revenue-view";
 
 /** 시트에 들어가는 한 칸. 숫자는 숫자로, 나머지는 문자열로 쓴다. */
 export type Cell = string | number;
 
-/** 값이 아직 확인되지 않았음을 뜻하는 표기. 빈칸(=아직 안 씀)과 구분된다. */
-export const UNKNOWN = "미확인";
+/**
+ * 값이 아직 확인되지 않았음을 뜻하는 표기. 빈칸(=아직 안 씀)과 구분된다.
+ *   운영 시트가 이미 이 표기를 쓰고 있어 같은 말로 맞춘다 — 같은 뜻을 두 가지
+ *   말로 적으면 시트에서 세기(count)가 갈린다.
+ */
+export const UNKNOWN = "미기록";
+
+/** 시트에서 "아직 값이 없다"는 뜻으로 쓰이는 표기들. 셈과 보호 판정에 쓴다. */
+export const UNKNOWN_MARKERS: ReadonlySet<string> = new Set([UNKNOWN, "미확인"]);
+
+/** 빈칸이거나 미기록 표기인가. 0 과 "0" 은 값이므로 false 다. */
+export function isUnknownCell(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  const s = String(v).trim();
+  if (!s) return true;
+  return UNKNOWN_MARKERS.has(s);
+}
+
+/**
+ * 시트에 이미 있는 값을 지킬지 판단한다.
+ *   우리가 모르는 값(미기록·빈칸)으로 사람이 채워 둔 칸을 덮어쓰지 않는다.
+ *   실제 값을 계산했으면 그것으로 갱신한다 — 원장이 최신이다.
+ */
+export function keepExisting(next: Cell | undefined, existing: unknown): boolean {
+  if (next === undefined) return true;          // 계산하지 않은 열은 건드리지 않는다
+  if (!isUnknownCell(next)) return false;       // 실제 값 → 갱신
+  return !isUnknownCell(existing);              // 모르는 값인데 시트에 값이 있으면 지킨다
+}
+
+// ── 헤더 이름 맞추기 ─────────────────────────────────────────
+//   시트 헤더는 사람이 쓴 글자다. "브랜드 ID" / "브랜드ID", "플랜 / 결제" /
+//   "플랜/결제" 처럼 띄어쓰기가 흔들린다. 공백을 모두 지워 비교하고,
+//   글자 자체가 다른 것(담당자 ↔ 담당자 (원장))은 별칭으로 명시한다.
+/** 비교용 정규화 — 전각·호환문자를 펴고 모든 공백을 지운다. */
+export function normHeader(h: unknown): string {
+  return String(h ?? "").normalize("NFKC").replace(/\s+/g, "");
+}
+
+/**
+ * 우리 이름(canonical) → 시트에 실제로 쓰여 있을 수 있는 다른 이름들.
+ *   공백만 다른 변형은 normHeader 가 흡수하므로 여기 적지 않는다.
+ */
+export const HEADER_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  "담당자": ["담당자 (원장)"],
+  "최근접촉표시": ["최근접촉 (원문표시)"],
+  "매출액·구간": ["매출액 · 구간"],
+};
 
 // ── 수식 주입 방지 ───────────────────────────────────────────
-//   = + - @ 와 탭/캐리지리턴으로 시작하는 문자열은 스프레드시트·CSV 리더가
-//   수식으로 해석한다. 앞에 작은따옴표를 붙여 글자로 고정한다.
-const RISKY_HEAD = /^[=+\-@\t\r]/;
+//   쓰기는 전부 RAW 다. RAW 는 보낸 값을 해석하지 않으므로 "=..." 로 시작하는
+//   글자도 시트에서 수식이 되지 않는다.
+//   앞에 작은따옴표를 붙이지 않는다 — RAW 에서는 그 따옴표가 값의 일부로
+//   저장되어, "+82 10-..." 이 "'+82 10-..." 이 되어 버린다(값 손상).
 export function safeText(v: unknown): string {
   const s = v === null || v === undefined ? "" : String(v);
   if (!s) return "";
   // 줄바꿈은 살리되 셀을 깨뜨리는 제어문자는 공백으로 바꾼다.
-  const clean = s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ");
-  return RISKY_HEAD.test(clean) ? `'${clean}` : clean;
+  return s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ");
 }
 
-/** 전화번호 — 반드시 문자열. 숫자로 쓰면 앞의 0 이 날아간다. */
+/**
+ * 전화번호 — 원문을 문자열로 보존한다.
+ *   숫자만 남기면 국가번호(+82)와 내선(,1234 / ext.2)이 사라진다.
+ *   RAW 쓰기라 "0105663..." 도 숫자로 해석되지 않고 글자로 들어간다.
+ */
 export function phoneText(v: unknown): string {
-  const digits = String(v ?? "").replace(/\D/g, "");
-  return digits ? safeText(digits) : "";
+  return safeText(v).replace(/\s+/g, " ").trim();
 }
 
 // ── 날짜 ─────────────────────────────────────────────────────
-//   기존 시트(960행)의 날짜 칸 서식을 이 환경에서 읽을 수 없어, 글자 형식을
-//   그대로 유지한다. 시리얼 숫자로 바꾸면 서식이 다른 기존 행과 섞여
-//   표시가 깨질 수 있다. 시트 날짜 서식을 확정한 뒤 아래 상수만 바꾸면 된다.
-export const DATE_AS_SERIAL = false;
+//   시트의 날짜 칸(A 유입일시, J 최근업데이트)은 이미 숫자 시리얼이고
+//   표시 서식이 yyyy-mm-dd hh:mm 이다. 글자를 넣으면 한 열에 숫자와 글자가
+//   섞여 정렬·필터가 깨진다. 그래서 시리얼로 쓴다.
+//   우리가 새로 채우는 G(최근메일시각)·O(수집시각)는 시트에서 같은 서식을
+//   한 번 지정해 줘야 숫자가 날짜로 보인다 — 운영 절차 문서에 남겼다.
+export const DATE_AS_SERIAL = true;
+
+/** 날짜가 들어가는 열(우리 이름). 시트 서식 안내와 검증에 쓴다. */
+export const DATE_HEADERS: readonly string[] = [
+  "유입일시(KST)", "최근메일시각(KST)", "최근업데이트(KST)", "수집시각(KST)",
+];
 
 /** timestamptz → "YYYY-MM-DD HH:mm" (KST). 값이 없으면 빈 문자열. */
 export function kstText(iso: string | null | undefined): string {
@@ -52,13 +110,18 @@ export function kstText(iso: string | null | undefined): string {
     + `${p(k.getUTCHours())}:${p(k.getUTCMinutes())}`;
 }
 
-/** Sheets 날짜 시리얼(1899-12-30 기준). DATE_AS_SERIAL 을 켤 때 쓴다. */
+/**
+ * Sheets 날짜 시리얼(1899-12-30 기준, KST 벽시계).
+ *   분 단위로 끊는다 — 표시 서식이 분까지라, 초가 남으면 같은 값을 다시 쓸 때
+ *   미세하게 달라져 readback 비교가 흔들린다.
+ */
 export function kstSerial(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  const kst = d.getTime() + 9 * 3600_000;
-  return (kst - Date.UTC(1899, 11, 30)) / 86_400_000;
+  const kstMinutes = Math.floor((d.getTime() + 9 * 3600_000) / 60_000);
+  const epochMinutes = Date.UTC(1899, 11, 30) / 60_000;
+  return (kstMinutes - epochMinutes) / 1440;
 }
 
 export function dateCell(iso: string | null | undefined): Cell {
@@ -70,7 +133,7 @@ export function dateCell(iso: string | null | undefined): Cell {
 
 // ── 매출 ─────────────────────────────────────────────────────
 //   세 가지를 절대 섞지 않는다:
-//     ① 고객이 직접 신고한 매출 구간(신청서) — 사람이 적은 값
+//     ① 고객이 직접 신고한 매출 구간(신청서) — 사람이 적은 값, 최근 12개월 기준
 //     ② AI 추정(brands.revenue_estimate)     — 확정 실적이 아니다
 //     ③ 우리 회사가 받은 돈(결제·구독)       — 브랜드 연매출과 무관하다. 여기 넣지 않는다.
 export interface RevenueInput {
@@ -80,7 +143,7 @@ export interface RevenueInput {
   reportedBandLabel?: string | null;
   /** 그 신고가 어디서 왔는지(weekly 신청서 등). */
   reportedSource?: string | null;
-  /** 신고 시점(연도 판단용). */
+  /** 신고 시점. */
   reportedAt?: string | null;
   /** brands.revenue_estimate 원본 jsonb. */
   estimateRaw?: unknown;
@@ -90,13 +153,13 @@ export interface RevenueInput {
 export interface RevenueCells {
   /** T 매출액·구간 */
   amount: Cell;
-  /** U 매출기준·확인상태 */
+  /** U 매출 기준·확인상태 — 무엇을 근거로 한 숫자인지. 범위(scope)·대상까지 적는다. */
   basis: string;
-  /** V 매출출처 */
+  /** V 매출 출처 — 사람이 다시 확인할 수 있는 근거(URL 포함). */
   source: string;
-  /** W 매출기준연도 */
+  /** W 매출 기준연도 */
   year: Cell;
-  /** X 매출통화 */
+  /** X 매출 통화 */
   currency: string;
 }
 
@@ -105,29 +168,39 @@ function estimateRange(e: RevenueEstimate): string {
   return e.lower === e.upper ? n(e.lower) : `${n(e.lower)}~${n(e.upper)}`;
 }
 
+/** 추정 범위가 브랜드 하나인지, 법인 전체인지 — 숫자의 뜻이 달라진다. */
+const SCOPE_LABELS: Record<RevenueEstimate["scope"], string> = {
+  brand: "브랜드 단위",
+  company_separate: "법인 별도",
+  company_consolidated: "법인 연결",
+};
+
 export function revenueCells(i: RevenueInput): RevenueCells {
   // ① 고객 신고 구간이 있으면 그것이 기준이다.
   const band = (i.reportedBandLabel ?? "").trim() || (i.reportedBand ?? "").trim();
   if (band) {
-    const year = i.reportedAt ? new Date(i.reportedAt).getUTCFullYear() : null;
+    // 신청서 문항은 "최근 12개월"이다. 확정 회계연도 매출이 아니므로
+    // 연도 칸에 연도 숫자만 적지 않는다 — 그러면 결산 매출로 읽힌다.
+    const at = kstText(i.reportedAt);
     return {
       amount: safeText(band),
-      basis: "고객 신고 구간",
+      basis: "고객 신고 구간 · 최근 12개월 자기신고(확정 회계연도 아님)",
       source: safeText((i.reportedSource ?? "").trim() || "신청서"),
-      // 신고 시점의 연도. 신청서가 "최근 12개월" 기준이라 신고 연도를 적는다.
-      year: Number.isFinite(year) && year ? year : UNKNOWN,
+      year: at ? `최근 12개월 (신고 ${at.slice(0, 7)})` : "최근 12개월 (신고시점 미기록)",
       currency: "KRW",
     };
   }
 
-  // ② AI 추정 — 확정 실적이 아님을 칸 안에서 분명히 한다.
+  // ② AI 추정 — 확정 실적이 아님을, 무엇에 대한 추정인지까지 칸 안에서 밝힌다.
   const view = revenueView(i.estimateRaw);
   if (view.estimate) {
     const e = view.estimate;
     return {
       amount: safeText(estimateRange(e)),
-      basis: `AI 추정 · 미확정 (신뢰도 ${e.confidence})`,
-      source: safeText(e.sources.map((s) => s.title).slice(0, 3).join(" / ") || "AI 추정"),
+      basis: `AI 추정 · 미확정 (신뢰도 ${e.confidence} · 범위 ${SCOPE_LABELS[e.scope]} · 대상 ${e.entity})`,
+      // 제목만 적으면 다시 확인할 수 없다. URL 을 함께 남긴다.
+      source: safeText(e.sources.slice(0, 3).map((s) => `${s.title} (${s.url})`).join(" / ")
+        || "AI 추정"),
       year: e.year,
       currency: e.currency,
     };
@@ -145,15 +218,21 @@ export function revenueCells(i: RevenueInput): RevenueCells {
 
 // ── 커뮤니케이션 ─────────────────────────────────────────────
 export interface CommsInput {
-  /** 가장 최근 발신(우리→고객). */
+  /** 가장 최근 발신(우리→고객) 시각. */
   lastOutAt?: string | null;
-  lastOutSubject?: string | null;
-  /** 가장 최근 수신(고객→우리). */
+  /** 가장 최근 수신(고객→우리) 시각. */
   lastInAt?: string | null;
-  lastInSubject?: string | null;
-  /** 수기 접촉 기록 시각. */
-  lastManualAt?: string | null;
-  /** 집계에 쓴 메일 건수(근거). */
+  /**
+   * 방향과 무관하게 가장 최근 기록. 제목·출처는 반드시 이 기록의 것이다 —
+   * 수기 기록의 시각에 Gmail 제목을 붙이면 없는 메일을 만들어 낸다.
+   */
+  lastAnyAt?: string | null;
+  lastAnySubject?: string | null;
+  /** 'gmail'(수집) | 'manual'(brand_emails 기록) */
+  lastAnySource?: string | null;
+  /** 'in' | 'out' | 'unknown' */
+  lastAnyDirection?: string | null;
+  /** 집계에 쓴 기록 건수(근거). */
   totalMessages?: number;
 }
 
@@ -162,51 +241,43 @@ export interface CommsCells {
   status: string;
   /** G 최근메일시각(KST) */
   lastMailAt: Cell;
-  /** H 최근메일제목 */
+  /** H 최근메일 제목 */
   lastMailSubject: string;
-  /** K 최근접촉표시 */
+  /** K 최근접촉 (원문표시) */
   lastTouch: string;
 }
 
+const SRC_LABELS: Record<string, string> = { gmail: "메일수집", manual: "기록" };
+const DIR_LABELS: Record<string, string> = { in: "수신", out: "발신", unknown: "방향미확인" };
+
 /**
  * 커뮤니케이션 상태.
- *   "고객이 답을 했다"는 수신 기록이 있을 때만 말한다. 자동 안내가 나갔다고
- *   회신으로 치지 않는다 — 그러면 응답 없는 고객이 응답한 것처럼 보인다.
+ *   수신 기록이 있다고 "고객이 회신했다"고 적지 않는다. TikTok 자동 안내처럼
+ *   사람이 쓰지 않은 메일도 브랜드에 매칭되어 수신으로 쌓인다. 자동메일을
+ *   가려낼 근거(발신주소 규칙 등)가 아직 없으므로 "수신 기록 확인"까지만 말한다.
  */
 export function commsCells(c: CommsInput): CommsCells {
-  const out = c.lastOutAt ?? null;
-  const inc = c.lastInAt ?? null;
-  const manual = c.lastManualAt ?? null;
-
-  const times = [out, inc, manual].filter(Boolean) as string[];
-  if (times.length === 0) {
+  const at = c.lastAnyAt ?? null;
+  if (!at) {
     return { status: "기록 없음", lastMailAt: "", lastMailSubject: "", lastTouch: UNKNOWN };
   }
 
-  const latest = times.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
-  const latestIsIn = inc !== null && latest === inc;
-  const latestIsManual = manual !== null && latest === manual;
-
-  const status = latestIsIn
-    ? "고객 회신 있음"
-    : latestIsManual
-      ? "담당자 직접 접촉"
-      : inc
-        ? "발신 후 대기(이전 회신 있음)"
-        : "발신만 · 회신 없음";
-
-  // 메일 칸은 메일 기록만 쓴다. 수기 접촉은 K열에 따로 적는다.
-  const mailAt = out && inc ? (new Date(out) > new Date(inc) ? out : inc) : (out ?? inc);
-  const mailSubject = mailAt === inc ? (c.lastInSubject ?? "") : (c.lastOutSubject ?? "");
+  const dir = (c.lastAnyDirection ?? "unknown").trim() || "unknown";
+  const status = dir === "in"
+    ? "수신 기록 확인"
+    : dir === "out"
+      ? (c.lastInAt ? "발신 후 대기(수신 기록 있음)" : "발신만 · 수신 없음")
+      : "기록 있음 · 방향 미확인";
 
   const n = c.totalMessages ?? 0;
-  const touch = `${kstText(latest)} · ${latestIsManual ? "수기" : latestIsIn ? "수신" : "발신"}`
-    + (n > 0 ? ` (메일 ${n}건)` : "");
+  const src = SRC_LABELS[(c.lastAnySource ?? "").trim()] ?? "출처미확인";
+  const touch = `${kstText(at)} · ${DIR_LABELS[dir] ?? DIR_LABELS.unknown} · ${src}`
+    + (n > 0 ? ` (기록 ${n}건)` : "");
 
   return {
     status,
-    lastMailAt: dateCell(mailAt),
-    lastMailSubject: safeText(mailSubject),
+    lastMailAt: dateCell(at),
+    lastMailSubject: safeText(c.lastAnySubject ?? ""),
     lastTouch: safeText(touch),
   };
 }
@@ -293,7 +364,6 @@ export function buildRow(b: LedgerBrand, o: BuildRowOpts): RowValues {
     "브랜드ID": safeText(b.id),
     "수집시각(KST)": dateCell(o.collectedAt),
 
-    // 이번에 추가하는 열
     "카테고리": safeText(b.category) || UNKNOWN,
     "전화번호": phoneText(b.phone) || UNKNOWN,
     "이메일": safeText(b.email) || UNKNOWN,
@@ -319,5 +389,26 @@ export const MANAGED_HEADERS = [
   "매출액·구간", "매출기준·확인상태", "매출출처", "매출기준연도", "매출통화", "상태표시",
 ] as const;
 
+/**
+ * 이 열이 시트에 없으면 쓰기 전에 멈춘다.
+ *   사용자가 요구한 필수 항목(유입일·업체명·전화·이메일·카테고리·브랜드링크·
+ *   매출과 그 기준·단계·담당자·커뮤 상태)이 하나라도 갈 곳이 없으면,
+ *   반쪽짜리 기록을 남기는 대신 실패로 알린다.
+ */
+export const REQUIRED_HEADERS = [
+  "브랜드ID", "유입일시(KST)", "업체명", "진행단계", "커뮤확인", "담당자",
+  "카테고리", "전화번호", "이메일", "브랜드링크",
+  "매출액·구간", "매출기준·확인상태", "수집시각(KST)",
+] as const;
+
 /** 브랜드 ID 가 들어가는 열 이름 — 이 값으로 기존 행을 찾아 갱신한다. */
 export const ID_HEADER = "브랜드ID";
+
+/**
+ * 갱신기록 탭의 실제 헤더(A:H). 시트에 이미 있는 순서를 그대로 따른다.
+ *   순서를 틀리면 "추가"와 "변경" 숫자가 맞바뀌어 기록이 거짓말을 한다.
+ */
+export const LOG_HEADERS = [
+  "기록시각(KST)", "원장건수", "추가건수", "변경건수",
+  "메일확인 업체", "실행상태", "기록 기준", "원본",
+] as const;

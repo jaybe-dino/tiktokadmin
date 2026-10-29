@@ -1,15 +1,21 @@
 // Google Sheets 쓰기 — 기존 서비스계정(GOOGLE_SA_KEY_JSON)을 그대로 재사용한다.
 //
-//   왜 새 서비스계정을 만들지 않는가
-//     이미 도메인 위임(domain-wide delegation)으로 특정 직원을 impersonate 하는
-//     구조가 lib/gmail-client.ts 에 있다. 같은 키로 시트 소유자(jay)를 대신해
-//     접근하면, 민감한 원장이 담긴 비공개 시트의 공유 범위를 넓히지 않아도 된다.
-//     새 서비스계정을 만들어 시트를 공유하면 "그 계정을 가진 사람 모두"로
-//     열람 범위가 넓어진다 — 그건 이번 작업의 승인 범위를 벗어난다.
+//   어떤 권한을 쓰는가 (최소권한)
+//     기본은 서비스계정 "자기 자신"으로 토큰을 받는다(iss=서비스계정, sub 없음).
+//     그리고 이 스프레드시트 한 개에만 그 서비스계정을 편집자로 공유한다.
+//     그러면 권한 범위가 이 파일 하나로 끝난다.
 //
-//   그래서 남는 단 한 단계는 Workspace 관리자가 이 서비스계정의 위임 스코프
-//   목록에 spreadsheets 를 추가하는 것뿐이다(아래 SCOPE_SHEETS).
-//   그 전까지 이 모듈은 전부 fail closed 로 멈춘다 — 조용히 건너뛰지 않는다.
+//     도메인 전체 위임(domain-wide delegation)에 spreadsheets 스코프를 새로
+//     추가하는 길은 쓰지 않는다. 그건 "조직의 모든 사용자의 모든 스프레드시트를
+//     대신 열 수 있는 권한"이어서, 시트 한 개 공유보다 훨씬 넓다.
+//     이미 위임 목록에 spreadsheets 가 있다고 확인된 경우에만,
+//     SHEETS_SYNC_SUBJECT 를 설정해 대행(impersonation) 경로를 쓸 수 있다.
+//     설정하지 않으면 그 경로는 아예 시도하지 않는다.
+//
+//     서비스계정 이메일은 비밀값이 아니다(공유 대상으로 알려줘야 한다).
+//     비밀키는 어디에도 싣지 않는다.
+//
+//   권한이 없으면 전부 fail closed 로 멈춘다 — 조용히 건너뛰지 않는다.
 import crypto from "node:crypto";
 import { env } from "./env";
 
@@ -37,42 +43,53 @@ export interface SheetsAuthState {
   reason: string;
   /** 설정 여부만(값은 절대 담지 않는다). */
   hasServiceAccount: boolean;
-  hasSubject: boolean;
   hasSpreadsheetId: boolean;
+  /** 'self' = 서비스계정 자기 자신(기본). 'impersonated' = 도메인 위임 대행. */
+  mode: "self" | "impersonated";
+  /**
+   * 서비스계정 이메일 — 이 시트에 편집자로 공유할 대상.
+   *   비밀값이 아니므로 사용자에게 보여 준다. 키가 없으면 빈 문자열.
+   */
+  clientEmail: string;
 }
 
-/** 설정 상태 점검 — 값을 돌려주지 않고 "있다/없다"만 말한다. */
+/** 설정 상태 점검 — 비밀값은 돌려주지 않고 "있다/없다"만 말한다. */
 export function sheetsAuthState(): SheetsAuthState {
-  const hasServiceAccount = Boolean(loadSaKey());
-  const hasSubject = Boolean((env.sheets.subject ?? "").trim());
+  const sa = loadSaKey();
+  const subject = (env.sheets.subject ?? "").trim();
   const hasSpreadsheetId = Boolean((env.sheets.ledgerSpreadsheetId ?? "").trim());
   const missing: string[] = [];
-  if (!hasServiceAccount) missing.push("GOOGLE_SA_KEY_JSON");
-  if (!hasSubject) missing.push("SHEETS_SYNC_SUBJECT");
+  if (!sa) missing.push("GOOGLE_SA_KEY_JSON");
   if (!hasSpreadsheetId) missing.push("SHEETS_LEDGER_SPREADSHEET_ID");
   return {
     ready: missing.length === 0,
     reason: missing.length === 0 ? "" : `설정이 없습니다: ${missing.join(", ")}`,
-    hasServiceAccount, hasSubject, hasSpreadsheetId,
+    hasServiceAccount: Boolean(sa),
+    hasSpreadsheetId,
+    mode: subject ? "impersonated" : "self",
+    clientEmail: sa?.client_email ?? "",
   };
 }
 
 /**
- * 시트 소유자를 impersonate 한 액세스 토큰.
- *   위임 스코프에 spreadsheets 가 없으면 Google 이 401/403 을 준다 —
- *   그 본문을 그대로 남기지 않고(토큰·주소가 섞일 수 있다) 사유만 올린다.
+ * 액세스 토큰.
+ *   기본은 서비스계정 자기 자신(sub 없음) — 이 시트에 편집자로 공유되어 있으면 된다.
+ *   SHEETS_SYNC_SUBJECT 가 있을 때만 그 사용자를 대행한다(기존 도메인 위임 재사용).
+ *   실패 사유에 응답 본문을 싣지 않는다(토큰·주소가 섞일 수 있다).
  */
 async function accessToken(): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
   const sa = loadSaKey();
   if (!sa) return { ok: false, error: "서비스계정 키가 없습니다(GOOGLE_SA_KEY_JSON)." };
   const sub = (env.sheets.subject ?? "").trim();
-  if (!sub) return { ok: false, error: "대행할 사용자 계정이 없습니다(SHEETS_SYNC_SUBJECT)." };
 
   const now = Math.floor(Date.now() / 1000);
   const b64 = (v: string) => Buffer.from(v).toString("base64url");
   const header = b64(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claim = b64(JSON.stringify({
-    iss: sa.client_email, sub, scope: SCOPE_SHEETS, aud: TOKEN_URI, iat: now, exp: now + 3600,
+    iss: sa.client_email,
+    // sub 는 도메인 위임을 쓸 때만 넣는다. 없으면 서비스계정 자신으로 동작한다.
+    ...(sub ? { sub } : {}),
+    scope: SCOPE_SHEETS, aud: TOKEN_URI, iat: now, exp: now + 3600,
   }));
   const input = `${header}.${claim}`;
   let jwt: string;
@@ -90,11 +107,13 @@ async function accessToken(): Promise<{ ok: true; token: string } | { ok: false;
   }).catch(() => null);
   if (!res) return { ok: false, error: "Google 토큰 서버에 연결하지 못했습니다." };
   if (!res.ok) {
-    // 본문에 스코프 미허용 사유가 담기지만 토큰·계정 주소가 섞일 수 있어 그대로 싣지 않는다.
+    const denied = res.status === 401 || res.status === 403;
     return {
       ok: false,
-      error: res.status === 401 || res.status === 403
-        ? `위임 권한이 없습니다(HTTP ${res.status}) — 서비스계정의 도메인 위임 스코프에 spreadsheets 가 필요합니다.`
+      error: denied
+        ? (sub
+          ? `위임 권한이 없습니다(HTTP ${res.status}) — SHEETS_SYNC_SUBJECT 대행에는 위임 스코프에 spreadsheets 가 필요합니다. 설정을 비우면 서비스계정 자기 자신으로 동작합니다.`
+          : `토큰 발급이 거부되었습니다(HTTP ${res.status}) — 서비스계정 키·시간 설정을 확인하세요.`)
         : `토큰 발급 실패(HTTP ${res.status}).`,
     };
   }
@@ -116,7 +135,8 @@ async function call<T>(
     // 응답 본문에 시트 내용이 섞일 수 있어 상태 코드만 남긴다.
     return {
       ok: false, status: res.status,
-      error: res.status === 403 ? "시트 접근 권한이 없습니다(HTTP 403)."
+      error: res.status === 403
+        ? "시트 접근 권한이 없습니다(HTTP 403) — 이 스프레드시트에 서비스계정을 편집자로 공유해야 합니다."
         : res.status === 404 ? "시트를 찾지 못했습니다(HTTP 404)."
           : `Sheets API 오류(HTTP ${res.status}).`,
     };
@@ -125,8 +145,11 @@ async function call<T>(
 }
 
 export interface SheetsClient {
-  /** 범위를 읽는다. 값이 없는 칸은 빈 문자열로 채워 길이를 맞춘다. */
-  getValues(range: string): Promise<string[][]>;
+  /**
+   * 범위를 읽는다. 서식이 적용된 글자가 아니라 저장된 값 그대로 받는다
+   * (UNFORMATTED_VALUE) — 날짜 시리얼을 숫자로 비교해야 하기 때문이다.
+   */
+  getValues(range: string): Promise<unknown[][]>;
   /** 여러 범위를 한 번에 쓴다. 전부 RAW — 수식으로 해석되지 않는다. */
   batchUpdate(updates: { range: string; values: unknown[][] }[]): Promise<number>;
   /** 행을 덧붙인다(기존 행을 건드리지 않는다). */
@@ -148,8 +171,9 @@ export async function connectSheets(spreadsheetId: string): Promise<SheetsConnec
     ok: true,
     client: {
       async getValues(range) {
-        const r = await call<{ values?: string[][] }>(
-          token, `/${id}/values/${encodeURIComponent(range)}`);
+        const r = await call<{ values?: unknown[][] }>(
+          token,
+          `/${id}/values/${encodeURIComponent(range)}?valueRenderOption=UNFORMATTED_VALUE`);
         if (!r.ok) throw new Error(r.error);
         return r.data.values ?? [];
       },
