@@ -22,6 +22,7 @@ import McpConnect from "@/components/McpConnect";
 import { listBrandCategories } from "@/lib/brand-categories";
 import BrandCategoryConfig from "@/components/BrandCategoryConfig";
 import MigrationStatusCard from "@/components/MigrationStatusCard";
+import SheetUpdateLogCard from "@/components/SheetUpdateLogCard";
 import { getMigrationState } from "@/lib/migrate";
 import IntegrityCard from "@/components/IntegrityCard";
 import EmailRemapCard from "@/components/EmailRemapCard";
@@ -248,6 +249,9 @@ export default async function SettingsPage() {
         <div className="grid gap-3.5 content-start">
           {/* DB 마이그레이션 상태 — 대표만 */}
           {user.role === "exec" && <MigrationStatusCard initial={migrationState} />}
+
+          {/* 수동 시트 갱신 이력 — 대표만. 시트를 갱신하지 않고 기록만 남긴다. */}
+          {user.role === "exec" && <SheetUpdateLogCard />}
 
           {/* 데이터 정합성 점검 — 파트장·대표 */}
           {canEdit && <IntegrityCard />}
