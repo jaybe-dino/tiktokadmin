@@ -3,7 +3,8 @@ import { describe, it, expect } from "vitest";
 import {
   safeText, phoneText, kstText, kstSerial, dateCell, UNKNOWN, DATE_AS_SERIAL,
   revenueCells, commsCells, buildRow, ledgerLink, ledgerFlags,
-  isUnknownCell, keepExisting, normHeader,
+  isUnknownCell, keepExisting, normHeader, brandLinkCell, isCompanyScope,
+  UNCONFIRMED, URL_CHECK,
   MANAGED_HEADERS, PROTECTED_HEADERS, REQUIRED_HEADERS, ID_HEADER, LOG_HEADERS,
   type LedgerBrand,
 } from "../lib/ledger-sheet-rows";
@@ -109,7 +110,7 @@ describe("매출 — 섞지 않는다", () => {
       reportedSource: "weekly 신청서", reportedAt: "2026-09-10T00:00:00Z",
     });
     expect(r.amount).toBe("1억원 이상 ~ 10억원 미만");
-    expect(r.basis).toContain("고객 신고 구간");
+    expect(r.basis).toContain("브랜드 자체 신고");
     expect(r.basis).toContain("최근 12개월");
     expect(r.basis).toContain("확정 회계연도 아님");
     // 연도 칸에 연도 숫자만 있으면 결산 매출로 읽힌다 — 그렇게 적지 않는다.
@@ -131,7 +132,7 @@ describe("매출 — 섞지 않는다", () => {
     expect(r.basis).toContain("AI 추정");
     expect(r.basis).toContain("미확정");
     // 범위(브랜드 단위인지 법인 연결인지)와 대상이 없으면 숫자의 뜻이 달라진다.
-    expect(r.basis).toContain("법인 연결");
+    expect(r.basis).toContain("회사 연결 연매출");
     expect(r.basis).toContain("TEST 법인");
     // 출처는 다시 확인할 수 있어야 한다 — URL 을 남긴다.
     expect(r.source).toContain("https://x.example.invalid");
@@ -163,7 +164,7 @@ describe("매출 — 섞지 않는다", () => {
         sources: [{ title: "s", url: "https://x.example.invalid" }],
       },
     });
-    expect(r.basis).toContain("고객 신고 구간");
+    expect(r.basis).toContain("브랜드 자체 신고");
     expect(r.amount).toBe("10억원 이상 ~ 50억원 미만");
   });
 
@@ -315,7 +316,7 @@ describe("행 전체", () => {
   it("원장링크와 브랜드 외부링크를 서로 다른 칸에 넣는다", () => {
     const row = buildRow(BRAND, OPTS);
     expect(row["원장링크"]).toBe("https://admin.example.invalid/brand/" + BRAND.id);
-    expect(row["브랜드링크"]).toBe("https://brand.example.invalid");
+    expect(row["브랜드링크"]).toBe("https://brand.example.invalid/");
     expect(row["원장링크"]).not.toBe(row["브랜드링크"]);
   });
 
@@ -367,6 +368,148 @@ describe("갱신기록 탭 헤더", () => {
       "기록시각(KST)", "원장건수", "추가건수", "변경건수",
       "메일확인 업체", "실행상태", "기록 기준", "원본",
     ]);
+  });
+});
+
+describe("회사 매출 — 영업 대상 회사의 매출만 센다", () => {
+  const estimate = (scope: string, lower = 1_000_000_000, upper = 2_000_000_000) => ({
+    status: "estimated", lower, upper, currency: "KRW", year: 2025,
+    scope, entity: "TEST 주식회사", confidence: "medium",
+    estimated_at: "2026-10-01T00:00:00+09:00", rationale: "공시",
+    sources: [{ title: "공시", url: "https://x.example.invalid/a" }],
+  });
+
+  it("회사 별도 연매출 추정은 하한·상한을 숫자로 남긴다(정렬용)", () => {
+    const r = revenueCells({ estimateRaw: estimate("company_separate") });
+    expect(r.companyLower).toBe(1_000_000_000);
+    expect(r.companyUpper).toBe(2_000_000_000);
+    expect(r.basis).toContain("회사 별도 연매출");
+    expect(r.basis).toContain("TEST 주식회사");   // 회사명(entity)
+    expect(r.year).toBe(2025);
+    expect(r.currency).toBe("KRW");
+    expect(r.source).toContain("https://x.example.invalid/a");   // 근거 URL
+  });
+
+  it("회사 연결 연매출도 숫자로 남긴다", () => {
+    const r = revenueCells({ estimateRaw: estimate("company_consolidated") });
+    expect(typeof r.companyLower).toBe("number");
+    expect(r.basis).toContain("회사 연결 연매출");
+  });
+
+  it("브랜드 단위 추정을 회사 매출로 승격하지 않는다", () => {
+    const r = revenueCells({ estimateRaw: estimate("brand") });
+    expect(r.companyLower).toBe(UNCONFIRMED);
+    expect(r.companyUpper).toBe(UNCONFIRMED);
+    expect(r.basis).toContain("회사 연매출 아님");
+    // 금액 칸에는 추정 범위가 그대로 남는다 — 지우지는 않는다.
+    expect(r.amount).toBe("1,000,000,000~2,000,000,000");
+  });
+
+  it("브랜드 자체 12개월 신고를 회사 매출로 승격하지 않는다", () => {
+    const r = revenueCells({
+      reportedBandLabel: "1억원 이상 ~ 10억원 미만",
+      reportedAt: "2026-09-10T00:00:00Z",
+    });
+    expect(r.companyLower).toBe(UNCONFIRMED);
+    expect(r.companyUpper).toBe(UNCONFIRMED);
+    expect(r.basis).toContain("브랜드 자체 신고");
+    expect(r.basis).toContain("회사 연매출 아님");
+  });
+
+  it("근거가 아예 없으면 미기록이다", () => {
+    const r = revenueCells({});
+    expect(r.companyLower).toBe(UNKNOWN);
+    expect(r.companyUpper).toBe(UNKNOWN);
+  });
+
+  it("회사 범위 판정이 한곳에 모여 있다", () => {
+    expect(isCompanyScope("company_separate")).toBe(true);
+    expect(isCompanyScope("company_consolidated")).toBe(true);
+    expect(isCompanyScope("brand")).toBe(false);
+  });
+
+  it("행에도 두 칸이 실린다", () => {
+    const row = buildRow({ ...BRAND, revenue_estimate: estimate("company_separate") }, OPTS);
+    expect(row["회사매출하한"]).toBe(1_000_000_000);
+    expect(row["회사매출상한"]).toBe(2_000_000_000);
+    expect([...MANAGED_HEADERS]).toContain("회사매출하한");
+    expect([...MANAGED_HEADERS]).toContain("회사매출상한");
+  });
+
+  it("두 칸은 필수 열이 아니다(시트에 없어도 실패하지 않는다)", () => {
+    expect([...REQUIRED_HEADERS]).not.toContain("회사매출하한");
+    expect([...REQUIRED_HEADERS]).not.toContain("회사매출상한");
+  });
+
+  it("새 헤더도 띄어쓰기 차이를 흡수한다", () => {
+    expect(normHeader("회사매출 하한")).toBe(normHeader("회사매출하한"));
+  });
+});
+
+describe("브랜드 외부 링크 — 추측하지 않는다", () => {
+  it("http(s) 주소는 그대로 링크로 쓴다", () => {
+    expect(brandLinkCell("https://brand.example.invalid/shop"))
+      .toBe("https://brand.example.invalid/shop");
+    expect(brandLinkCell("http://brand.example.invalid/")).toBe("http://brand.example.invalid/");
+  });
+
+  it("정상 bare 도메인만 https 를 붙여 정규화한다", () => {
+    expect(brandLinkCell("brand.example.invalid")).toBe("https://brand.example.invalid/");
+    expect(brandLinkCell("www.brand.example.invalid/a")).toBe("https://www.brand.example.invalid/a");
+  });
+
+  it("빈값은 미기록이다", () => {
+    expect(brandLinkCell("")).toBe(UNKNOWN);
+    expect(brandLinkCell(null)).toBe(UNKNOWN);
+    expect(brandLinkCell("   ")).toBe(UNKNOWN);
+  });
+
+  it("이메일·설명문은 링크로 쓰지 않고 확인 필요로 표시한다", () => {
+    for (const v of ["owner@example.invalid", "제작중", "홈페이지 준비중", "없음", "인스타 DM"]) {
+      expect(brandLinkCell(v), v).toBe(URL_CHECK);
+    }
+  });
+
+  it("값에서 도메인을 만들어 내지 않는다", () => {
+    // "브랜드명 공식몰" 같은 값에서 brandname.com 을 추측하지 않는다.
+    expect(brandLinkCell("TEST브랜드 공식몰")).toBe(URL_CHECK);
+    expect(brandLinkCell("example")).toBe(URL_CHECK);       // TLD 없음
+  });
+
+  it("자격증명이 박힌 주소는 싣지 않는다", () => {
+    expect(brandLinkCell("https://user:pw@brand.example.invalid")).toBe(URL_CHECK);
+  });
+
+  it("http(s) 가 아닌 스킴은 버린다", () => {
+    for (const v of ["javascript:alert(1)", "data:text/html,x", "ftp://a.example.invalid"]) {
+      expect(brandLinkCell(v), v).toBe(URL_CHECK);
+    }
+  });
+
+  it("수식으로 읽히는 값은 링크로 쓰지 않는다", () => {
+    expect(brandLinkCell('=HYPERLINK("https://x.example.invalid")')).toBe(URL_CHECK);
+    expect(brandLinkCell("+https://x.example.invalid")).toBe(URL_CHECK);
+  });
+
+  it("행에서도 같은 규칙이 적용된다", () => {
+    expect(buildRow({ ...BRAND, brand_url: "제작중" }, OPTS)["브랜드링크"]).toBe(URL_CHECK);
+    expect(buildRow({ ...BRAND, brand_url: null }, OPTS)["브랜드링크"]).toBe(UNKNOWN);
+  });
+
+  it("원장링크(어드민)는 이 규칙과 무관하게 그대로다", () => {
+    const row = buildRow({ ...BRAND, brand_url: "제작중" }, OPTS);
+    expect(row["원장링크"]).toBe("https://admin.example.invalid/brand/" + BRAND.id);
+  });
+});
+
+describe("미확인과 미기록", () => {
+  it("둘 다 '값 없음'으로 보아 사람이 채운 칸을 지킨다", () => {
+    expect(isUnknownCell(UNCONFIRMED)).toBe(true);
+    expect(keepExisting(UNCONFIRMED, "1000억")).toBe(true);
+  });
+
+  it("URL확인필요는 값이다 — 사람이 보라는 표시이므로 덮어쓴다", () => {
+    expect(isUnknownCell(URL_CHECK)).toBe(false);
   });
 });
 

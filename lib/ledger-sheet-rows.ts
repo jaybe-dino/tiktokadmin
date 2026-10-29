@@ -24,8 +24,18 @@ export type Cell = string | number;
  */
 export const UNKNOWN = "미기록";
 
+/**
+ * "값은 있으나 이 칸의 뜻으로는 확정이 아니다" 는 표기.
+ *   예: 브랜드 자체 신고 구간은 숫자가 있어도 회사 연매출로 확정된 값이 아니다.
+ *   빈칸(아직 안 씀)·미기록(아예 없음)과 구분된다.
+ */
+export const UNCONFIRMED = "미확인";
+
+/** 링크 자리에 링크가 아닌 값이 들어 있을 때 — 사람이 보고 고쳐야 한다. */
+export const URL_CHECK = "URL확인필요";
+
 /** 시트에서 "아직 값이 없다"는 뜻으로 쓰이는 표기들. 셈과 보호 판정에 쓴다. */
-export const UNKNOWN_MARKERS: ReadonlySet<string> = new Set([UNKNOWN, "미확인"]);
+export const UNKNOWN_MARKERS: ReadonlySet<string> = new Set([UNKNOWN, UNCONFIRMED]);
 
 /** 빈칸이거나 미기록 표기인가. 0 과 "0" 은 값이므로 false 다. */
 export function isUnknownCell(v: unknown): boolean {
@@ -63,6 +73,8 @@ export const HEADER_ALIASES: Readonly<Record<string, readonly string[]>> = {
   "담당자": ["담당자 (원장)"],
   "최근접촉표시": ["최근접촉 (원문표시)"],
   "매출액·구간": ["매출액 · 구간"],
+  "회사매출하한": ["회사매출 하한", "회사 매출 하한"],
+  "회사매출상한": ["회사매출 상한", "회사 매출 상한"],
 };
 
 // ── 수식 주입 방지 ───────────────────────────────────────────
@@ -84,6 +96,47 @@ export function safeText(v: unknown): string {
  */
 export function phoneText(v: unknown): string {
   return safeText(v).replace(/\s+/g, " ").trim();
+}
+
+// ── 브랜드 외부 링크 ─────────────────────────────────────────
+//   원본 960건 중 436건은 빈값, 126건은 이메일·"제작중"·설명문이다.
+//   링크처럼 보이는 것만 링크로 쓰고, 나머지는 사람이 보도록 표시만 한다.
+//   값에서 도메인을 추측해 만들어 내지 않는다 — 없는 사이트를 적는 것보다
+//   "확인 필요"라고 적는 게 낫다.
+const BARE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}(?::\d{2,5})?(?:[/?#].*)?$/i;
+
+/**
+ * 브랜드가 실제로 운영하는 외부 링크 한 칸.
+ *   · http(s) 주소 또는 정상 bare 도메인만 링크로 정규화한다.
+ *   · 자격증명이 박힌 주소(user:pass@)와 http(s) 가 아닌 스킴은 버린다.
+ *   · 수식으로 읽히는 글자로 시작하는 값은 링크로 쓰지 않는다.
+ *   · 빈값은 미기록, 그 밖은 URL확인필요.
+ */
+export function brandLinkCell(raw: unknown): string {
+  const v = safeText(raw).trim();
+  if (!v) return UNKNOWN;
+  // 수식·제어문자로 시작하거나 공백이 섞인 값은 주소가 아니다.
+  if (/^[=+\-@]/.test(v) || /\s/.test(v)) return URL_CHECK;
+
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : null;
+  if (withScheme) {
+    let u: URL;
+    try { u = new URL(withScheme); } catch { return URL_CHECK; }
+    if (u.protocol !== "http:" && u.protocol !== "https:") return URL_CHECK;
+    // 주소에 아이디·비밀번호가 들어 있으면 자격증명이다 — 시트에 싣지 않는다.
+    if (u.username || u.password) return URL_CHECK;
+    if (!u.hostname.includes(".")) return URL_CHECK;
+    return u.toString();
+  }
+  // 스킴이 없는 값: 정상 도메인 모양일 때만 https 를 붙인다(도메인을 바꾸지 않는다).
+  if (v.includes("@") || !BARE_DOMAIN.test(v)) return URL_CHECK;
+  try {
+    const u = new URL(`https://${v}`);
+    if (u.username || u.password) return URL_CHECK;
+    return u.toString();
+  } catch {
+    return URL_CHECK;
+  }
 }
 
 // ── 날짜 ─────────────────────────────────────────────────────
@@ -132,10 +185,12 @@ export function dateCell(iso: string | null | undefined): Cell {
 }
 
 // ── 매출 ─────────────────────────────────────────────────────
-//   세 가지를 절대 섞지 않는다:
-//     ① 고객이 직접 신고한 매출 구간(신청서) — 사람이 적은 값, 최근 12개월 기준
-//     ② AI 추정(brands.revenue_estimate)     — 확정 실적이 아니다
-//     ③ 우리 회사가 받은 돈(결제·구독)       — 브랜드 연매출과 무관하다. 여기 넣지 않는다.
+//   이 열이 말하는 매출은 "영업 대상 회사의 매출"이다. 큰 팀·기업을 가려내기 위한
+//   숫자이므로, 성격이 다른 값을 같은 칸에 넣으면 영업 판단이 틀어진다.
+//     ① 브랜드 자체 신고(신청서) — 최근 12개월 자기신고. 회사 연매출이 아니다.
+//     ② AI 추정(brands.revenue_estimate) — 확정 실적이 아니다. 범위(scope)가
+//        회사(별도/연결)일 때만 "회사 매출"로 센다. 브랜드 단위 추정은 승격하지 않는다.
+//     ③ 우리 회사가 받은 돈(결제·구독) — 영업 대상 회사의 매출과 무관하다. 넣지 않는다.
 export interface RevenueInput {
   /** 신청서에서 고객이 고른 구간 키(있으면 이게 우선). */
   reportedBand?: string | null;
@@ -161,6 +216,13 @@ export interface RevenueCells {
   year: Cell;
   /** X 매출 통화 */
   currency: string;
+  /**
+   * 정렬·필터용 회사(법인) 연매출 하한·상한.
+   *   scope 가 회사(별도/연결)인 추정일 때만 숫자가 들어간다.
+   *   브랜드 자체 신고 구간을 회사 매출로 승격하지 않는다 — 그건 미확인이다.
+   */
+  companyLower: Cell;
+  companyUpper: Cell;
 }
 
 function estimateRange(e: RevenueEstimate): string {
@@ -168,12 +230,17 @@ function estimateRange(e: RevenueEstimate): string {
   return e.lower === e.upper ? n(e.lower) : `${n(e.lower)}~${n(e.upper)}`;
 }
 
-/** 추정 범위가 브랜드 하나인지, 법인 전체인지 — 숫자의 뜻이 달라진다. */
+/** 추정 범위가 브랜드 하나인지, 회사 전체인지 — 숫자의 뜻이 달라진다. */
 const SCOPE_LABELS: Record<RevenueEstimate["scope"], string> = {
-  brand: "브랜드 단위",
-  company_separate: "법인 별도",
-  company_consolidated: "법인 연결",
+  brand: "브랜드 단위(회사 연매출 아님)",
+  company_separate: "회사 별도 연매출",
+  company_consolidated: "회사 연결 연매출",
 };
+
+/** 이 추정이 "회사의 매출" 인가 — 회사매출 하한·상한에 쓸 수 있는지 판단한다. */
+export function isCompanyScope(scope: RevenueEstimate["scope"]): boolean {
+  return scope === "company_separate" || scope === "company_consolidated";
+}
 
 export function revenueCells(i: RevenueInput): RevenueCells {
   // ① 고객 신고 구간이 있으면 그것이 기준이다.
@@ -184,10 +251,13 @@ export function revenueCells(i: RevenueInput): RevenueCells {
     const at = kstText(i.reportedAt);
     return {
       amount: safeText(band),
-      basis: "고객 신고 구간 · 최근 12개월 자기신고(확정 회계연도 아님)",
+      basis: "브랜드 자체 신고 · 최근 12개월 자기신고(확정 회계연도 아님) · 회사 연매출 아님",
       source: safeText((i.reportedSource ?? "").trim() || "신청서"),
       year: at ? `최근 12개월 (신고 ${at.slice(0, 7)})` : "최근 12개월 (신고시점 미기록)",
       currency: "KRW",
+      // 브랜드 자기신고를 회사 매출로 승격하지 않는다.
+      companyLower: UNCONFIRMED,
+      companyUpper: UNCONFIRMED,
     };
   }
 
@@ -195,14 +265,20 @@ export function revenueCells(i: RevenueInput): RevenueCells {
   const view = revenueView(i.estimateRaw);
   if (view.estimate) {
     const e = view.estimate;
+    const company = isCompanyScope(e.scope);
     return {
       amount: safeText(estimateRange(e)),
-      basis: `AI 추정 · 미확정 (신뢰도 ${e.confidence} · 범위 ${SCOPE_LABELS[e.scope]} · 대상 ${e.entity})`,
+      // 회사명(대상)·범위·신뢰도를 한 칸에 모두 남긴다 — 숫자만으로는 뜻이 정해지지 않는다.
+      basis: `AI 추정 · 미확정 · ${SCOPE_LABELS[e.scope]} · 대상 ${safeText(e.entity)} `
+        + `· 신뢰도 ${e.confidence}`,
       // 제목만 적으면 다시 확인할 수 없다. URL 을 함께 남긴다.
       source: safeText(e.sources.slice(0, 3).map((s) => `${s.title} (${s.url})`).join(" / ")
         || "AI 추정"),
       year: e.year,
       currency: e.currency,
+      // 회사 범위일 때만 정렬용 숫자를 쓴다.
+      companyLower: company ? e.lower : UNCONFIRMED,
+      companyUpper: company ? e.upper : UNCONFIRMED,
     };
   }
 
@@ -213,6 +289,8 @@ export function revenueCells(i: RevenueInput): RevenueCells {
     source: UNKNOWN,
     year: UNKNOWN,
     currency: UNKNOWN,
+    companyLower: UNKNOWN,
+    companyUpper: UNKNOWN,
   };
 }
 
@@ -367,12 +445,14 @@ export function buildRow(b: LedgerBrand, o: BuildRowOpts): RowValues {
     "카테고리": safeText(b.category) || UNKNOWN,
     "전화번호": phoneText(b.phone) || UNKNOWN,
     "이메일": safeText(b.email) || UNKNOWN,
-    "브랜드링크": safeText(b.brand_url) || UNKNOWN,
+    "브랜드링크": brandLinkCell(b.brand_url),
     "매출액·구간": rev.amount,
     "매출기준·확인상태": safeText(rev.basis),
     "매출출처": safeText(rev.source),
     "매출기준연도": rev.year,
     "매출통화": safeText(rev.currency),
+    "회사매출하한": rev.companyLower,
+    "회사매출상한": rev.companyUpper,
     "상태표시": safeText(flags),
   };
 }
@@ -386,7 +466,8 @@ export const MANAGED_HEADERS = [
   "최근메일시각(KST)", "최근메일제목", "최근업데이트(KST)", "최근접촉표시",
   "플랜/결제", "원장링크", "브랜드ID", "수집시각(KST)",
   "카테고리", "전화번호", "이메일", "브랜드링크",
-  "매출액·구간", "매출기준·확인상태", "매출출처", "매출기준연도", "매출통화", "상태표시",
+  "매출액·구간", "매출기준·확인상태", "매출출처", "매출기준연도", "매출통화",
+  "회사매출하한", "회사매출상한", "상태표시",
 ] as const;
 
 /**

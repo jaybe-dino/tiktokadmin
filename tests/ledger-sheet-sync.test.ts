@@ -247,8 +247,9 @@ describe("운영 시트의 실제 헤더로 동작한다", () => {
     const { index, duplicates, missingRequired } = S.resolveHeaders(REAL_HEADER);
     expect(duplicates).toEqual([]);
     expect(missingRequired).toEqual([]);
-    // 상태표시 열은 운영 시트에 없다 — 없는 열은 쓰지 않는다(건너뛴다).
-    const expected = R.MANAGED_HEADERS.filter((h) => h !== "상태표시");
+    // 상태표시·회사매출 두 칸은 운영 시트에 아직 없다 — 없는 열은 건너뛴다.
+    const notInSheet = ["상태표시", "회사매출하한", "회사매출상한"];
+    const expected = R.MANAGED_HEADERS.filter((h) => !notInSheet.includes(h));
     for (const h of expected) expect(index.has(h), h).toBe(true);
     expect(index.get("브랜드ID")).toBe(ID_COL);
     expect(index.get("담당자")).toBe(col("담당자 (원장)"));
@@ -668,6 +669,32 @@ describe("원장 전체", () => {
     const row = sheet.appended[0];
     expect(row[header.indexOf("상태표시")]).toContain("수신거부");
     expect(row[NAME_COL]).toBe("거부브랜드");
+  });
+
+  it("회사매출 열을 추가하면 회사 범위 추정만 숫자로 채운다", async () => {
+    const header = [...REAL_HEADER, "회사매출 하한", "회사매출 상한"];
+    const est = (scope: string) => ({
+      status: "estimated", lower: 5_000_000_000, upper: 7_000_000_000,
+      currency: "KRW", year: 2025, scope, entity: "TEST 주식회사",
+      confidence: "high", estimated_at: "2026-10-01T00:00:00+09:00",
+      rationale: "공시", sources: [{ title: "공시", url: "https://x.example.invalid/a" }],
+    });
+    db.brands = [
+      brand("b1", "회사추정", { revenue_estimate: est("company_separate") as never }),
+      brand("b2", "브랜드추정", { revenue_estimate: est("brand") as never }),
+      brand("b3", "자기신고", { reported_band: "b1_10", reported_at: "2026-09-10T00:00:00Z" }),
+    ];
+    const sheet = new FakeSheet("유입·커뮤현황", header, []);
+    const r = await S.syncLedgerToSheet({ client: sheet });
+    expect(r.ok, r.error).toBe(true);
+
+    const lo = header.indexOf("회사매출 하한");
+    const hi = header.indexOf("회사매출 상한");
+    expect(sheet.appended[0][lo]).toBe(5_000_000_000);
+    expect(sheet.appended[0][hi]).toBe(7_000_000_000);
+    // 브랜드 단위 추정과 브랜드 자기신고는 회사 매출로 승격되지 않는다.
+    expect(sheet.appended[1][lo]).toBe(R.UNCONFIRMED);
+    expect(sheet.appended[2][lo]).toBe(R.UNCONFIRMED);
   });
 
   it("상태표시 열이 없는 운영 시트에서도 행은 그대로 실린다", async () => {
