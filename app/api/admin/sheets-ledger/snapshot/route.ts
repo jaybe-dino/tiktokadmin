@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { sheetsAuthState } from "@/lib/google-sheets";
-import { readLedger, ledgerScope, rowOptions } from "@/lib/ledger-sheet-sync";
+import { readLedger, ledgerScope, rowOptions, latestRunAudit } from "@/lib/ledger-sheet-sync";
 import { buildRow, MANAGED_HEADERS } from "@/lib/ledger-sheet-rows";
 
 export const runtime = "nodejs";
@@ -23,6 +23,8 @@ export async function GET() {
 
   const brands = await readLedger();
   const scope = await ledgerScope();
+  // 최신 실행 한 건의 상태·사유. cron 이 로그를 남기지 않아 여기서 확인한다.
+  const latestRun = await latestRunAudit();
   const collectedAt = new Date().toISOString();
   const o = rowOptions(collectedAt);
 
@@ -40,6 +42,7 @@ export async function GET() {
     collectedAt,
     count: rows.length,
     scope,
+    latestRun,
     fields: [...MANAGED_HEADERS],
     meta: {
       // 이 시트 한 개에 편집자로 공유할 대상. 공개해도 되는 값이다(비밀키가 아니다).

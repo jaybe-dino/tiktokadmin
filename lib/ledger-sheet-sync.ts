@@ -336,6 +336,64 @@ export const CLAIM_SQL = `
            AND sheet_sync_runs.started_at < now() - make_interval(mins => $4::int))
   RETURNING id::text AS id, (xmax = 0) AS fresh`;
 
+/**
+ * 최신 실행 한 건의 감사 상태.
+ *   cron 이 결과를 로그에 남기지 않아 운영에서 실패 원인을 볼 수 없다. 이 표에는
+ *   이미 상태와 사유가 적혀 있으므로, 그 한 줄만 읽어 보여 준다.
+ *   건수와 상태·사유 문구만 담는다 — 연락처·매출·키·토큰은 이 표에 없다.
+ */
+export type RunAudit =
+  | {
+    available: true;
+    status: string; runDate: string; attempts: number;
+    brands: number; updatedRows: number; appendedRows: number;
+    startedAt: string | null; finishedAt: string | null; error: string;
+  }
+  | { available: false; unavailable: string };
+
+/** 고정 SELECT. 이 시트 하나로 한정하고, 가장 최근 한 행만 읽는다. */
+const RUN_AUDIT_SQL = `
+  SELECT status, run_date::text AS run_date, attempts,
+         brands, updated_rows, appended_rows,
+         started_at::text AS started_at, finished_at::text AS finished_at,
+         coalesce(error,'') AS error
+    FROM sheet_sync_runs
+   WHERE spreadsheet_id = $1
+   ORDER BY run_date DESC, started_at DESC
+   LIMIT 1`;
+
+export async function latestRunAudit(): Promise<RunAudit> {
+  const spreadsheetId = (env.sheets.ledgerSpreadsheetId ?? "").trim();
+  if (!spreadsheetId) {
+    return { available: false, unavailable: "SHEETS_LEDGER_SPREADSHEET_ID 미설정" };
+  }
+  if (!(await sheetSyncSchemaReady())) {
+    return { available: false, unavailable: `${SHEET_SYNC_MIGRATION} 미적용 — 실행 기록 표가 없습니다` };
+  }
+  let row: {
+    status: string; run_date: string; attempts: number;
+    brands: number; updated_rows: number; appended_rows: number;
+    started_at: string | null; finished_at: string | null; error: string;
+  } | null;
+  try {
+    row = await queryOne(RUN_AUDIT_SQL, [spreadsheetId]);
+  } catch {
+    // 사유 원문을 싣지 않는다 — 조회가 안 됐다는 사실만 명시한다.
+    return { available: false, unavailable: "실행 기록 조회 실패(DB)" };
+  }
+  if (!row) {
+    // 실행 기록이 없다 = 선점 전에 멈췄다(인증·마이그레이션 단계). 그 자체가 단서다.
+    return { available: false, unavailable: "이 시트로 실행된 기록이 없습니다(선점 전 중단)" };
+  }
+  return {
+    available: true,
+    status: row.status, runDate: row.run_date, attempts: row.attempts,
+    brands: row.brands, updatedRows: row.updated_rows, appendedRows: row.appended_rows,
+    startedAt: row.started_at, finishedAt: row.finished_at,
+    error: String(row.error ?? "").slice(0, 300),
+  };
+}
+
 export interface SyncOpts {
   now?: Date;
   /** 같은 날 다시 돌릴 때(수동 재시도). 기본은 하루 한 번만. */

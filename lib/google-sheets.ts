@@ -123,6 +123,40 @@ async function accessToken(): Promise<{ ok: true; token: string } | { ok: false;
     : { ok: false, error: "토큰 응답에 access_token 이 없습니다." };
 }
 
+// ── 403 분류 ─────────────────────────────────────────────────
+//   403 을 전부 "파일 공유(ACL) 문제" 로 단정하면 엉뚱한 곳을 고치게 된다.
+//   Google 은 사유를 error.details[].reason 의 고정 코드로 준다. 아래 허용 목록에
+//   있는 코드만 읽고, 원문 message·metadata 는 읽지도 남기지도 않는다
+//   (거기에 토큰·주소·시트 내용이 섞일 수 있다).
+const DENY_REASONS: Record<string, string> = {
+  SERVICE_DISABLED:
+    "Google Sheets API 가 비활성입니다(서비스 미활성 — 프로젝트에서 API 사용 설정 필요).",
+  API_KEY_SERVICE_BLOCKED:
+    "이 프로젝트에서 Sheets API 사용이 차단되어 있습니다(API 권한).",
+  ACCESS_TOKEN_SCOPE_INSUFFICIENT:
+    "토큰 스코프가 부족합니다(API 권한 — 요청 스코프 확인).",
+  ACCESS_TOKEN_EXPIRED_INVALID:
+    "액세스 토큰이 만료·무효입니다(재발급 필요).",
+};
+
+/** 응답 본문에서 허용된 사유 코드만 꺼낸다. 없으면 null. */
+export function denyReason(body: unknown): string | null {
+  const details = (body as { error?: { details?: unknown } } | null)?.error?.details;
+  if (!Array.isArray(details)) return null;
+  for (const d of details) {
+    const reason = (d as { reason?: unknown } | null)?.reason;
+    if (typeof reason === "string" && Object.hasOwn(DENY_REASONS, reason)) return reason;
+  }
+  return null;
+}
+
+/** 403 한 줄 설명. 사유 코드를 못 읽으면 단정하지 않고 세 갈래를 모두 말한다. */
+export function forbiddenMessage(reason: string | null): string {
+  if (reason) return `${DENY_REASONS[reason]} (HTTP 403 · ${reason})`;
+  return "시트 접근이 거부되었습니다(HTTP 403). 사유 코드가 없어 "
+    + "서비스 미활성 · API 권한 · 파일 공유(ACL) 중 무엇인지 단정할 수 없습니다 — 세 가지를 확인하세요.";
+}
+
 async function call<T>(
   token: string, path: string, init: RequestInit = {},
 ): Promise<{ ok: true; data: T } | { ok: false; error: string; status: number }> {
@@ -132,13 +166,16 @@ async function call<T>(
   }).catch(() => null);
   if (!res) return { ok: false, error: "Sheets API 에 연결하지 못했습니다.", status: 0 };
   if (!res.ok) {
-    // 응답 본문에 시트 내용이 섞일 수 있어 상태 코드만 남긴다.
+    // 응답 본문에 시트 내용이 섞일 수 있다. 403 일 때만 본문을 읽고,
+    // 거기서도 허용된 사유 코드 하나만 꺼낸다(message·metadata 는 버린다).
+    if (res.status === 403) {
+      const body = await res.json().catch(() => null);
+      return { ok: false, status: 403, error: forbiddenMessage(denyReason(body)) };
+    }
     return {
       ok: false, status: res.status,
-      error: res.status === 403
-        ? "시트 접근 권한이 없습니다(HTTP 403) — 이 스프레드시트에 서비스계정을 편집자로 공유해야 합니다."
-        : res.status === 404 ? "시트를 찾지 못했습니다(HTTP 404)."
-          : `Sheets API 오류(HTTP ${res.status}).`,
+      error: res.status === 404 ? "시트를 찾지 못했습니다(HTTP 404)."
+        : `Sheets API 오류(HTTP ${res.status}).`,
     };
   }
   return { ok: true, data: (await res.json().catch(() => ({}))) as T };

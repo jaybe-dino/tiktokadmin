@@ -28,6 +28,12 @@ vi.mock("@/lib/ledger-sheet-sync", () => ({
   ledgerScope: async () => ({
     brandsAll: 1, ledger: 1, testExcluded: 0, endedInLedger: 0, customersPage: 1,
   }),
+  latestRunAudit: async () => ({
+    available: true, status: "failed", runDate: "2026-10-30", attempts: 1,
+    brands: 0, updatedRows: 0, appendedRows: 0,
+    startedAt: "2026-10-30T00:00:00Z", finishedAt: "2026-10-30T00:00:03Z",
+    error: "시트 접근이 거부되었습니다(HTTP 403).",
+  }),
   rowOptions: (collectedAt: string) => ({
     adminUrl: "https://admin.example.invalid", collectedAt,
     stateLabel: (s: string | null) => s ?? "",
@@ -108,6 +114,17 @@ describe("응답 내용", () => {
     // 이름 자체가 런타임 기준임을 말한다 — 운영 env 유무를 주장하지 않는다.
     expect(body.meta).toHaveProperty("runtimeHasServiceAccountKey");
     expect(body.meta).not.toHaveProperty("productionHasServiceAccountKey");
+  });
+
+  it("최신 실행 감사 상태 한 건을 함께 준다", async () => {
+    const body = await (await route.GET()).json();
+    expect(body.latestRun).toMatchObject({
+      available: true, status: "failed", runDate: "2026-10-30",
+      attempts: 1, brands: 0, updatedRows: 0, appendedRows: 0,
+    });
+    expect(body.latestRun).toHaveProperty("startedAt");
+    expect(body.latestRun).toHaveProperty("finishedAt");
+    expect(body.latestRun).toHaveProperty("error");
   });
 
   it("담는 범위 숫자를 함께 준다(/customers 와 비교용)", async () => {
