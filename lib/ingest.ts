@@ -116,6 +116,14 @@ function brandNameFrom(d: Common, keys: DedupKeys): string {
 //   (더미데이터 격리 원칙: "지금 데이터=더미", "실시간 연동 유입=실데이터")
 const REAL_SOURCES = new Set(["glovek_consult", "apply_consult", "meta_ads"]);
 
+// 명백한 테스트 리드 판정(서버 측 전용) — 공개 요청의 임의 플래그가 아니라
+// brand_name 이 TEST 로 시작하고 email 이 @example.com 인 경우만. 저장은 하되 자동 안내/알림만 억제.
+function isObviousTestLead(keys: DedupKeys, p: Record<string, unknown>): boolean {
+  const name = String(p.brand_name ?? "").trim().toUpperCase();
+  const email = String(keys.email ?? "").trim().toLowerCase();
+  return name.startsWith("TEST") && email.endsWith("@example.com");
+}
+
 async function resolveBrand(
   d: Common,
   keys: DedupKeys,
@@ -284,6 +292,10 @@ async function handleEvent(
       //   + 신규 리드마다 Slack #glovek-lead 알림(자동안내 발송여부 포함).
       //   leadhook/meta 는 자체 알림(채널 상세 포함)하므로 skipLeadNotify 로 중복 방지.
       if (created) {
+        // 명백한 테스트 리드(서버 판정: brand_name=TEST* + email=@example.com)는 실제 CRM에는
+        // 저장하되 자동 안내(문자·메일)·연속 안내 시퀀스·신규 리드 알림(Slack/카카오)을 실행하지 않는다.
+        // 공개 요청의 임의 플래그는 신뢰하지 않으며, 전역 알림 차단·실고객 수신거부 변경은 하지 않는다. 정상 리드 기본 동작은 보존.
+        if (!isObviousTestLead(keys, p)) {
         const { maybeAutoWelcome } = await import("./welcome");
         const wr = await maybeAutoWelcome(brand.id, source).catch(() => null);
         // 연속 안내(드립, 0096) — 유입 키를 모르는 경로(메타 웹훅·신청폼·수기 등록)에서는
@@ -303,6 +315,8 @@ async function handleEvent(
                 : `자동안내 미발송(${wr.skipped ?? wr.error ?? "수단 없음"})`;
           const { notifyNewLead } = await import("./lead-notify");
           await notifyNewLead(brand.id, { channelName: source, created, autoSendReason: reason }).catch(() => {});
+        }
+      
         }
       }
       return { http: 200, body: { ok: true, brand_id: brand.id, created, need_brief: created } };
