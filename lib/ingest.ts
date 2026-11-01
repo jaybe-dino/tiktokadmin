@@ -118,10 +118,14 @@ const REAL_SOURCES = new Set(["glovek_consult", "apply_consult", "meta_ads"]);
 
 // 명백한 테스트 리드 판정(서버 측 전용) — 공개 요청의 임의 플래그가 아니라
 // brand_name 이 TEST 로 시작하고 email 이 @example.com 인 경우만. 저장은 하되 자동 안내/알림만 억제.
+// leadhook 등 다른 인입 경로에서도 동일 기준을 쓰도록 export(판정 로직 단일화 — 드리프트 방지).
+export function isSyntheticTestLead(brandName: unknown, email: unknown): boolean {
+  const name = String(brandName ?? "").trim().toUpperCase();
+  const mail = String(email ?? "").trim().toLowerCase();
+  return name.startsWith("TEST") && mail.endsWith("@example.com");
+}
 function isObviousTestLead(keys: DedupKeys, p: Record<string, unknown>): boolean {
-  const name = String(p.brand_name ?? "").trim().toUpperCase();
-  const email = String(keys.email ?? "").trim().toLowerCase();
-  return name.startsWith("TEST") && email.endsWith("@example.com");
+  return isSyntheticTestLead(p.brand_name, keys.email);
 }
 
 async function resolveBrand(

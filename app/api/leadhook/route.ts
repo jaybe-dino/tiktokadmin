@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { env } from "@/lib/env";
-import { processIngest } from "@/lib/ingest";
+import { processIngest, isSyntheticTestLead } from "@/lib/ingest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,7 +125,11 @@ export async function POST(req: NextRequest) {
   if (result.http === 200) {
     const brandId = (result.body as { brand_id?: string }).brand_id;
     const created = (result.body as { created?: boolean }).created;
-    if (brandId) {
+    // 합성 테스트 리드(서버 판정: brand_name=TEST* + email=@example.com)는 CRM 저장(processIngest)은
+    //   그대로 두되, 채널 통계 갱신·채널 자동 문자/메일·연속 안내 시퀀스·신규 리드 알림(Slack/카카오)은
+    //   모두 억제한다. 정상 채널 리드 동작은 보존(전역 알림 차단·실고객 수신거부 변경 없음).
+    const isTestLead = isSyntheticTestLead(brandName, email);
+    if (brandId && !isTestLead) {
       const { notifyNewLead } = await import("@/lib/lead-notify");
       let welcome: import("@/lib/intake-channels").WelcomeResult | null = null;
       if (channel) {
