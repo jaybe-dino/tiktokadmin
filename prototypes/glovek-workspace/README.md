@@ -7,8 +7,8 @@
 
 ```bash
 cd prototypes/glovek-workspace
-python3 -m http.server 8788
-# → http://127.0.0.1:8788/index.html
+python3 -m http.server 8783 --bind 127.0.0.1
+# → http://localhost:8783/
 ```
 
 설치·빌드·API 키가 필요 없습니다. 외부 폰트·아이콘·CDN 을 받지 않습니다.
@@ -40,6 +40,7 @@ node tests/flow.js    # 브라우저 흐름 72건 (서버를 띄운 뒤, Playwri
 ## 데이터
 
 - 저장 키: `glovek.workspace` (localStorage), 스키마 버전 3
+- 같은 브라우저와 주소를 계속 사용하세요. `localhost`와 `127.0.0.1`, 포트가 다른 주소는 별개 저장소입니다.
 - 쓰기는 트랜잭션입니다. **검증 → 직렬화 → 저장이 끝난 뒤에야** 화면 상태가 바뀝니다.
   저장이 실패하면(용량 초과 등) 메모리와 저장분이 **모두 이전 상태로 남고** 실패로 알립니다.
   저장소를 아예 쓸 수 없는 창(시크릿)만 메모리 전용으로 동작하며, 그 사실을 계속 띄웁니다.

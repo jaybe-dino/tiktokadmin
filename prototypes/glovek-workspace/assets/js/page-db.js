@@ -20,14 +20,17 @@
     { key: "owner", label: "담당자" },
     { key: "quality", label: "등급" },
     { key: "readiness", label: "데이터 준비도" },
-    { key: "revenue", label: "회사 연매출(확정)" },
+    { key: "revenue", label: "회사 연매출" },
     { key: "band", label: "회사매출 구간" },
+    { key: "phone", label: "전화번호" },
+    { key: "email", label: "이메일" },
+    { key: "website", label: "브랜드 링크" },
     { key: "lastCommAt", label: "최근 커뮤니케이션" },
     { key: "nextAction", label: "다음 액션" },
     { key: "memo", label: "메모" }
   ];
   function defaultCols() {
-    return new Set(["name", "kind", "category", "source", "inflowAt", "owner", "quality", "readiness", "revenue", "nextAction"]);
+    return new Set(["name", "kind", "category", "source", "inflowAt", "owner", "readiness", "revenue", "band", "phone", "email", "website", "nextAction", "memo"]);
   }
 
   function uniq(list) {
@@ -61,6 +64,9 @@
       readiness: function (e) { return M.readinessOf(e); },
       revenue: function (e) { return M.companyRevenueAmount(e); },
       band: function (e) { return M.companyRevenueAmount(e); },
+      phone: function (e) { return e.phone || null; },
+      email: function (e) { return e.email || null; },
+      website: function (e) { return e.website || null; },
       lastCommAt: function (e) { return e.lastCommAt || null; },
       nextAction: function (e) { return e.nextActionAt || null; },
       memo: function (e) { return e.memo || null; }
@@ -94,7 +100,7 @@
     sum(strip, "회사·브랜드", all.filter(function (e) { return e.kind === "company"; }).length + "건");
     sum(strip, "크리에이터", all.filter(function (e) { return e.kind === "creator"; }).length + "건");
     sum(strip, "미배정", all.filter(function (e) { return e.owner === "미배정"; }).length + "건");
-    sum(strip, "회사매출 확정", all.filter(function (e) { return M.companyRevenueAmount(e) != null; }).length + "건");
+    sum(strip, "회사매출 기록", all.filter(function (e) { return M.companyRevenueAmount(e) != null; }).length + "건");
     sum(strip, "L3", all.filter(function (e) { return M.readinessOf(e) === "L3"; }).length + "건");
     wrap.appendChild(strip);
 
@@ -278,6 +284,7 @@
         td.className = "gv-nowrap";
         td.appendChild(editableText(e, "category", e.category, api));
       } else if (c.key === "memo") {
+        td.className = "gv-memo";
         td.appendChild(editableText(e, "memo", e.memo, api, 300));
       } else if (c.key === "source") {
         td.className = "gv-nowrap";
@@ -295,7 +302,7 @@
         var amt = M.companyRevenueAmount(e);
         if (amt != null) {
           td.textContent = U.won(amt);
-          td.appendChild(U.el("div", { class: "gv-category", text: (M.SCOPES[e.revenue.scope] || "") + " · " + e.revenue.year }));
+          td.appendChild(U.el("div", { class: "gv-category", text: (M.REV_STATUS[e.revenue.status] || "미확인") + " · " + e.revenue.year + " · " + (M.SCOPES[e.revenue.scope] || "") }));
         } else {
           td.textContent = "미확인";
           var ref = M.referenceRevenue(e);
@@ -304,6 +311,14 @@
       } else if (c.key === "band") {
         td.className = "gv-nowrap";
         td.textContent = M.companyRevenueBand(e);
+      } else if (c.key === "phone" || c.key === "email") {
+        td.className = "gv-nowrap";
+        td.textContent = e[c.key] || "미기록";
+      } else if (c.key === "website") {
+        td.className = "gv-nowrap";
+        var brandUrl = U.safeUrl(e.website || "");
+        if (brandUrl) td.appendChild(U.el("a", { href: brandUrl, target: "_blank", rel: "noopener noreferrer", text: brandUrl }));
+        else td.textContent = "미기록";
       } else if (c.key === "lastCommAt") {
         td.className = "gv-nowrap";
         td.textContent = e.lastCommAt ? U.fmtKstDate(e.lastCommAt) + " (" + U.relLabel(e.lastCommAt) + ")" : "기록 없음";
@@ -326,7 +341,7 @@
     var td = U.el("span");
     td.appendChild(span);
     function open() {
-      var input = U.el("input", { class: "gv-inline", type: "text", value: value || "", maxlength: String(max || 60) });
+      var input = U.el("input", { class: "gv-inline", type: "text", value: value || "", maxlength: String(max || 60), "aria-label": (field === "memo" ? "메모" : field === "category" ? "카테고리" : field) + " 편집" });
       td.replaceChild(input, td.firstChild);
       input.focus(); input.select();
       var done = false;
@@ -550,7 +565,7 @@
   function exportCsv(state, api) {
     var rows = sorted(filtered(state));
     var header = ["외부ID", "유형", "업체명", "법인명", "카테고리", "유입출처", "유입일시(KST)", "담당자", "등급",
-      "데이터준비도", "회사연매출확정(원)", "참고금액(원)", "참고사유", "매출기준연도", "매출범위", "매출상태",
+      "데이터준비도", "회사연매출(원)", "참고금액(원)", "참고사유", "매출기준연도", "매출범위", "매출상태",
       "매출귀속법인", "매출근거URL", "회사매출구간",
       "대표전화", "대표이메일", "홈페이지", "최근커뮤니케이션", "다음액션일", "다음액션", "메모"];
     var body = rows.map(function (e) {

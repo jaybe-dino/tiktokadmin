@@ -131,3 +131,13 @@ html.gv-modal-open,body.gv-modal-open{overflow:hidden}
 }
 /* form 이 dialog 의 flex 자식이므로, 여기도 flex 열로 만들어야 본문만 스크롤된다 */
 #gv-sales dialog form{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden}
+
+/* 표 안에서 스크롤해도 행 식별자와 제목을 유지한다. */
+#gv-sales .gv-table-wrap{max-height:calc(100vh - 340px);min-height:260px;overflow:auto}
+#gv-sales .gv-table-wrap th{position:sticky;top:0;z-index:2}
+#gv-sales .gv-table-wrap th:first-child,#gv-sales .gv-table-wrap td:first-child{position:sticky;left:0;min-width:36px;max-width:36px;width:36px;box-sizing:border-box;background:var(--gv-paper);z-index:3}
+#gv-sales .gv-table-wrap th:nth-child(2),#gv-sales .gv-table-wrap td:nth-child(2){position:sticky;left:36px;min-width:180px;background:var(--gv-paper);z-index:3;border-right:1px solid var(--gv-line)}
+#gv-sales .gv-table-wrap th:first-child,#gv-sales .gv-table-wrap th:nth-child(2){background:var(--gv-soft);z-index:4}
+#gv-sales .gv-memo{min-width:220px;max-width:260px}
+#gv-sales .gv-memo [role="button"]{display:block;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#gv-sales .gv-memo .gv-inline{min-width:200px;width:100%;box-sizing:border-box}

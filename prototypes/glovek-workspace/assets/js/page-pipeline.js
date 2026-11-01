@@ -116,7 +116,7 @@
   /** 회사 범위로 확정된 금액만 "회사 연매출" 로 적는다. 나머지는 참고값으로 표시. */
   function companyRevText(e) {
     var amt = M.companyRevenueAmount(e);
-    if (amt != null) return U.won(amt) + " (" + (M.SCOPES[e.revenue.scope] || "") + ", " + e.revenue.year + ")";
+    if (amt != null) return U.won(amt) + " (" + (M.REV_STATUS[e.revenue.status] || "미확인") + " · " + (M.SCOPES[e.revenue.scope] || "") + ", " + e.revenue.year + ")";
     var ref = M.referenceRevenue(e);
     if (ref) return "미확인 (참고: " + U.won(ref.amount) + " · " + ref.why + ")";
     return "미확인";

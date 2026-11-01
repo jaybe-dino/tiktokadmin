@@ -205,6 +205,11 @@
 
   function overrideReadiness(e, level, ctx) {
     if (level && !M.READINESS[level]) return;
+    if (level === "L3" && (!e.revenue || e.revenue.status !== "verified" || !M.verifiedBundle(e.revenue).ok)) {
+      ctx.setTab("basic");
+      ctx.toast("L3는 회사 연매출의 금액·기준연도·귀속 법인·범위·출처를 갖추고 근거 확인으로 저장한 뒤 지정할 수 있습니다.", { kind: "warn", sticky: true });
+      return;
+    }
     var r = S.tx({ op: "entity.readiness", targetType: "entity", targetId: e.id, note: level ? "준비도 직접 지정 " + level : "준비도 자동 판정으로 되돌림" }, function (draft) {
       var x = M.entityById(draft, e.id);
       if (!x) return { ok: false, error: "업체를 찾지 못했습니다." };
@@ -331,7 +336,7 @@
     var dl = U.el("dl", { class: "gv-kv" });
     var companyAmt = M.companyRevenueAmount(e);
     var ref = M.referenceRevenue(e);
-    kv(dl, "회사 연매출(확정)", companyAmt != null ? U.won(companyAmt) : "미확인");
+    kv(dl, "회사 연매출", companyAmt != null ? U.won(companyAmt) : "미확인");
     kv(dl, "회사매출 구간", M.companyRevenueBand(e));
     if (ref) kv(dl, "참고 금액", U.won(ref.amount) + " · " + ref.why + " (회사 연매출로 쓰지 않음)");
     kv(dl, "기준연도", r.year ? String(r.year) : "미확인");

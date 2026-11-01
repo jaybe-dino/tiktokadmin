@@ -119,7 +119,10 @@
   }
   /** 사람이 지정한 값이 있으면 그것이 우선이다(감사 기록으로 남는다). */
   function readinessOf(e) {
-    if (e.readinessOverride && e.readinessOverride.level) return e.readinessOverride.level;
+    if (e.readinessOverride && e.readinessOverride.level) {
+      var level = e.readinessOverride.level;
+      if (level !== "L3" || (e.revenue && e.revenue.status === "verified" && verifiedBundle(e.revenue).ok)) return level;
+    }
     return derivedReadiness(e);
   }
 

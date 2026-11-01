@@ -43,7 +43,7 @@ eq("정확히 50억은 50억~100억", M.revenueBand(5e9), "50억~100억원");
 eq("정확히 100억은 100억~500억", M.revenueBand(1e10), "100억~500억원");
 eq("정확히 500억은 500억 이상", M.revenueBand(5e10), "500억원 이상");
 
-console.log("2) 회사 연매출은 회사 범위·확정 상태·연도가 모두 있어야 한다");
+console.log("2) 회사 연매출은 회사 범위·신고/근거확인 상태·연도가 모두 있어야 한다");
 const ent = (rev) => ({
   id: "e", name: "t", kind: "company", legalName: "t(주)", category: "리빙",
   contacts: [{ phone: "010-0000-0000" }], revenue: rev
@@ -54,7 +54,7 @@ eq("AI 추정은 회사 연매출 아님", M.companyRevenueAmount(ent({ amount: 
 eq("연도 없으면 아님", M.companyRevenueAmount(ent({ amount: 2e9, year: null, scope: "company_separate", status: "verified" })), null);
 eq("브랜드 단위 구간은 미확인", M.companyRevenueBand(ent({ amount: 2e9, year: 2025, scope: "brand", status: "reported" })), "미확인");
 ok("브랜드 단위는 참고값", M.referenceRevenue(ent({ amount: 2e9, year: 2025, scope: "brand", status: "reported" })).why === "브랜드 단위");
-eq("회사 확정값은 참고값 아님", M.referenceRevenue(ent({ amount: 2e9, year: 2025, scope: "company_separate", status: "reported" })), null);
+eq("회사 신고값은 회사 실적에 표시하되 확인 상태를 구분", M.referenceRevenue(ent({ amount: 2e9, year: 2025, scope: "company_separate", status: "reported" })), null);
 
 console.log("3) verified 묶음은 모두 갖춰야 한다");
 const full = { amount: 1e9, year: 2025, legalEntity: "테스트(주)", scope: "company_separate", sourceUrl: "https://a.example.invalid" };
@@ -68,6 +68,16 @@ ok("브랜드 범위면 거절", !M.verifiedBundle(Object.assign({}, full, { sco
 eq("L3 는 완전한 묶음일 때만", M.derivedReadiness(ent(Object.assign({}, full, { status: "verified" }))), "L3");
 eq("연도 없는 verified 는 L2", M.derivedReadiness(ent(Object.assign({}, full, { status: "verified", year: null }))), "L2");
 eq("법인 없는 verified 는 L2", M.derivedReadiness(ent(Object.assign({}, full, { status: "verified", legalEntity: "" }))), "L2");
+
+const forcedUnverified = ent(Object.assign({}, full, { status: "reported" }));
+forcedUnverified.readinessOverride = { level: "L3" };
+eq("수동 L3도 근거 확인 전에는 허용하지 않음", M.readinessOf(forcedUnverified), "L2");
+const forcedMissing = ent(Object.assign({}, full, { status: "verified", year: null }));
+forcedMissing.readinessOverride = { level: "L3" };
+eq("수동 L3도 기준연도 없으면 허용하지 않음", M.readinessOf(forcedMissing), "L2");
+const forcedVerified = ent(Object.assign({}, full, { status: "verified" }));
+forcedVerified.readinessOverride = { level: "L3" };
+eq("근거 묶음이 완전한 수동 L3는 허용", M.readinessOf(forcedVerified), "L3");
 
 console.log("4) 수주 게이트는 계약 범위를 쓴다(고객 회계 범위 아님)");
 const wonReq = M.moveRequirements("won");
