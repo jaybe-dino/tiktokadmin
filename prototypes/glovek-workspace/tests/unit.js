@@ -34,7 +34,8 @@ function eq(name, got, want) {
 
 console.log("1) 매출 구간 경계 - 상한은 미만");
 eq("null 은 미확인", M.revenueBand(null), "미확인");
-eq("0 은 매출 발생 전", M.revenueBand(0), "매출 발생 전");
+eq("0 은 확인값 0원", M.revenueBand(0), "0원(확인값)");
+ok("0 과 미확인은 다른 값", M.revenueBand(0) !== M.revenueBand(null));
 eq("9.99억은 10억 미만", M.revenueBand(999999999), "10억원 미만");
 eq("정확히 10억은 10억~50억", M.revenueBand(1e9), "10억~50억원");
 eq("49.9억은 10억~50억", M.revenueBand(4999999999), "10억~50억원");

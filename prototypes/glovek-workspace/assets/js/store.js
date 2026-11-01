@@ -460,10 +460,29 @@
       ["entities", "deals", "tasks", "comms", "imports", "members"].forEach(function (k) { draft[k] = migrated[k] || []; });
       draft.prefs = migrated.prefs;
       draft.schema = SCHEMA;
-      /* 감사 기록은 합친다 — 복원이 지난 이력을 지우지 않는다. */
-      draft.audit = (migrated.audit || []).concat(draft.audit || []).slice(0, AUDIT_MAX);
+      /* 이력은 합치되 같은 id 를 두 번 담지 않는다 — 왕복 복원에서 같은 사건이
+         두 줄로 보이던 문제. 최신순으로 두고 상한까지만 남긴다.
+         이 복원 자체의 기록은 tx 가 맨 앞에 한 줄 붙인다. */
+      draft.audit = mergeAudit(migrated.audit, draft.audit);
       return { ok: true, counts: { entities: draft.entities.length, deals: draft.deals.length } };
     });
+  }
+
+  /** 두 이력 목록을 id 기준으로 합친다. 중복 없이, 최신순, 상한까지. */
+  function mergeAudit(a, b) {
+    var seen = new Set();
+    var out = [];
+    (a || []).concat(b || []).forEach(function (e) {
+      if (!e || typeof e !== "object" || !e.id) return;
+      if (seen.has(e.id)) return;
+      seen.add(e.id);
+      out.push(e);
+    });
+    out.sort(function (x, y) {
+      var xa = String(x.at || ""), ya = String(y.at || "");
+      return xa === ya ? 0 : (xa > ya ? -1 : 1);
+    });
+    return out.slice(0, AUDIT_MAX);
   }
 
   /** 초기화 — 호출자가 명시 확인을 받은 뒤에만 부른다. 저장이 안 되면 바꾸지 않는다. */
@@ -502,6 +521,6 @@
     load: load, get: get, tx: tx, subscribe: subscribe,
     exportBackup: exportBackup, importBackup: importBackup, reset: reset,
     validate: validate, health: health, clearNote: clearNote, emptyState: emptyState,
-    recheckStorage: recheckStorage, writeThrough: writeThrough
+    recheckStorage: recheckStorage, writeThrough: writeThrough, mergeAudit: mergeAudit
   };
 })(window);

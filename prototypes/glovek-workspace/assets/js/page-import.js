@@ -9,7 +9,8 @@
   "use strict";
   var GV = global.GV, U = GV.util, S = GV.store, M = GV.model;
 
-  var draft = null;   /* {fileName, headers, rows, mapping, analysis} */
+  var draft = null;     /* {fileName, headers, rows, mapping, analysis} */
+  var receipt = null;   /* 마지막 반영 결과 — 미리보기를 지우고 그 자리에 보여 준다 */
 
   function render(state, api) {
     var wrap = U.el("div");
@@ -65,6 +66,7 @@
     wrap.appendChild(zone);
 
     if (draft) wrap.appendChild(mapper(state, api));
+    else if (receipt) wrap.appendChild(receiptPanel(api));
 
     /* 가져오기 이력 */
     var runs = (state.imports || []).slice().sort(function (a, b) { return a.at < b.at ? 1 : -1; });
@@ -168,6 +170,7 @@
       seen[f] = true;
       return f;
     });
+    receipt = null;
     draft = { fileName: fileName, headers: headers, rows: rows.slice(1), mapping: mapping };
     GV.app.render();
     api.toast(draft.rows.length + "행을 읽었습니다. 열 연결을 확인하고 '검증·미리보기' 를 누르세요.");
@@ -443,7 +446,37 @@
     return box;
   }
 
+  function receiptPanel(api) {
+    var r = receipt;
+    var box = U.el("div", { class: "gv-panel", style: "margin-top:16px" });
+    var top = U.el("div", { style: "display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap" });
+    var l = U.el("div");
+    l.appendChild(U.el("h3", { text: "반영 완료 — " + r.file }));
+    l.appendChild(U.el("p", { text: U.fmtKst(r.at) + " · 이 파일의 미리보기는 닫혔습니다. 다시 올리면 새로 검증합니다." }));
+    top.appendChild(l);
+    top.appendChild(U.el("button", { type: "button", text: "닫기", onclick: function () { receipt = null; GV.app.render(); } }));
+    box.appendChild(top);
+    var strip = U.el("div", { class: "gv-summary", style: "margin:12px 0 0" });
+    GV.pages.database.sum(strip, "전체 행", r.rows + "행");
+    GV.pages.database.sum(strip, "신규", r.created + "건");
+    GV.pages.database.sum(strip, "갱신", r.updated + "건");
+    GV.pages.database.sum(strip, "변경 없음", r.skipped + "건");
+    GV.pages.database.sum(strip, "오류 제외", r.errors + "건");
+    GV.pages.database.sum(strip, "보존", r.preserved + "건");
+    box.appendChild(strip);
+    if (r.rechecked) {
+      box.appendChild(GV.app.banner("info",
+        "미리보기 뒤에 이미 들어와 있던 외부 ID " + r.rechecked + "건은 새로 만들지 않고 갱신으로 처리했습니다."));
+    }
+    box.appendChild(U.el("button", {
+      type: "button", style: "margin-top:12px", text: "표에서 확인하기",
+      onclick: function () { GV.app.go("database"); }
+    }));
+    return box;
+  }
+
   function confirmCommit(a, api) {
+    if (!draft) { api.toast("미리보기가 이미 닫혔습니다. 파일을 다시 올려 주세요.", { kind: "warn" }); return; }
     if (!a.creates.length && !a.updates.length) {
       api.toast("반영할 행이 없습니다.", { kind: "warn" });
       return;
@@ -462,57 +495,89 @@
 
   /* ── 반영 ───────────────────────────────────── */
   function commit(a, api) {
-    var fileName = draft.fileName;
+    if (!draft) { api.toast("미리보기가 이미 닫혔습니다. 파일을 다시 올려 주세요.", { kind: "warn" }); return; }
+    var pending = draft;
+    var fileName = pending.fileName;
+    /* 저장이 끝나면 S.tx 가 곧바로 화면을 다시 그린다. 그때 미리보기가 남아 있지 않도록
+       먼저 비워 둔다. 실패하면 되돌려 검토 화면을 그대로 쓸 수 있게 한다. */
+    draft = null;
+    var stamp = U.nowIso();
+
     var r = S.tx({ op: "import.commit", targetType: "import", note: "가져오기 반영 — " + fileName }, function (st) {
-      var created = 0, updated = 0, skipped = 0, preserved = 0;
-      a.updates.forEach(function (x) {
-        var e = M.entityById(st, x.targetId);
-        if (!e) { skipped += 1; return; }
-        var changed = applyTo(e, x.parsed, true);
-        if (changed.changedCount) updated += 1; else skipped += 1;
-        preserved += changed.preserved;
-      });
-      a.creates.forEach(function (x) {
+      var created = 0, updated = 0, skipped = 0, preserved = 0, rechecked = 0;
+
+      /* 미리보기를 만든 뒤에 저장소가 바뀌었을 수 있다. 반영 직전에 외부 ID 를 다시 맞춘다. */
+      var byExt = new Map();
+      st.entities.forEach(function (e) { if (e.extId) byExt.set(String(e.extId).toLowerCase(), e); });
+
+      function upsert(x, knownTargetId) {
+        var target = null;
+        if (knownTargetId) target = M.entityById(st, knownTargetId);
+        if (!target && x.ext) target = byExt.get(String(x.ext).toLowerCase()) || null;
+        if (target) {
+          if (!knownTargetId) rechecked += 1;      /* 미리보기에서는 신규였던 건 */
+          var ch = applyTo(target, x.parsed, true);
+          target.lastImport = { file: fileName, rowNo: x.rowNo, at: stamp };
+          if (ch.changedCount) updated += 1; else skipped += 1;
+          preserved += ch.preserved;
+          return;
+        }
         var id = U.uid("ent");
         var e = {
           id: id, extId: x.ext || ("IMP-" + id.slice(-6).toUpperCase()),
           kind: "company", name: x.parsed.name, legalName: "", category: "미분류",
-          source: "엑셀 업로드", inflowAt: U.nowIso(), owner: "미배정", quality: "미분류",
+          source: "엑셀 업로드", inflowAt: stamp, owner: "미배정", quality: "미분류",
           readiness: "L0", readinessOverride: null,
           phone: "", email: "", website: "", followers: null,
           revenue: { amount: null, year: null, currency: "KRW", legalEntity: "", scope: "", status: "unknown", sourceUrl: "" },
           memo: "", contacts: [],
-          createdAt: U.nowIso(), updatedAt: U.nowIso(), lastCommAt: null, nextActionAt: null, nextAction: "",
-          importedFrom: { file: fileName, rowNo: x.rowNo, at: U.nowIso() }
+          createdAt: stamp, updatedAt: stamp, lastCommAt: null, nextActionAt: null, nextAction: "",
+          importedFrom: { file: fileName, rowNo: x.rowNo, at: stamp },
+          lastImport: { file: fileName, rowNo: x.rowNo, at: stamp }
         };
         applyTo(e, x.parsed, false);
         st.entities.unshift(e);
+        byExt.set(String(e.extId).toLowerCase(), e);
         created += 1;
-      });
+      }
+
+      a.updates.forEach(function (x) { upsert(x, x.targetId); });
+      a.creates.forEach(function (x) { upsert(x, null); });
+
       st.imports = st.imports || [];
       st.imports.unshift({
-        id: U.uid("imp"), at: U.nowIso(), actor: "로컬 사용자", file: fileName,
+        id: U.uid("imp"), at: stamp, actor: "로컬 사용자", file: fileName,
         rows: a.total, created: created, updated: updated, skipped: skipped, errors: a.errors.length,
-        note: preserved ? "사람이 적은 값 " + preserved + "건 보존" : ""
+        note: [preserved ? "사람이 적은 값 " + preserved + "건 보존" : "",
+          rechecked ? "미리보기 뒤 중복 " + rechecked + "건을 갱신으로 처리" : ""].filter(Boolean).join(" · ")
       });
       return {
-        ok: true, counts: { created: created, updated: updated, skipped: skipped, preserved: preserved },
+        ok: true,
+        counts: { created: created, updated: updated, skipped: skipped, preserved: preserved, rechecked: rechecked },
         audit: {
           targetName: fileName,
           after: { rows: a.total, created: created, updated: updated, skipped: skipped, errors: a.errors.length, preserved: preserved }
         }
       };
     });
+
     if (!r.ok) {
-      /* 저장이 실패하면 아무것도 반영되지 않는다. 검토 화면을 그대로 두어 다시 시도할 수 있게 한다. */
+      /* 아무것도 반영되지 않았다. 검토 화면을 되살려 다시 시도할 수 있게 한다. */
+      draft = pending;
+      GV.app.render();
       api.toast(r.error + (r.storage ? " 검토 내용은 그대로 두었습니다 — 백업을 내려받고 공간을 비운 뒤 다시 '반영하기' 를 누르세요." : ""),
         { kind: "bad", sticky: true });
       return;
     }
     var c = r.data.counts;
-    draft = null;
+    receipt = {
+      file: fileName, at: stamp, rows: a.total, created: c.created, updated: c.updated,
+      skipped: c.skipped, errors: a.errors.length, preserved: c.preserved, rechecked: c.rechecked
+    };
+    GV.app.render();
     api.toast("반영했습니다 — 신규 " + c.created + " · 갱신 " + c.updated + " · 변경 없음 " + c.skipped
       + " · 오류 제외 " + a.errors.length + (c.preserved ? " · 사람이 적은 값 " + c.preserved + "건 보존" : "")
+      + (c.rechecked ? " · 중복 " + c.rechecked + "건은 갱신 처리" : "")
       + (r.warning ? " (" + r.warning + ")" : ""),
       { kind: r.warning ? "warn" : "ok", sticky: true });
   }
@@ -520,6 +585,7 @@
   /**
    * 파싱된 값을 레코드에 올린다.
    *   protect=true 이면 사람이 적은 것(메모·준비도 지정·L3 매출)을 덮어쓰지 않는다.
+   *   출처(importedFrom·lastImport)는 호출하는 쪽에서 붙인다.
    */
   function applyTo(e, p, protect) {
     var changedCount = 0, preserved = 0;

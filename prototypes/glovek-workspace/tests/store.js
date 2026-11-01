@@ -133,6 +133,13 @@ rejects(S, "imports 건수가 음수", Object.assign(base(), {
   entities: [{ id: "x", name: "a" }], imports: [{ id: "i", at: "2026-01-01T00:00:00Z", rows: -1 }]
 }));
 
+console.log("1-b) 가져오기 출처 필드는 통과한다");
+ok("importedFrom 이 있어도 통과", S.validate({
+  schema: 3, entities: [{ id: "x", name: "a",
+    importedFrom: { file: "a.csv", rowNo: 2, at: "2026-11-01T00:00:00Z" },
+    lastImport: { file: "a.csv", rowNo: 2, at: "2026-11-01T00:00:00Z" } }]
+}).ok === true);
+
 console.log("2) 정상 백업은 그대로 통과한다(왕복)");
 const live = S.get();
 ok("예시 데이터가 적재됐다", live.entities.length >= 35, String(live.entities.length));
@@ -145,6 +152,31 @@ const beforeCount = S.get().entities.length;
 const restored = S.importBackup(backupText);
 ok("복원 성공", restored.ok === true, restored.error);
 ok("건수 유지", S.get().entities.length === beforeCount);
+
+console.log("2-b) 왕복 복원에서 이력 id 가 중복되지 않는다");
+/* 복원 전에 변경을 한 번 만들어 이력을 쌓는다 */
+S.tx({ op: "entity.update", targetType: "entity", targetId: S.get().entities[0].id, note: "왕복 테스트" }, (d) => {
+  d.entities[0].memo = "왕복 전 메모";
+  return { ok: true, audit: { targetName: d.entities[0].name, before: "", after: "왕복 전 메모" } };
+});
+const snapText = S.exportBackup();
+const restoresBefore = S.get().audit.filter((a) => a.op === "restore").length;
+const idsBefore = S.get().audit.map((a) => a.id);
+ok("복원 전 이력 id 가 유일", new Set(idsBefore).size === idsBefore.length);
+const rt1 = S.importBackup(snapText);
+ok("1회 복원 성공", rt1.ok === true, rt1.error);
+const rt2 = S.importBackup(snapText);
+ok("2회 복원 성공", rt2.ok === true, rt2.error);
+const ids = S.get().audit.map((a) => a.id);
+ok("왕복 뒤에도 이력 id 가 유일", new Set(ids).size === ids.length,
+  ids.length + "건 중 유일 " + new Set(ids).size + "건");
+const sameEvent = S.get().audit.filter((a) => a.note === "왕복 테스트");
+ok("같은 사건이 한 번만 남는다", sameEvent.length === 1, String(sameEvent.length));
+const restores = S.get().audit.filter((a) => a.op === "restore").length;
+ok("복원 기록이 복원 횟수만큼만 늘어난다", restores === restoresBefore + 2,
+  restoresBefore + " -> " + restores);
+ok("이력이 최신순", S.get().audit.every((a, i, arr) => i === 0 || String(arr[i - 1].at) >= String(a.at)));
+ok("이력 상한 600 을 넘지 않는다", S.get().audit.length <= 600, String(S.get().audit.length));
 
 console.log("3) 저장 공간이 꽉 차면 메모리도 바뀌지 않는다");
 const q = makeEnv();

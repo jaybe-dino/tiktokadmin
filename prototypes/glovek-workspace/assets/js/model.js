@@ -39,7 +39,8 @@
     { under: 5e10, label: "100억~500억원" }
   ];
   var BAND_TOP = "500억원 이상";
-  var BAND_ZERO = "매출 발생 전";
+  /* 0 은 "확인된 0" 이다. 사업 초기라는 뜻이 아니다 — 미확인과도 구분한다. */
+  var BAND_ZERO = "0원(확인값)";
   var BAND_UNKNOWN = "미확인";
   var BAND_LABELS = [BAND_UNKNOWN, BAND_ZERO].concat(BANDS.map(function (b) { return b.label; })).concat([BAND_TOP]);
 

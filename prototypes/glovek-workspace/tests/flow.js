@@ -101,7 +101,11 @@ function ok(name, cond, extra) {
   ok("보드에 새 기회가 보인다", dealTexts.some((t) => t.includes("QA 테스트 서비스")));
   await p.click("#gv-screen button:has-text('새 영업 기회')");
   await p.waitForTimeout(250);
-  await p.locator('#gv-dialog select[name="entityId"]').selectOption({ label: new RegExp(firstName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).catch(() => {});
+  await p.evaluate((nm) => {
+    const sel = document.querySelector('#gv-dialog select[name="entityId"]');
+    const opt = Array.prototype.find.call(sel.options, (o) => o.textContent.indexOf(nm) === 0);
+    if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+  }, firstName);
   await p.locator('#gv-dialog input[name="service"]').fill("QA 테스트 서비스");
   await p.click("#gv-dialog button:has-text('만들기')");
   await p.waitForTimeout(300);
@@ -117,6 +121,8 @@ function ok(name, cond, extra) {
   await sel.selectOption("contract_review");
   await p.waitForTimeout(300);
   ok("계약검토는 게이트를 띄운다", (await p.locator("#gv-dialog").count()) === 1);
+  /* 금액을 비워 두고 보내면 거절되어야 한다 */
+  await p.locator('#gv-dialog input[name="expectedAmount"]').fill("");
   await p.click("#gv-dialog button:has-text('확인')");
   await p.waitForTimeout(250);
   const gateErr = await p.locator("#gv-dialog .gv-form-error").innerText().catch(() => "");
@@ -179,10 +185,10 @@ function ok(name, cond, extra) {
 
   console.log("\n[10] 할 일 완료 + 새로고침");
   await nav("tasks");
-  const task1 = p.locator("#gv-screen .gv-task").first();
-  const taskTitle = (await task1.locator("strong").innerText()).trim();
-  await task1.locator("input[type=checkbox]").check();
-  await p.waitForTimeout(350);
+  const taskTitle = (await p.locator("#gv-screen .gv-task strong").first().innerText()).trim();
+  await p.locator("#gv-screen .gv-task").filter({ hasText: taskTitle }).first()
+    .locator("input[type=checkbox]").first().click();
+  await p.waitForTimeout(400);
   await goto();
   await nav("tasks");
   await p.locator("#gv-screen label:has-text('완료 보기') input").check();
@@ -196,7 +202,6 @@ function ok(name, cond, extra) {
   await p.click("#gv-screen button:has-text('기록 남기기')");
   await p.waitForTimeout(250);
   const stamp = "QA 통화 기록 " + Date.now();
-  const entityLabel = await p.locator('#gv-dialog select[name="entityId"] option').first().innerText();
   await p.locator('#gv-dialog textarea[name="body"]').fill(stamp);
   await p.locator('#gv-dialog input[name="outcome"]').fill("미팅 확정");
   await p.locator('#gv-dialog input[name="makeTask"]').check();
@@ -230,6 +235,11 @@ function ok(name, cond, extra) {
   await p.waitForTimeout(500);
   const importToast = await toast();
   ok("반영 결과에 신규·오류 건수가 나온다", importToast.includes("신규") && importToast.includes("오류"), importToast);
+  const afterCommit = await p.locator("#gv-screen").innerText();
+  ok("반영 뒤 미리보기가 사라진다", !afterCommit.includes("검증·미리보기"), "");
+  ok("반영 뒤 반영하기 버튼이 없다", (await p.locator("#gv-screen button:has-text('반영하기')").count()) === 0);
+  ok("반영 영수증이 보인다", afterCommit.includes("반영 완료"), "");
+  ok("영수증에 표에서 확인하기", (await p.locator("#gv-screen button:has-text('표에서 확인하기')").count()) === 1);
   await nav("database");
   await p.locator('#gv-screen .gv-filterbar input[type="search"]').fill("가져오기신규A");
   await p.waitForTimeout(450);
@@ -273,6 +283,37 @@ function ok(name, cond, extra) {
   const keptToast = await toast();
   ok("보존 건수를 보고한다", keptToast.includes("보존"), keptToast);
 
+  console.log("\n[13-b] 가져오기 출처가 상세에 보인다");
+  await nav("database");
+  await p.locator('#gv-screen .gv-filterbar input[type="search"]').fill("가져오기신규B");
+  await p.waitForTimeout(450);
+  await p.click("#gv-screen tbody tr:first-child .gv-company");
+  await p.waitForTimeout(350);
+  const basicText = await p.locator("#gv-detail").innerText();
+  ok("처음 가져온 파일이 보인다", basicText.includes("처음 가져온 파일") && basicText.includes(".csv"), "");
+  ok("원본 행 번호가 보인다", /\d+행/.test(basicText), "");
+  ok("변경 기록이 없어도 출처를 알려 준다",
+    !basicText.includes("이 업체에 대한 변경 기록이 없습니다.") || basicText.includes("가져오기"), "");
+  await p.click("#gv-detail [data-detail-close]");
+  await p.waitForTimeout(200);
+
+  console.log("\n[13-c] 같은 파일을 한 번 더 — 외부 ID 중복이 새 행을 만들지 않는다");
+  const dupBefore = await p.evaluate(() =>
+    window.GV.store.get().entities.filter((e) => e.extId === "CSV-NEW-2").length);
+  await nav("import");
+  await p.setInputFiles('#gv-screen input[type="file"]', path.join(FIX, "import-new-and-errors.csv"));
+  await p.waitForTimeout(500);
+  await p.click("#gv-screen button:has-text('검증·미리보기')");
+  await p.waitForTimeout(400);
+  await p.click("#gv-screen button:has-text('반영하기')");
+  await p.waitForTimeout(250);
+  await p.click("#gv-dialog button:has-text('반영')");
+  await p.waitForTimeout(500);
+  const dupAfter = await p.evaluate(() =>
+    window.GV.store.get().entities.filter((e) => e.extId === "CSV-NEW-2").length);
+  ok("외부 ID 가 중복 생성되지 않는다", dupAfter === dupBefore && dupAfter === 1,
+    dupBefore + " -> " + dupAfter);
+
   console.log("\n[14] XLSX 가져오기");
   await p.setInputFiles('#gv-screen input[type="file"]', path.join(FIX, "sample.xlsx"));
   await p.waitForTimeout(900);
@@ -309,6 +350,8 @@ function ok(name, cond, extra) {
 
   console.log("\n[16] 필터·정렬");
   await nav("database");
+  await p.click("#gv-screen button:has-text('필터 초기화')");
+  await p.waitForTimeout(300);
   const total = await p.evaluate(() => window.GV.store.get().entities.length);
   await p.locator('#gv-screen select[aria-label="담당자 필터"]').selectOption("김지호");
   await p.waitForTimeout(350);
@@ -327,6 +370,9 @@ function ok(name, cond, extra) {
   await p.waitForTimeout(350);
   const unknownRows = await p.locator("#gv-screen tbody tr").count();
   ok("회사매출 미확인 필터가 동작한다", unknownRows > 0);
+  const bandOpts = await p.locator('#gv-screen select[aria-label="회사 연매출 구간 필터"] option').allInnerTexts();
+  ok("0 은 '0원(확인값)' 으로 표시한다", bandOpts.some((t) => t.includes("0원(확인값)")), bandOpts.join("/"));
+  ok("0 과 미확인이 따로 있다", bandOpts.some((t) => t.trim() === "미확인"));
   await p.click("#gv-screen button:has-text('필터 초기화')");
   await p.waitForTimeout(250);
 
@@ -334,7 +380,18 @@ function ok(name, cond, extra) {
   await nav("audit");
   const headerBox = await p.locator(".gv-top").boundingBox();
   ok("상단 헤더가 보인다", headerBox && headerBox.y >= 0, JSON.stringify(headerBox));
-  ok("변경 이력에 before/after 보기 버튼", (await p.locator("#gv-screen button:has-text('보기')").count()) > 0);
+  ok("변경 이력에 자세히 버튼", (await p.locator("#gv-screen button:has-text('자세히')").count()) > 0);
+  const auditText = await p.locator("#gv-screen").innerText();
+  ok("업무 용어로 바뀐 내용을 보여 준다", /→/.test(auditText), auditText.slice(0, 120).replace(/\n/g, " | "));
+  ok("내부 작업코드를 표에 노출하지 않는다", !/entity\.update|deal\.move/.test(auditText));
+  await p.click("#gv-screen button:has-text('자세히')");
+  await p.waitForTimeout(300);
+  const detailText = await p.locator("#gv-dialog").innerText();
+  ok("상세에 항목/변경 전/변경 후 표", detailText.includes("변경 전") && detailText.includes("변경 후"));
+  ok("원시 JSON 은 접혀 있다", (await p.locator("#gv-dialog details").count()) === 1);
+  ok("접힌 영역 제목이 상세 데이터", detailText.includes("상세 데이터"));
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(200);
 
   console.log("\n[18] 모바일 390 — 핵심 조작이 잘리지 않는다");
   const mp = await ctx.newPage();

@@ -133,7 +133,16 @@
     var logs = (state.audit || []).filter(function (a) { return a.targetId === e.id; }).slice(0, 8);
     var hist = U.el("div", { class: "gv-section" });
     hist.appendChild(U.el("h3", { text: "변경 이력" }));
-    if (!logs.length) hist.appendChild(U.el("p", { class: "gv-small gv-muted", text: "이 업체에 대한 변경 기록이 없습니다." }));
+    if (!logs.length) {
+      var src = e.lastImport || e.importedFrom;
+      hist.appendChild(U.el("p", {
+        class: "gv-small gv-muted",
+        text: src && src.file
+          ? "이 업체를 직접 고친 기록은 없습니다. 가져오기(" + src.file
+            + (src.rowNo ? " · " + src.rowNo + "행" : "") + ")로 들어온 행이며, 그 실행은 변경 이력 화면에 남아 있습니다."
+          : "이 업체에 대한 변경 기록이 없습니다."
+      }));
+    }
     logs.forEach(function (a) {
       var row = U.el("div", { class: "gv-history-item" });
       row.appendChild(U.el("time", { text: U.fmtShort(a.at) + " " + U.fmtDateTime(a.at).slice(11) }));
@@ -163,6 +172,18 @@
     kv(dl, "최근 커뮤니케이션", e.lastCommAt ? U.fmtDateTime(e.lastCommAt) + " (" + U.relLabel(e.lastCommAt) + ")" : "기록 없음");
     kv(dl, "다음 액션", e.nextActionAt ? U.fmtDate(e.nextActionAt) + " · " + e.nextAction : "없음");
     if (e.kind === "creator" && e.followers != null) kv(dl, "팔로워(만)", String(e.followers));
+    /* 어디서 들어온 행인지 — 가져오기로 만들어졌거나 갱신된 경우에만 보여 준다. */
+    if (e.importedFrom && e.importedFrom.file) {
+      kv(dl, "처음 가져온 파일", e.importedFrom.file
+        + (e.importedFrom.rowNo ? " · " + e.importedFrom.rowNo + "행" : ""));
+      kv(dl, "처음 가져온 시각", U.fmtKst(e.importedFrom.at) || "-");
+    }
+    if (e.lastImport && e.lastImport.file
+      && !(e.importedFrom && e.lastImport.at === e.importedFrom.at)) {
+      kv(dl, "마지막 가져오기", e.lastImport.file
+        + (e.lastImport.rowNo ? " · " + e.lastImport.rowNo + "행" : "")
+        + " · " + (U.fmtKst(e.lastImport.at) || ""));
+    }
     sec.appendChild(dl);
 
     var ov = U.el("div", { style: "margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap" });

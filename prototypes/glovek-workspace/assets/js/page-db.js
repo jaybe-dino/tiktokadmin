@@ -443,7 +443,7 @@
     f("email", "대표 이메일", e.email, "text", { placeholder: "name@example.invalid" });
     f("website", "홈페이지", e.website, "text", { span: true, placeholder: "https://example.invalid", hint: "http(s) 주소만 링크로 저장합니다." });
     f("revenueAmount", "회사 연매출(원)", e.revenue && e.revenue.amount != null ? e.revenue.amount : "", "text",
-      { hint: "비우면 '미확인'. 0 은 '매출 발생 전' 으로 저장됩니다." });
+      { hint: "비우면 '미확인'. 0 을 넣으면 '0원(확인값)' 입니다 — 사업 초기라는 뜻이 아닙니다." });
     f("revenueYear", "매출 기준연도", e.revenue && e.revenue.year ? e.revenue.year : "", "text");
     f("revenueScope", "매출 범위", e.revenue ? e.revenue.scope : "", "select", {
       options: [["", "미확인"], ["brand", "브랜드 단위(회사 연매출 아님)"], ["company_separate", "회사 별도 연매출"], ["company_consolidated", "회사 연결 연매출"]]
