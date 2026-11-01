@@ -130,10 +130,15 @@
 
   function go(page) {
     if (!PAGES.some(function (p) { return p.id === page; })) return;
+    /* 상세 패널은 지금 보던 목록에 딸린 것이다. 화면을 옮기면 닫는다 —
+       열린 채로 두면 다른 화면의 버튼을 가린다. */
+    if (page !== ui.page && ui.detailId) closeDetail();
     ui.page = page;
     if (location.hash !== "#" + page) history.replaceState(null, "", "#" + page);
     render();
-    dom.screen.scrollIntoView({ block: "start", behavior: "auto" });
+    /* 화면을 바꿀 때만 맨 위로 올린다 — scrollIntoView 는 상단 헤더를 밀어내 버린다.
+       같은 화면을 다시 그릴 때(render)는 스크롤을 건드리지 않는다. */
+    if (typeof global.scrollTo === "function") global.scrollTo({ top: 0, behavior: "auto" });
   }
 
   function render() {
@@ -214,13 +219,28 @@
     focusReturn = document.activeElement;
     U.clearNode(dom.dialog);
     dom.dialog.className = spec.wide ? "gv-wide" : "";
+
+    /* 제목과 버튼은 고정하고 본문만 스크롤한다 — 좁은 화면에서 닫기 버튼이 사라지지 않게. */
+    var head = U.el("div", { class: "gv-dialog-hd" });
+    var titleWrap = U.el("div", { style: "flex:1;min-width:0" });
+    titleWrap.appendChild(U.el("h2", { id: "gv-dialog-title", text: spec.title || "" }));
+    if (spec.help) titleWrap.appendChild(U.el("p", { text: spec.help }));
+    head.appendChild(titleWrap);
+    var xBtn = U.el("button", {
+      type: "button", class: "gv-dialog-x", "aria-label": "닫기",
+      html: U.icon("x"), onclick: function () { close(); }
+    });
+    head.appendChild(xBtn);
+    dom.dialog.appendChild(head);
+
     var errBox = U.el("div", { class: "gv-form-error", role: "alert" });
     var form = U.el("form", { novalidate: true });
-    var title = U.el("h2", { id: "gv-dialog-title", text: spec.title || "" });
-    dom.dialog.appendChild(title);
-    if (spec.help) dom.dialog.appendChild(U.el("p", { text: spec.help }));
-    if (spec.body) form.appendChild(spec.body);
-    form.appendChild(errBox);
+    var bodyWrap = U.el("div", { class: "gv-dialog-bd" });
+    if (spec.body) bodyWrap.appendChild(spec.body);
+    form.appendChild(bodyWrap);
+
+    var foot = U.el("div", { class: "gv-dialog-ft" });
+    foot.appendChild(errBox);
     var row = U.el("div", { class: "gv-form-row" });
     (spec.actions || [{ label: "확인", primary: true }]).forEach(function (a) {
       row.appendChild(U.el("button", {
@@ -232,11 +252,16 @@
       }));
     });
     row.appendChild(U.el("button", { type: "button", text: "취소", onclick: close }));
-    form.appendChild(row);
+    foot.appendChild(row);
+    form.appendChild(foot);
     dom.dialog.appendChild(form);
 
+    var submitted = false;
     var api = {
-      error: function (msg) { errBox.textContent = msg || ""; },
+      error: function (msg) {
+        errBox.textContent = msg || "";
+        if (msg) foot.scrollIntoView({ block: "nearest", behavior: "auto" });
+      },
       close: close,
       form: form
     };
@@ -252,8 +277,9 @@
       var submitter = ev.submitter;
       if (submitter && submitter.getAttribute("data-value")) values.__action = submitter.getAttribute("data-value");
       var res = spec.onSubmit ? spec.onSubmit(values, api) : null;
-      if (typeof res === "string" && res) { errBox.textContent = res; return; }
+      if (typeof res === "string" && res) { api.error(res); return; }
       if (res === false) return;
+      submitted = true;
       close();
     });
     escHandler = function (ev) {
@@ -267,13 +293,21 @@
       else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
     };
     dom.dialog.addEventListener("keydown", escHandler);
+    /* 모달이 열린 동안 뒤 화면이 따라 스크롤되지 않게 한다. */
+    document.documentElement.classList.add("gv-modal-open");
+    document.body.classList.add("gv-modal-open");
     if (typeof dom.dialog.showModal === "function") dom.dialog.showModal();
     else dom.dialog.setAttribute("open", "");
-    var firstField = form.querySelector("input,select,textarea,button");
+    var firstField = bodyWrap.querySelector("input,select,textarea") || xBtn;
     if (firstField) firstField.focus();
 
     function close() {
+      if (!submitted && typeof spec.onCancel === "function") {
+        try { spec.onCancel(); } catch (e) { console.error(e); }
+      }
       dom.dialog.removeEventListener("keydown", escHandler);
+      document.documentElement.classList.remove("gv-modal-open");
+      document.body.classList.remove("gv-modal-open");
       if (typeof dom.dialog.close === "function" && dom.dialog.open) dom.dialog.close();
       else dom.dialog.removeAttribute("open");
       U.clearNode(dom.dialog);

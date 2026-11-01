@@ -9,7 +9,13 @@
   var GV = global.GV, U = GV.util, S = GV.store, M = GV.model;
 
   var view = { owner: "", q: "", showClosed: true, grabbed: null };
-  var lastMove = null;   /* 되돌리기 1회분 */
+  /**
+   * 되돌리기 1회분.
+   *   레코드 전체를 되돌리면 그 사이에 생긴 다른 수정까지 날아간다.
+   *   그래서 "이동이 바꾼 칸" 만 담고, 이동 직후의 updatedAt 을 기억해 두었다가
+   *   그 값이 달라졌으면(=누군가 그 뒤에 또 고쳤으면) 되돌리기를 거절한다.
+   */
+  var lastMove = null;
 
   function openDeals(state) {
     return (state.deals || []).filter(function (d) { return d.status === "open"; });
@@ -107,6 +113,15 @@
     return wrap;
   }
 
+  /** 회사 범위로 확정된 금액만 "회사 연매출" 로 적는다. 나머지는 참고값으로 표시. */
+  function companyRevText(e) {
+    var amt = M.companyRevenueAmount(e);
+    if (amt != null) return U.won(amt) + " (" + (M.SCOPES[e.revenue.scope] || "") + ", " + e.revenue.year + ")";
+    var ref = M.referenceRevenue(e);
+    if (ref) return "미확인 (참고: " + U.won(ref.amount) + " · " + ref.why + ")";
+    return "미확인";
+  }
+
   function matchAll(state, list) {
     var q = U.clean(view.q).toLowerCase();
     return list.filter(function (d) {
@@ -136,7 +151,7 @@
     art.appendChild(t);
     art.appendChild(U.el("div", { class: "gv-deal-product", text: d.service }));
     art.appendChild(U.el("div", { class: "gv-deal-money", text: d.expectedAmount != null ? "예상 " + U.won(d.expectedAmount) : "금액 미정" }));
-    art.appendChild(U.el("div", { class: "gv-deal-revenue", text: "고객사 연매출 " + (e && e.revenue && e.revenue.amount != null ? U.won(e.revenue.amount) + " (" + (M.SCOPES[e.revenue.scope] || "범위 미확인") + ")" : "미확인") }));
+    art.appendChild(U.el("div", { class: "gv-deal-revenue", text: "고객사 연매출 " + companyRevText(e) }));
     if (e) art.appendChild(U.el("div", { class: "gv-deal-revenue", text: "유입 " + (e.source || "미기록") }));
     var over = d.nextActionAt && U.relDays(d.nextActionAt) < 0;
     var next = U.el("div", { class: "gv-deal-next" + (over ? " overdue" : "") });
@@ -154,7 +169,11 @@
     sel.appendChild(U.el("option", { value: "won", text: "수주 완료" }));
     sel.appendChild(U.el("option", { value: "hold", text: "보류" }));
     sel.appendChild(U.el("option", { value: "lost", text: "실패" }));
-    sel.addEventListener("change", function () { requestMove(d.id, sel.value, api); });
+    sel.addEventListener("change", function () {
+      var current = d.status === "open" ? d.stage : d.status;
+      /* 게이트를 취소하면 데이터는 그대로이므로, 화면의 선택값도 원래대로 되돌린다. */
+      requestMove(d.id, sel.value, api, null, function () { sel.value = current; });
+    });
     bottom.appendChild(sel);
     art.appendChild(bottom);
     return art;
@@ -227,13 +246,13 @@
    * 단계 이동 요청. 추가 입력이 필요한 단계는 먼저 물어보고,
    * 취소하면 카드가 그대로 남는다(값이 바뀌지 않는다).
    */
-  function requestMove(dealId, target, api, after) {
+  function requestMove(dealId, target, api, after, revert) {
     var state = S.get();
     var d = M.dealById(state, dealId);
-    if (!d) { api.toast("기회를 찾지 못했습니다.", { kind: "warn" }); return; }
+    if (!d) { api.toast("기회를 찾지 못했습니다.", { kind: "warn" }); if (revert) revert(); return; }
     var isStatus = target === "won" || target === "hold" || target === "lost";
-    if (!isStatus && !M.STAGES.some(function (s) { return s.id === target; })) return;
-    if (!isStatus && d.stage === target) return;
+    if (!isStatus && !M.STAGES.some(function (s) { return s.id === target; })) { if (revert) revert(); return; }
+    if (!isStatus && d.stage === target) { if (revert) revert(); return; }
 
     var req = M.moveRequirements(target);
     if (!req) { applyMove(dealId, target, {}, api, after); return; }
@@ -260,9 +279,9 @@
     if (req.fields.indexOf("expectedAmount") >= 0) field("expectedAmount", "예상 계약 금액(원) *", "text", d.expectedAmount);
     if (req.fields.indexOf("contractAmount") >= 0) field("contractAmount", "확정 계약 금액(원) *", "text", d.contractAmount || d.expectedAmount);
     if (req.fields.indexOf("contractDate") >= 0) field("contractDate", target === "won" ? "계약일 *" : "계약 예정일 *", "date", d.contractDate || U.fmtDate(new Date()));
-    if (req.fields.indexOf("revenueScope") >= 0) {
-      field("revenueScope", "매출 인식 범위 *", "select", d.revenueScope || "", {
-        options: [["", "선택하세요"], ["company_separate", "회사 별도"], ["company_consolidated", "회사 연결"]], span: true
+    if (req.fields.indexOf("contractScope") >= 0) {
+      field("contractScope", "계약 범위 *", "text", d.contractScope || d.service, {
+        span: true, placeholder: "예: 일본 틱톡샵 운영 대행 · 월 단위"
       });
     }
     if (req.fields.indexOf("reason") >= 0) field("reason", "사유 *", "textarea", d.reason, { span: true });
@@ -270,6 +289,11 @@
     GV.app.modal({
       title: req.title, help: req.help, body: body,
       actions: [{ label: "확인", primary: true }],
+      onCancel: function () {
+        /* 아무것도 쓰지 않는다. 화면에만 바뀐 선택값을 되돌린다. */
+        if (revert) revert();
+        api.toast("취소했습니다. 단계는 그대로입니다.", { ms: 2600 });
+      },
       onSubmit: function (v) {
         var check = M.validateMove(target, v);
         if (!check.ok) return check.errors.join(" ");
@@ -279,13 +303,18 @@
     });
   }
 
+  /* 이동이 건드리는 칸만 되돌린다 — 그 사이의 다른 수정을 덮지 않기 위해. */
+  var MOVE_FIELDS = ["stage", "status", "closedAt", "nextAction", "nextActionAt",
+    "expectedAmount", "contractAmount", "contractDate", "contractScope", "reason"];
+
   function applyMove(dealId, target, patch, api, after) {
     var isStatus = target === "won" || target === "hold" || target === "lost";
-    var snapshot = null;
+    var undoDraft = null;
     var r = S.tx({ op: "deal.move", targetType: "deal", targetId: dealId, note: "단계 이동 → " + (isStatus ? M.STATUS[target] : M.stageLabel(target)) }, function (draft) {
       var d = M.dealById(draft, dealId);
       if (!d) return { ok: false, error: "기회를 찾지 못했습니다." };
-      snapshot = JSON.parse(JSON.stringify(d));
+      var prev = {};
+      MOVE_FIELDS.forEach(function (k) { prev[k] = d[k]; });
       var before = { stage: d.stage, status: d.status };
       Object.assign(d, patch);
       if (isStatus) {
@@ -300,10 +329,16 @@
       }
       d.updatedAt = U.nowIso();
       M.refreshNextAction(draft, d.entityId);
+      undoDraft = {
+        id: d.id, entityId: d.entityId, service: d.service,
+        fields: prev, movedUpdatedAt: d.updatedAt
+      };
       return { ok: true, entityId: d.entityId, audit: { targetName: M.entityName(draft, d.entityId) + " · " + d.service, before: before, after: { stage: d.stage, status: d.status } } };
     });
     if (!r.ok) { api.toast(r.error, { kind: "bad" }); return; }
-    lastMove = snapshot;
+    /* S.tx 가 이미 화면을 다시 그렸다. 되돌리기 버튼이 바로 보이도록 여기서 한 번 더 그린다. */
+    lastMove = undoDraft;
+    GV.app.render();
     api.toast((isStatus ? M.STATUS[target] + " 로 기록했습니다." : M.stageLabel(target) + " 로 옮겼습니다.")
       + (r.warning ? " (" + r.warning + ")" : ""), {
       kind: r.warning ? "warn" : "ok", sticky: !!r.warning,
@@ -316,15 +351,21 @@
     if (!lastMove) { api.toast("되돌릴 이동이 없습니다.", { kind: "warn" }); return; }
     var snap = lastMove;
     var r = S.tx({ op: "deal.undo", targetType: "deal", targetId: snap.id, note: "마지막 이동 되돌리기" }, function (draft) {
-      var i = (draft.deals || []).findIndex(function (d) { return d.id === snap.id; });
-      if (i < 0) return { ok: false, error: "되돌릴 기회가 이미 없습니다." };
-      var before = { stage: draft.deals[i].stage, status: draft.deals[i].status };
-      draft.deals[i] = JSON.parse(JSON.stringify(snap));
-      M.refreshNextAction(draft, snap.entityId);
-      return { ok: true, audit: { targetName: M.entityName(draft, snap.entityId) + " · " + snap.service, before: before, after: { stage: snap.stage, status: snap.status } } };
+      var d = M.dealById(draft, snap.id);
+      if (!d) return { ok: false, error: "되돌릴 기회가 이미 없습니다." };
+      if (d.updatedAt !== snap.movedUpdatedAt) {
+        return { ok: false, error: "이 기회는 이동 뒤에 또 수정됐습니다. 그 수정을 덮지 않도록 되돌리기를 멈췄습니다." };
+      }
+      var before = { stage: d.stage, status: d.status };
+      MOVE_FIELDS.forEach(function (k) { d[k] = snap.fields[k]; });
+      d.updatedAt = U.nowIso();
+      M.refreshNextAction(draft, d.entityId);
+      return { ok: true, audit: { targetName: M.entityName(draft, d.entityId) + " · " + d.service, before: before, after: { stage: d.stage, status: d.status } } };
     });
-    if (!r.ok) { api.toast(r.error, { kind: "warn" }); return; }
+    if (!r.ok) { api.toast(r.error, { kind: "warn", sticky: true }); return; }
+    /* 버튼이 바로 사라지도록 상태를 비운 뒤 다시 그린다. */
     lastMove = null;
+    GV.app.render();
     api.toast("되돌렸습니다.");
   }
 
@@ -422,7 +463,7 @@
           }
           var nd = {
             id: U.uid("deal"), entityId: v.entityId, service: service, stage: v.stage, status: "open",
-            expectedAmount: amount, contractAmount: null, contractDate: null, revenueScope: "", reason: "",
+            expectedAmount: amount, contractAmount: null, contractDate: null, contractScope: "", reason: "",
             owner: v.owner || "미배정", nextAction: U.clean(v.nextAction, 80),
             nextActionAt: naAt ? naAt.toISOString() : null,
             createdAt: U.nowIso(), updatedAt: U.nowIso(), closedAt: null
@@ -453,12 +494,12 @@
     kv("예상 계약(우리 금액)", d.expectedAmount != null ? U.won(d.expectedAmount) : "미정");
     kv("확정 계약(우리 금액)", d.contractAmount != null ? U.won(d.contractAmount) : "미정");
     kv("계약(예정)일", d.contractDate || "미정");
-    kv("매출 인식 범위", d.revenueScope ? M.SCOPES[d.revenueScope] : "미정");
+    kv("계약 범위", d.contractScope || "미정");
     kv("다음 액션", d.nextActionAt ? U.fmtDate(d.nextActionAt) + " · " + (d.nextAction || "") : "없음");
     kv("생성", U.fmtDateTime(d.createdAt));
     kv("마지막 수정", U.fmtDateTime(d.updatedAt));
     if (d.reason) kv("사유", d.reason);
-    kv("고객사 연매출", e && e.revenue && e.revenue.amount != null ? U.won(e.revenue.amount) + " · " + (M.SCOPES[e.revenue.scope] || "범위 미확인") : "미확인");
+    kv("고객사 연매출", companyRevText(e));
     body.appendChild(dl);
     body.appendChild(U.el("p", { class: "gv-small gv-muted", style: "margin-top:10px", text: "계약 금액은 우리 회사 금액입니다. 고객사 연매출과 다릅니다." }));
     var row = U.el("div", { class: "gv-actions", style: "margin-top:14px" });

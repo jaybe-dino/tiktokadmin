@@ -16,12 +16,12 @@
     { key: "kind", label: "유형" },
     { key: "category", label: "카테고리" },
     { key: "source", label: "유입 출처" },
-    { key: "inflowAt", label: "유입일" },
+    { key: "inflowAt", label: "유입일시(KST)" },
     { key: "owner", label: "담당자" },
     { key: "quality", label: "등급" },
     { key: "readiness", label: "데이터 준비도" },
-    { key: "revenue", label: "회사 연매출" },
-    { key: "band", label: "매출 구간" },
+    { key: "revenue", label: "회사 연매출(확정)" },
+    { key: "band", label: "회사매출 구간" },
     { key: "lastCommAt", label: "최근 커뮤니케이션" },
     { key: "nextAction", label: "다음 액션" },
     { key: "memo", label: "메모" }
@@ -44,7 +44,7 @@
       if (view.category && e.category !== view.category) return false;
       if (view.quality && e.quality !== view.quality) return false;
       if (view.readiness && M.readinessOf(e) !== view.readiness) return false;
-      if (view.band && M.revenueBand(e.revenue && e.revenue.amount) !== view.band) return false;
+      if (view.band && M.companyRevenueBand(e) !== view.band) return false;
       return true;
     });
   }
@@ -59,8 +59,8 @@
       owner: function (e) { return e.owner; },
       quality: function (e) { return e.quality; },
       readiness: function (e) { return M.readinessOf(e); },
-      revenue: function (e) { return e.revenue && e.revenue.amount != null ? e.revenue.amount : null; },
-      band: function (e) { return e.revenue && e.revenue.amount != null ? e.revenue.amount : null; },
+      revenue: function (e) { return M.companyRevenueAmount(e); },
+      band: function (e) { return M.companyRevenueAmount(e); },
       lastCommAt: function (e) { return e.lastCommAt || null; },
       nextAction: function (e) { return e.nextActionAt || null; },
       memo: function (e) { return e.memo || null; }
@@ -86,14 +86,17 @@
     head.appendChild(acts);
     wrap.appendChild(head);
 
-    /* 요약 — 실제 로컬 데이터에서 센 값만 */
+    /* 요약 — 실제 로컬 데이터에서 센 값만. 표가 주인공이므로 얇은 띠로 둔다. */
     var all = state.entities;
-    var cards = U.el("div", { class: "gv-cards" });
-    cards.appendChild(stat("예시 데이터 총건수", all.length + "건", "회사 " + all.filter(function (e) { return e.kind === "company"; }).length + " · 크리에이터 " + all.filter(function (e) { return e.kind === "creator"; }).length));
-    cards.appendChild(stat("담당자 미배정", all.filter(function (e) { return e.owner === "미배정"; }).length + "건", "배정이 먼저 필요한 건"));
-    cards.appendChild(stat("매출 미확인", all.filter(function (e) { return !e.revenue || e.revenue.amount == null; }).length + "건", "0원과 구분해 표시"));
-    cards.appendChild(stat("L3 근거 확인", all.filter(function (e) { return M.readinessOf(e) === "L3"; }).length + "건", "매출 근거까지 확인된 건"));
-    wrap.appendChild(cards);
+    var strip = U.el("div", { class: "gv-summary" });
+    strip.appendChild(U.el("span", { class: "gv-chip", text: "예시 데이터" }));
+    sum(strip, "전체", all.length + "건");
+    sum(strip, "회사·브랜드", all.filter(function (e) { return e.kind === "company"; }).length + "건");
+    sum(strip, "크리에이터", all.filter(function (e) { return e.kind === "creator"; }).length + "건");
+    sum(strip, "미배정", all.filter(function (e) { return e.owner === "미배정"; }).length + "건");
+    sum(strip, "회사매출 확정", all.filter(function (e) { return M.companyRevenueAmount(e) != null; }).length + "건");
+    sum(strip, "L3", all.filter(function (e) { return M.readinessOf(e) === "L3"; }).length + "건");
+    wrap.appendChild(strip);
 
     /* 탭 */
     var tabs = U.el("div", { class: "gv-tabs", role: "tablist" });
@@ -125,7 +128,7 @@
     bar.appendChild(select("출처 전체", uniq(all.map(function (e) { return e.source; })), view.source, function (v) { view.source = v; view.page = 1; GV.app.render(); }, "출처 필터"));
     bar.appendChild(select("카테고리 전체", uniq(all.map(function (e) { return e.category; })), view.category, function (v) { view.category = v; view.page = 1; GV.app.render(); }, "카테고리 필터"));
     bar.appendChild(select("등급 전체", ["A", "B", "C", "미분류"], view.quality, function (v) { view.quality = v; view.page = 1; GV.app.render(); }, "등급 필터"));
-    bar.appendChild(select("매출구간 전체", ["미확인", "매출 발생 전", "10억원 미만", "10억~50억원", "50억~100억원", "100억~500억원", "500억원 이상"], view.band, function (v) { view.band = v; view.page = 1; GV.app.render(); }, "매출 구간 필터"));
+    bar.appendChild(select("회사매출구간 전체", M.BAND_LABELS, view.band, function (v) { view.band = v; view.page = 1; GV.app.render(); }, "회사 연매출 구간 필터"));
     bar.appendChild(select("준비도 전체", Object.keys(M.READINESS), view.readiness, function (v) { view.readiness = v; view.page = 1; GV.app.render(); }, "데이터 준비도 필터", M.READINESS));
     bar.appendChild(btn("필터 초기화", "x", false, function () {
       view.q = ""; view.owner = ""; view.source = ""; view.category = "";
@@ -272,29 +275,38 @@
       } else if (c.key === "quality") {
         td.appendChild(editableSelect(e, "quality", e.quality, ["A", "B", "C", "미분류"], api));
       } else if (c.key === "category") {
+        td.className = "gv-nowrap";
         td.appendChild(editableText(e, "category", e.category, api));
       } else if (c.key === "memo") {
         td.appendChild(editableText(e, "memo", e.memo, api, 300));
       } else if (c.key === "source") {
+        td.className = "gv-nowrap";
         td.textContent = e.source || "-";
       } else if (c.key === "inflowAt") {
-        td.className = "gv-number";
-        td.textContent = U.fmtDateTime(e.inflowAt);
+        td.className = "gv-number gv-nowrap";
+        td.textContent = U.fmtKst(e.inflowAt);
       } else if (c.key === "readiness") {
         var lvl = M.readinessOf(e);
         var chip = U.el("span", { class: "gv-chip " + (lvl === "L3" ? "ok" : lvl === "L0" ? "warn" : "info"), text: lvl });
         td.appendChild(chip);
         if (e.readinessOverride) td.appendChild(U.el("div", { class: "gv-readiness", text: "직접 지정" }));
       } else if (c.key === "revenue") {
-        td.className = "gv-number";
-        td.textContent = e.revenue && e.revenue.amount != null ? U.won(e.revenue.amount) : "미확인";
-        if (e.revenue && e.revenue.amount != null) {
-          td.appendChild(U.el("div", { class: "gv-category", text: (M.SCOPES[e.revenue.scope] || "범위 미확인") }));
+        td.className = "gv-number gv-nowrap";
+        var amt = M.companyRevenueAmount(e);
+        if (amt != null) {
+          td.textContent = U.won(amt);
+          td.appendChild(U.el("div", { class: "gv-category", text: (M.SCOPES[e.revenue.scope] || "") + " · " + e.revenue.year }));
+        } else {
+          td.textContent = "미확인";
+          var ref = M.referenceRevenue(e);
+          if (ref) td.appendChild(U.el("div", { class: "gv-category", text: "참고 " + U.won(ref.amount) + " · " + ref.why }));
         }
       } else if (c.key === "band") {
-        td.textContent = M.revenueBand(e.revenue && e.revenue.amount);
+        td.className = "gv-nowrap";
+        td.textContent = M.companyRevenueBand(e);
       } else if (c.key === "lastCommAt") {
-        td.textContent = e.lastCommAt ? U.fmtDate(e.lastCommAt) + " (" + U.relLabel(e.lastCommAt) + ")" : "기록 없음";
+        td.className = "gv-nowrap";
+        td.textContent = e.lastCommAt ? U.fmtKstDate(e.lastCommAt) + " (" + U.relLabel(e.lastCommAt) + ")" : "기록 없음";
       } else if (c.key === "nextAction") {
         if (e.nextActionAt) {
           var over = U.relDays(e.nextActionAt) < 0;
@@ -421,7 +433,10 @@
     f("kind", "유형", e.kind || "company", "select", { options: [["company", "회사·브랜드"], ["creator", "크리에이터"]] });
     f("category", "카테고리 *", e.category, "text");
     f("source", "유입 출처", e.source || "Glovek 상담", "select", { options: GV.seed.SOURCES });
-    f("inflowAt", "유입일", e.inflowAt ? U.fmtDate(e.inflowAt) : U.fmtDate(new Date()), "date");
+    var inflowOriginal = e.inflowAt || null;
+    var inflowShown = inflowOriginal ? U.kstInputValue(inflowOriginal) : U.kstInputValue(new Date().toISOString());
+    f("inflowAt", "유입일시 (KST)", inflowShown, "datetime-local",
+      { hint: "분까지 저장합니다. 최신 유입 정렬이 이 값으로 됩니다." });
     f("owner", "담당자", e.owner || "미배정", "select", { options: ["미배정"].concat(state.members.map(function (m) { return m.name; })) });
     f("quality", "등급", e.quality || "미분류", "select", { options: ["A", "B", "C", "미분류"] });
     f("phone", "대표 전화", e.phone, "text", { placeholder: "010-0000-0000" });
@@ -457,8 +472,13 @@
         if (v.revenueYear !== "" && (year == null || year < 1990 || year > new Date().getFullYear())) {
           return "매출 기준연도를 1990~올해 사이로 입력해 주세요.";
         }
-        var inflow = U.parseDate(v.inflowAt);
-        if (!inflow) return "유입일을 올바른 날짜로 입력해 주세요.";
+        /* 입력값이 처음 보여 준 것과 같으면 원래 시각(초·밀리초까지)을 그대로 지킨다. */
+        var inflowIso;
+        if (v.inflowAt === inflowShown && inflowOriginal) inflowIso = inflowOriginal;
+        else {
+          inflowIso = U.kstInputToIso(v.inflowAt);
+          if (!inflowIso) return "유입일시를 올바른 날짜·시각으로 입력해 주세요(KST).";
+        }
         var website = v.website ? U.safeUrl(v.website) : "";
         if (v.website && !website) return "홈페이지는 http(s) 주소만 저장합니다.";
         var email = v.email ? U.safeEmail(v.email) : "";
@@ -467,16 +487,30 @@
         if (v.phone && !phone) return "전화번호는 숫자와 - ( ) + 만 사용할 수 있습니다.";
         var sourceUrl = v.revenueSourceUrl ? U.safeUrl(v.revenueSourceUrl) : "";
         if (v.revenueSourceUrl && !sourceUrl) return "매출 근거 URL 은 http(s) 주소만 저장합니다.";
+        var revBundle = {
+          amount: amount, year: year, legalEntity: U.clean(v.revenueLegalEntity, 80),
+          scope: v.revenueScope || "", sourceUrl: sourceUrl || ""
+        };
+        if (v.revenueStatus === "verified") {
+          var chk = M.verifiedBundle(revBundle);
+          if (!chk.ok) {
+            return "'근거 확인' 으로 저장하려면 다음이 모두 필요합니다 — " + chk.missing.join(", ")
+              + ". 아직 없으면 '고객 신고' 나 '추정' 으로 두세요.";
+          }
+        }
+        if (amount != null && v.revenueScope === "" ) {
+          return "금액을 적었다면 매출 범위를 골라 주세요(회사 별도/연결 또는 브랜드 단위).";
+        }
 
         var payload = {
           name: name, legalName: U.clean(v.legalName, 80), kind: v.kind === "creator" ? "creator" : "company",
-          category: category, source: U.clean(v.source, 40), inflowAt: inflow.toISOString(),
+          category: category, source: U.clean(v.source, 40), inflowAt: inflowIso,
           owner: U.clean(v.owner, 30) || "미배정", quality: v.quality, phone: phone, email: email,
           website: website || "", memo: U.clean(v.memo, 600),
           revenue: {
             amount: amount, year: year, currency: "KRW",
-            legalEntity: U.clean(v.revenueLegalEntity, 80), scope: v.revenueScope || "",
-            status: v.revenueStatus || "unknown", sourceUrl: sourceUrl || ""
+            legalEntity: revBundle.legalEntity, scope: revBundle.scope,
+            status: v.revenueStatus || "unknown", sourceUrl: revBundle.sourceUrl
           }
         };
         var r = entity ? updateEntity(entity.id, payload) : createEntity(payload);
@@ -515,20 +549,25 @@
 
   function exportCsv(state, api) {
     var rows = sorted(filtered(state));
-    var header = ["외부ID", "유형", "업체명", "법인명", "카테고리", "유입출처", "유입일", "담당자", "등급",
-      "데이터준비도", "회사연매출(원)", "매출기준연도", "매출범위", "매출상태", "매출근거URL", "매출구간",
+    var header = ["외부ID", "유형", "업체명", "법인명", "카테고리", "유입출처", "유입일시(KST)", "담당자", "등급",
+      "데이터준비도", "회사연매출확정(원)", "참고금액(원)", "참고사유", "매출기준연도", "매출범위", "매출상태",
+      "매출귀속법인", "매출근거URL", "회사매출구간",
       "대표전화", "대표이메일", "홈페이지", "최근커뮤니케이션", "다음액션일", "다음액션", "메모"];
     var body = rows.map(function (e) {
-      return [e.extId, M.KINDS[e.kind], e.name, e.legalName, e.category, e.source, U.fmtDate(e.inflowAt),
+      var amt = M.companyRevenueAmount(e);
+      var ref = M.referenceRevenue(e);
+      return [e.extId, M.KINDS[e.kind], e.name, e.legalName, e.category, e.source, U.fmtKst(e.inflowAt),
         e.owner, e.quality, M.readinessOf(e),
-        e.revenue && e.revenue.amount != null ? e.revenue.amount : "미확인",
+        amt != null ? amt : "미확인",
+        ref ? ref.amount : "", ref ? ref.why : "",
         e.revenue && e.revenue.year ? e.revenue.year : "미확인",
         M.SCOPES[e.revenue ? e.revenue.scope : ""] || "미확인",
         M.REV_STATUS[e.revenue ? e.revenue.status : "unknown"],
-        e.revenue ? e.revenue.sourceUrl : "", M.revenueBand(e.revenue && e.revenue.amount),
+        e.revenue ? e.revenue.legalEntity : "",
+        e.revenue ? e.revenue.sourceUrl : "", M.companyRevenueBand(e),
         e.phone, e.email, e.website,
-        e.lastCommAt ? U.fmtDate(e.lastCommAt) : "기록 없음",
-        e.nextActionAt ? U.fmtDate(e.nextActionAt) : "", e.nextAction, e.memo];
+        e.lastCommAt ? U.fmtKstDate(e.lastCommAt) : "기록 없음",
+        e.nextActionAt ? U.fmtKstDate(e.nextActionAt) : "", e.nextAction, e.memo];
     });
     U.download("glovek-db-" + U.fmtDate(new Date()) + ".csv", U.toCsv([header].concat(body)));
     api.toast(rows.length + "건을 CSV 로 내려받았습니다.");
@@ -549,6 +588,12 @@
     });
     s.addEventListener("change", function () { onChange(s.value); });
     return s;
+  }
+  function sum(parent, label, value) {
+    var w = U.el("span", { class: "gv-sum-item" });
+    w.appendChild(U.el("span", { class: "gv-sum-label", text: label }));
+    w.appendChild(U.el("b", { class: "gv-number", text: value }));
+    parent.appendChild(w);
   }
   function stat(label, value, hint) {
     var d = U.el("div", { class: "gv-stat" });
@@ -584,6 +629,6 @@
   GV.pages = GV.pages || {};
   GV.pages.database = {
     render: render, entityForm: entityForm, createEntity: createEntity, updateEntity: updateEntity,
-    view: view, btn: btn, select: select, stat: stat, saveField: saveField
+    view: view, btn: btn, select: select, stat: stat, sum: sum, saveField: saveField
   };
 })(window);

@@ -119,6 +119,13 @@
       var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
       return (d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3])) ? d : null;
     }
+    var dt = /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})(:\d{2})?$/.exec(s);
+    if (dt && !/[zZ]|[+\-]\d{2}:?\d{2}$/.test(s)) {
+      /* 시간대 표기가 없는 "날짜 시각" 은 KST 로 읽는다(국내 운영 기준). */
+      var norm = dt[1] + "-" + pad(dt[2]) + "-" + pad(dt[3]) + "T" + pad(dt[4]) + ":" + dt[5];
+      var iso = kstInputToIso(norm);
+      if (iso) return new Date(iso);
+    }
     var t = Date.parse(s);
     return isNaN(t) ? null : new Date(t);
   }
@@ -151,11 +158,73 @@
     if (n === -1) return "어제";
     return n < 0 ? Math.abs(n) + "일 지남" : n + "일 뒤";
   }
-  /** 엑셀 날짜 시리얼(1899-12-30 기준) → Date. */
+  /* ── KST 고정 변환 ──────────────────────────
+   *   유입일시는 "몇 시에 들어왔는지" 가 중요하다(최신 유입 정렬). 브라우저 시간대에
+   *   따라 흔들리지 않게, 표시와 입력을 모두 KST(+09:00) 로 못 박는다.
+   */
+  var KST_MS = 9 * 3600000;
+  function kstParts(iso) {
+    var d = parseDate(iso);
+    if (!d) return null;
+    var k = new Date(d.getTime() + KST_MS);
+    return {
+      y: k.getUTCFullYear(), m: k.getUTCMonth() + 1, d: k.getUTCDate(),
+      h: k.getUTCHours(), mi: k.getUTCMinutes()
+    };
+  }
+  /** ISO → "YYYY-MM-DD HH:mm" (KST 벽시계). */
+  function fmtKst(iso) {
+    var k = kstParts(iso);
+    if (!k) return "";
+    return k.y + "-" + pad(k.m) + "-" + pad(k.d) + " " + pad(k.h) + ":" + pad(k.mi);
+  }
+  /** ISO → "YYYY-MM-DD" (KST). */
+  function fmtKstDate(iso) {
+    var k = kstParts(iso);
+    return k ? k.y + "-" + pad(k.m) + "-" + pad(k.d) : "";
+  }
+  /** ISO → datetime-local 입력값 "YYYY-MM-DDTHH:mm" (KST 벽시계). */
+  function kstInputValue(iso) {
+    var k = kstParts(iso);
+    if (!k) return "";
+    return k.y + "-" + pad(k.m) + "-" + pad(k.d) + "T" + pad(k.h) + ":" + pad(k.mi);
+  }
+  /** datetime-local 입력값(KST 로 읽음) → ISO. 시간대를 +09:00 으로 명시해 만든다. */
+  function kstInputToIso(v) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})$/.exec(String(v || "").trim());
+    if (!m) return null;
+    var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]), h = Number(m[4]), mi = Number(m[5]);
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
+    var utc = Date.UTC(y, mo - 1, d, h, mi) - KST_MS;
+    var dt = new Date(utc);
+    if (isNaN(dt.getTime())) return null;
+    /* 2026-02-31 같은 값이 넘어가 버리는 것을 막는다 */
+    var back = kstParts(dt.toISOString());
+    if (!back || back.m !== mo || back.d !== d) return null;
+    return dt.toISOString();
+  }
+  /** 날짜만 있는 값(YYYY-MM-DD)을 KST 00:00 으로 읽는다. */
+  function kstDateToIso(v) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v || "").trim());
+    return m ? kstInputToIso(v + "T00:00") : null;
+  }
+
+  /** 엑셀 날짜 시리얼(1899-12-30 기준) → Date(UTC 기준 벽시계). */
   function serialToDate(n) {
     var num = Number(n);
     if (!isFinite(num) || num <= 0 || num > 80000) return null;
     return new Date(Math.round((num - 25569) * 86400000));
+  }
+  /**
+   * 시리얼 → "YYYY-MM-DD" 또는 "YYYY-MM-DD HH:mm" (벽시계 그대로).
+   *   UTC 게터로 읽는다 — 로컬 시간대 때문에 날짜가 하루 밀리지 않게.
+   */
+  function serialText(n, withTime) {
+    var d = serialToDate(n);
+    if (!d) return null;
+    var s = d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate());
+    if (withTime) s += " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes());
+    return s;
   }
 
   /* ── 숫자·금액 ──────────────────────────────── */
@@ -262,7 +331,9 @@
     el: el, frag: frag, clearNode: clear, icon: icon, iconNode: iconNode,
     nowIso: nowIso, dayStart: dayStart, addDays: addDays, parseDate: parseDate,
     fmtDate: fmtDate, fmtDateTime: fmtDateTime, fmtShort: fmtShort, relDays: relDays,
-    relLabel: relLabel, serialToDate: serialToDate, pad: pad,
+    relLabel: relLabel, serialToDate: serialToDate, serialText: serialText, pad: pad,
+    fmtKst: fmtKst, fmtKstDate: fmtKstDate, kstInputValue: kstInputValue,
+    kstInputToIso: kstInputToIso, kstDateToIso: kstDateToIso,
     num: num, intOrNull: intOrNull, won: won, eok: eok, pct: pct,
     parseCsv: parseCsv, toCsv: toCsv, csvCell: csvCell, download: download,
     uid: uid, debounce: debounce, sortBy: sortBy, groupCount: groupCount

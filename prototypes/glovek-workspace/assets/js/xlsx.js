@@ -3,7 +3,7 @@
  *     · ZIP 구조는 직접 읽는다(중앙 디렉터리 → 로컬 헤더)
  *     · 압축 해제는 DecompressionStream('deflate-raw') (브라우저 내장)
  *     · 시트 XML 은 DOMParser 로 읽는다
- *   첫 시트의 셀 값만 꺼낸다. 수식은 계산하지 않고 저장된 값(<v>)을 쓴다.
+ *   **첫 번째 시트만** 읽는다(시트 선택 기능은 없다). 수식은 계산하지 않고 저장된 값(<v>)을 쓴다.
  *   쓰기는 지원하지 않는다 — 가져오기 전용이다.
  */
 (function (global) {
@@ -117,18 +117,25 @@
 
     /* 날짜 서식이 걸린 스타일 번호 모으기 */
     var dateStyles = new Set();
+    var timeStyles = new Set();
     var stylesText = await readEntry(bytes, zip["xl/styles.xml"]);
     if (stylesText) {
       var st = dp.parseFromString(stylesText, "application/xml");
       var dateFmtIds = new Set([14, 15, 16, 17, 22, 27, 30, 36, 45, 46, 47, 50, 57]);
+      /* 시각까지 들어가는 서식 — 22(날짜+시간), 18~21·45~47(시간) */
+      var timeFmtIds = new Set([18, 19, 20, 21, 22, 45, 46, 47]);
       Array.prototype.slice.call(st.getElementsByTagName("numFmt")).forEach(function (nf) {
         var code = nf.getAttribute("formatCode") || "";
-        if (/[yYmMdD]/.test(code) && !/[#0]/.test(code)) dateFmtIds.add(Number(nf.getAttribute("numFmtId")));
+        var id = Number(nf.getAttribute("numFmtId"));
+        if (/[yYmMdD]/.test(code) && !/[#0]/.test(code)) dateFmtIds.add(id);
+        if (/[hH]/.test(code)) { dateFmtIds.add(id); timeFmtIds.add(id); }
       });
       var cellXfs = st.getElementsByTagName("cellXfs")[0];
       if (cellXfs) {
         Array.prototype.slice.call(cellXfs.getElementsByTagName("xf")).forEach(function (xf, idx) {
-          if (dateFmtIds.has(Number(xf.getAttribute("numFmtId")))) dateStyles.add(idx);
+          var id = Number(xf.getAttribute("numFmtId"));
+          if (dateFmtIds.has(id)) dateStyles.add(idx);
+          if (timeFmtIds.has(id)) timeStyles.add(idx);
         });
       }
     }
@@ -157,8 +164,12 @@
           else {
             var sNum = Number(c.getAttribute("s"));
             if (raw !== "" && dateStyles.has(sNum)) {
-              var d = GV.util.serialToDate(raw);
-              value = d ? GV.util.fmtDate(d) : raw;
+              /* 시리얼의 소수부가 시각이다. 서식이 시각을 담거나 소수부가 있으면 분까지 남긴다.
+                 스프레드시트 값은 벽시계이므로, 가져오기에서 KST 로 읽도록 "YYYY-MM-DD HH:mm" 로 쓴다. */
+              var n = Number(raw);
+              var withTime = timeStyles.has(sNum) || (isFinite(n) && Math.abs(n % 1) > 1e-9);
+              var text = GV.util.serialText(raw, withTime);
+              value = text || raw;
             } else value = raw;
           }
         }
@@ -170,7 +181,7 @@
     var trimmed = rows.filter(function (r) {
       return r.some(function (c) { return String(c).trim() !== ""; });
     });
-    return { sheetName: sheetName, rows: trimmed, sheets: sheetEls.length };
+    return { sheetName: sheetName, rows: trimmed, sheets: sheetEls.length, firstSheetOnly: true };
   }
 
   GV.xlsx = { parse: parse, readZip: readZip, colToIndex: colToIndex };

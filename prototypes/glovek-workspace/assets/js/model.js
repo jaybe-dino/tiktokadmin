@@ -31,19 +31,67 @@
   var REV_STATUS = {
     unknown: "미확인", reported: "고객 신고", estimated: "추정(미확정)", verified: "근거 확인"
   };
+  /* 경계는 "미만" 이다 — 10억원 정확히는 "10억~50억원" 에 들어간다. */
   var BANDS = [
-    { max: 0, label: "매출 발생 전" },
-    { max: 1e9, label: "10억원 미만" },
-    { max: 5e9, label: "10억~50억원" },
-    { max: 1e10, label: "50억~100억원" },
-    { max: 5e10, label: "100억~500억원" },
-    { max: Infinity, label: "500억원 이상" }
+    { under: 1e9, label: "10억원 미만" },
+    { under: 5e9, label: "10억~50억원" },
+    { under: 1e10, label: "50억~100억원" },
+    { under: 5e10, label: "100억~500억원" }
   ];
-  /** 금액 → 구간. 미확인은 빈칸이 아니라 "미확인" 이다(0 과 구분). */
+  var BAND_TOP = "500억원 이상";
+  var BAND_ZERO = "매출 발생 전";
+  var BAND_UNKNOWN = "미확인";
+  var BAND_LABELS = [BAND_UNKNOWN, BAND_ZERO].concat(BANDS.map(function (b) { return b.label; })).concat([BAND_TOP]);
+
+  /** 금액 → 구간. 미확인은 빈칸이 아니라 "미확인", 0 은 "매출 발생 전" 이다. */
   function revenueBand(amount) {
-    if (amount == null) return "미확인";
-    for (var i = 0; i < BANDS.length; i++) if (amount <= BANDS[i].max) return BANDS[i].label;
-    return "미확인";
+    if (amount == null || !isFinite(amount)) return BAND_UNKNOWN;
+    if (amount <= 0) return BAND_ZERO;
+    for (var i = 0; i < BANDS.length; i++) if (amount < BANDS[i].under) return BANDS[i].label;
+    return BAND_TOP;
+  }
+
+  /* 회사 연매출로 셀 수 있는 확인 상태 — 추정(estimated)은 참고값이다. */
+  var COMPANY_STATUS = ["reported", "verified"];
+  /**
+   * "회사 연매출" 로 쓸 수 있는 금액.
+   *   브랜드 단위 숫자와 AI 추정은 회사 연매출이 아니다 → null 을 돌려주고
+   *   참고값(referenceRevenue)으로만 보여 준다. 기준연도가 없으면 역시 쓰지 않는다.
+   */
+  function companyRevenueAmount(e) {
+    var r = e && e.revenue;
+    if (!r || r.amount == null) return null;
+    if (!isCompanyScope(r.scope)) return null;
+    if (COMPANY_STATUS.indexOf(r.status) < 0) return null;
+    if (!r.year) return null;
+    return r.amount;
+  }
+  function companyRevenueBand(e) { return revenueBand(companyRevenueAmount(e)); }
+  /** 회사 연매출로 쓸 수 없는 금액(브랜드 단위·추정·연도 없음)을 참고값으로 설명한다. */
+  function referenceRevenue(e) {
+    var r = e && e.revenue;
+    if (!r || r.amount == null) return null;
+    if (companyRevenueAmount(e) != null) return null;
+    var why = !isCompanyScope(r.scope) ? (r.scope === "brand" ? "브랜드 단위" : "범위 미확인")
+      : COMPANY_STATUS.indexOf(r.status) < 0 ? (REV_STATUS[r.status] || r.status)
+      : "기준연도 없음";
+    return { amount: r.amount, why: why };
+  }
+
+  /**
+   * 근거 확인(verified)으로 쓸 수 있는 묶음인가.
+   *   금액·기준연도·귀속 법인·회사 범위·근거 URL 이 모두 있어야 한다.
+   *   하나라도 비면 verified/L3 로 올리지 않는다.
+   */
+  function verifiedBundle(rev) {
+    var r = rev || {};
+    var missing = [];
+    if (r.amount == null) missing.push("금액");
+    if (!r.year) missing.push("기준연도");
+    if (!String(r.legalEntity || "").trim()) missing.push("귀속 법인");
+    if (!isCompanyScope(r.scope)) missing.push("회사 범위(별도/연결)");
+    if (!String(r.sourceUrl || "").trim()) missing.push("근거 URL");
+    return { ok: missing.length === 0, missing: missing };
   }
   function revenueText(e) {
     var r = e && e.revenue;
@@ -62,8 +110,7 @@
   function derivedReadiness(e) {
     var hasContact = (e.contacts || []).some(function (c) { return c.phone || c.email; }) || e.phone || e.email;
     var identified = !!(e.category && (e.kind === "creator" ? e.name : e.legalName));
-    var revOk = e.revenue && e.revenue.status === "verified" && e.revenue.amount != null
-      && !!e.revenue.sourceUrl && isCompanyScope(e.revenue.scope);
+    var revOk = !!(e.revenue && e.revenue.status === "verified" && verifiedBundle(e.revenue).ok);
     if (revOk && identified && hasContact) return "L3";
     if (identified && hasContact) return "L2";
     if (hasContact) return "L1";
@@ -87,8 +134,9 @@
    */
   function moveRequirements(target) {
     if (target === "won") {
-      return { fields: ["contractAmount", "contractDate", "revenueScope"], title: "수주 완료로 옮기기",
-        help: "확정 계약 금액과 계약일, 매출 인식 범위가 있어야 수주로 기록합니다. 이 금액은 우리 회사 매출이며 고객사 연매출이 아닙니다." };
+      return { fields: ["contractAmount", "contractDate", "contractScope"], title: "수주 완료로 옮기기",
+        help: "확정 계약 금액·계약일·계약 범위(무엇을 해 주는 계약인지)가 있어야 수주로 기록합니다. "
+          + "이 금액은 우리가 받는 계약 금액이며 고객사 연매출과 무관합니다." };
     }
     if (target === "contract_review") {
       return { fields: ["expectedAmount", "contractDate"], title: "계약검토로 옮기기",
@@ -122,10 +170,11 @@
       if (!d) errors.push("계약(예정)일을 YYYY-MM-DD 로 입력해 주세요.");
       else patch.contractDate = U.fmtDate(d);
     }
-    if (req.fields.indexOf("revenueScope") >= 0) {
-      if (!isCompanyScope(input.revenueScope)) {
-        errors.push("매출 인식 범위를 회사 별도 또는 회사 연결로 선택해 주세요.");
-      } else patch.revenueScope = input.revenueScope;
+    if (req.fields.indexOf("contractScope") >= 0) {
+      /* 고객사 회계 범위(별도/연결)와 다른 값이다. 우리가 수행할 범위를 적는다. */
+      var cs = U.clean(input.contractScope, 120);
+      if (cs.length < 2) errors.push("계약 범위를 적어 주세요(예: 일본 틱톡샵 운영 대행 · 월 단위).");
+      else patch.contractScope = cs;
     }
     if (req.fields.indexOf("reason") >= 0) {
       var r = U.clean(input.reason, 300);
@@ -205,32 +254,55 @@
   ];
   /** 헤더 이름 → 우리 필드 자동 추정(공백·대소문자 무시). */
   var HEADER_HINTS = {
-    extId: ["외부id", "외부아이디", "extid", "id", "코드"],
+    extId: ["외부id", "외부아이디", "extid", "externalid", "external_id", "id", "코드"],
     name: ["업체명", "브랜드명", "이름", "name", "회사명", "크리에이터"],
     legalName: ["법인명", "사업자명", "legalname"],
     kind: ["유형", "구분", "type", "kind"],
     category: ["카테고리", "분류", "category"],
     source: ["유입출처", "출처", "source", "채널"],
-    inflowAt: ["유입일", "유입일시", "등록일", "inflow", "date"],
-    owner: ["담당자", "owner", "담당"],
+    inflowAt: ["유입일시", "유입일", "등록일", "inflowat", "inflow_at", "inflow", "date"],
+    owner: ["담당자", "owner", "assignee", "담당"],
     quality: ["등급", "품질", "quality", "grade"],
     phone: ["전화", "전화번호", "연락처", "phone", "휴대폰"],
     email: ["이메일", "메일", "email"],
     website: ["홈페이지", "사이트", "url", "website", "브랜드링크"],
-    contactName: ["담당자명", "contactname", "담당자이름"],
-    revenueAmount: ["매출", "연매출", "매출액", "revenue", "회사연매출"],
-    revenueYear: ["매출연도", "기준연도", "revenueyear", "연도"],
+    contactName: ["담당자명", "담당자이름", "contactname", "contact_name", "contactperson"],
+    revenueAmount: ["회사연매출금액", "회사연매출", "연매출", "매출액", "revenueamount", "revenue_amount", "annualrevenue", "매출", "revenue"],
+    revenueYear: ["회사연매출연도", "매출기준연도", "매출연도", "기준연도", "revenueyear", "revenue_year", "fiscalyear", "연도"],
     revenueScope: ["매출범위", "scope", "범위"],
-    revenueSourceUrl: ["매출근거", "근거url", "sourceurl", "출처url"],
+    revenueSourceUrl: ["매출근거url", "매출근거", "근거url", "revenuesourceurl", "revenue_source_url", "sourceurl", "source_url", "출처url"],
     memo: ["메모", "비고", "note", "memo"]
   };
+  function normHead(h) { return String(h || "").replace(/\s|[()·_\-\[\]]/g, "").toLowerCase(); }
+  /* 정확 일치용 표 + 길이순 힌트 목록을 한 번만 만든다. */
+  var EXACT = (function () {
+    var m = new Map();
+    Object.keys(HEADER_HINTS).forEach(function (k) {
+      m.set(normHead(k), k);
+      HEADER_HINTS[k].forEach(function (hint) { if (!m.has(normHead(hint))) m.set(normHead(hint), k); });
+    });
+    return m;
+  })();
+  var RANKED = (function () {
+    var list = [];
+    Object.keys(HEADER_HINTS).forEach(function (k) {
+      HEADER_HINTS[k].forEach(function (hint) { list.push({ key: k, hint: normHead(hint) }); });
+    });
+    /* 긴 힌트를 먼저 본다 — "매출연도" 가 "매출" 보다 앞서야 한다. */
+    return list.sort(function (a, b) { return b.hint.length - a.hint.length; });
+  })();
+
+  /**
+   * 파일 헤더 → 우리 필드.
+   *   ① 정규화 후 정확히 일치하는 이름을 먼저 찾는다.
+   *   ② 없으면 긴 힌트부터 포함 여부를 본다("매출연도" → revenueYear, "담당자명" → contactName).
+   */
   function guessField(header) {
-    var h = String(header || "").replace(/\s|[()·_\-]/g, "").toLowerCase();
+    var h = normHead(header);
     if (!h) return "";
-    var keys = Object.keys(HEADER_HINTS);
-    for (var i = 0; i < keys.length; i++) {
-      var hints = HEADER_HINTS[keys[i]];
-      for (var j = 0; j < hints.length; j++) if (h === hints[j] || h.indexOf(hints[j]) === 0) return keys[i];
+    if (EXACT.has(h)) return EXACT.get(h);
+    for (var i = 0; i < RANKED.length; i++) {
+      if (h.indexOf(RANKED[i].hint) >= 0) return RANKED[i].key;
     }
     return "";
   }
@@ -241,6 +313,9 @@
     IMPORT_FIELDS: IMPORT_FIELDS,
     stageIndex: stageIndex, stageLabel: stageLabel,
     revenueBand: revenueBand, revenueText: revenueText, isCompanyScope: isCompanyScope,
+    BAND_LABELS: BAND_LABELS, companyRevenueAmount: companyRevenueAmount,
+    companyRevenueBand: companyRevenueBand, referenceRevenue: referenceRevenue,
+    verifiedBundle: verifiedBundle, COMPANY_STATUS: COMPANY_STATUS,
     derivedReadiness: derivedReadiness, readinessOf: readinessOf,
     moveRequirements: moveRequirements, validateMove: validateMove, duplicateDeal: duplicateDeal,
     entityById: entityById, dealById: dealById, entityName: entityName,

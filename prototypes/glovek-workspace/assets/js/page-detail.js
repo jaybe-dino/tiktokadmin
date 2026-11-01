@@ -205,7 +205,8 @@
     sec.appendChild(dl);
     sec.appendChild(U.el("p", {
       class: "gv-small gv-muted", style: "margin-top:8px",
-      text: "예시용 example.invalid 주소입니다. 메일 연동이 연결된 것이 아니라 수기 기록용입니다."
+      text: "메일함은 연결되어 있지 않습니다. 메일·전화 링크는 기기의 기본 앱을 열 뿐이며, "
+        + "주고받은 내용은 커뮤니케이션 화면에서 직접 기록합니다."
     }));
 
     (e.contacts || []).forEach(function (c) {
@@ -307,8 +308,11 @@
     var r = e.revenue || {};
     var sec = U.el("div", { class: "gv-section" });
     var dl = U.el("dl", { class: "gv-kv" });
-    kv(dl, "회사 연매출", r.amount != null ? U.won(r.amount) : "미확인");
-    kv(dl, "매출 구간", M.revenueBand(r.amount));
+    var companyAmt = M.companyRevenueAmount(e);
+    var ref = M.referenceRevenue(e);
+    kv(dl, "회사 연매출(확정)", companyAmt != null ? U.won(companyAmt) : "미확인");
+    kv(dl, "회사매출 구간", M.companyRevenueBand(e));
+    if (ref) kv(dl, "참고 금액", U.won(ref.amount) + " · " + ref.why + " (회사 연매출로 쓰지 않음)");
     kv(dl, "기준연도", r.year ? String(r.year) : "미확인");
     kv(dl, "통화", r.currency || "KRW");
     kv(dl, "귀속 법인", r.legalEntity || "미기록");
@@ -322,6 +326,10 @@
     }));
     if (r.scope === "brand") {
       sec.appendChild(GV.app.banner("warn", "브랜드 단위 숫자입니다. 회사 연매출로 올려 쓰지 않습니다."));
+    }
+    if (r.status === "verified") {
+      var chk = M.verifiedBundle(r);
+      if (!chk.ok) sec.appendChild(GV.app.banner("bad", "'근거 확인' 으로 표시돼 있지만 다음이 비어 있습니다 — " + chk.missing.join(", ")));
     }
     sec.appendChild(U.el("button", {
       type: "button", style: "margin-top:12px", text: "매출 정보 수정",
@@ -376,7 +384,10 @@
     return b;
   }
   function ourMoney(d) {
-    if (d.status === "won") return "확정 계약 " + U.won(d.contractAmount) + (d.contractDate ? " · " + d.contractDate : "");
+    if (d.status === "won") {
+      return "확정 계약 " + U.won(d.contractAmount) + (d.contractDate ? " · " + d.contractDate : "")
+        + (d.contractScope ? " · " + d.contractScope : "");
+    }
     if (d.expectedAmount != null) return "예상 계약 " + U.won(d.expectedAmount);
     return "금액 미정";
   }

@@ -109,7 +109,7 @@
         id: U.uid("deal"), entityId: e.id, service: pick(SERVICES, i),
         stage: stageOf[p[1]], status: "open",
         expectedAmount: p[2], contractAmount: null, contractDate: null,
-        revenueScope: "", reason: "",
+        contractScope: "", reason: "",
         owner: e.owner === "미배정" ? pick(OWNERS.slice(1), i) : e.owner,
         nextAction: pick(["니즈·예산 확인", "전화 팔로업", "제안서 공유", "온라인 미팅", "견적 조건 검토", "계약 범위 확인"], i),
         nextActionAt: U.addDays(today, p[3]).toISOString(),
@@ -123,7 +123,8 @@
       id: U.uid("deal"), entityId: entities[1].id, service: "숏폼 제작 패키지",
       stage: "contract_review", status: "won",
       expectedAmount: 9000000, contractAmount: 8600000,
-      contractDate: U.fmtDate(U.addDays(today, -9)), revenueScope: "company_separate", reason: "",
+      contractDate: U.fmtDate(U.addDays(today, -9)),
+      contractScope: "숏폼 제작 패키지 · 월 8편 · 3개월", reason: "",
       owner: "김지호", nextAction: "", nextActionAt: null,
       createdAt: U.addDays(today, -41).toISOString(), updatedAt: U.addDays(today, -9).toISOString(),
       closedAt: U.addDays(today, -9).toISOString()
@@ -131,7 +132,7 @@
     deals.push({
       id: U.uid("deal"), entityId: entities[7].id, service: "미국 시딩 캠페인",
       stage: "proposal", status: "hold",
-      expectedAmount: 7000000, contractAmount: null, contractDate: null, revenueScope: "",
+      expectedAmount: 7000000, contractAmount: null, contractDate: null, contractScope: "",
       reason: "내부 예산 편성이 다음 분기로 밀렸습니다.",
       owner: "최재영", nextAction: "", nextActionAt: null,
       createdAt: U.addDays(today, -33).toISOString(), updatedAt: U.addDays(today, -6).toISOString(),
@@ -140,7 +141,7 @@
     deals.push({
       id: U.uid("deal"), entityId: entities[19].id, service: "틱톡샵 일본 운영",
       stage: "meeting", status: "lost",
-      expectedAmount: 5000000, contractAmount: null, contractDate: null, revenueScope: "",
+      expectedAmount: 5000000, contractAmount: null, contractDate: null, contractScope: "",
       reason: "타 대행사와 이미 계약을 마쳤다고 합니다.",
       owner: "주소미", nextAction: "", nextActionAt: null,
       createdAt: U.addDays(today, -52).toISOString(), updatedAt: U.addDays(today, -15).toISOString(),
