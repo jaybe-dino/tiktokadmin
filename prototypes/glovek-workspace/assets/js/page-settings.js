@@ -11,7 +11,7 @@
     var head = U.el("div", { class: "gv-page-head" });
     var left = U.el("div");
     left.appendChild(U.el("h1", { text: "설정" }));
-    left.appendChild(U.el("p", { text: "이 브라우저에만 적용되는 설정입니다. 로그인·서버 권한과 무관합니다." }));
+    left.appendChild(U.el("p", { text: "이 브라우저에만 적용되는 설정입니다. 담당자 목록은 서버 접근 권한을 변경하지 않습니다." }));
     head.appendChild(left);
     wrap.appendChild(head);
 
@@ -182,7 +182,7 @@
     roles.appendChild(rt);
     roles.appendChild(U.el("p", {
       class: "gv-small gv-muted", style: "margin-top:8px",
-      text: "이 표는 앞으로 서버에서 적용할 계획을 적은 것입니다. 지금 이 화면은 로그인이 없고 누구나 모든 데이터를 볼 수 있습니다."
+      text: "앱 내부의 업무별 접근 제어는 적용 전입니다. 이 브라우저에 저장한 자료는 작업공간 안에서 모두 조회·수정할 수 있습니다."
     }));
     split.appendChild(roles);
 
