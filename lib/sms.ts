@@ -111,7 +111,9 @@ async function aligoFetch(url: string, init: RequestInit): Promise<Response> {
   }
 
   try {
-    return await fetch(url, { ...init, dispatcher } as RequestInit);
+    // Use the same undici version as ProxyAgent; Node's built-in fetch may use a different dispatcher API.
+    const { fetch } = await import("undici");
+    return await fetch(url, { ...init, dispatcher } as Parameters<typeof fetch>[1]) as unknown as Response;
   } catch (e) {
     // 프록시 경유 실패를 조용히 직접 발송으로 넘기지 않는다 —
     //   직접 발송은 Vercel 유동 IP 라 ALIGO 가 "인증오류-IP" 로 거절해 원인이 더 흐려진다.
