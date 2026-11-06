@@ -15,6 +15,7 @@ import {
   JP_LABEL_MAX_BYTES, COMPANY_DOCS_FIELD, COMPANY_DOCS_MAX_BYTES,
   ROUTE_BODY_LIMIT_BYTES, uploadLimitBytes, mbLabel,
   detailPageLabel, fbaAllowed, FBA_BLOCKED_NOTE, ADDRESS_PROOF_NOTICE,
+  fbtNoteFor, FBT_US_NOTE,
 } from "@/lib/onb-constants";
 
 // ── 상수(tpartners 정합) ──
@@ -716,6 +717,15 @@ function Step5({ disabled, countries, onChange, flash }: { disabled: boolean; co
               <div style={{ background: "#fffaf0", border: "1px solid #f2d9a8", borderRadius: 8, padding: "7px 10px", marginBottom: 8, fontSize: 12, color: "#8a5a12" }}>
                 ⚠️ {FBA_BLOCKED_NOTE}
                 {opt === "fba" && <b style={{ display: "block", marginTop: 3 }}>지금 FBA 로 저장돼 있습니다 — 다른 방식으로 바꿔주세요.</b>}
+              </div>
+            )}
+            {/* 미국 FBT 안내 — 희망 체크 바로 위에 둔다(창고 계약이 먼저, FBT 신청은 샵 개설 뒤). */}
+            {fbtNoteFor(c.country_code) && (
+              <div style={{ background: "#f0f6ff", border: "1px solid #cfe0ff", borderRadius: 8, padding: "9px 11px", marginBottom: 8, fontSize: 12, color: "#1e3a8a", lineHeight: 1.7 }}>
+                <b>📦 미국 FBT(Fulfilled by TikTok) 안내</b>
+                {FBT_US_NOTE.map((line) => (
+                  <div key={line} style={{ marginTop: 5 }}>{line}</div>
+                ))}
               </div>
             )}
             <FbtInterest code={c.country_code} init={Boolean(c.fbt_interest)} disabled={disabled}

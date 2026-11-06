@@ -86,3 +86,15 @@ export const PASSPORT_GUIDE: readonly string[] = [
   "빛 반사·그림자로 글자가 가려지지 않게",
   "이름·여권번호·생년월일·만료일이 선명하게 읽히게",
 ];
+
+// ── 미국 FBT(Fulfilled by TikTok) 안내 ───────────────────────
+//   "FBT 로 하면 창고 계약이 필요 없다" 는 오해가 반복되므로, 희망 체크 바로 위에
+//   순서를 적어 둔다 — 창고 계약이 먼저고 FBT 신청은 샵 개설 뒤다.
+export const FBT_NOTE_COUNTRIES: readonly string[] = ["US"];
+export function fbtNoteFor(code: string): boolean {
+  return FBT_NOTE_COUNTRIES.indexOf(String(code || "").toUpperCase()) >= 0;
+}
+export const FBT_US_NOTE: readonly string[] = [
+  "FBT는 미국 내 지정 창고에 재고를 미리 입고하면, 틱톡이 상품 보관부터 피킹·포장·고객 배송까지 처리하는 서비스입니다.",
+  "다만, 미국 틱톡샵 입점 시에는 미국 물류창고 계약서가 필수로 요구되므로, 먼저 현지 물류창고와 계약을 진행해야 합니다. 이후 샵 개설이 완료되면 FBT를 신청하여 이용하실 수 있습니다.",
+];
