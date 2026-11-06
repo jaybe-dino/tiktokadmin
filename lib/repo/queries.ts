@@ -392,8 +392,27 @@ export async function customersList(f: {
   const where: string[] = ["1=1"];
   const p: unknown[] = [];
   if (f.q) {
+    // BUG-52: 담당자 전화번호로도 찾는다. 사람이 적는 하이픈·공백이 제각각이므로
+    //   숫자만 남긴 값끼리도 비교한다("010-1234-5678" 로 찾아도 "01012345678" 이 걸린다).
     p.push(`%${f.q}%`);
-    where.push(`(b.brand_name ILIKE $${p.length} OR b.email ILIKE $${p.length} OR b.phone ILIKE $${p.length})`);
+    const like = `$${p.length}`;
+    const digits = String(f.q).replace(/[^0-9]/g, "");
+    const conds = [
+      `b.brand_name ILIKE ${like}`,
+      `b.email ILIKE ${like}`,
+      `b.phone ILIKE ${like}`,
+      `b.contact_name ILIKE ${like}`,
+      `EXISTS(SELECT 1 FROM brand_contacts bc WHERE bc.brand_id=b.id
+              AND (bc.name ILIKE ${like} OR bc.email ILIKE ${like} OR bc.phone ILIKE ${like}))`,
+    ];
+    if (digits.length >= 7) {
+      p.push(`%${digits}%`);
+      const dlike = `$${p.length}`;
+      conds.push(`regexp_replace(coalesce(b.phone, ''), '[^0-9]', '', 'g') LIKE ${dlike}`);
+      conds.push(`EXISTS(SELECT 1 FROM brand_contacts bc2 WHERE bc2.brand_id=b.id
+                  AND regexp_replace(coalesce(bc2.phone, ''), '[^0-9]', '', 'g') LIKE ${dlike})`);
+    }
+    where.push(`(${conds.join(" OR ")})`);
   }
   if (f.state) { p.push(f.state); where.push(`b.state=$${p.length}`); }
   // 상태 지정이 없으면 종료(dropped/churned) 제외 — 관리 목록에서 숨김. 명시 필터 시엔 표시.

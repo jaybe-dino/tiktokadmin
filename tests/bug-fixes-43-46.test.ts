@@ -28,11 +28,14 @@ describe("BUG-43 · 세미나 리드를 한 번에 본다", () => {
   });
 });
 
-describe("BUG-44 · 상세페이지 영문 칸", () => {
+describe("BUG-44 · 상세페이지 현지어 칸", () => {
   const form = readFileSync(new URL("../app/apply/ApplyForm.tsx", import.meta.url), "utf8");
-  it("영문 칸과 안내 문구가 있다", () => {
-    expect(form).toContain("상세페이지(영문)");
-    expect(form).toContain("영문이 있으면 영문으로 부탁드립니다");
+  // BUG-51 에서 "영문" 고정 표기를 국가별 언어로 바꿨다. 칸이 있다는 요구는 그대로이고,
+  // 라벨만 국가에 따라 달라진다(베트남 → 상세페이지(베트남어)).
+  it("한글본 외에 현지어 칸이 따로 있다", () => {
+    expect(form).toContain("상세페이지(현지어)");
+    expect(form).toContain("detailPageLabel(country)");
+    expect(form).toContain('lang="local"');
   });
   it("한글 칸은 그대로 남아 있다", () => {
     expect(form).toContain("상세페이지(한글)");

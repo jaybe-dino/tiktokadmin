@@ -69,7 +69,7 @@ export default async function CustomersPage({
 
       {/* 검색·필터·정렬 바 */}
       <form method="GET" className="bar">
-        <input name="q" defaultValue={sp.q ?? ""} style={{ width: 200 }} placeholder="브랜드·담당자·이메일 검색" />
+        <input name="q" defaultValue={sp.q ?? ""} style={{ width: 200 }} placeholder="브랜드·담당자·이메일·전화번호 검색" />
         <select name="state" defaultValue={sp.state ?? ""} style={{ width: 140 }}>
           <option value="">상태 전체</option>
           {STATES.map((s) => <option key={s} value={s}>{STATE_LABELS[s]}</option>)}

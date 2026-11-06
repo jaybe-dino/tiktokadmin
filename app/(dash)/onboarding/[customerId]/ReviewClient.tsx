@@ -71,6 +71,12 @@ export default function ReviewClient(props: Props) {
           <div key={s.step_no} className="card" style={{ padding: 16, marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
               <span style={{ fontWeight: 700, fontSize: 15 }}>{s.step_no}. {STEP_TITLES[s.step_no - 1]}</span>
+              {/* BUG-54: 제품등록 바로 옆에 총 개수 — 펼치지 않고도 몇 개 올라왔는지 보이게. */}
+              {s.step_no === 4 && (
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: props.products.length ? "var(--ink)" : "var(--ink2)" }}>
+                  &gt; 총 {props.products.length}개
+                </span>
+              )}
               <span style={{ fontSize: 12, fontWeight: 600, color: statusColor(s.status) }}>· {statusLabel(s.status)}</span>
               {reviewable && (
                 <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>

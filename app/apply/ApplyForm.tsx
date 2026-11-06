@@ -7,12 +7,14 @@ import {
   addProductAction, updateProductAction, deleteProductAction, upsertProductCountryAction,
 } from "./actions";
 import FdaListingExample from "@/components/FdaListingExample";
+import PassportExample from "@/components/PassportExample";
 import ImageTranslate from "@/components/ImageTranslate";
 import { fileDownloadHref } from "@/lib/onb-file-link";
 import {
   JP_LABEL_FIELD, JP_LABEL_MAX_COUNT, JP_LABEL_MIN_PX, JP_LABEL_ITEMS, JP_LABEL_FORMATS,
   JP_LABEL_MAX_BYTES, COMPANY_DOCS_FIELD, COMPANY_DOCS_MAX_BYTES,
   ROUTE_BODY_LIMIT_BYTES, uploadLimitBytes, mbLabel,
+  detailPageLabel, fbaAllowed, FBA_BLOCKED_NOTE, ADDRESS_PROOF_NOTICE,
 } from "@/lib/onb-constants";
 
 // ── 상수(tpartners 정합) ──
@@ -89,6 +91,16 @@ export default function ApplyForm(props: Props) {
   }
   async function logout() { await fetch("/api/apply/logout", { method: "POST" }); router.replace("/apply/login"); router.refresh(); }
 
+  // BUG-56: 다음 단계 안내 — 마지막 단계에서는 보여주지 않는다.
+  const nextStep = active + 1 < steps.length ? steps[active + 1] : null;
+  const remainingOpen = steps.filter((s, i) => i > active && s.status !== "approved").length;
+  function goNext() {
+    if (!nextStep || nextStep.status === "locked") return;
+    setActive(active + 1);
+    setMissing([]);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
+  }
+
   return (
     <div style={{ paddingBottom: 60 }}>
       <header style={{ display: "flex", alignItems: "center", gap: 10, padding: "20px 4px 14px" }}>
@@ -151,6 +163,29 @@ export default function ApplyForm(props: Props) {
               <a href="#" onClick={(e) => { e.preventDefault(); }} style={{ display: "none" }} />
               <button disabled={busy} onClick={() => onSaveOrSubmit(active, "save")} style={btnGray}>임시저장</button>
               <button disabled={busy} onClick={() => onSaveOrSubmit(active, "submit")} style={{ ...btnPri, marginLeft: "auto" }}>{submitted ? `Step ${active + 1} 다시 제출` : `Step ${active + 1} 제출 (검토 요청)`}</button>
+            </div>
+          )}
+
+          {/* BUG-56: 다음 단계로 넘어가는 버튼 — Step 1 만 쓰고 멈추는 경우가 많다.
+              다음 단계가 열려 있을 때만 보여주고, 잠겨 있으면 왜 잠겼는지 적는다. */}
+          {nextStep && (
+            <div style={{ marginTop: 14, border: `1px solid ${nextStep.status === "locked" ? "#e2e6eb" : "#bfe6d4"}`,
+              background: nextStep.status === "locked" ? "#f7f8fa" : "#f2fbf7", borderRadius: 12, padding: "13px 15px" }}>
+              {nextStep.status === "locked" ? (
+                <div style={{ fontSize: 12.5, color: "#6b7280" }}>
+                  다음 단계 <b>Step {active + 2} · {STEP_TITLES[active + 1]}</b> 는 이 단계가 승인되면 열립니다.
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12.5, color: "#1b6b4e", marginBottom: 9, lineHeight: 1.6 }}>
+                    아직 <b>{remainingOpen}개 단계</b>가 남아 있습니다. 여기서 멈추면 입점 심사가 시작되지 않습니다 —
+                    이어서 <b>Step {active + 2} · {STEP_TITLES[active + 1]}</b> 도 작성해주세요.
+                  </div>
+                  <button onClick={goNext} style={{ ...btnPri, width: "100%" }}>
+                    다음: Step {active + 2} · {STEP_TITLES[active + 1]} 작성하기 →
+                  </button>
+                </>
+              )}
             </div>
           )}
         </>
@@ -407,10 +442,20 @@ function Step3({ v, set, disabled }: { v: Record<string, string>; set: (k: strin
           placeholder={"예시:\n- 홍길동 (대표) 60%\n- 김철수 (이사) 40%"} style={{ ...inputStyle, resize: "vertical" }} />
       </Card>
       <Card title="② 대표자 여권" desc="여권 사진·인적사항 면 한 장을 선명하게 업로드해주세요.">
+        {/* BUG-57: 어떤 면을 어떻게 찍어야 하는지 예시로 보여준다 — 반려 왕복을 줄인다. */}
+        <details style={{ marginBottom: 10, background: "#f0f6ff", border: "1px solid #cfe0ff", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, color: "#1e3a8a" }}>
+          <summary style={{ cursor: "pointer", fontWeight: 700 }}>📷 여권 사진면 예시 — 어떤 면을 어떻게 찍으면 되나요?</summary>
+          <div style={{ marginTop: 10 }}><PassportExample /></div>
+        </details>
         <FileField label="여권 사진면" req field="rep_passport_front" k="rep_passport_front_url" {...{ v, set, disabled }} />
       </Card>
       {/* BUG-24: 대표자 신분증 카드 제거 — 여권만 필요(기존 제출분은 어드민 검토 화면에서 계속 열람 가능). */}
       <Card title="③ 대표자 거주지 증명서류" desc="최근 12개월 이내 발행, 대표자 성명·주소가 함께 표시된 서류 1부 (은행 거래내역서·신용카드 명세서·공과금 고지서·보험 증권 등).">
+        {/* BUG-53: 주소가 가려진 서류가 반복 반려되므로 발급 단계에서 확인할 점을 앞에 둔다. */}
+        <div style={{ background: "#fffaf0", border: "1px solid #f2d9a8", borderRadius: 10, padding: "10px 12px", marginBottom: 10, fontSize: 12.5, color: "#8a5a12", lineHeight: 1.65 }}>
+          <b>⚠️ 발급 전 확인</b>
+          <div style={{ marginTop: 4 }}>{ADDRESS_PROOF_NOTICE}</div>
+        </div>
         <FileField label="거주지 증명서류" req field="rep_address_proof" k="rep_address_proof_url" {...{ v, set, disabled }} />
       </Card>
       <Card title="④ 핑퐁페이먼트(PingPong) 가입 여부" desc="해외 정산을 위해 PingPong Payments 계정이 필요합니다.">
@@ -613,7 +658,7 @@ export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash
       <div style={{ overflowX: "auto", marginTop: 6 }}>
         <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", minWidth: 720 }}>
           <thead><tr style={{ color: "#8b93a1", textAlign: "left" }}>
-            <th style={thc}>국가</th><th style={thc}>단가</th><th style={thc}>통화</th><th style={thc}>인증</th><th style={thc}>인증 메모</th><th style={thc}>인증 첨부</th><th style={thc}>상세페이지(한글)<div style={{ fontWeight: 400, color: "#9ca3af" }}>이미지·PDF 업로드</div></th><th style={thc}>상세페이지(영문)<div style={{ fontWeight: 400, color: "#9ca3af" }}>영문이 있으면 영문으로 부탁드립니다</div></th>
+            <th style={thc}>국가</th><th style={thc}>단가</th><th style={thc}>통화</th><th style={thc}>인증</th><th style={thc}>인증 메모</th><th style={thc}>인증 첨부</th><th style={thc}>상세페이지(한글)<div style={{ fontWeight: 400, color: "#9ca3af" }}>이미지·PDF 업로드</div></th><th style={thc}>상세페이지(현지어)<div style={{ fontWeight: 400, color: "#9ca3af" }}>국가별로 필요한 언어가 다릅니다 — 각 줄에 표시</div></th>
           </tr></thead>
           <tbody>
             {countries.map((c) => {
@@ -627,7 +672,7 @@ export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash
                   <td style={tdc}><input value={r.cert_note ?? ""} disabled={disabled} onChange={(e) => updPc(c.country_code, { cert_note: e.target.value })} style={{ ...cellInp, minWidth: 110 }} /></td>
                   <td style={tdc}><InlineFile field={`cert_${c.country_code}`} url={r.cert_file_url} disabled={disabled} onDone={(u) => updPc(c.country_code, { cert_file_url: u })} /></td>
                   <td style={tdc}><DetailPageField country={c.country_code} value={r.detail_page_kr ?? ""} disabled={disabled} onChange={(v) => updPc(c.country_code, { detail_page_kr: v })} /></td>
-                  <td style={tdc}><DetailPageField country={c.country_code} lang="en" value={r.detail_page_en ?? ""} disabled={disabled} onChange={(v) => updPc(c.country_code, { detail_page_en: v })} /></td>
+                  <td style={tdc}><DetailPageField country={c.country_code} lang="local" value={r.detail_page_en ?? ""} disabled={disabled} onChange={(v) => updPc(c.country_code, { detail_page_en: v })} /></td>
                 </tr>
               );
             })}
@@ -655,10 +700,24 @@ function Step5({ disabled, countries, onChange, flash }: { disabled: boolean; co
               <span style={{ fontSize: 12, color: "#8b93a1" }}>{COUNTRY_NAME[c.country_code] ?? c.country_name}</span>
             </div>
             <label style={{ fontSize: 12, color: "#4b5563", fontWeight: 600, display: "block", marginBottom: 8 }}>물류 방식
-              <select value={opt} disabled={disabled} onChange={async (e) => { await setCountryLogisticsOptionAction(c.country_code, e.target.value); onChange(); }} style={{ ...inputStyle, maxWidth: 300 }}>
-                {LOGISTICS_OPTIONS.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+              <select value={opt} disabled={disabled} onChange={async (e) => {
+                const r = await setCountryLogisticsOptionAction(c.country_code, e.target.value);
+                if (!r.ok) { flash(r.error ?? "저장하지 못했습니다."); }
+                onChange();
+              }} style={{ ...inputStyle, maxWidth: 300 }}>
+                {/* BUG-55: 일본은 FBA 로 출고할 수 없다 — 고를 수 있게 두면 계약 단계에서 되돌아간다.
+                    이미 FBA 로 저장된 과거 값이 있으면 그 값은 남겨 보여준다(조용히 바뀐 것처럼 보이지 않게). */}
+                {LOGISTICS_OPTIONS
+                  .filter(([val]) => val !== "fba" || fbaAllowed(c.country_code) || opt === "fba")
+                  .map(([val, label]) => <option key={val} value={val}>{label}</option>)}
               </select>
             </label>
+            {!fbaAllowed(c.country_code) && (
+              <div style={{ background: "#fffaf0", border: "1px solid #f2d9a8", borderRadius: 8, padding: "7px 10px", marginBottom: 8, fontSize: 12, color: "#8a5a12" }}>
+                ⚠️ {FBA_BLOCKED_NOTE}
+                {opt === "fba" && <b style={{ display: "block", marginTop: 3 }}>지금 FBA 로 저장돼 있습니다 — 다른 방식으로 바꿔주세요.</b>}
+              </div>
+            )}
             <FbtInterest code={c.country_code} init={Boolean(c.fbt_interest)} disabled={disabled}
               onSaved={(m: string) => { onChange(); flash(m); }} />
             {opt === "cross_border" && <div style={{ fontSize: 12, color: "#1d4ed8", background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>📦 한국에서 크로스보더 배송 <b>(동남아시아만 해당)</b>: 주문 시 한국에서 직접 발송합니다. 현지 창고 계약이 없어도 됩니다.</div>}
@@ -810,12 +869,17 @@ function InlineFile({ field, url, disabled, onDone }: { field: string; url?: str
 // 예전엔 상세페이지 내용을 직접 타이핑하는 칸이었는데, 실제로는 이미지·PDF 로 갖고 있어
 // 옮겨 적기 어려웠다(BUG-33) → 파일 업로드로 받는다.
 // 이미 글로 적어 보낸 값이 있으면 지우지 않고 그대로 보여주고, 원하면 파일로 교체할 수 있다.
-function DetailPageField({ country, value, disabled, onChange, lang = "kr" }: { country: string; value: string; disabled: boolean; onChange: (v: string) => void; lang?: "kr" | "en" }) {
+function DetailPageField({ country, value, disabled, onChange, lang = "kr" }: { country: string; value: string; disabled: boolean; onChange: (v: string) => void; lang?: "kr" | "local" }) {
   const isFile = /^(https?:\/\/|\/api\/)/.test(value);
-  // 업로드 필드 키는 언어별로 다르다 — 한글본과 영문본이 서로 덮어쓰지 않게.
-  const field = lang === "en" ? `detail_en_${country}` : `detail_${country}`;
+  // 업로드 필드 키는 언어별로 다르다 — 한글본과 현지어본이 서로 덮어쓰지 않게.
+  //   (저장 칼럼 detail_page_en 은 그대로 둔다 — 과거 제출분을 잃지 않기 위해서다.)
+  const field = lang === "local" ? `detail_en_${country}` : `detail_${country}`;
   return (
     <div style={{ minWidth: 190 }}>
+      {/* BUG-51: 국가마다 필요한 언어를 칸 안에 그대로 적는다(베트남 → 상세페이지(베트남어)). */}
+      {lang === "local" && (
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#111", marginBottom: 3 }}>{detailPageLabel(country)}</div>
+      )}
       {!disabled && <InlineFile field={field} url={isFile ? value : undefined} disabled={disabled} onDone={onChange} />}
       {disabled && isFile && <a href={value} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: ACC }}>파일 보기 ↗</a>}
       {!isFile && value && (
@@ -824,7 +888,7 @@ function DetailPageField({ country, value, disabled, onChange, lang = "kr" }: { 
           {!disabled && <button type="button" onClick={() => onChange("")} style={{ marginLeft: 6, fontSize: 11, border: "1px solid #e2e6eb", background: "#fff", borderRadius: 6, padding: "1px 6px", cursor: "pointer" }}>지우기</button>}
         </div>
       )}
-      {!value && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{lang === "en" ? "영문본이 있으면 올려주세요" : "이미지/PDF 업로드"}</div>}
+      {!value && <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{lang === "local" ? `${detailPageLabel(country).replace(/^상세페이지\(|\)$/g, "")}본이 있으면 올려주세요` : "이미지/PDF 업로드"}</div>}
     </div>
   );
 }

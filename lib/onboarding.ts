@@ -4,6 +4,7 @@
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { query, queryOne } from "./db";
+import { fbaAllowed, FBA_BLOCKED_NOTE } from "./onb-constants";
 import { env } from "./env";
 import { hashPassword, verifyPassword } from "./auth";
 import { syncServiceTags } from "./service-tags";
@@ -501,8 +502,14 @@ export async function setCountryLogistics(applicationId: string, code: string, u
   return { ok: true };
 }
 /** Step5 국가별 물류 방식(FBA/현지창고/크로스보더) 저장. */
-export async function setCountryLogisticsOption(applicationId: string, code: string, option: string): Promise<{ ok: boolean }> {
-  await query("UPDATE onb_countries SET logistics_option=$3 WHERE application_id=$1 AND country_code=$2", [applicationId, code.toUpperCase(), option]).catch(() => {});
+export async function setCountryLogisticsOption(applicationId: string, code: string, option: string): Promise<{ ok: boolean; error?: string }> {
+  const cc = code.toUpperCase();
+  // BUG-55: 일본은 FBA 로 출고할 수 없다. 화면 목록에서도 빼지만 서버에서도 막는다 —
+  //   저장된 척하고 계약 단계에서 되돌아가는 일이 없게.
+  if (option === "fba" && !fbaAllowed(cc)) {
+    return { ok: false, error: FBA_BLOCKED_NOTE };
+  }
+  await query("UPDATE onb_countries SET logistics_option=$3 WHERE application_id=$1 AND country_code=$2", [applicationId, cc, option]).catch(() => {});
   return { ok: true };
 }
 /** Step5 추후 FBT(Fulfilled by TikTok) 신청 희망 여부. 0100 미적용이면 조용히 무시된다. */

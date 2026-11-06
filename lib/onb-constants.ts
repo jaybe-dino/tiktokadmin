@@ -48,3 +48,41 @@ export const JP_LABEL_ITEMS = [
   "제조사/판매사 명칭 및 주소",
 ] as const;
 export const JP_LABEL_FORMATS = "PDF · PNG · JPG · JPEG";
+
+// ── 국가별 상세페이지 언어(BUG-51) ─────────────────────────────
+//   "상세페이지(영문)" 한 가지로 묶으면 베트남·태국·일본 담당자가 영문본을 올려야
+//   하는지 현지어본을 올려야 하는지 알 수 없다. 국가별로 쓸 언어를 못 박는다.
+export const COUNTRY_LANG: Record<string, string> = {
+  US: "영어", JP: "일본어", TH: "태국어", VN: "베트남어",
+  MY: "말레이어", SG: "영어", PH: "영어",
+};
+/** 그 국가의 현지어 상세페이지 칸 이름. 모르는 국가는 "현지어" 로 둔다. */
+export function detailPageLabel(code: string): string {
+  const lang = COUNTRY_LANG[String(code || "").toUpperCase()];
+  return lang ? `상세페이지(${lang})` : "상세페이지(현지어)";
+}
+
+// ── 국가별 물류 제한(BUG-55) ──────────────────────────────────
+//   일본 틱톡샵은 FBA(아마존 물류)로 출고할 수 없다. 고를 수 있게 두면
+//   계약 단계에서 되돌려야 하므로 목록에서 아예 빼고 이유를 적는다.
+export const FBA_BLOCKED_COUNTRIES: readonly string[] = ["JP"];
+export function fbaAllowed(code: string): boolean {
+  return FBA_BLOCKED_COUNTRIES.indexOf(String(code || "").toUpperCase()) < 0;
+}
+export const FBA_BLOCKED_NOTE =
+  "일본은 FBA(아마존 물류)를 선택할 수 없습니다. 현지 물류창고 계약으로 진행해 주세요.";
+
+// ── 대표자 거주지 증명서류 안내(BUG-53) ───────────────────────
+//   주소가 가려진 서류가 반복해서 올라와 심사가 되돌아가므로, 발급 단계에서
+//   무엇을 확인해야 하는지 업로드 칸 바로 위에 적는다.
+export const ADDRESS_PROOF_NOTICE =
+  "거주지 증명서 제출 시, 주소 정보가 마스킹되지 않도록 동·호수까지 전체 주소가 "
+  + "모두 확인될 수 있게 발급 및 제출 부탁드립니다.";
+
+// ── 대표자 여권 사진면 안내(BUG-57) ───────────────────────────
+export const PASSPORT_GUIDE: readonly string[] = [
+  "사진·인적사항이 있는 면(여권 앞쪽)을 펼쳐서 촬영",
+  "네 모서리가 모두 보이고 잘리지 않게",
+  "빛 반사·그림자로 글자가 가려지지 않게",
+  "이름·여권번호·생년월일·만료일이 선명하게 읽히게",
+];
