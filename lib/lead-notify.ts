@@ -129,10 +129,14 @@ export async function notifyNewLead(brandId: string, opts: NotifyLeadOpts = {}):
   ].filter(Boolean).join(" · ");
   const headline = opts.created === false ? "♻️ 리드 갱신(기존 브랜드)" : "🆕 신규 리드 유입";
 
-  const memo = memoBlockText(b.memo);
+  // 개별미팅 신청 리드(service2 게이트에서 메모 첫 줄 마커) — Slack에서 별도 강조 라인으로 표시.
+  //   메모 블록에서는 마커 줄을 제거해 중복을 피한다.
+  const meetingOk = /개별미팅 신청 OK/.test(b.memo ?? "");
+  const memo = memoBlockText((b.memo ?? "").replace(/^✅ 개별미팅 신청 OK[^\n]*\n?/, ""));
 
   const blocks: Block[] = [
     { type: "header", text: { type: "plain_text", text: `${headline} — ${b.brand_name}`, emoji: true } },
+    ...(meetingOk ? [{ type: "section", text: { type: "mrkdwn", text: "✅ *개별미팅 신청 OK* — 담당자 개별 연락 요망" } } as Block] : []),
     { type: "section", text: { type: "mrkdwn", text: detail.length ? detail.join("\n") : "_상세 연락처 없음_" } },
     { type: "context", elements: [{ type: "mrkdwn", text: `📥 소스: ${srcBits}` }] },
     // 고객이 남긴 메모 — 있을 때만 넣는다(빈 블록을 만들지 않는다).
