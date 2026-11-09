@@ -98,3 +98,13 @@ export const FBT_US_NOTE: readonly string[] = [
   "FBT는 미국 내 지정 창고에 재고를 미리 입고하면, 틱톡이 상품 보관부터 피킹·포장·고객 배송까지 처리하는 서비스입니다.",
   "다만, 미국 틱톡샵 입점 시에는 미국 물류창고 계약서가 필수로 요구되므로, 먼저 현지 물류창고와 계약을 진행해야 합니다. 이후 샵 개설이 완료되면 FBT를 신청하여 이용하실 수 있습니다.",
 ];
+
+// ── FBT 를 쓸 수 없는 국가 ────────────────────────────────────
+//   일본은 FBT(Fulfilled by TikTok) 대상이 아니다. 희망 체크를 띄워 두면
+//   "신청해 두면 되는 것" 으로 읽혀 나중에 되돌아가므로 아예 보여주지 않는다.
+export const FBT_BLOCKED_COUNTRIES: readonly string[] = ["JP"];
+export function fbtAvailable(code: string): boolean {
+  return FBT_BLOCKED_COUNTRIES.indexOf(String(code || "").toUpperCase()) < 0;
+}
+export const FBT_BLOCKED_NOTE =
+  "일본은 FBT(Fulfilled by TikTok) 대상이 아닙니다. 현지 물류창고 계약으로 진행해 주세요.";

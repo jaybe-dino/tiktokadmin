@@ -3,9 +3,13 @@
 //   순서(창고 계약 먼저 → 샵 개설 → FBT 신청)가 담긴 두 문장을 모두 확인한다.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { fbtNoteFor, FBT_NOTE_COUNTRIES, FBT_US_NOTE } from "../lib/onb-constants";
+import {
+  fbtNoteFor, FBT_NOTE_COUNTRIES, FBT_US_NOTE,
+  fbtAvailable, FBT_BLOCKED_COUNTRIES, FBT_BLOCKED_NOTE,
+} from "../lib/onb-constants";
 
 const applyForm = readFileSync(new URL("../app/apply/ApplyForm.tsx", import.meta.url), "utf8");
+const onboarding = readFileSync(new URL("../lib/onboarding.ts", import.meta.url), "utf8");
 
 describe("미국 FBT 안내 문구", () => {
   it("미국에서만 띄운다", () => {
@@ -44,5 +48,35 @@ describe("미국 FBT 안내 문구", () => {
 
   it("문구를 신청서에 다시 하드코딩하지 않는다(한곳에서 고치게)", () => {
     expect(applyForm).not.toContain("지정 창고에 재고를 미리 입고");
+  });
+});
+
+describe("일본은 FBT 희망 체크를 보여주지 않는다", () => {
+  it("일본만 막는다", () => {
+    expect(fbtAvailable("JP")).toBe(false);
+    expect(fbtAvailable("jp")).toBe(false);
+    ["US", "TH", "VN", "MY", "SG", "PH"].forEach((c) => {
+      expect(fbtAvailable(c), c).toBe(true);
+    });
+    expect([...FBT_BLOCKED_COUNTRIES]).toEqual(["JP"]);
+  });
+
+  it("사유를 사람이 읽을 수 있게 적는다", () => {
+    expect(FBT_BLOCKED_NOTE).toContain("일본");
+    expect(FBT_BLOCKED_NOTE).toContain("FBT");
+  });
+
+  it("신청서에서 체크 자체를 렌더하지 않는다", () => {
+    expect(applyForm).toMatch(/fbtAvailable\(c\.country_code\) && \(\s*<FbtInterest/);
+  });
+
+  it("서버에서도 막는다 — 화면을 우회해도 켜지지 않는다", () => {
+    expect(onboarding).toMatch(/want && !fbtAvailable\(cc\)/);
+    expect(onboarding).toContain("FBT_BLOCKED_NOTE");
+  });
+
+  it("해제는 막지 않는다 — 과거에 켜 둔 값을 되돌릴 수 있어야 한다", () => {
+    // 가드가 want=true 일 때만 걸리는지 소스로 확인한다.
+    expect(onboarding).not.toMatch(/if \(!fbtAvailable\(cc\)\) \{/);
   });
 });

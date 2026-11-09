@@ -15,7 +15,7 @@ import {
   JP_LABEL_MAX_BYTES, COMPANY_DOCS_FIELD, COMPANY_DOCS_MAX_BYTES,
   ROUTE_BODY_LIMIT_BYTES, uploadLimitBytes, mbLabel,
   detailPageLabel, fbaAllowed, FBA_BLOCKED_NOTE, ADDRESS_PROOF_NOTICE,
-  fbtNoteFor, FBT_US_NOTE,
+  fbtNoteFor, FBT_US_NOTE, fbtAvailable,
 } from "@/lib/onb-constants";
 
 // ── 상수(tpartners 정합) ──
@@ -728,8 +728,11 @@ function Step5({ disabled, countries, onChange, flash }: { disabled: boolean; co
                 ))}
               </div>
             )}
-            <FbtInterest code={c.country_code} init={Boolean(c.fbt_interest)} disabled={disabled}
-              onSaved={(m: string) => { onChange(); flash(m); }} />
+            {/* 일본은 FBT 대상이 아니라 희망 체크를 띄우지 않는다 — 체크해 둘 수 있으면 신청된 줄 안다. */}
+            {fbtAvailable(c.country_code) && (
+              <FbtInterest code={c.country_code} init={Boolean(c.fbt_interest)} disabled={disabled}
+                onSaved={(m: string) => { onChange(); flash(m); }} />
+            )}
             {opt === "cross_border" && <div style={{ fontSize: 12, color: "#1d4ed8", background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>📦 한국에서 크로스보더 배송 <b>(동남아시아만 해당)</b>: 주문 시 한국에서 직접 발송합니다. 현지 창고 계약이 없어도 됩니다.</div>}
             {needWarehouse && (
               <div style={{ display: "grid", gap: 8, marginBottom: 8 }}>

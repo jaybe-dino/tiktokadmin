@@ -4,7 +4,7 @@
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { query, queryOne } from "./db";
-import { fbaAllowed, FBA_BLOCKED_NOTE } from "./onb-constants";
+import { fbaAllowed, FBA_BLOCKED_NOTE, fbtAvailable, FBT_BLOCKED_NOTE } from "./onb-constants";
 import { env } from "./env";
 import { hashPassword, verifyPassword } from "./auth";
 import { syncServiceTags } from "./service-tags";
@@ -514,9 +514,15 @@ export async function setCountryLogisticsOption(applicationId: string, code: str
 }
 /** Step5 추후 FBT(Fulfilled by TikTok) 신청 희망 여부. 0100 미적용이면 조용히 무시된다. */
 export async function setCountryFbtInterest(applicationId: string, code: string, want: boolean): Promise<{ ok: boolean; error?: string }> {
+  const cc = code.toUpperCase();
+  // 일본은 FBT 대상이 아니다. 화면에서 체크를 숨기지만 서버에서도 막는다 —
+  //   화면을 우회해 켜 두면 아무도 안 보는 곳에 "희망" 으로 남는다.
+  if (want && !fbtAvailable(cc)) {
+    return { ok: false, error: FBT_BLOCKED_NOTE };
+  }
   try {
     await query("UPDATE onb_countries SET fbt_interest=$3 WHERE application_id=$1 AND country_code=$2",
-      [applicationId, code.toUpperCase(), want]);
+      [applicationId, cc, want]);
     return { ok: true };
   } catch (e) {
     // 컬럼이 없으면(마이그레이션 0100 미적용) 사유를 알려준다 — 저장된 척하지 않는다.
