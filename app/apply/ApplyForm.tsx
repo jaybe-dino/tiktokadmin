@@ -631,10 +631,10 @@ export function ProductCard({ idx, p, disabled, countries, rows, onChange, flash
         <MInp label="SKU" val={pd.sku} on={(x) => setPd({ ...pd, sku: x })} disabled={disabled} />
       </Grid>
       <textarea value={pd.description_kr} disabled={disabled} onChange={(e) => setPd({ ...pd, description_kr: e.target.value })} rows={2} placeholder="제품 설명 (한글)" style={{ ...inputStyle, marginTop: 8, resize: "vertical" }} />
-      {/* BUG-25: 영문 라벨 부착 사진 — 제품 단상자에 영문 라벨을 붙인 상태가 잘 보이게 촬영. */}
+      {/* BUG-25: 입점 국가 언어 라벨 부착 사진 — 제품 단상자에 입점 국가 언어 라벨을 붙인 상태가 잘 보이게 촬영(국가 무관 공통 문구). */}
       <div style={{ marginTop: 12, background: "#fffdf2", border: "1px solid #f2e6bf", borderRadius: 10, padding: "10px 12px" }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#111" }}>영문 라벨 부착 사진 <span style={{ color: "#e03131" }}>*</span></div>
-        <div style={{ fontSize: 12, color: "#8a7a3f", margin: "3px 0 6px" }}>제품 단상자에 영문 라벨을 부착한 후, 부착 상태가 잘 보이도록 사진을 촬영해 업로드해주세요.</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#111" }}>입점 국가 언어 라벨 부착 <span style={{ color: "#e03131" }}>*</span></div>
+        <div style={{ fontSize: 12, color: "#8a7a3f", margin: "3px 0 6px" }}>제품 단상자에 입점 국가 언어의 라벨을 부착한 후, 부착 상태가 잘 보이도록 사진을 촬영해 업로드해 주세요.</div>
         <InlineFile field={`label_photo_${p.id}`} url={pd.label_photo_url || undefined} disabled={disabled}
           onDone={(u) => setPd((s) => ({ ...s, label_photo_url: u }))} />
         {pd.label_photo_url && <span style={{ fontSize: 11.5, color: "#0b7a52", marginLeft: 6 }}>✓ 업로드됨 — 아래 [저장]을 눌러 반영하세요</span>}

@@ -77,7 +77,7 @@ export default function OnbProductAdmin({ brands }: { brands: { id: string; name
               </div>
               {p.description_kr && <div style={{ fontSize: 12.5, color: "var(--ink2)", marginTop: 4 }}>{p.description_kr}</div>}
               <div style={{ fontSize: 12, marginTop: 4 }}>
-                영문 라벨 사진:{" "}
+                입점 국가 언어 라벨 부착 사진:{" "}
                 {p.label_photo_url
                   ? <FileLink url={p.label_photo_url} name={`라벨_${p.sku || p.name || p.id}`} label="📷 라벨 사진" />
                   : <span style={{ color: "#c92a2a" }}>미등록</span>}

@@ -333,7 +333,7 @@ export interface OnbProduct {
   id: string; name: string; category: string; sku: string; description_kr: string; main_image_url: string;
   // 제품 승인(0088) — 미적용 DB 에선 undefined.
   approval_status?: string; approval_note?: string; approved_at?: string | null; approved_by?: string;
-  // 영문 라벨 부착 사진(0090, BUG-25) — 미적용 DB 에선 undefined.
+  // 입점 국가 언어 라벨 부착 사진(0090, BUG-25) — 미적용 DB 에선 undefined.
   label_photo_url?: string;
 }
 export interface OnbProductCountry { id: string; product_id: string; country_code: string; unit_price: string; currency: string; cert_status: string; cert_note: string; cert_file_url: string; detail_page_kr: string; detail_page_en: string; detail_page_translated: string; translation_status: string }
