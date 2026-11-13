@@ -17,6 +17,7 @@ import {
   detailPageLabel, fbaAllowed, FBA_BLOCKED_NOTE, ADDRESS_PROOF_NOTICE,
   fbtNoteFor, FBT_US_NOTE, fbtAvailable,
 } from "@/lib/onb-constants";
+import { type DocCheck, VERDICT_LABEL, VERDICT_STYLE, reasonLines } from "@/lib/onb-doc-rules";
 
 // ── 상수(tpartners 정합) ──
 const COUNTRIES: [string, string][] = [["US", "미국"], ["JP", "일본"], ["TH", "태국"], ["VN", "베트남"], ["MY", "말레이시아"], ["SG", "싱가포르"], ["PH", "필리핀"]];
@@ -796,7 +797,7 @@ function LDetailInput({ label, code, field, init, disabled, onSaved, textarea }:
  *   우리 JSON 이 아니라 파싱이 터지고, 화면에는 사유 없는 "업로드 실패"만 떴다.
  *   담당자가 보고도 무엇을 고쳐야 할지 알 수 없는 상태였다.
  */
-async function uploadFile(field: string, file: File): Promise<{ ok: boolean; url?: string; error?: string }> {
+async function uploadFile(field: string, file: File): Promise<{ ok: boolean; url?: string; error?: string; check?: DocCheck | null }> {
   // 보내기 전에 크기를 먼저 본다 — 한도를 넘으면 올려봐야 플랫폼이 끊는다.
   const limit = uploadLimitBytes(
     field === COMPANY_DOCS_FIELD ? COMPANY_DOCS_MAX_BYTES
@@ -820,7 +821,7 @@ async function uploadFile(field: string, file: File): Promise<{ ok: boolean; url
   }
 
   const body = await res.json().catch(() => null);
-  if (body && typeof body === "object") return body as { ok: boolean; url?: string; error?: string };
+  if (body && typeof body === "object") return body as { ok: boolean; url?: string; error?: string; check?: DocCheck | null };
 
   // 우리 JSON 이 아니다 = 라우트까지 닿지 못했다. 상태 코드로 사유를 말해준다.
   if (res.status === 413) {
@@ -864,16 +865,41 @@ function FileField({ label, req, field, k, v, set, disabled }: { label: string; 
 }
 function InlineFile({ field, url, disabled, onDone }: { field: string; url?: string; disabled: boolean; onDone: (u: string) => void }) {
   const [busy, setBusy] = useState(false);
+  // BUG-60: 올린 자리에서 바로 검수 결과를 보여 준다.
+  //   (업로드 실패도 지금까지 조용히 묻혔다 — 같이 띄운다.)
+  const [check, setCheck] = useState<DocCheck | null>(null);
+  const [err, setErr] = useState("");
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return;
-    setBusy(true); const r = await uploadFile(field, file); setBusy(false);
-    if (r.ok && r.url) onDone(r.url);
+    setBusy(true); setErr(""); setCheck(null);
+    const r = await uploadFile(field, file);
+    setBusy(false);
+    if (r.ok && r.url) { setCheck(r.check ?? null); onDone(r.url); }
+    else setErr(r.error ?? "업로드하지 못했습니다.");
   }
   return (
     <div>
       {!disabled && <input type="file" accept=".pdf,.jpg,.jpeg,.png" disabled={busy} onChange={onPick} style={{ fontSize: 12, maxWidth: 150 }} />}
       {busy && <div style={{ fontSize: 11, color: "#6b7280" }}>업로드 중…</div>}
+      {err && <div style={{ fontSize: 11, color: "#c92a2a", marginTop: 2, maxWidth: 260, lineHeight: 1.5 }}>{err}</div>}
       {url && <div style={{ fontSize: 11, color: "#0b7a52", marginTop: 2 }}>✓ <a href={url} target="_blank" rel="noreferrer" style={{ color: ACC }}>보기</a></div>}
+      <DocCheckNote check={check} />
+    </div>
+  );
+}
+
+// 검수 결과 — 통과면 조용히 두고, 고쳐야 할 때만 사유를 적는다.
+function DocCheckNote({ check }: { check: DocCheck | null }) {
+  if (!check || check.verdict === "pass") return null;
+  const st = VERDICT_STYLE[check.verdict];
+  const lines = reasonLines(check.reasons);
+  return (
+    <div style={{ marginTop: 4, maxWidth: 280, background: st.bg, border: `1px solid ${st.bd}`, borderRadius: 7, padding: "6px 8px", fontSize: 11, color: st.fg, lineHeight: 1.6 }}>
+      <b>{check.verdict === "reject" ? "⚠️" : "ℹ️"} {VERDICT_LABEL[check.verdict]}</b>
+      {lines.map((t) => <div key={t} style={{ marginTop: 2 }}>· {t}</div>)}
+      {check.verdict === "reject" && (
+        <div style={{ marginTop: 3, fontWeight: 700 }}>지금 다시 올리면 반려 없이 진행됩니다.</div>
+      )}
     </div>
   );
 }

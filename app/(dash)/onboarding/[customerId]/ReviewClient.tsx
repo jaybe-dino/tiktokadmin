@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { reviewStepAction, approveApplicationAction, setStepLockAction } from "../actions";
 import { fileLinkProps } from "@/lib/onb-file-link";
+import { type DocVerdict, VERDICT_LABEL, VERDICT_STYLE, reasonLines } from "@/lib/onb-doc-rules";
 
 interface Step { step_no: number; status: string; admin_feedback: string }
 interface Country { id: string; country_code: string; country_name: string; shop_type: string; shop_url: string; monthly_revenue: string; product_cert_status: string; product_cert_note: string; logistics_status: string; logistics_note: string; logistics_contract_url: string; logistics_option: string; logistics_local_address?: string; logistics_contract_info?: string }
@@ -16,6 +17,8 @@ interface Props {
   agencyName?: string;
   companyDocs?: CompanyDoc[];
   jpLabelPhotos?: CompanyDoc[];
+  /** BUG-60: 파일 id → 사전 검수 판정. 미적용 DB 면 빈 객체. */
+  docChecks?: Record<string, { verdict: DocVerdict; reasons: string[]; ai_used: boolean }>;
 }
 
 const STEP_TITLES = ["기본신청", "수권서 서명", "회사 추가정보", "제품 등록", "물류 계약서"];
@@ -29,6 +32,8 @@ const STEP_VIEW: Record<number, [string, string][]> = {
 const READY: Record<string, string> = { none: "없음", preparing: "준비중", ready: "완료" };
 const LOGI_OPT: Record<string, string> = { fba: "FBA (아마존 물류)", local_warehouse: "현지 물류창고 계약", cross_border: "한국 크로스보더 배송", self_delivery: "직배송", flash_intro: "플래시 소개" };
 const isUrl = (v: string) => /^(https?:\/\/|\/api\/)/.test(v);
+// 첨부 URL(/api/apply/file/<id>) 에서 파일 id 만 뽑는다 — 검수 결과를 붙이기 위해서다.
+const fileIdOf = (url: string): string => (/\/api\/apply\/file\/([0-9a-f-]{36})/i.exec(url || "")?.[1] ?? "");
 const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`);
 
 export default function ReviewClient(props: Props) {
@@ -116,6 +121,7 @@ export default function ReviewClient(props: Props) {
                         <div key={k} style={{ fontSize: 13 }}>
                           <span style={{ color: "var(--ink2)", fontSize: 11 }}>{label}</span>
                           <div style={{ wordBreak: "break-all" }}>{isUrl(val) ? <FileLink url={val} name={label} /> : val}</div>
+                          {isUrl(val) && <CheckBadge c={props.docChecks?.[fileIdOf(val)]} />}
                         </div>
                       );
                     })}
@@ -251,6 +257,20 @@ function FileLink({ url, name, label }: { url: string; name: string; label?: str
     <a {...a} style={{ color: "var(--acc)" }} title={direct ? "클릭하면 바로 다운로드됩니다." : url}>
       {label ?? "파일/링크"} {direct ? "⬇" : "↗"}
     </a>
+  );
+}
+
+// BUG-60: 사전 검수 판정 뱃지 — 통과는 굳이 띄우지 않고, 손봐야 할 것만 보여 준다.
+function CheckBadge({ c }: { c?: { verdict: DocVerdict; reasons: string[]; ai_used: boolean } }) {
+  if (!c || c.verdict === "pass") return null;
+  const st = VERDICT_STYLE[c.verdict];
+  const lines = reasonLines(c.reasons);
+  return (
+    <div style={{ marginTop: 3, background: st.bg, border: `1px solid ${st.bd}`, borderRadius: 6, padding: "4px 7px", fontSize: 11, color: st.fg, lineHeight: 1.55 }}>
+      <b>{c.verdict === "reject" ? "⚠️" : "ℹ️"} 사전검수 {VERDICT_LABEL[c.verdict]}</b>
+      {lines.map((t) => <div key={t}>· {t}</div>)}
+      <div style={{ opacity: .75, marginTop: 2 }}>{c.ai_used ? "AI 검수" : "형식 검사만"} — 최종 판단은 담당자가 합니다.</div>
+    </div>
   );
 }
 

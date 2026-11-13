@@ -100,5 +100,16 @@ export async function POST(req: NextRequest) {
 
   const r = await saveOnbFile(appId, field, file.name || "upload", mime, bytes, c.email);
   if (!r.ok) return NextResponse.json({ ok: false, error: r.error ?? "업로드 실패" }, { status: 500 });
-  return NextResponse.json({ ok: true, url: r.url, filename: file.name });
+
+  // BUG-60: 올린 자리에서 바로 검수한다 — 나중에 담당자가 반려하고 다시 요청하는 왕복을 줄인다.
+  //   파일은 이미 저장됐으므로 검수가 실패해도 업로드는 성공이다(반려 판정과 검수 실패는 다르다).
+  let check: import("@/lib/onb-doc-rules").DocCheck | null = null;
+  try {
+    const { checkDocument, saveDocCheck } = await import("@/lib/onb-doc-check");
+    check = await checkDocument({ field, mime, size: bytes.length, bytes });
+    if (r.id) await saveDocCheck(r.id, appId, field, check);
+  } catch (e) {
+    console.error("[apply-upload] 서류 검수 실패:", (e as Error).message);
+  }
+  return NextResponse.json({ ok: true, url: r.url, filename: file.name, check });
 }

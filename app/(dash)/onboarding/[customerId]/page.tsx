@@ -44,6 +44,12 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
   // 회사자료(브랜드 소개서 등) 첨부 — 0101 미적용이면 빈 목록.
   const companyDocs = await listOnbFiles(appId, COMPANY_DOCS_FIELD).catch(() => []);
   const jpLabelPhotos = await listOnbFiles(appId, JP_LABEL_FIELD).catch(() => []);
+  // BUG-60: 서류 사전 검수 결과 — 0121 미적용이면 빈 목록(화면은 그대로 뜬다).
+  const { listDocChecks } = await import("@/lib/onb-doc-check");
+  const checkRows = await listDocChecks(appId).catch(() => []);
+  const docChecks = Object.fromEntries(
+    checkRows.map((c) => [c.file_id, { verdict: c.verdict, reasons: c.reasons, ai_used: c.ai_used }]),
+  );
 
   return (
     <div style={{ background: "#fff", margin: "-20px -22px -64px", padding: "20px 22px 64px", minHeight: "calc(100vh - 52px)" }}>
@@ -66,6 +72,7 @@ export default async function OnbReviewPage({ params }: { params: Promise<{ cust
         agencyName={customer.agency_name}
         companyDocs={companyDocs}
         jpLabelPhotos={jpLabelPhotos}
+        docChecks={docChecks}
       />
     </div>
     </div>
