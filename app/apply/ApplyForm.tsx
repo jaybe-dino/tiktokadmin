@@ -442,13 +442,13 @@ function Step3({ v, set, disabled }: { v: Record<string, string>; set: (k: strin
         <textarea value={v.ownership_structure ?? ""} disabled={disabled} onChange={(e) => set("ownership_structure", e.target.value)} rows={4}
           placeholder={"예시:\n- 홍길동 (대표) 60%\n- 김철수 (이사) 40%"} style={{ ...inputStyle, resize: "vertical" }} />
       </Card>
-      <Card title="② 대표자 여권" desc="여권 사진·인적사항 면 한 장을 선명하게 업로드해주세요.">
+      <Card title="② 대표자 여권" desc="여권을 펼쳐 서명란과 사진·인적사항 면이 함께 나오게 찍은 사진 한 장을 선명하게 업로드해주세요.">
         {/* BUG-57: 어떤 면을 어떻게 찍어야 하는지 예시로 보여준다 — 반려 왕복을 줄인다. */}
         <details style={{ marginBottom: 10, background: "#f0f6ff", border: "1px solid #cfe0ff", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, color: "#1e3a8a" }}>
-          <summary style={{ cursor: "pointer", fontWeight: 700 }}>📷 여권 사진면 예시 — 어떤 면을 어떻게 찍으면 되나요?</summary>
+          <summary style={{ cursor: "pointer", fontWeight: 700 }}>📷 여권 촬영 예시 — 사진면과 서명란을 어떻게 함께 찍나요?</summary>
           <div style={{ marginTop: 10 }}><PassportExample /></div>
         </details>
-        <FileField label="여권 사진면" req field="rep_passport_front" k="rep_passport_front_url" {...{ v, set, disabled }} />
+        <FileField label="여권 사진면 + 서명란" req field="rep_passport_front" k="rep_passport_front_url" {...{ v, set, disabled }} />
       </Card>
       {/* BUG-24: 대표자 신분증 카드 제거 — 여권만 필요(기존 제출분은 어드민 검토 화면에서 계속 열람 가능). */}
       <Card title="③ 대표자 거주지 증명서류" desc="최근 12개월 이내 발행, 대표자 성명·주소가 함께 표시된 서류 1부 (은행 거래내역서·신용카드 명세서·공과금 고지서·보험 증권 등).">

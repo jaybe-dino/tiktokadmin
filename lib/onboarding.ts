@@ -203,7 +203,7 @@ const STEP_REQUIRED: Record<number, { col: string; label: string }[]> = {
   ],
   2: [{ col: "ubo_signature_data", label: "수권서(LOA) 서명" }],
   3: [
-    { col: "rep_passport_front_url", label: "대표자 여권 사진면" },
+    { col: "rep_passport_front_url", label: "대표자 여권(사진면+서명란)" },
     { col: "rep_address_proof_url", label: "대표자 거주지 증명서류" },
   ],
   4: [], // 제품은 별도 테이블 — 아래에서 건수로 확인

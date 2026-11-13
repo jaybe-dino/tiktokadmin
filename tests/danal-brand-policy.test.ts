@@ -1,3 +1,4 @@
+import {billingItemName} from '../lib/danal/brand-billing';
 import {describe,it,expect} from 'vitest';
 import {brandBillingConfig,operatorBillingConfig,billingConnectionConfig,renewalBillingConfig} from '../lib/danal/config';
 import {nextBillingDate,kstDate} from '../lib/danal/schedule';
@@ -31,4 +32,14 @@ describe('Danal proofs and encryption',()=>{
  it('rejects order, amount, first-payment mode mismatches',()=>{const good=new Map(Object.entries({RETURNCODE:'0000',TID:'T1',ORDERID:'x',AMOUNT:'3300000',ISBILL:'Y',BILLKEY:'BKtest'}));expect(verifyIssueBillKey(good,{tid:'T1',orderId:'x',amount:3300000}).kind).toBe('success');for(const [k,v] of [['ORDERID','other'],['AMOUNT','1'],['ISBILL','N']])expect(verifyIssueBillKey(new Map([...good,[k,v]]),{tid:'T1',orderId:'x',amount:3300000}).kind).toBe('unknown');});
  it('wire format decrypts using independent Node AES and encodes outer Base64 once',async()=>{const keys=parseBatchKeys('TESTCPID','11'.repeat(32),'22'.repeat(16))!;const body=await encodeRequest(keys,[['TXTYPE','AUTH'],['ITEMNAME','GloveK Brand Monthly']]);const form=new URLSearchParams(body);const d=createDecipheriv('aes-256-cbc',Buffer.alloc(32,0x11),Buffer.alloc(16,0x22));const plain=Buffer.concat([d.update(Buffer.from(form.get('DATA')!,'base64')),d.final()]).toString();expect(plain).toBe('TXTYPE=AUTH&ITEMNAME=GloveK+Brand+Monthly');expect(form.get('CPID')).toBe('TESTCPID');expect((await decodeEncrypted(keys,form.get('DATA')!))?.get('TXTYPE')).toBe('AUTH');});
  it('row-bound encryption prevents moving billing tokens between subscriptions',async()=>{const k=new Uint8Array(32).fill(4),cipher=await encryptSecret(k,'synthetic-card-token','glovek:row1');expect(cipher).not.toContain('synthetic-card-token');expect(await decryptSecret(k,cipher,'glovek:row1')).toBe('synthetic-card-token');await expect(decryptSecret(k,cipher,'glovek:row2')).rejects.toThrow();});
+});
+
+describe('Contract-scoped provider item name',()=>{
+ it('changes the requested link only and rejects malformed display config',()=>{
+  const config=JSON.stringify({['a'.repeat(64)]:'디노스튜디오'});
+  expect(billingItemName('a'.repeat(64),config)).toBe('디노스튜디오');
+  expect(billingItemName('b'.repeat(64),config)).toBe('GloveK Brand Contract Monthly');
+  expect(billingItemName('a'.repeat(64),'bad json')).toBe('GloveK Brand Contract Monthly');
+  expect(billingItemName('a'.repeat(64),JSON.stringify({['a'.repeat(64)]:'bad\nname'}))).toBe('GloveK Brand Contract Monthly');
+ });
 });

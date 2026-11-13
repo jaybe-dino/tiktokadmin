@@ -154,7 +154,7 @@ describe("BUG-56 — Step 1 만 쓰고 멈추지 않게 다음 단계로 보낸�
   });
 });
 
-describe("BUG-57 — 여권 사진면 예시", () => {
+describe("BUG-57 — 여권 촬영 예시", () => {
   it("촬영 기준을 한곳에 둔다", () => {
     expect(PASSPORT_GUIDE.length).toBeGreaterThanOrEqual(3);
     expect(PASSPORT_GUIDE.join(" ")).toContain("사진·인적사항");
@@ -162,7 +162,7 @@ describe("BUG-57 — 여권 사진면 예시", () => {
 
   it("여권 카드에서 예시를 보여준다", () => {
     expect(applyForm).toContain("PassportExample");
-    expect(applyForm).toContain("여권 사진면 예시");
+    expect(applyForm).toContain("여권 촬영 예시");
     // 예시는 업로드 칸보다 앞에 있어야 찍기 전에 읽는다.
     expect(applyForm.indexOf("PassportExample"))
       .toBeLessThan(applyForm.indexOf('k="rep_passport_front_url"'));

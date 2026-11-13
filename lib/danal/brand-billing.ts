@@ -11,9 +11,18 @@ import { kstDate, nextBillingDate } from './schedule';
 export const BILLING_CONSENT_VERSION='glovek-monthly-2026-10-15-v1';
 const digest=(v:string)=>createHash('sha256').update(v).digest('hex');
 const itemName='GloveK Brand Contract Monthly';
+/** Server-configured display overrides, scoped to the hash of an issued contract link. */
+export function billingItemName(linkHash?:string|null,config=process.env.DANAL_CONTRACT_ITEM_NAMES) {
+ if(!linkHash||!config)return itemName;
+ try{
+  const overrides=JSON.parse(config) as Record<string,unknown>;
+  const name=overrides&&typeof overrides==='object'?overrides[linkHash]:undefined;
+  return typeof name==='string'&&name.trim()&&name.length<=100&&!/[\x00-\x1f\x7f]/.test(name)?name.trim():itemName;
+ }catch{return itemName;}
+}
 type Attempt={id:string;subscription_id:string;order_id:string;due_date:string;amount:string;is_bill:boolean;status:string;card_window_ciphertext:string|null;auth_tid:string|null;kind:'initial'|'renewal'|'operator_test';auth_expires_at:string|null;contract_link_hash:string|null};
 type Sub={id:string;recurring_contract_id:string;billing_user_key:string;status:string;billing_key_ciphertext:string|null;next_billing_date:string|null;consent_snapshot_hash:string;is_operator_test:boolean};
-type Agreement={id:string;monthly_amount:string;vat_mode:string;first_billing_date:string;end_date:string;start_date:string;details:string;fee_details:string;cancellation_terms:string;file_sha256:string;status:string};
+type Agreement={token_hash?:string|null;id:string;monthly_amount:string;vat_mode:string;first_billing_date:string;end_date:string;start_date:string;details:string;fee_details:string;cancellation_terms:string;file_sha256:string;status:string};
 export function agreementHash(a:Agreement) { return digest(JSON.stringify([a.id,a.monthly_amount,a.vat_mode,a.first_billing_date,a.start_date,a.end_date,a.details,a.fee_details,a.cancellation_terms,a.file_sha256])); }
 export type BillingDependencies={config:BrandBillingConfig;transport:RelayTransport;now:Date;clock?:()=>Date;operatorOnly?:boolean;operatorReady?:boolean;renewalsReady?:boolean};
 export function billingDependencies():BillingDependencies {
@@ -88,7 +97,9 @@ export async function startBrandCardRegistration(token:string,consent:boolean,de
    const stale=prior.contract_link_hash!==hashContractToken(token)||!prior.auth_expires_at||new Date(prior.auth_expires_at).getTime()<=deps.now.getTime();
    if(prior.status==='ready'&&!stale&&prior.card_window_ciphertext){
     if(sub.consent_snapshot_hash!==snapshot)throw new Error('CONTRACT_TERMS_CHANGED');
-    return {a,sub,attempt:prior,resume:true};
+    const cached=JSON.parse(await decryptSecret(deps.config.encryptionKey,prior.card_window_ciphertext,`glovek:window:${prior.id}`)) as {itemName?:string};
+    if((cached.itemName||itemName)===billingItemName(hashContractToken(token)))return {a,sub,attempt:prior,resume:true};
+    // A display-name change replaces only a ready AUTH window; approval states stay held.
    }
    if(prior.status==='preparing'&&!stale)throw new Error('CARD_WINDOW_PREPARING');
    // Only AUTH-only states may be replaced. Approval/paid/unknown are never reset.
@@ -108,7 +119,7 @@ export async function startBrandCardRegistration(token:string,consent:boolean,de
   return window;
  }
  const urls={returnUrl:`${deps.config.origin}/api/billing-contract/return?s=${state}`,cancelUrl:`${deps.config.origin}/billing-result/${state}`};
- const common={orderId:p.order_id,itemName,userId:prepared.sub.billing_user_key,userAgent:'PC' as const,...urls};
+ const common={orderId:p.order_id,itemName:billingItemName(hashContractToken(token)),userId:prepared.sub.billing_user_key,userAgent:'PC' as const,...urls};
  let result;
  try{
   await checkScope(prepared.a.id,prepared.sub.is_operator_test,deps);
@@ -119,7 +130,7 @@ export async function startBrandCardRegistration(token:string,consent:boolean,de
   await query("UPDATE brand_billing_attempts SET status='failed',failure_code='AUTH_UNAVAILABLE',updated_at=now() WHERE id=$1 AND status='preparing'",[p.id]);
   throw new Error('CARD_WINDOW_UNAVAILABLE'); // AUTH did not charge; a new attempt is allowed.
  }
- const windowCipher=await encryptSecret(deps.config.encryptionKey,JSON.stringify({url:result.data.startUrl,params:result.data.startParams}),`glovek:window:${p.id}`);
+ const windowCipher=await encryptSecret(deps.config.encryptionKey,JSON.stringify({url:result.data.startUrl,params:result.data.startParams,itemName:common.itemName}),`glovek:window:${p.id}`);
  const updated=await queryOne<{id:string}>("UPDATE brand_billing_attempts SET auth_tid=$2,status='ready',card_window_ciphertext=$3,updated_at=now() WHERE id=$1 AND status='preparing' RETURNING id",[p.id,result.data.tid,windowCipher]);
  if(!updated)throw new Error('CARD_WINDOW_STATE_CHANGED');
  return {url:result.data.startUrl,params:result.data.startParams};
@@ -208,7 +219,7 @@ export async function runBrandRenewals(deps=billingDependencies()) {
   let result;
   try{
    const key=await decryptSecret(deps.config.encryptionKey,p.sub.billing_key_ciphertext!,`glovek:${p.sub.id}`);
-   const call=await batchCall(deps.config.keys,deps.config.relay,deps.transport,{operation:'OTBILL',idempotencyKey:`otbill:glovek:${p.attempt.order_id}`,fields:otbillFields({orderId:p.attempt.order_id,itemName,amount:Number(p.attempt.amount),userId:p.sub.billing_user_key,billKey:key})});
+   const call=await batchCall(deps.config.keys,deps.config.relay,deps.transport,{operation:'OTBILL',idempotencyKey:`otbill:glovek:${p.attempt.order_id}`,fields:otbillFields({orderId:p.attempt.order_id,itemName:billingItemName(p.agreement.token_hash),amount:Number(p.attempt.amount),userId:p.sub.billing_user_key,billKey:key})});
    result='unknown' in call?{kind:'unknown' as const,reason:call.unknown}:verifyOtbill(call.fields,{orderId:p.attempt.order_id,amount:Number(p.attempt.amount)});
   }catch{result={kind:'unknown' as const,reason:'RENEWAL_UNAVAILABLE'};}
   if(result.kind!=='success'){await outcomeFailure(p.attempt,result.kind==='failed'?result.code:result.reason,result.kind==='unknown');continue;}
