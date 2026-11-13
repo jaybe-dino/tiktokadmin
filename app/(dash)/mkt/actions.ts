@@ -5,6 +5,14 @@ import { revalidatePath } from "next/cache";
 import { currentUser } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { syncServiceTags } from "@/lib/service-tags";
+import { isUuid } from "@/lib/pm-access";
+
+// BUG-4: 화면에서 넘어온 id 가 uuid 가 아니면 Postgres 가 "invalid input syntax for type uuid"
+//   를 던지고, 서버액션에서 예외가 그대로 올라가 화면이 통째로 "어플리케이션 오류" 가 됐다.
+//   어떤 값이 잘못됐는지 사람이 읽을 수 있게 먼저 걸러 낸다.
+const BAD_BRAND = "브랜드를 다시 선택해주세요 (선택값이 올바르지 않습니다).";
+const BAD_PROJECT = "프로젝트를 찾을 수 없습니다 (화면을 새로고침해주세요).";
+const BAD_PROPOSAL = "제안서를 찾을 수 없습니다 (화면을 새로고침해주세요).";
 
 const STATUSES = ["draft", "sent", "negotiating", "meeting_scheduled", "won", "dropped", "hold"] as const;
 type MktStatus = (typeof STATUSES)[number];
@@ -23,18 +31,19 @@ export async function setMktStatusAction(id: string, to: string): Promise<MktRes
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!STATUSES.includes(to as MktStatus)) return { ok: false, error: "잘못된 상태값" };
+  if (!isUuid(id)) return { ok: false, error: BAD_PROJECT };
 
   const proj = await queryOne<{ brand_id: string }>(
     "SELECT brand_id FROM mkt_projects WHERE id=$1",
     [id],
-  );
-  if (!proj) return { ok: false, error: "프로젝트를 찾을 수 없습니다." };
+  ).catch(() => null);
+  if (!proj) return { ok: false, error: BAD_PROJECT };
 
   if (to === "won") {
     const c = await queryOne<{ n: string }>(
       "SELECT count(*)::text AS n FROM contracts WHERE brand_id=$1",
       [proj.brand_id],
-    );
+    ).catch(() => null);
     if (!c || Number(c.n) === 0) {
       return { ok: false, error: "수주로 이동하려면 계약 등록이 필요합니다 (브랜드 카드에서 계약 추가)." };
     }
@@ -88,10 +97,12 @@ export async function createMktProjectAction(input: {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!input.brand_id) return { ok: false, error: "브랜드를 선택하세요." };
+  if (!isUuid(input.brand_id)) return { ok: false, error: BAD_BRAND };
+  if (input.proposal_id && !isUuid(input.proposal_id)) return { ok: false, error: BAD_PROPOSAL };
   const title = (input.title ?? "").trim();
   if (!title) return { ok: false, error: "프로젝트명을 입력하세요." };
   const kind = input.kind === "routine" ? "routine" : "project";
-  const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]);
+  const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [input.brand_id]).catch(() => null);
   if (!b) return { ok: false, error: "브랜드를 찾을 수 없습니다." };
   const row = await queryOne<{ id: string }>(
     `INSERT INTO mkt_projects (brand_id, kind, title, note, proposal_status, proposal_id)
@@ -109,6 +120,7 @@ export async function updateMktProjectAction(input: { id: string; title?: string
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!input.id) return { ok: false, error: "프로젝트 ID 누락" };
+  if (!isUuid(input.id)) return { ok: false, error: BAD_PROJECT };
   const title = (input.title ?? "").trim();
   if (input.title !== undefined && !title) return { ok: false, error: "프로젝트명을 비울 수 없습니다." };
   const cur = await queryOne<{ brand_id: string }>("SELECT brand_id FROM mkt_projects WHERE id=$1", [input.id]).catch(() => null);
@@ -127,6 +139,7 @@ export async function deleteMktProjectAction(id: string): Promise<MktResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!id) return { ok: false, error: "프로젝트 ID 누락" };
+  if (!isUuid(id)) return { ok: false, error: BAD_PROJECT };
   const cur = await queryOne<{ brand_id: string }>("SELECT brand_id FROM mkt_projects WHERE id=$1", [id]).catch(() => null);
   if (!cur) return { ok: false, error: "프로젝트를 찾을 수 없습니다." };
   await query("DELETE FROM mkt_projects WHERE id=$1", [id]);
@@ -140,6 +153,7 @@ export async function deleteMktProjectAction(id: string): Promise<MktResult> {
 export async function createProposalForProjectAction(projectId: string): Promise<MktResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
+  if (!isUuid(projectId)) return { ok: false, error: BAD_PROJECT };
   const p = await queryOne<{ brand_id: string; title: string; note: string | null; proposal_id: string | null }>(
     "SELECT brand_id, title, note, proposal_id FROM mkt_projects WHERE id=$1", [projectId],
   ).catch(() => null);
@@ -178,6 +192,7 @@ export async function createMktProposalAction(input: {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
   if (!input.brand_id) return { ok: false, error: "브랜드를 선택하세요." };
+  if (!isUuid(input.brand_id)) return { ok: false, error: BAD_BRAND };
   const title = (input.title ?? "").trim();
   if (!title) return { ok: false, error: "제목을 입력하세요." };
 
@@ -342,6 +357,7 @@ export async function generateDirectionDraftAction(input: { brand_id: string; am
 export async function regenerateDirectionAction(proposalId: string): Promise<MktResult & { direction?: string }> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
+  if (!isUuid(proposalId)) return { ok: false, error: BAD_PROPOSAL };
   let p: { brand_id: string; amount: number | null; rfp_text: string | null; brand_name: string; category: string | null } | null;
   try {
     p = await queryOne(
@@ -369,11 +385,13 @@ export async function updateMktProposalMetaAction(input: {
 }): Promise<MktResult> {
   const u = await currentUser();
   if (!u) return { ok: false, error: "세션 만료" };
+  if (!isUuid(input.id)) return { ok: false, error: BAD_PROPOSAL };
   const cur = await queryOne<{ brand_id: string }>("SELECT brand_id FROM proposals WHERE id=$1 AND kind='marketing'", [input.id]).catch(() => null);
   if (!cur) return { ok: false, error: "마케팅 제안서를 찾을 수 없습니다." };
 
   // 브랜드 재연결(맵핑 수정) — 제안서 + 연결된 파이프라인 프로젝트를 함께 이동.
   const newBrand = (input.brand_id ?? "").trim();
+  if (newBrand && !isUuid(newBrand)) return { ok: false, error: BAD_BRAND };
   if (newBrand && newBrand !== cur.brand_id) {
     const b = await queryOne<{ id: string }>("SELECT id FROM brands WHERE id=$1", [newBrand]).catch(() => null);
     if (!b) return { ok: false, error: "선택한 브랜드를 찾을 수 없습니다." };

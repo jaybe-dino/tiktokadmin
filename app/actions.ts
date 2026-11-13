@@ -22,6 +22,8 @@ export interface ActionResult {
   failed?: { rule: string; label: string }[];
   /** 사람이 읽는 부가 결과(예: 과거 회의 담당자 보충 건수). */
   note?: string;
+  /** 결재선 경유 — 요청만 등록됐고 아직 반영되지 않음(BUG-3). */
+  pending?: boolean;
 }
 
 export async function transitionAction(brandId: string, to: State, reason?: string, force?: boolean, holdKind?: "recontact" | "handoff"): Promise<ActionResult & { needReason?: boolean }> {
@@ -63,7 +65,10 @@ export async function dropAction(brandId: string, reason: string): Promise<Actio
   const res = await opsDrop(a, { brand_id: brandId, reason });
   revalidatePath("/");
   revalidatePath(`/brand/${brandId}`);
-  return { ok: res.ok, error: res.error };
+  revalidatePath("/approvals");
+  // BUG-3: 결재권한이 없으면 opsDrop 은 요청만 만들고 pending 을 돌려준다.
+  //   이 값을 버리면 화면이 "드랍됨" 이라고 말해 놓고 목록에는 그대로 남는다.
+  return { ok: res.ok, error: res.error, pending: res.pending };
 }
 
 export async function assignAction(brandId: string, role: OwnerField, adminUserId: string): Promise<ActionResult & { advanced?: boolean }> {

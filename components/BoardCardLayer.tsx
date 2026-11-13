@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { STATE_LABELS } from "@/lib/types";
 import { deleteBrandAction, transitionAction, dropAction } from "@/app/actions";
+import { DROP_PENDING_NOTICE } from "@/lib/approval-notice";
 import type { BoardCard } from "@/lib/repo/queries";
 
 /** 트랙(계약 유형) 라벨 — 기획 8절: 멀티몰/온보딩/마케팅 */
@@ -35,6 +36,8 @@ export default function BoardCardLayer({ card, onClose }: { card: BoardCard; onC
   const router = useRouter();
   const [pending, start] = useTransition();
   const [err, setErr] = useState("");
+  // 결재 요청만 올라간 경우(BUG-3) — 실패가 아니므로 오류색과 구분해 알린다.
+  const [notice, setNotice] = useState("");
 
   function remove() {
     if (!confirm(`'${card.brand_name}' 고객 카드를 완전히 삭제할까요?\n연관 데이터(제안·계약·이력 등)가 모두 삭제됩니다. (파트장/대표만)`)) return;
@@ -58,9 +61,11 @@ export default function BoardCardLayer({ card, onClose }: { card: BoardCard; onC
   function toDrop() {
     const reason = prompt("드랍 사유를 입력하세요 (필수):", "")?.trim();
     if (!reason) return;
-    setErr("");
+    setErr(""); setNotice("");
     start(async () => {
       const r = await dropAction(card.id, reason);
+      // 결재선을 타면 아직 드랍된 것이 아니다 — 카드를 닫지 말고 그대로 알린다.
+      if (r.pending) { setNotice(DROP_PENDING_NOTICE); router.refresh(); return; }
       if (r.ok) { onClose(); router.refresh(); }
       else setErr(r.error ?? "드랍 실패");
     });
@@ -188,6 +193,11 @@ export default function BoardCardLayer({ card, onClose }: { card: BoardCard; onC
           </div>
         )}
 
+        {notice && (
+          <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: "#1d4ed8", background: "#eef4ff", border: "1px solid #cfe0ff", borderRadius: 8, padding: "8px 10px", lineHeight: 1.6 }}>
+            {notice} <a href="/approvals" style={{ color: "#1d4ed8", textDecoration: "underline" }}>결재함 열기</a>
+          </div>
+        )}
         {err && (
           <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: "var(--danger, #e03131)" }}>{err}</div>
         )}

@@ -9,6 +9,7 @@ import {
   logContactAction, remindAction, sendSmsAction, sendWelcomeAction, transitionAction,
   setContractTypeAction, setServiceTagAction,
 } from "@/app/actions";
+import { DROP_PENDING_NOTICE } from "@/lib/approval-notice";
 import { FORWARD_TRANSITIONS } from "@/lib/states";
 import { STATE_LABELS, type Brand, type OwnerField, type State } from "@/lib/types";
 import CopyButton from "@/components/CopyButton";
@@ -316,6 +317,9 @@ export default function Brand360Header({ brand, adminUsers, ddayLabel }: {
               onClick={() =>
                 start(async () => {
                   const r = await dropAction(brand.id, dropReason);
+                  // BUG-3: 결재선을 타면 아직 드랍이 아니다 — 처리됐다고 말하지도,
+                  //   목록으로 보내지도 않는다(돌아가 보면 그대로 남아 있어 더 헷갈린다).
+                  if (r.pending) { flash(DROP_PENDING_NOTICE, true); return; }
                   flash(r.ok ? "제외(드랍) 처리됨" : r.error || "사유 필요", !r.ok);
                   if (r.ok) router.push("/customers");
                 })

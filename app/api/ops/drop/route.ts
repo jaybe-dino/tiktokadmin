@@ -13,6 +13,8 @@ export async function POST(req: NextRequest) {
     brand_id: String(body.brand_id ?? ""),
     reason: String(body.reason ?? ""),
   });
-  if (res.ok) return NextResponse.json({ ok: true, brand: res.brand });
+  // BUG-3: 결재권한이 없으면 요청만 등록된다 — 드랍된 것처럼 응답하면 안 된다.
+  if (res.ok && res.pending) return NextResponse.json({ ok: true, pending: true, status: "awaiting_approval" });
+  if (res.ok) return NextResponse.json({ ok: true, pending: false, brand: res.brand });
   return NextResponse.json({ ok: false, error: res.error }, { status: res.needReason ? 422 : 400 });
 }
