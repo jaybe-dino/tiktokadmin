@@ -43,3 +43,21 @@ describe('Contract-scoped provider item name',()=>{
   expect(billingItemName('a'.repeat(64),JSON.stringify({['a'.repeat(64)]:'bad\nname'}))).toBe('GloveK Brand Contract Monthly');
  });
 });
+
+describe('Korean provider product-name wire format',()=>{
+ it('encrypts EUC-KR bytes for the exact configured name and preserves amount',async()=>{
+  const name=billingItemName('a'.repeat(64),JSON.stringify({['a'.repeat(64)]:'디노스튜디오'}));
+  const f=authFields({orderId:'ORDER-1',itemName:name,amount:700000,userId:'USER-1',userAgent:'PC',returnUrl:'https://admin.example.test/return',cancelUrl:'https://admin.example.test/cancel',notiUrl:null});
+  const keys=parseBatchKeys('TESTCPID','11'.repeat(32),'22'.repeat(16))!;
+  const body=await encodeRequest(keys,f);const data=new URLSearchParams(body).get('DATA')!;
+  const d=createDecipheriv('aes-256-cbc',Buffer.alloc(32,0x11),Buffer.alloc(16,0x22));
+  const plain=Buffer.concat([d.update(Buffer.from(data,'base64')),d.final()]).toString('ascii');
+  expect(plain).toContain('ITEMNAME=%B5%F0%B3%EB%BD%BA%C6%A9%B5%F0%BF%C0');expect(plain).toContain('AMOUNT=700000');
+  expect((await decodeEncrypted(keys,data))?.get('ITEMNAME')).toBe('디노스튜디오');
+ });
+ it('rejects unrepresentable emoji and forbidden characters instead of sending replacements',()=>{
+  const input={orderId:'ORDER-1',amount:700000,userId:'USER-1',userAgent:'PC' as const,returnUrl:'https://admin.example.test/return',cancelUrl:'https://admin.example.test/cancel',notiUrl:null};
+  for(const itemName of ['결제😀','상품&다른항목','상품\n명','가'.repeat(128)])expect(()=>authFields({...input,itemName})).toThrow('INVALID_FIELD_ITEMNAME');
+  expect(()=>authFields({...input,itemName:'디노스튜디오',orderId:'주문번호'})).toThrow('INVALID_FIELD_ORDERID');
+ });
+});

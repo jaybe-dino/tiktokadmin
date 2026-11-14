@@ -19,6 +19,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@modelcontextprotocol/sdk": "^1.0.4",
+    "iconv-lite": "^0.7.3",
     "next": "^15.1.7",
     "pdf-lib": "^1.17.1",
     "pg": "^8.13.1",

@@ -10,9 +10,9 @@
 //   response/NOTI = DATA=<same construction>; decrypted NameValuePairs, order not guaranteed
 //   URLEncode characterset is EUC-KR (Java URLEncoder). AES = AES/CBC/PKCS5Padding,
 //   key = hex(CRYPTOKEY, 64 chars → 32 bytes), IV = hex(IVKEY, 32 chars → 16 bytes).
-// To avoid guessing an EUC-KR mapping, this adapter only ever SENDS printable
-// ASCII values (where EUC-KR and ASCII percent-encoding are byte-identical) and
-// rejects the characters the manual forbids: & ' " \ < > | , + and newlines.
+// ITEMNAME supports losslessly representable EUC-KR; identifiers and other
+// request fields remain printable ASCII. All fields reject the manual-forbidden characters: & ' " \ < > | , + and newlines.
+import iconv from "iconv-lite";
 import { base64UrlEncode, hmacSha256, sha256Hex, timingSafeEqualString } from "./crypto";
 import { isAllowedDanalStartUrl } from "./danal-start-url";
 
@@ -91,7 +91,7 @@ export function safeValue(value: string, maxBytes: number): boolean {
 }
 
 export function buildQuery(fields: [string, string][]): string {
-  return fields.map(([k, v]) => `${k}=${formEncode(v)}`).join("&");
+  return fields.map(([k, v]) => `${k}=${k === "ITEMNAME" ? encodeItemName(v) : formEncode(v)}`).join("&");
 }
 
 /** Parses NameValuePairs by name (order not guaranteed). Duplicate or malformed pairs → null. */
@@ -190,6 +190,18 @@ function amountText(amount: number, min: number): string {
   return String(amount);
 }
 
+/** Encode only the human-readable item name with the provider's EUC-KR charset. */
+function encodeItemName(value: string): string {
+  const bytes = iconv.encode(value, "euc-kr");
+  if (!value || /[\x00-\x1f\x7f]/.test(value) || FORBIDDEN.test(value) || bytes.length > 255 || iconv.decode(bytes, "euc-kr") !== value)
+    throw new Error("INVALID_FIELD_ITEMNAME");
+  return Array.from(bytes, b => {
+    const ch = String.fromCharCode(b);
+    return /[A-Za-z0-9.\-*_]/.test(ch) ? ch : b === 0x20 ? "+" : `%${b.toString(16).toUpperCase().padStart(2, "0")}`;
+  }).join("");
+}
+function needItemName(value: string): string { encodeItemName(value); return value; }
+
 function need(value: string, max: number, name: string): string {
   if (!value || !safeValue(value, max)) throw new Error(`INVALID_FIELD_${name}`);
   return value;
@@ -201,7 +213,7 @@ export function authFields(input: AuthRequest): [string, string][] {
     ["TXTYPE", "AUTH"],
     ["SERVICETYPE", "BATCH"],
     ["ORDERID", need(input.orderId, 255, "ORDERID")],
-    ["ITEMNAME", need(input.itemName, 255, "ITEMNAME")],
+    ["ITEMNAME", needItemName(input.itemName)],
     ["AMOUNT", amountText(input.amount, 100)],
     ["CURRENCY", CURRENCY_KRW],
     ["USERID", need(input.userId, 128, "USERID")],
@@ -230,7 +242,7 @@ export function registrationAuthFields(input: Omit<AuthRequest, "amount" | "noti
     ["TXTYPE", "AUTH"],
     ["SERVICETYPE", "BATCH"],
     ["ORDERID", need(input.orderId, 255, "ORDERID")],
-    ["ITEMNAME", need(input.itemName, 255, "ITEMNAME")],
+    ["ITEMNAME", needItemName(input.itemName)],
     ["AMOUNT", String(REGISTRATION_AMOUNT)],
     ["CURRENCY", CURRENCY_KRW],
     ["USERID", need(input.userId, 128, "USERID")],
@@ -265,7 +277,7 @@ export function otbillFields(input: { orderId: string; itemName: string; amount:
     ["TXTYPE", "OTBILL"],
     ["SERVICETYPE", "BATCH"],
     ["ORDERID", need(input.orderId, 255, "ORDERID")],
-    ["ITEMNAME", need(input.itemName, 255, "ITEMNAME")],
+    ["ITEMNAME", needItemName(input.itemName)],
     ["AMOUNT", amountText(input.amount, 301)],
     ["CURRENCY", CURRENCY_KRW],
     ["USERID", need(input.userId, 128, "USERID")],
